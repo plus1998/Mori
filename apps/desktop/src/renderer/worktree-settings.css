@@ -1,153 +1,180 @@
-.worktrees-settings-panel {
-  max-width: 880px;
+.settings-content:has(.worktrees-settings-panel) {
+  width: min(960px, 100%);
+  max-width: 960px;
+  padding-inline: 40px;
 }
-.worktrees-settings-panel h2 {
+.worktrees-settings-panel {
+  color: var(--text-primary);
+}
+.worktrees-settings-panel .settings-page-header {
+  margin-bottom: 56px;
+}
+.worktrees-settings-panel .settings-page-header h1 {
+  font-size: 32px;
+  font-weight: 550;
+  letter-spacing: -0.035em;
+}
+.worktrees-settings-panel .settings-section {
+  margin-bottom: 56px;
+}
+.worktrees-settings-panel .settings-section-head {
+  margin-bottom: 20px;
+}
+.worktrees-settings-panel .settings-section-label {
   margin: 0;
+  font-size: 17px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
 }
 .worktrees-root-card,
 .worktrees-project {
   border: 1px solid var(--border-subtle);
-  border-radius: 14px;
-  background: var(--bg-elevated);
+  border-radius: 18px;
+  background: var(--bg-main);
 }
 .worktrees-root-card {
-  padding: 18px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 20px;
 }
-.worktrees-root-card > label {
+.worktrees-root-copy {
+  flex: 1;
+  min-width: 0;
+}
+.worktrees-root-copy label {
   display: block;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+.worktrees-root-copy .settings-section-subtitle {
+  margin-top: 4px;
   font-size: 13px;
-  font-weight: 550;
-  margin-bottom: 10px;
+  line-height: 1.6;
+  letter-spacing: 0;
 }
 .worktrees-root-input {
   display: flex;
+  align-items: center;
   gap: 10px;
+  flex: 0 1 44%;
+  min-width: 280px;
 }
 .worktrees-root-input input {
-  flex: 1;
+  box-sizing: border-box;
+  width: 100%;
   min-width: 0;
-  padding: 9px 11px;
+  height: 42px;
+  padding: 0 12px;
   border: 1px solid var(--border-subtle);
-  border-radius: 8px;
-  background: var(--bg-input);
+  border-radius: 10px;
+  background: var(--bg-main);
   color: var(--text-primary);
   font: inherit;
-  font-size: 12px;
+  font-size: 14px;
+  text-overflow: ellipsis;
 }
 .worktrees-root-input input::placeholder {
   color: var(--text-muted);
 }
+.worktrees-root-input > button {
+  flex-shrink: 0;
+}
 .worktrees-root-input input:focus-visible,
 .worktrees-settings-panel button:focus-visible,
 .worktrees-settings-panel summary:focus-visible {
-  outline: 2px solid var(--accent, #5686f5);
+  outline: 2px solid var(--accent);
   outline-offset: 3px;
 }
-.worktrees-root-card .settings-section-subtitle {
-  margin-top: 10px;
-}
-.worktrees-policy {
-  margin-bottom: 16px;
-}
 .worktrees-project {
-  margin-bottom: 12px;
-  overflow: hidden;
+  padding: 0 20px;
+  margin-bottom: 10px;
 }
 .worktrees-project > summary {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 16px 20px;
+  gap: 14px;
+  min-height: 52px;
   cursor: pointer;
+  list-style: none;
 }
-.worktrees-project > summary::after {
-  content: "⌄";
-  color: var(--text-muted);
-  transform: rotate(-90deg);
-}
-.worktrees-project[open] > summary::after {
-  transform: none;
-}
-.worktrees-project > summary::-webkit-details-marker {
+.worktrees-project > summary::-webkit-details-marker,
+.worktrees-entry-details > summary::-webkit-details-marker {
   display: none;
 }
 .worktrees-project-copy {
-  display: flex;
   flex: 1;
   min-width: 0;
-  flex-direction: column;
-  gap: 4px;
 }
 .worktrees-project-copy strong {
-  font-size: 14px;
-  font-weight: 600;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+  font-weight: 500;
 }
-.worktrees-project-copy small {
+.worktrees-count {
+  font-size: 14px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.worktrees-project-chevron {
+  flex-shrink: 0;
+  transform: rotate(-90deg);
+}
+.worktrees-project[open] > summary .worktrees-project-chevron {
+  transform: none;
+}
+.worktrees-entry {
+  position: relative;
+  padding: 14px 0;
+  border-top: 1px solid var(--border-subtle);
+}
+.worktrees-row-actions {
+  position: absolute;
+  top: 20px;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  z-index: 1;
+}
+.worktrees-entry-copy {
+  display: block;
+  flex: 1;
+  min-width: 0;
+  padding-right: 88px;
+}
+.worktrees-entry-copy > strong {
+  display: block;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.worktrees-path {
+  display: block;
+  margin-top: 2px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--text-muted);
-  font-size: 11px;
-}
-.worktrees-count {
-  font-size: 12px;
-  color: var(--text-muted);
-  white-space: nowrap;
-}
-.worktrees-entry {
-  padding: 16px 20px;
-  border-top: 1px solid var(--border-subtle);
-}
-.worktrees-entry-head {
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
-}
-.worktrees-entry-copy {
-  flex: 1;
-  min-width: 0;
-}
-.worktrees-entry-copy > strong,
-.worktrees-chat-link {
   font-size: 13px;
-  font-weight: 550;
   line-height: 1.6;
-  overflow-wrap: anywhere;
-}
-.worktrees-chat-link {
-  border: 0;
-  padding: 0;
-  text-align: left;
-  background: transparent;
-  color: var(--text-primary);
-  cursor: pointer;
-}
-.worktrees-chat-link:hover {
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
-.worktrees-badges {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px 12px;
-  margin-top: 4px;
-  color: var(--text-muted);
-  font-size: 11px;
-}
-.worktrees-badges .needs-attention,
-.worktrees-error,
-.worktrees-cleanup:not(:disabled) {
-  color: var(--color-danger, #d55);
 }
 .worktrees-icon-button {
+  box-sizing: border-box;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  width: 30px;
-  height: 30px;
+  width: 32px;
+  height: 32px;
   border: 0;
-  border-radius: 7px;
+  border-radius: 8px;
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
@@ -157,31 +184,42 @@
   background: var(--bg-elevated-hover);
 }
 .worktrees-icon-button:disabled {
-  opacity: 0.4;
+  opacity: 0.35;
   cursor: not-allowed;
 }
-.worktrees-path {
-  display: block;
-  margin-top: 10px;
-  color: var(--text-muted);
-  font-size: 11px;
-  line-height: 1.7;
-  overflow-wrap: anywhere;
+.worktrees-cleanup:not(:disabled) {
+  color: var(--text-primary);
+}
+.worktrees-cleanup:hover:not(:disabled),
+.worktrees-error,
+.worktrees-badges .needs-attention {
+  color: var(--color-danger, #d55);
 }
 .worktrees-entry-details {
-  margin-top: 12px;
-  font-size: 12px;
+  font-size: 13px;
 }
 .worktrees-entry-details > summary {
-  width: fit-content;
-  color: var(--text-muted);
+  display: block;
   cursor: pointer;
+  list-style: none;
+}
+.worktrees-entry-details > summary:hover strong {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.worktrees-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin-top: 18px;
+  color: var(--text-muted);
+  font-size: 12px;
 }
 .worktrees-entry-details dl {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
-  gap: 8px 14px;
-  margin: 14px 0;
+  gap: 10px 16px;
+  margin: 16px 0;
 }
 .worktrees-entry-details dt {
   color: var(--text-muted);
@@ -200,15 +238,15 @@
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-top: 12px;
+  margin-top: 14px;
 }
 .worktrees-confirmation {
   min-width: 0;
   margin: 14px 0 0;
-  padding: 12px 14px;
+  padding: 14px 16px;
   border: 1px solid var(--border-subtle);
-  border-radius: 10px;
-  font-size: 12px;
+  border-radius: 12px;
+  font-size: 13px;
   line-height: 1.7;
 }
 .worktrees-confirmation p {
@@ -220,28 +258,49 @@
   align-items: center;
   flex-direction: column;
   gap: 12px;
-  padding: 36px 24px;
-  border: 1px dashed var(--border-subtle);
-  border-radius: 14px;
+  padding: 40px 24px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 18px;
   color: var(--text-muted);
   text-align: center;
 }
 .worktrees-empty strong {
-  font-size: 13px;
+  font-size: 15px;
+  font-weight: 500;
   color: var(--text-primary);
 }
 .worktrees-empty p {
   margin: 0;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.7;
 }
 .worktrees-notice,
 .worktrees-error {
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.7;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 .worktrees-notice {
   color: var(--text-muted);
+}
+.worktrees-policy {
+  margin-top: 16px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+@media (max-width: 1050px) {
+  .settings-content:has(.worktrees-settings-panel) {
+    padding-inline: 28px;
+  }
+  .worktrees-root-card {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .worktrees-root-input {
+    flex-basis: auto;
+    min-width: 0;
+  }
 }

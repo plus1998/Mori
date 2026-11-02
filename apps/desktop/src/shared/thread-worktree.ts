@@ -15,6 +15,12 @@ export interface ThreadWorktreeRecord {
   updatedAt: string;
   threadTitle?: string;
   repositoryRoot?: string;
+  /** Git administrative directory identifies this checkout across branch switches. */
+  gitDirectory?: string;
+  gitIdentity?: string;
+  /** Empty means detached HEAD. branchName remains the Mori-owned branch only. */
+  checkoutBranch?: string;
+  lastHeadCommit?: string;
   error?: string;
   /** User acknowledgement applies only to this exact branch tip and target history. */
   confirmedCommit?: string;
@@ -33,13 +39,16 @@ export interface ThreadWorktreeStatus {
   workspacePath: string;
   worktreePath: string;
   changedFiles: string[];
+  ignoredFiles?: string[];
   location?: ThreadWorkLocation;
   branchExists?: boolean;
   merged?: "git" | "confirmed" | "unmerged";
   branchCommit?: string;
+  ownedBranchCommit?: string;
   targetCommit?: string;
   canClean?: boolean;
   canReattach?: boolean;
+  canForget?: boolean;
   blockingReasons?: string[];
   error?: string;
 }

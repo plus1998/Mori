@@ -1581,6 +1581,7 @@ export class ConversationStore {
       ),
     );
     const composerDraftMigrations = [
+      ["managed_worktree_id", "TEXT"],
       ["attachments_json", "TEXT"],
       ["recovery_reason", "TEXT"],
       ["revision", "TEXT"],
@@ -1797,6 +1798,9 @@ export class ConversationStore {
       name: string;
     }>;
     const composerDraftNames = new Set(composerDraftColumns.map((column) => column.name));
+    if (!composerDraftNames.has("managed_worktree_id")) {
+      this.db.exec(`ALTER TABLE composer_drafts ADD COLUMN managed_worktree_id TEXT`);
+    }
     if (!composerDraftNames.has("attachments_json")) {
       this.db.exec(`ALTER TABLE composer_drafts ADD COLUMN attachments_json TEXT`);
     }
@@ -3081,10 +3085,18 @@ export class ConversationStore {
         .run(JSON.stringify(location), threadId);
       if (Number(result.changes) !== 1) throw new Error(`Thread not found: ${threadId}`);
       if (location.worktree) {
-        if (location.worktree.threadId !== threadId) throw new Error("Worktree thread does not match.");
-        this.db.prepare(`INSERT INTO thread_worktrees (id, thread_id, record_json) VALUES (?, ?, ?)
+        const record = location.worktree;
+        if (record.threadId !== threadId) {
+          const existing = this.getWorktree(record.id);
+          if (!existing || existing.threadId !== record.threadId ||
+            existing.worktreePath !== record.worktreePath ||
+            this.getThread(threadId)?.workspacePath !== existing.workspacePath)
+            throw new Error("工作树关联与管理记录不匹配。");
+        }
+        const saved = this.db.prepare(`INSERT INTO thread_worktrees (id, thread_id, record_json) VALUES (?, ?, ?)
           ON CONFLICT(id) DO UPDATE SET record_json = excluded.record_json WHERE thread_id = excluded.thread_id`)
-          .run(location.worktree.id, threadId, JSON.stringify(location.worktree));
+          .run(record.id, record.threadId, JSON.stringify(record));
+        if (Number(saved.changes) !== 1) throw new Error("工作树所属对话与管理记录不匹配。");
       }
       this.db.exec("COMMIT");
     } catch (error) {
@@ -3102,6 +3114,13 @@ export class ConversationStore {
     const row = this.db.prepare(`SELECT record_json FROM thread_worktrees WHERE id = ?`).get(id) as
       { record_json: string } | undefined;
     return row ? JSON.parse(row.record_json) as ThreadWorktreeRecord : undefined;
+  }
+
+  listWorktreeThreads(worktreeId: string): ThreadSummary[] {
+    return (this.db.prepare(`${THREAD_SUMMARY_SELECT}
+      WHERE json_extract(threads.work_location_json, '$.worktree.id') = ?
+        AND json_extract(threads.work_location_json, '$.mode') IN ('isolated', 'needs_choice')`)
+      .all(worktreeId) as unknown as ThreadRow[]).map(rowToThread);
   }
 
   listWorktrees(): ThreadWorktreeRecord[] {
@@ -9173,7 +9192,7 @@ export class ConversationStore {
     }
     const row = this.db
       .prepare(
-        `SELECT context_key, prompt, attachments_json, recovery_reason, revision, updated_at
+        `SELECT context_key, prompt, attachments_json, recovery_reason, managed_worktree_id, revision, updated_at
          FROM composer_drafts
          WHERE context_key = ?`,
       )
@@ -9183,6 +9202,7 @@ export class ConversationStore {
           prompt: string;
           attachments_json: string | null;
           recovery_reason: string | null;
+          managed_worktree_id: string | null;
           revision: string;
           updated_at: string;
         }
@@ -9193,6 +9213,7 @@ export class ConversationStore {
     const attachments = parsePromptImageAttachments(row.attachments_json);
     return {
       contextKey: row.context_key,
+      ...(row.managed_worktree_id ? { managedWorktreeId: row.managed_worktree_id } : {}),
       prompt: row.prompt,
       ...(attachments.length > 0 ? { attachments } : {}),
       ...(row.recovery_reason?.trim() ? { recoveryReason: row.recovery_reason.trim() } : {}),
@@ -9206,23 +9227,26 @@ export class ConversationStore {
     prompt: string,
     attachments?: PromptImageAttachment[],
     recoveryReason?: string,
+    managedWorktreeId?: string | null,
   ): ComposerDraftRecord | undefined {
     const key = contextKey.trim();
     if (!key) {
       throw new Error("Composer draft context key is required.");
     }
     const storedAttachments = attachments?.filter(isPromptImageAttachment) ?? [];
-    if (prompt.length === 0 && storedAttachments.length === 0) {
+    const existing = this.getComposerDraft(key);
+    const binding = managedWorktreeId === undefined ? existing?.managedWorktreeId : managedWorktreeId || undefined;
+    if (prompt.length === 0 && storedAttachments.length === 0 && !binding) {
       this.deleteComposerDraft(key);
       return undefined;
     }
-    const existing = this.getComposerDraft(key);
     const storedRecoveryReason =
       recoveryReason === undefined ? existing?.recoveryReason : recoveryReason.trim() || undefined;
     if (
       existing?.prompt === prompt &&
       JSON.stringify(existing.attachments ?? []) === JSON.stringify(storedAttachments) &&
-      existing.recoveryReason === storedRecoveryReason
+      existing.recoveryReason === storedRecoveryReason &&
+      existing.managedWorktreeId === binding
     ) {
       return existing;
     }
@@ -9236,20 +9260,23 @@ export class ConversationStore {
            prompt,
            attachments_json,
            recovery_reason,
+           managed_worktree_id,
            revision,
            updated_at
          )
-         VALUES (?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(context_key) DO UPDATE SET
            prompt = excluded.prompt,
            attachments_json = excluded.attachments_json,
            recovery_reason = excluded.recovery_reason,
+           managed_worktree_id = excluded.managed_worktree_id,
            revision = excluded.revision,
            updated_at = excluded.updated_at`,
       )
-      .run(key, prompt, attachmentsJson, storedRecoveryReason ?? null, revision, updatedAt);
+      .run(key, prompt, attachmentsJson, storedRecoveryReason ?? null, binding ?? null, revision, updatedAt);
     return {
       contextKey: key,
+      ...(binding ? { managedWorktreeId: binding } : {}),
       prompt,
       ...(storedAttachments.length > 0 ? { attachments: storedAttachments } : {}),
       ...(storedRecoveryReason ? { recoveryReason: storedRecoveryReason } : {}),

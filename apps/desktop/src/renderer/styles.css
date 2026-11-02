@@ -3024,69 +3024,6 @@ button.sidebar-settings-meta {
 .plan-execution-open:hover { background: var(--nav-hover); }
 .plan-execution-open:disabled { opacity: .5; cursor: default; }
 .plan-execution-link-error { margin: 4px 0; color: var(--text-danger, #d55); }
-.plan-reference-notices {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 0;
-  margin-bottom: 12px;
-}
-
-.plan-reference-notice {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  padding: 8px 10px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 10px;
-  background: var(--composer-context-bg);
-  color: var(--text-secondary);
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.plan-reference-notice-icon {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 7px;
-  background: var(--composer-surface-bg);
-  color: var(--accent);
-}
-
-.plan-reference-notice-label {
-  flex: 1;
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.plan-reference-notice button {
-  flex: 0 0 auto;
-  padding: 4px 8px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 6px;
-  background: var(--composer-surface-bg);
-  color: var(--text-secondary);
-  font: inherit;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.plan-reference-notice button:hover:not(:disabled) {
-  background: var(--nav-hover);
-  color: var(--text-primary);
-}
-
-.plan-reference-notice button:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-.plan-reference-notice button:disabled { opacity: .5; cursor: default; }
 .plan-execution-status .is-spinning { animation: plan-execution-spin 1.2s linear infinite; }
 @keyframes plan-execution-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) {

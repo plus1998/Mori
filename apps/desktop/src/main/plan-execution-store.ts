@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
-import { type ComposerReference, composerReferences } from "../shared/composer-references";
+import type { ComposerReference } from "../shared/composer-references";
 import type { ThreadPendingPlan } from "../shared/ipc";
 import type { PlanExecutionLink, PlanExecutionStatus, PlanReferenceSnapshot } from "../shared/plan-execution";
 
@@ -11,21 +11,6 @@ export function planReferenceId(
     .update(JSON.stringify([plan.userPrompt, plan.analysis, plan.plan]))
     .digest("hex");
   return `plan_${plan.threadId}_${hash}`;
-}
-
-export function resolvePlanExecutionId(prompt: string, requested: unknown): string | undefined {
-  const ids = [
-    ...new Set(
-      composerReferences(prompt)
-        .filter((ref) => ref.kind === "plan" && ref.intent === "execute")
-        .map((ref) => ref.id),
-    ),
-  ];
-  if (ids.length > 1) throw new Error("一个新会话只能执行一份计划，请取消其他计划的执行。");
-  if (requested !== undefined && (typeof requested !== "string" || requested !== ids[0])) {
-    throw new Error("执行计划必须保留原始计划引用，请重新选择计划。");
-  }
-  return ids[0];
 }
 
 /** Common storage, shared by legacy migration and V2-only stores. Call transaction methods inside the host transaction. */

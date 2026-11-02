@@ -97,3 +97,27 @@ test("Bridge failures require a matching runAttemptId even if a turn matches", (
   expect(store.ownsRequest("thr_runtime", { turnId: "turn_current" })).toBe(false);
   expect(store.bindCodexTurn("thr_runtime", controller, "turn_late")).toBe(false);
 });
+
+test("managed worktrees admit one writer across chats and keep the lease until finalization", () => {
+  const store = new ActiveRunRuntimeStateStore();
+  const controller = new AbortController();
+  store.startRun("owner", { controller, worktreePlan: plan("shared"), exclusiveWorkspace: true });
+  expect(() => store.startRun("other-core", { controller: new AbortController(), worktreePlan: plan("shared") })).toThrow("owner");
+  expect(store.hasRun("other-core")).toBe(false);
+  store.abortRun("owner", "stop");
+  expect(() => store.startRun("other-core", { controller: new AbortController(), worktreePlan: plan("shared") })).toThrow("owner");
+  store.startRun("different-worktree", { controller: new AbortController(), worktreePlan: plan("other"), exclusiveWorkspace: true });
+  expect(() => store.setWorktreePlan("different-worktree", plan("shared"))).toThrow("owner");
+  expect(store.worktreePlan("different-worktree")?.worktreePath).toBe(plan("other").worktreePath);
+  store.finishRun("owner");
+  store.startRun("other-core", { controller: new AbortController(), worktreePlan: plan("shared"), exclusiveWorkspace: true });
+  expect(store.hasRun("other-core")).toBe(true);
+});
+
+test("managed writer cannot enter a directory already used by a direct chat", () => {
+  const store = new ActiveRunRuntimeStateStore();
+  store.startRun("direct", { controller: new AbortController(), worktreePlan: plan("shared") });
+  expect(() => store.startRun("managed", { controller: new AbortController(), worktreePlan: { ...plan("shared"), worktreePath: `${plan("shared").worktreePath}/../shared` }, exclusiveWorkspace: true })).toThrow("direct");
+  store.startRun("direct-legacy", { controller: new AbortController(), worktreePlan: plan("shared") });
+  expect(store.hasRun("direct-legacy")).toBe(true);
+});

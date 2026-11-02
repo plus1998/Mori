@@ -2,10 +2,12 @@ import { GitBranch, Laptop, LoaderCircle, RefreshCw, Settings } from "lucide-rea
 import { useEffect, useId, useRef, useState } from "react";
 import { ComposerAbovePanel } from "./ComposerAbovePanel";
 import type { ThreadSummary, WorktreeStatusResult } from "../shared/ipc";
-import type { ThreadDevelopmentMode, ThreadWorkLocation } from "../shared/thread-worktree";
+import type { ThreadDevelopmentMode, ThreadWorkLocation, ThreadWorktreeRecord } from "../shared/thread-worktree";
 
 interface Props {
   thread?: ThreadSummary;
+  selectedWorktree?: ThreadWorktreeRecord;
+  selectionError?: string;
   workspacePath?: string | undefined;
   branch?: string | undefined;
   mode: ThreadDevelopmentMode;
@@ -35,6 +37,8 @@ function WorktreeIcon({ size = 18 }: { size?: number }) {
 
 export function ThreadWorktreeControl({
   thread,
+  selectedWorktree,
+  selectionError,
   workspacePath,
   branch,
   mode,
@@ -93,28 +97,22 @@ export function ThreadWorktreeControl({
   }, [threadId, recordId]);
 
   async function act(action: "refresh" | "confirm" | "cleanup" | "project" | "new_worktree" | "reattach") {
-    if (!threadId || !recordId || operationRef.current) return;
+    if (!threadId || operationRef.current) return;
     operationRef.current = true;
     setPending(true);
     setError(undefined);
     try {
       const api = window.eco;
       if (!api) throw new Error("桌面 API 不可用。");
-      const request = {
-        threadId,
-        worktreeId: recordId,
-        ...(action === "confirm" && confirming
-          ? { expectedBranchCommit: confirming.branchCommit, expectedTargetCommit: confirming.targetCommit }
-          : {}),
-      };
-      const next =
-        action === "refresh"
-          ? await api.getWorktreeStatus(threadId)
-          : action === "confirm"
-            ? await api.confirmWorktreeMerged(request)
-            : action === "cleanup"
-              ? await api.cleanupWorktree(request)
-              : await api.selectThreadWorkLocation({ ...request, choice: action });
+      let next: WorktreeStatusResult;
+      if (action === "refresh") next = await api.getWorktreeStatus(threadId);
+      else if (action === "confirm" || action === "cleanup") {
+        if (!recordId) throw new Error("工作树缺少管理记录。");
+        const request = { threadId, worktreeId: recordId,
+          ...(action === "confirm" && confirming
+            ? { expectedBranchCommit: confirming.branchCommit, expectedTargetCommit: confirming.targetCommit } : {}) };
+        next = action === "confirm" ? await api.confirmWorktreeMerged(request) : await api.cleanupWorktree(request);
+      } else next = await api.selectThreadWorkLocation({ threadId, choice: action, ...(recordId ? { worktreeId: recordId } : {}) });
       if (activeThreadRef.current === threadId) {
         setStatus(next);
         setConfirming(undefined);
@@ -129,20 +127,20 @@ export function ThreadWorktreeControl({
     }
   }
 
-  const location = status?.location ?? thread?.workLocation;
+  const location = status?.location ?? thread?.workLocation ?? (selectedWorktree ? { mode: "isolated" as const, worktree: selectedWorktree } : undefined);
   const record = location?.worktree;
   const choosing = location?.mode === "needs_choice";
-  const isolated = thread ? location?.mode === "isolated" : mode === "isolated";
+  const isolated = thread || selectedWorktree ? location?.mode === "isolated" : mode === "isolated";
   const locked =
     pending || busy || Boolean(thread && ["running", "queued", "awaiting_plan"].includes(thread.status));
   const path = thread?.workspacePath ?? workspacePath;
   const workingPath = record && location?.mode !== "direct" ? record.worktreePath : path;
-  const branchName = isolated && record ? record.branchName : branch;
-  const failure = error || status?.error || record?.error;
+  const branchName = isolated && record ? (record.checkoutBranch ?? record.branchName) : branch;
+  const failure = selectionError || error || status?.error || record?.error;
   const needsAttention = Boolean(
     choosing || failure || record?.state === "missing" || record?.state === "error",
   );
-  const creating = record?.state === "creating" || (!thread && isolated && busy);
+  const creating = record?.state === "creating" || (!thread && !selectedWorktree && isolated && busy);
   const label = choosing
     ? "选择工作位置"
     : location?.mode === "direct"
@@ -159,7 +157,7 @@ export function ThreadWorktreeControl({
                 ? "正在创建工作树"
                 : isolated
                   ? record
-                    ? "已创建工作树"
+                    ? selectedWorktree ? "已选择工作树" : "已创建工作树"
                     : "新建工作树"
                   : "项目目录";
   const mergedLabel =
@@ -212,7 +210,7 @@ export function ThreadWorktreeControl({
         >
           <header className="thread-worktree-popover-header">
             <span>配置本地环境</span>
-            {record ? (
+            {thread && record ? (
               <button
                 type="button"
                 className="thread-worktree-refresh"
@@ -231,7 +229,7 @@ export function ThreadWorktreeControl({
               <span>{record?.baseCommit ? "正在检出文件" : "正在准备工作空间"}</span>
             </div>
           ) : null}
-          {!thread ? (
+          {!thread && !selectedWorktree ? (
             <>
               <button
                 type="button"
@@ -262,6 +260,7 @@ export function ThreadWorktreeControl({
               <span className="thread-worktree-value">{label}</span>
             </div>
           )}
+          {!thread && (selectedWorktree || selectionError) ? <button type="button" className="thread-worktree-row" disabled={busy} onClick={() => onModeChange("direct")}>改为在项目目录新建聊天</button> : null}
           {branchName ? (
             <div className="thread-worktree-row">
               <GitBranch size={18} aria-hidden />
@@ -328,12 +327,12 @@ export function ThreadWorktreeControl({
               </button>
               {status?.canReattach ? (
                 <button type="button" disabled={locked} onClick={() => void act("reattach")}>
-                  从旧分支重新挂载
+                  {status.exists ? "继续使用此工作树" : "从旧分支重新挂载"}
                 </button>
               ) : null}
             </div>
           ) : null}
-          {record && location?.mode !== "direct" && record.state !== "removed" ? (
+          {thread && record && location?.mode !== "direct" && record.state !== "removed" ? (
             <div className="thread-worktree-actions">
               {status?.merged === "unmerged" && status.branchExists ? (
                 <button

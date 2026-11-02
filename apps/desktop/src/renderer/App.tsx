@@ -1,5 +1,5 @@
 import { ThreadWorktreeControl } from "./ThreadWorktreeControl";
-import type { ThreadDevelopmentMode, ThreadWorkLocation } from "../shared/thread-worktree";
+import type { ThreadDevelopmentMode, ThreadWorkLocation, ThreadWorktreeRecord } from "../shared/thread-worktree";
 import { formatAccelerator } from "../shared/keyboard-shortcuts";
 import { useKeyboardShortcuts, shortcutMatches } from "./keyboard-shortcuts";
 import { MoriIcon } from "./MoriIcon";
@@ -11,7 +11,7 @@ import { buildComposerCapabilityReferences } from "../shared/composer-capability
 import { ComposerReferencesMenu } from "./ComposerReferencesMenu";
 import { useComposerReferences } from "./use-composer-references";
 import { useRevealSelectedThread } from "./use-reveal-selected-thread";
-import { composerReferenceToken, composerReferences } from "../shared/composer-references";
+import { composerReferenceToken } from "../shared/composer-references";
 import { browserSelectionReference, type BrowserSelection } from "../shared/browser-selection";
 import { BrowserSelectionPreview } from "./BrowserSelectionPreview";
 import { FollowUpQueuePanel } from "./FollowUpQueuePanel";
@@ -433,7 +433,6 @@ import {
 import { PackageScriptsDialog } from "./PackageScriptsDialog";
 import { PlanApprovalPanel } from "./PlanApprovalPanel";
 import { PlanExecutionLinks } from "./PlanExecutionLinks";
-import { PlanReferenceNotice } from "./PlanReferenceNotice";
 import { ProjectSidebarTree } from "./ProjectSidebarTree";
 import { ProjectTerminalSettingsDialog } from "./ProjectTerminalSettingsDialog";
 import { waitForOverlayDismiss } from "./package-script-ui";
@@ -1476,12 +1475,6 @@ function App() {
               "old chats",
             ],
           },
-          {
-            id: "worktrees",
-            label: t("worktrees.title"),
-            icon: GitBranch,
-            keywords: ["worktree", "工作树", "隔离开发", "branch", "分支", "清理"],
-          },
           { id: "centerServer", label: t("settings.connection"), icon: Cloud },
           {
             id: "proxy",
@@ -1579,6 +1572,12 @@ function App() {
           { id: "agentLibrary", label: t("settings.agentLibrary"), icon: BookOpen },
           { id: "skills", label: t("settings.skills.store"), icon: Sparkles },
           { id: "git", label: "Git", icon: GitBranch },
+          {
+            id: "worktrees",
+            label: t("worktrees.title"),
+            icon: GitBranch,
+            keywords: ["worktree", "工作树", "隔离开发", "branch", "分支", "清理"],
+          },
         ],
       },
     ],
@@ -2196,6 +2195,7 @@ function App() {
   const [composerRuntimeConfig, setComposerRuntimeConfig] = useState<ThreadRuntimeConfig | null>(null);
   const [newThreadCoreKind, setNewThreadCoreKind] = useState<CoreKind>("claude");
   const [newThreadDevelopmentMode, setNewThreadDevelopmentMode] = useState<ThreadDevelopmentMode>("direct");
+  const [newThreadWorktree, setNewThreadWorktree] = useState<ThreadWorktreeRecord>();
   const [coreAvailability, setCoreAvailability] = useState<CoreAvailabilitySnapshot>();
   const [cursorProbeLoading, setCursorProbeLoading] = useState(false);
   const [acpEnableInFlight, setAcpEnableInFlight] = useState(false);
@@ -3780,8 +3780,11 @@ function App() {
     if (worktree?.mode === "isolated" && worktree.worktree?.worktreePath) {
       return worktree.worktree.worktreePath;
     }
+    if (!activeThread && newThreadWorktree && newThreadWorktree.workspacePath === currentProjectPath) {
+      return newThreadWorktree.worktreePath;
+    }
     return currentProjectPath;
-  }, [activeThread?.workLocation, currentProjectPath]);
+  }, [activeThread?.id, activeThread?.workLocation, currentProjectPath, newThreadWorktree]);
   const gitStatus = activeWorkspacePath ? gitStatusByWorkspace[activeWorkspacePath]?.status : undefined;
   const gitStatusLoading = activeWorkspacePath
     ? gitStatusLoadingByWorkspace[activeWorkspacePath] === true
@@ -4161,6 +4164,9 @@ function App() {
     [activeThread?.id, currentProjectPath],
   );
   const composerDraftsByKeyRef = useRef<Record<string, ComposerDraft>>({});
+  const draftWorktreeBindingsRef = useRef<Record<string, string | null>>({});
+  const [draftWorktreeReadyKey, setDraftWorktreeReadyKey] = useState<string>();
+  const [draftWorktreeError, setDraftWorktreeError] = useState<string>();
   const [composerDraftPresenceByThread, setComposerDraftPresenceByThread] = useState<Record<string, boolean>>(
     {},
   );
@@ -4214,12 +4220,12 @@ function App() {
     return () => observer.disconnect();
   }, [taskPanelLayoutPresent]);
   useEffect(() => {
-    if (!currentProjectPath) {
+    if (!activeWorkspacePath) {
       return undefined;
     }
 
     let cancelled = false;
-    const workspacePath = currentProjectPath;
+    const workspacePath = activeWorkspacePath;
     const workspaceLabel = currentProjectName;
     const loadLiveSessions = async (): Promise<TerminalSessionView[]> => {
       if (!window.eco?.listTerminalSessions) {
@@ -4276,7 +4282,7 @@ function App() {
   }, [
     activeThread?.id,
     currentProjectName,
-    currentProjectPath,
+    activeWorkspacePath,
     storedTerminalByProject,
     terminalLifecycleEpoch,
   ]);
@@ -5596,12 +5602,15 @@ function App() {
     value: string,
     attachments: readonly ComposerImageAttachment[],
   ): void {
-    if (typeof window.eco?.saveComposerDraft !== "function") {
+    if (typeof window.eco?.saveComposerDraft !== "function" ||
+      (contextKey.startsWith("landing:") && !(contextKey in draftWorktreeBindingsRef.current))) {
       return;
     }
     void window.eco
       .saveComposerDraft({
         contextKey,
+        ...(contextKey.startsWith("landing:") && contextKey in draftWorktreeBindingsRef.current
+          ? { managedWorktreeId: draftWorktreeBindingsRef.current[contextKey] } : {}),
         prompt: value,
         ...(attachments.length > 0 ? { attachments: toPromptImageAttachments(attachments) } : {}),
       })
@@ -5614,6 +5623,7 @@ function App() {
     contextKey: string | undefined,
     options?: { releaseAttachments?: boolean },
   ): void {
+    if (contextKey) draftWorktreeBindingsRef.current[contextKey] = null;
     clearComposerDraft(composerDraftsByKeyRef.current, contextKey);
     if (!contextKey) {
       return;
@@ -5661,7 +5671,10 @@ function App() {
       !contextCompactionInFlight &&
       threadAcceptsInput,
   );
-  const canSend = activeThread?.workLocation?.mode !== "needs_choice" && (composerFollowUpMode ? canSendFollowUp : canSendThreadMessage);
+  const draftWorkLocationReady = draftWorktreeReadyKey === composerContextKey && !draftWorktreeError &&
+    (!composerContextKey || !draftWorktreeBindingsRef.current[composerContextKey] ||
+      newThreadWorktree?.id === draftWorktreeBindingsRef.current[composerContextKey]);
+  const canSend = (Boolean(activeThread) || draftWorkLocationReady) && activeThread?.workLocation?.mode !== "needs_choice" && (composerFollowUpMode ? canSendFollowUp : canSendThreadMessage);
   // Forced delegation retains the plan for retry until the child finishes.
   // That retained record must not keep the approval dock open during execution.
   const showPlanApproval = Boolean(
@@ -5678,6 +5691,54 @@ function App() {
         : "composer";
 
   const planFailureMessage = activeThread ? extractPlanFailureMessage(activeThread.message) : undefined;
+
+  useEffect(() => {
+    let cancelled = false;
+    setNewThreadWorktree(undefined);
+    setDraftWorktreeReadyKey(undefined);
+    setDraftWorktreeError(undefined);
+    if (!composerContextKey?.startsWith("landing:")) return;
+    const key = composerContextKey;
+    async function restoreWorktreeBinding() {
+      const api = window.eco;
+      if (!api) throw new Error("无法恢复草稿工作位置：桌面 API 不可用。");
+      if (!(key in draftWorktreeBindingsRef.current)) {
+        const draft = await api.getComposerDraft(key);
+        if (cancelled) return;
+        // A selection made while loading takes precedence over the persisted draft.
+        if (!(key in draftWorktreeBindingsRef.current))
+          draftWorktreeBindingsRef.current[key] = draft?.managedWorktreeId ?? null;
+      }
+      const id = draftWorktreeBindingsRef.current[key];
+      if (id) {
+        const item = (await api.listManagedWorktrees()).find(candidate => candidate.record.id === id);
+        if (cancelled || draftWorktreeBindingsRef.current[key] !== id) return;
+        if (!item || !item.exists || item.error || item.record.state !== "active" ||
+          item.record.workspacePath !== key.slice("landing:".length))
+          throw new Error("草稿选中的工作树已失效，请在本地环境中重新选择工作位置。");
+        setNewThreadWorktree(item.record);
+      }
+      if (!cancelled) setDraftWorktreeReadyKey(key);
+    }
+    void restoreWorktreeBinding().catch(caught => {
+      if (!cancelled) { setDraftWorktreeError(errorMessage(caught)); setDraftWorktreeReadyKey(key); }
+    });
+    return () => { cancelled = true; };
+  }, [composerContextKey]);
+
+  function selectDraftProjectMode(mode: typeof newThreadDevelopmentMode): void {
+    const key = composerContextKeyRef.current;
+    if (key) {
+      draftWorktreeBindingsRef.current[key] = null;
+      void window.eco?.saveComposerDraft({ contextKey: key, prompt: composerPromptRef.current,
+        attachments: toPromptImageAttachments(composerAttachmentsRef.current), managedWorktreeId: null,
+      }).catch(caught => setDraftWorktreeError(errorMessage(caught)));
+      setDraftWorktreeReadyKey(key);
+    }
+    setDraftWorktreeError(undefined);
+    setNewThreadWorktree(undefined);
+    setNewThreadDevelopmentMode(mode);
+  }
 
   useEffect(() => {
     const prevKey = prevComposerContextKeyRef.current;
@@ -5860,7 +5921,7 @@ function App() {
     }, COMPOSER_DRAFT_SAVE_DEBOUNCE_MS);
     composerDraftSaveTimerRef.current = { key: composerContextKey, timer };
     return () => window.clearTimeout(timer);
-  }, [composerAttachments, composerContextKey, followUpBusy, isStarting, prompt]);
+  }, [composerAttachments, composerContextKey, draftWorktreeReadyKey, followUpBusy, isStarting, prompt]);
 
   useEffect(() => {
     const flushComposerDraft = () => {
@@ -8554,11 +8615,6 @@ function App() {
     if (!currentProjectPath || !window.eco || (!promptForSend.trim() && composerAttachments.length === 0)) {
       return;
     }
-    const executionPlans = [...new Set(composerReferences(promptForSend).filter(ref => ref.kind === "plan" && ref.intent === "execute").map(ref => ref.id))];
-    if (executionPlans.length > 1 || (executionPlans.length && activeThread)) {
-      setError(t("planExecution.onePlanPerNewConversation"));
-      return;
-    }
     const canSendWithPrompt = composerFollowUpMode
       ? Boolean(activeThread && !followUpBusy && !isStarting && !planActionBusy)
       : Boolean(
@@ -8574,6 +8630,10 @@ function App() {
         );
     if (activeThread?.workLocation?.mode === "needs_choice") {
       setError("请先选择后续工作位置，再发送消息。");
+      return;
+    }
+    if (!activeThread && !draftWorkLocationReady) {
+      setError(draftWorktreeError || "正在恢复草稿工作位置，请稍后重试。");
       return;
     }
     if (!canSendWithPrompt) return;
@@ -8724,9 +8784,9 @@ function App() {
           workspacePath: currentProjectPath,
           prompt: messagePrompt,
           coreKind: newThreadCoreKind,
-          developmentMode: newThreadDevelopmentMode,
+          developmentMode: newThreadWorktree ? "direct" : newThreadDevelopmentMode,
+          ...(newThreadWorktree ? { managedWorktreeId: newThreadWorktree.id } : {}),
           runtimeConfig: runtimeConfigForSend,
-          ...(executionPlans[0] ? { planExecutionId: executionPlans[0] } : {}),
           ...(attachments && { attachments }),
         });
         adoptLandingTaskPanelUiRef.current = true;
@@ -9795,7 +9855,8 @@ function App() {
         workspacePath: currentProjectPath,
         prompt,
         coreKind: newThreadCoreKind,
-        developmentMode: newThreadDevelopmentMode,
+        developmentMode: newThreadWorktree ? "direct" : newThreadDevelopmentMode,
+        ...(newThreadWorktree ? { managedWorktreeId: newThreadWorktree.id } : {}),
         runtimeConfig: runtimeConfigForSend,
       });
       adoptLandingTaskPanelUiRef.current = true;
@@ -10659,6 +10720,7 @@ function App() {
   }
 
   function activateWorkspace(nextWorkspace: WorkspaceInfo) {
+    setNewThreadWorktree(undefined);
     setMoriOpen(false);
     setWorkspace(nextWorkspace);
     setSelectedProjectPath(nextWorkspace.path);
@@ -10854,6 +10916,7 @@ function App() {
   }
 
   function switchProject(nextPath: string) {
+    setNewThreadWorktree(undefined);
     setNewThreadDevelopmentMode("direct");
     setMoriOpen(false);
     const leavingThread = Boolean(selectedThreadIdRef.current);
@@ -10891,6 +10954,7 @@ function App() {
   }
 
   function selectThread(thread: ThreadSummary) {
+    setNewThreadWorktree(undefined);
     setMoriOpen(false);
     setUnreadThreadIds((current) => {
       if (!current.has(thread.id)) {
@@ -11025,6 +11089,7 @@ function App() {
   }
 
   function startNewChat() {
+    setNewThreadWorktree(undefined);
     setNewThreadDevelopmentMode("direct");
     setMoriOpen(false);
     const leavingThread = Boolean(selectedThreadIdRef.current);
@@ -11129,7 +11194,7 @@ function App() {
       pendingPlanComposerHandoffRef.current = {
         contextKey,
         prompt: composerReferenceToken({ kind: "plan", id: current.referenceId, label: t("planExecution.referenceLabel", { version: current.version }),
-          detail: activeThread?.title ?? "", intent: "execute" }),
+          detail: activeThread?.title ?? "" }),
         sessionMode: "agent",
       };
       startNewChat();
@@ -12225,11 +12290,13 @@ function App() {
                 <ThreadWorktreeControl
                   key={activeThread?.id ?? `new:${currentProjectPath}`}
                   {...(activeThread ? { thread: activeThread } : {})}
+                  {...(!activeThread && newThreadWorktree ? { selectedWorktree: newThreadWorktree } : {})}
+                  {...(!activeThread && draftWorktreeError ? { selectionError: draftWorktreeError } : {})}
                   workspacePath={currentProjectPath}
                   branch={gitStatus?.branch}
                   mode={newThreadDevelopmentMode}
                   busy={isStarting}
-                  onModeChange={setNewThreadDevelopmentMode}
+                  onModeChange={selectDraftProjectMode}
                   onLocationChange={updateThreadWorkLocation}
                 />
               </div>
@@ -12344,9 +12411,6 @@ function App() {
                   onClose={() => syncComposerCursor()}
                 />
                 <div className="composer-primary">
-                  {!activeThread ? (
-                    <PlanReferenceNotice prompt={prompt} onChange={setPrompt} disabled={isStarting} />
-                  ) : null}
                   {composerAttachments.length > 0 ? (
                     <ul className="composer-attachments" aria-label={t("app.pastedImages")}>
                       {composerAttachments.map((attachment, index) => {
@@ -13633,6 +13697,26 @@ function App() {
                 {settingsSection === "storage" && <LazyStorageSettingsPanel />}
                 {settingsSection === "worktrees" && <LazyWorktreeSettingsPanel
                   onLocationChange={updateThreadWorkLocation}
+                  onNewThread={async record => {
+                    if (!window.eco) throw new Error("桌面 API 不可用。");
+                    await window.eco.inspectWorkspace(record.workspacePath);
+                    registerImportedProject(record.workspacePath);
+                    const key = composerContextKeyFromParts(undefined, record.workspacePath)!;
+                    const saved = await window.eco.getComposerDraft(key);
+                    draftWorktreeBindingsRef.current[key] = record.id;
+                    const memory = composerContextKeyRef.current === key
+                      ? { prompt: composerPromptRef.current, attachments: composerAttachmentsRef.current }
+                      : composerDraftsByKeyRef.current[key];
+                    await window.eco.saveComposerDraft({ contextKey: key,
+                      prompt: memory?.prompt ?? saved?.prompt ?? "",
+                      attachments: memory ? toPromptImageAttachments(memory.attachments) : saved?.attachments ?? [],
+                      managedWorktreeId: record.id });
+                    switchProject(record.workspacePath);
+                    setDraftWorktreeError(undefined);
+                    setDraftWorktreeReadyKey(key);
+                    setNewThreadWorktree(record);
+                    setSettingsOpen(false);
+                  }}
                   onOpenThread={threadId => {
                     const thread = threads.find(item => item.id === threadId);
                     if (!thread) { setError("该对话已删除，请刷新工作树列表。"); return; }

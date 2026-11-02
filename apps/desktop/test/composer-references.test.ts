@@ -13,13 +13,31 @@ const reference = {
   label: "订单 @ work {预览}",
   detail: "https://example.com/?q=中文&x=1",
 };
-test("plan versions and explicit execution intent round-trip through drafts and atomic chips", () => {
-  const reference = { kind: "plan" as const, id: "plan_thr_123_hash", label: "计划 v2", detail: "来源会话", intent: "execute" as const };
+test("plan versions round-trip through drafts and atomic chips without a mode", () => {
+  const reference = { kind: "plan" as const, id: "plan_thr_123_hash", label: "计划 v2", detail: "来源会话" };
   const token = composerReferenceToken(reference);
   expect(composerReferences(token)).toEqual([reference]);
   expect(parsePromptSegments(token)).toEqual([{ type: "reference", reference }]);
-  expect(composerReferences(composerReferenceToken({ ...reference, kind: "conversation" }))[0]?.intent).toBeUndefined();
   expect(parseMentionQuery("@计划:重构", 6)).toEqual({ start: 0, query: "重构", kind: "plan" });
+});
+test("legacy execution markers are discarded when reading and copying plan references", () => {
+  const plan = { kind: "plan" as const, id: "plan_1", label: "计划 v1", detail: "来源会话" };
+  const legacyToken = `@plan{${encodeURIComponent(JSON.stringify({ ...plan, intent: "execute" }))}}`;
+  expect(composerReferences(legacyToken)).toEqual([plan]);
+  expect(parsePromptSegments(legacyToken)).toEqual([{ type: "reference", reference: plan, sourceToken: legacyToken }]);
+  expect(composerReferenceToken(composerReferences(legacyToken)[0]!)).toBe(composerReferenceToken(plan));
+});
+test("legacy reference spans keep source offsets alongside discussion text", () => {
+  const legacyToken = `@plan{${encodeURIComponent(JSON.stringify({ id: "plan_1", label: "计划 v1", detail: "", intent: "execute" }))}}`;
+  const question = "这个计划有什么问题？ ";
+  const segments = parsePromptSegments(question + legacyToken);
+  expect(segments).toHaveLength(2);
+  expect(segments[0]).toEqual({ type: "text", value: question });
+  const segment = segments[1]!;
+  expect(segment.type).toBe("reference");
+  if (segment.type !== "reference") throw new Error("Expected a plan reference");
+  expect(segment.sourceToken).toBe(legacyToken);
+  expect(segment.reference).not.toHaveProperty("intent");
 });
 test("reference tokens survive copy, draft storage, and mixed file/skill parsing", () => {
   const token = composerReferenceToken(reference);

@@ -269,10 +269,7 @@ export async function startAcpThreadRunWithDriver(
   const selected = await deps.resolveThreadWorktree(input.workspace, input.thread.id);
   const cwd = selected.cwd;
   const controller = new AbortController();
-  deps.startActiveRun(input.thread.id, {
-    controller,
-    worktreePlan: selected.worktreePlan,
-  });
+
   const mode = deps.resolveSessionMode(input.thread.runtimeConfig);
   const previous = input.continuation ? deps.getThreadCoreSession(input.thread.id) : undefined;
   const resume = decideAcpResume(
@@ -294,6 +291,10 @@ export async function startAcpThreadRunWithDriver(
 
   let consumeSettled = false;
   try {
+    deps.startActiveRun(input.thread.id, {
+      controller,
+      worktreePlan: selected.worktreePlan,
+    });
     if (resume.kind === "cannot_resume") {
       deps.markInterrupted(input.thread.id, deps.cannotResumeWithoutSessionMessage());
       return;

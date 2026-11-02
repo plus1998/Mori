@@ -51,15 +51,26 @@ test("plan references resolve the authoritative immutable version with Unicode-s
     userPrompt: "implement", analysis: "reason", plan: "一😀二😀三", createdAt: "2026-11-02" };
   const service = setup({ readPlan: () => snapshot, listPlans: () => [{ kind: "plan", id: snapshot.id, label: snapshot.title, detail: "v2" }] });
   expect(service.search({ query: "计划", kind: "plan" }).items).toHaveLength(1);
-  const resolved = await service.resolvePrompt("b", composerReferenceToken({ kind: "plan", id: "plan_1", label: "old", detail: "old", intent: "execute" }));
+  const resolved = await service.resolvePrompt("b", composerReferenceToken({ kind: "plan", id: "plan_1", label: "old", detail: "old" }));
   expect(resolved).toContain('"version":2');
-  expect(resolved).toContain('"intent":"execute"');
+  expect(resolved).not.toContain('"intent"');
   expect(resolved).toContain(snapshot.plan);
   const first = service.readPlan({ planId: "plan_1", limit: 2 });
   const second = service.readPlan({ planId: "plan_1", offset: first.nextOffset, limit: 3 });
   expect(first.plan + second.plan).toBe(snapshot.plan);
   expect(second.hasMore).toBe(false);
   expect(() => service.readPlan({ planId: "plan_1", offset: -1 })).toThrow();
+});
+test("a discussion question with a legacy plan reference stays a question without forced execution", async () => {
+  const plan = { id: "plan_1", sourceThreadId: "a", version: 1, title: "计划", workspacePath: "/project/a",
+    userPrompt: "implement", analysis: "reason", plan: "1. Update the code", createdAt: "2026-11-02" };
+  const service = setup({ readPlan: () => plan });
+  const legacyToken = `@plan{${encodeURIComponent(JSON.stringify({ id: plan.id, label: plan.title, detail: "", intent: "execute" }))}}`;
+  const resolved = await service.resolvePrompt("b", `这个计划有什么问题？ ${legacyToken}`);
+  expect(resolved).toStartWith("这个计划有什么问题？ [plan: 计划]");
+  expect(resolved).toContain(plan.plan);
+  expect(resolved).not.toContain('"intent"');
+  expect(resolved).not.toContain("Execute this exact plan version");
 });
 test("prompt resolution uses current authoritative SSH metadata without stored credentials", async () => {
   const prompt = await setup().resolvePrompt(

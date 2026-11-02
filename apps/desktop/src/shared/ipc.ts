@@ -245,6 +245,7 @@ export const IPC_CHANNELS = {
   worktreeSettingsSave: "worktree:settings-save",
   worktreeManagedList: "worktree:managed-list",
   worktreeManagedCleanup: "worktree:managed-cleanup",
+  worktreeManagedForget: "worktree:managed-forget",
   worktreeManagedConfirmMerged: "worktree:managed-confirm-merged",
   terminalList: "terminal:list",
   terminalSpawn: "terminal:spawn",
@@ -2048,9 +2049,8 @@ export interface ThreadClarificationNotificationResult {
 }
 
 export interface ThreadStartRequest {
-  /** Explicit execution intent from a plan reference; validated again by the host. */
-  planExecutionId?: string;
   developmentMode?: import("./thread-worktree").ThreadDevelopmentMode;
+  managedWorktreeId?: string;
   workspacePath: string;
   prompt: string;
   coreKind?: import("@eco/runtime/core-runtime").CoreKind;
@@ -2303,6 +2303,7 @@ export interface ThreadDeleteRequest {
 }
 
 export interface ComposerDraftRecord {
+  managedWorktreeId?: string;
   contextKey: string;
   prompt: string;
   attachments?: PromptImageAttachment[];
@@ -2314,6 +2315,8 @@ export interface ComposerDraftRecord {
 }
 
 export interface ComposerDraftSaveRequest {
+  /** Omit to preserve; null explicitly selects the project directory. */
+  managedWorktreeId?: string | null;
   contextKey: string;
   prompt: string;
   attachments?: PromptImageAttachment[];

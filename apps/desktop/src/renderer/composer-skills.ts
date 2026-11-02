@@ -1,4 +1,4 @@
-import { COMPOSER_REFERENCE_PATTERN, parseComposerReference, type ComposerReference } from "../shared/composer-references";
+import { COMPOSER_REFERENCE_PATTERN, composerReferenceToken, parseComposerReference, type ComposerReference } from "../shared/composer-references";
 import {
   parseExplicitSkillNames,
   promptIncludesSkillName,
@@ -18,7 +18,7 @@ export type PromptSegment =
   | { type: "text"; value: string }
   | { type: "skill"; name: string }
   | { type: "file"; path: string }
-  | { type: "reference"; reference: ComposerReference };
+  | { type: "reference"; reference: ComposerReference; sourceToken?: string };
 
 export type SlashQuery = { start: number; query: string };
 
@@ -75,7 +75,17 @@ export function parsePromptSegments(text: string): PromptSegment[] {
   }
   for (const match of text.matchAll(COMPOSER_REFERENCE_PATTERN)) {
     const reference = parseComposerReference(match[1]!, match[2]!);
-    if (reference && match.index !== undefined) hits.push({ index: match.index, length: match[0].length, segment: { type: "reference", reference } });
+    if (reference && match.index !== undefined) hits.push({
+      index: match.index,
+      length: match[0].length,
+      segment: {
+        type: "reference",
+        reference,
+        // Preserve source length for editor selection offsets, even when legacy
+        // fields or noncanonical encoding are no longer part of the reference.
+        ...(match[0] !== composerReferenceToken(reference) ? { sourceToken: match[0] } : {}),
+      },
+    });
   }
   hits.sort((left, right) => left.index - right.index || left.length - right.length);
 

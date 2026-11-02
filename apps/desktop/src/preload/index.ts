@@ -1655,6 +1655,9 @@ const api = {
   listManagedWorktrees(): Promise<import("../shared/thread-worktree").ManagedWorktree[]> {
     return ipcRenderer.invoke(IPC_CHANNELS.worktreeManagedList);
   },
+  forgetManagedWorktree(request: import("../shared/thread-worktree").ThreadWorktreeActionRequest): Promise<WorktreeStatusResult> {
+    return ipcRenderer.invoke(IPC_CHANNELS.worktreeManagedForget, request);
+  },
   cleanupManagedWorktree(request: import("../shared/thread-worktree").ThreadWorktreeActionRequest): Promise<WorktreeStatusResult> {
     return ipcRenderer.invoke(IPC_CHANNELS.worktreeManagedCleanup, request);
   },

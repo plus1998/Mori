@@ -1,19 +1,30 @@
-import { Copy, FolderOpen, GitBranch, LoaderCircle, RefreshCw, Trash2 } from "lucide-react";
+import {
+  ChevronDown,
+  CirclePlus,
+  Copy,
+  FolderOpen,
+  GitBranch,
+  LoaderCircle,
+  RefreshCw,
+  Trash2,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type {
   ManagedWorktree,
   ThreadWorkLocation,
+  ThreadWorktreeRecord,
   WorktreeSettingsSnapshot,
 } from "../shared/thread-worktree";
 import "./worktree-settings.css";
 
 interface Props {
   onOpenThread: (threadId: string) => void;
+  onNewThread: (record: ThreadWorktreeRecord) => Promise<void>;
   onLocationChange: (threadId: string, location: ThreadWorkLocation) => void;
 }
 
-type Confirmation = { item: ManagedWorktree; action: "cleanup" | "confirm" };
+type Confirmation = { item: ManagedWorktree; action: "cleanup" | "confirm" | "forget" };
 
 function projectPath(item: ManagedWorktree): string {
   return item.record.repositoryRoot ?? item.record.workspacePath;
@@ -24,7 +35,7 @@ function displayError(error: unknown): string {
   return message.replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/i, "");
 }
 
-export function WorktreeSettingsPanel({ onOpenThread, onLocationChange }: Props) {
+export function WorktreeSettingsPanel({ onOpenThread, onNewThread, onLocationChange }: Props) {
   const { t } = useTranslation();
   const [settings, setSettings] = useState<WorktreeSettingsSnapshot>();
   const [rootPath, setRootPath] = useState("");
@@ -92,6 +103,17 @@ export function WorktreeSettingsPanel({ onOpenThread, onLocationChange }: Props)
     setNotice(t("worktrees.rootSaved"));
   }
 
+  async function startChat(item: ManagedWorktree) {
+    const api = window.eco;
+    if (!api) throw new Error(t("worktrees.unavailable"));
+    const latest = (await api.listManagedWorktrees()).find(
+      (candidate) => candidate.record.id === item.record.id,
+    );
+    if (!latest?.exists || latest.error || latest.record.state !== "active")
+      throw new Error(latest?.error || t("worktrees.unavailableWorktree"));
+    await onNewThread(latest.record);
+  }
+
   async function executeConfirmation() {
     if (!confirmation) return;
     const api = window.eco;
@@ -106,10 +128,11 @@ export function WorktreeSettingsPanel({ onOpenThread, onLocationChange }: Props)
     const result =
       action === "cleanup"
         ? await api.cleanupManagedWorktree(request)
+        : action === "forget" ? await api.forgetManagedWorktree(request)
         : await api.confirmManagedWorktreeMerged(request);
     if (result.location && item.attached) onLocationChange(item.record.threadId, result.location);
     setConfirmation(undefined);
-    setNotice(t(action === "cleanup" ? "worktrees.cleanupDone" : "worktrees.confirmDone"));
+    setNotice(t(action === "cleanup" ? "worktrees.cleanupDone" : action === "forget" ? "worktrees.forgetDone" : "worktrees.confirmDone"));
     await refresh();
   }
 
@@ -125,7 +148,6 @@ export function WorktreeSettingsPanel({ onOpenThread, onLocationChange }: Props)
     <div className="worktrees-settings-panel">
       <header className="settings-page-header">
         <h1>{t("worktrees.title")}</h1>
-        <p className="settings-page-desc">{t("worktrees.subtitle")}</p>
       </header>
       {notice ? (
         <p className="worktrees-notice" role="status">
@@ -143,7 +165,12 @@ export function WorktreeSettingsPanel({ onOpenThread, onLocationChange }: Props)
           <h2 className="settings-section-label">{t("worktrees.creation")}</h2>
         </div>
         <div className="worktrees-root-card">
-          <label htmlFor="worktrees-root">{t("worktrees.root")}</label>
+          <div className="worktrees-root-copy">
+            <label htmlFor="worktrees-root">{t("worktrees.root")}</label>
+            <p id="worktrees-root-hint" className="settings-section-subtitle">
+              {t("worktrees.rootHint")}
+            </p>
+          </div>
           <div className="worktrees-root-input">
             <input
               id="worktrees-root"
@@ -155,18 +182,17 @@ export function WorktreeSettingsPanel({ onOpenThread, onLocationChange }: Props)
               aria-describedby="worktrees-root-hint"
               onChange={(event) => setRootPath(event.target.value)}
             />
-            <button
-              type="button"
-              className="settings-secondary-button"
-              disabled={busy || (settings !== undefined && rootPath === settings.rootPath)}
-              onClick={() => void run(saveSettings)}
-            >
-              {t("common.save")}
-            </button>
+            {!settings || rootPath !== settings.rootPath ? (
+              <button
+                type="button"
+                className="settings-secondary-button"
+                disabled={busy || (settings !== undefined && rootPath === settings.rootPath)}
+                onClick={() => void run(saveSettings)}
+              >
+                {t("common.save")}
+              </button>
+            ) : null}
           </div>
-          <p id="worktrees-root-hint" className="settings-section-subtitle">
-            {t("worktrees.rootHint")}
-          </p>
         </div>
       </section>
 
@@ -184,7 +210,6 @@ export function WorktreeSettingsPanel({ onOpenThread, onLocationChange }: Props)
             {busy ? <LoaderCircle size={16} className="thread-worktree-spinner" /> : <RefreshCw size={16} />}
           </button>
         </div>
-        <p className="settings-section-subtitle worktrees-policy">{t("worktrees.cleanupPolicy")}</p>
         {busy && !settings ? <p role="status">{t("worktrees.loading")}</p> : null}
         {!busy && !error && items.length === 0 ? (
           <div className="worktrees-empty">
@@ -199,90 +224,75 @@ export function WorktreeSettingsPanel({ onOpenThread, onLocationChange }: Props)
             <details className="worktrees-project" key={key} open>
               <summary>
                 <span className="worktrees-project-copy">
-                  <strong>{root.split(/[\\/]/).filter(Boolean).at(-1) ?? root}</strong>
-                  <small title={root}>{root}</small>
+                  <strong title={root}>{root.split(/[\\/]/).filter(Boolean).at(-1) ?? root}</strong>
                 </span>
                 <span className="worktrees-count">{t("worktrees.count", { count: group.length })}</span>
+                <ChevronDown size={18} strokeWidth={1.7} className="worktrees-project-chevron" aria-hidden />
               </summary>
               {group.map((item) => {
                 const { record } = item;
                 const confirming = confirmation?.item.record.id === record.id ? confirmation : undefined;
                 return (
                   <article className="worktrees-entry" key={record.id}>
-                    <div className="worktrees-entry-head">
-                      <div className="worktrees-entry-copy">
-                        {item.threadExists ? (
-                          <button
-                            type="button"
-                            className="worktrees-chat-link"
-                            onClick={() => onOpenThread(record.threadId)}
-                          >
-                            {item.threadTitle}
-                          </button>
-                        ) : (
-                          <strong>{item.threadTitle}</strong>
-                        )}
-                        <div className="worktrees-badges">
-                          <span className={item.error || record.state === "missing" ? "needs-attention" : ""}>
-                            {t(item.error ? "worktrees.state.error" : `worktrees.state.${record.state}`)}
-                          </span>
-                          {!item.threadExists ? (
-                            <span>{t("worktrees.deletedChat")}</span>
-                          ) : !item.attached ? (
-                            <span>{t("worktrees.detached")}</span>
-                          ) : null}
-                          {item.busy ? <span>{t("worktrees.busy")}</span> : null}
-                          {item.merged ? (
-                            <span>
-                              {t(
-                                item.merged === "git"
-                                  ? "worktrees.merged"
-                                  : item.merged === "confirmed"
-                                    ? "worktrees.confirmed"
-                                    : "worktrees.unmerged",
-                              )}
-                            </span>
-                          ) : null}
-                        </div>
-                      </div>
+                    <div className="worktrees-row-actions">
                       <button
                         type="button"
                         className="worktrees-icon-button"
-                        title={t("worktrees.copyPath")}
-                        aria-label={t("worktrees.copyPath")}
-                        disabled={busy}
-                        onClick={() =>
-                          void run(async () => {
-                            await navigator.clipboard.writeText(record.worktreePath);
-                            setNotice(t("worktrees.copied"));
-                          })
-                        }
+                        title={t("worktrees.newChat")}
+                        aria-label={t("worktrees.newChat")}
+                        disabled={busy || !item.exists || Boolean(item.error)}
+                        onClick={() => void run(() => startChat(item))}
                       >
-                        <Copy size={15} />
+                        <CirclePlus size={19} strokeWidth={1.6} aria-hidden />
                       </button>
-                      <button
-                        type="button"
-                        className="worktrees-icon-button"
-                        title={t("worktrees.openFolder")}
-                        aria-label={t("worktrees.openFolder")}
-                        disabled={busy || !item.exists}
-                        onClick={() =>
-                          void run(async () => {
-                            if (!window.eco) throw new Error(t("worktrees.unavailable"));
-                            await window.eco.openWorkspaceInFileManager(record.worktreePath);
-                          })
-                        }
-                      >
-                        <FolderOpen size={16} />
-                      </button>
+                      <span title={item.busy ? t("worktrees.busy") : item.blockingReasons?.join("\n")}>
+                        <button
+                          type="button"
+                          className="worktrees-icon-button worktrees-cleanup"
+                          aria-label={t(item.canForget ? "worktrees.forget" : "worktrees.cleanup")}
+                          title={t(item.canForget ? "worktrees.forget" : "worktrees.cleanup")}
+                          disabled={busy || item.busy || (!item.canClean && !item.canForget)}
+                          onClick={() => setConfirmation({ item, action: item.canForget ? "forget" : "cleanup" })}
+                        >
+                          <Trash2 size={19} strokeWidth={1.6} aria-hidden />
+                        </button>
+                      </span>
                     </div>
-                    <code className="worktrees-path">{record.worktreePath}</code>
                     <details className="worktrees-entry-details">
-                      <summary>{t("worktrees.details")}</summary>
+                      <summary title={t("worktrees.details")} aria-label={t("worktrees.details")}>
+                        <span className="worktrees-entry-copy">
+                          <strong>{item.threadTitle}</strong>
+                          <code className="worktrees-path" title={record.worktreePath}>
+                            {record.worktreePath}
+                          </code>
+                        </span>
+                      </summary>
+                      <div className="worktrees-badges">
+                        <span className={item.error || record.state === "missing" ? "needs-attention" : ""}>
+                          {t(item.error ? "worktrees.state.error" : `worktrees.state.${record.state}`)}
+                        </span>
+                        {!item.threadExists ? (
+                          <span>{t("worktrees.deletedChat")}</span>
+                        ) : !item.attached ? (
+                          <span>{t("worktrees.detached")}</span>
+                        ) : null}
+                        {item.busy ? <span>{t("worktrees.busy")}</span> : null}
+                        {item.merged ? (
+                          <span>
+                            {t(
+                              item.merged === "git"
+                                ? "worktrees.merged"
+                                : item.merged === "confirmed"
+                                  ? "worktrees.confirmed"
+                                  : "worktrees.unmerged",
+                            )}
+                          </span>
+                        ) : null}
+                      </div>
                       <dl>
                         <dt>{t("worktrees.branch")}</dt>
                         <dd>
-                          <code>{record.branchName}</code>
+                          <code>{record.checkoutBranch === "" ? "detached HEAD" : record.checkoutBranch ?? record.branchName}</code>
                         </dd>
                         <dt>{t("worktrees.target")}</dt>
                         <dd>
@@ -297,6 +307,30 @@ export function WorktreeSettingsPanel({ onOpenThread, onLocationChange }: Props)
                         </ul>
                       ) : null}
                       <div className="worktrees-entry-actions">
+                        {item.threadExists ? (
+                          <button
+                            type="button"
+                            className="settings-secondary-button"
+                            onClick={() => onOpenThread(record.threadId)}
+                          >
+                            {t("worktrees.openChat")}
+                          </button>
+                        ) : null}
+
+                        <button
+                          type="button"
+                          className="settings-secondary-button"
+                          disabled={busy || !item.exists}
+                          onClick={() =>
+                            void run(async () => {
+                              if (!window.eco) throw new Error(t("worktrees.unavailable"));
+                              await window.eco.openWorkspaceInFileManager(record.worktreePath);
+                            })
+                          }
+                        >
+                          <FolderOpen size={15} />
+                          {t("worktrees.openFolder")}
+                        </button>
                         {item.merged === "unmerged" && item.branchCommit && item.targetCommit ? (
                           <button
                             type="button"
@@ -309,12 +343,17 @@ export function WorktreeSettingsPanel({ onOpenThread, onLocationChange }: Props)
                         ) : null}
                         <button
                           type="button"
-                          className="settings-secondary-button worktrees-cleanup"
-                          disabled={busy || item.busy || !item.canClean}
-                          onClick={() => setConfirmation({ item, action: "cleanup" })}
+                          className="settings-secondary-button"
+                          disabled={busy}
+                          onClick={() =>
+                            void run(async () => {
+                              await navigator.clipboard.writeText(record.worktreePath);
+                              setNotice(t("worktrees.copied"));
+                            })
+                          }
                         >
-                          <Trash2 size={14} />
-                          {t("worktrees.cleanup")}
+                          <Copy size={14} />
+                          {t("worktrees.copyPath")}
                         </button>
                       </div>
                     </details>
@@ -323,14 +362,14 @@ export function WorktreeSettingsPanel({ onOpenThread, onLocationChange }: Props)
                       <fieldset
                         className="worktrees-confirmation"
                         aria-label={t(
-                          confirming.action === "cleanup" ? "worktrees.cleanup" : "worktrees.confirmMerged",
+                          confirming.action === "cleanup" ? "worktrees.cleanup" : confirming.action === "forget" ? "worktrees.forget" : "worktrees.confirmMerged",
                         )}
                       >
                         <p>
                           {t(
                             confirming.action === "cleanup"
                               ? "worktrees.cleanupHint"
-                              : "worktrees.confirmHint",
+                              : confirming.action === "forget" ? "worktrees.forgetHint" : "worktrees.confirmHint",
                             {
                               commit: confirming.item.branchCommit?.slice(0, 12),
                               branch: record.targetBranch,
@@ -347,7 +386,7 @@ export function WorktreeSettingsPanel({ onOpenThread, onLocationChange }: Props)
                             {t(
                               confirming.action === "cleanup"
                                 ? "worktrees.cleanupAction"
-                                : "worktrees.confirmAction",
+                                : confirming.action === "forget" ? "worktrees.forget" : "worktrees.confirmAction",
                             )}
                           </button>
                           <button
@@ -367,6 +406,9 @@ export function WorktreeSettingsPanel({ onOpenThread, onLocationChange }: Props)
             </details>
           );
         })}
+        {items.length ? (
+          <p className="settings-section-subtitle worktrees-policy">{t("worktrees.cleanupPolicy")}</p>
+        ) : null}
       </section>
     </div>
   );

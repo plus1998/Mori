@@ -407,11 +407,11 @@ function appendFileChip(root: HTMLElement, path: string): void {
   root.appendChild(span);
 }
 
-function appendReferenceChip(root: HTMLElement, reference: ComposerReference): void {
+function appendReferenceChip(root: HTMLElement, reference: ComposerReference, sourceToken?: string): void {
   const span = document.createElement("span");
   span.className = "composer-file-inline composer-reference-inline";
   span.contentEditable = "false";
-  span.dataset.referenceToken = composerReferenceToken(reference);
+  span.dataset.referenceToken = sourceToken ?? composerReferenceToken(reference);
   span.dataset.referenceKind = reference.kind;
   span.dataset.referenceId = reference.id;
   span.title = composerReferenceTitle(reference);
@@ -513,7 +513,7 @@ export function renderEditablePrompt(
       appendSkillChip(parent, segment.name, skillsByName);
       continue;
     }
-    if (segment.type === "reference") appendReferenceChip(parent, segment.reference);
+    if (segment.type === "reference") appendReferenceChip(parent, segment.reference, segment.sourceToken);
     else appendFileChip(parent, segment.path);
   }
 }

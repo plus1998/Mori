@@ -755,7 +755,6 @@ import {
   resolveNonRewindRetryUserMessage,
 } from "./conversation-nonrewind-retry-command";
 import { executePlanResolutionCommand, recoverInterruptedPlanCommands } from "./conversation-plan-command";
-import { resolvePlanExecutionId } from "./plan-execution-store";
 import { PLAN_EXECUTION_CHANGED } from "../shared/plan-execution";
 import { executeConversationRewriteCommand } from "./conversation-rewrite-command";
 import {
@@ -1657,6 +1656,7 @@ const threadWorktrees = new ThreadWorktreeService({
   getWorktree: (id) => conversationStore.getWorktree(id),
   listWorktrees: () => conversationStore.listWorktrees(),
   saveWorktree: (record) => conversationStore.saveWorktree(record),
+  listWorktreeThreads: (id) => conversationStore.listWorktreeThreads(id),
 }, gitRunner, { rootPath: () => worktreeSettingsStore.resolvedRootPath() });
 let worktreeSettingsStore: WorktreeSettingsStore;
 let currentWorkspace: WorkspaceInfo | undefined;
@@ -2140,8 +2140,18 @@ function emitRequestTerminalEvent(
 }
 
 function startActiveRun(threadId: string, run: ActiveRunRuntimeStateInput): void {
+  const location = conversationStore.getThread(threadId)?.workLocation;
+  if (threadWorkLocationMutations.has(threadId) ||
+    (location?.worktree && threadWorkLocationMutations.has(location.worktree.threadId)))
+    throw new Error("工作位置正在改变，请稍后重试。");
+  const record = location?.mode === "isolated" && location.worktree
+    ? conversationStore.getWorktree(location.worktree.id) : undefined;
+  if (location?.mode === "isolated" && !record) throw new Error("隔离工作树缺少管理记录。");
+  activeRunRuntimeState.startRun(threadId, record ? { ...run, exclusiveWorkspace: true, worktreePlan: {
+    workspacePath: record.workspacePath, worktreePath: record.worktreePath,
+    branchName: record.checkoutBranch ?? record.branchName,
+  } } : run);
   clearRequestStartedPersisted(threadId);
-  activeRunRuntimeState.startRun(threadId, run);
   activeRunBillingState.startRun(threadId);
   getThreadSubagentConcurrencyGate(threadId).clear();
   syncSystemSleepBlocker();
@@ -6960,6 +6970,7 @@ function registerIpcHandlers(): void {
       prompt?: unknown;
       attachments?: unknown;
       recoveryReason?: unknown;
+      managedWorktreeId?: unknown;
     };
     if (typeof record.prompt !== "string") {
       throw new Error("Composer draft prompt must be a string.");
@@ -6974,6 +6985,7 @@ function registerIpcHandlers(): void {
       record.prompt,
       attachments,
       typeof record.recoveryReason === "string" ? record.recoveryReason : undefined,
+      record.managedWorktreeId === null ? null : typeof record.managedWorktreeId === "string" ? record.managedWorktreeId : undefined,
     );
   });
 
@@ -9898,25 +9910,32 @@ function registerIpcHandlers(): void {
   registerDesktopCommand(IPC_CHANNELS.worktreeSettingsSave, async (payload: unknown) => worktreeSettingsStore.save(payload));
   registerDesktopCommand(IPC_CHANNELS.worktreeManagedList, async () => {
     const items = await threadWorktrees.listManaged();
-    return items.map(item => ({ ...item, busy: item.busy || activeRunRuntimeState.hasRun(item.record.threadId) ||
-      threadRunPreparations.has(item.record.threadId) || threadWorkLocationMutations.has(item.record.threadId) ||
-      contextMonitor.isCompactInFlight(item.record.threadId) }));
+    const codexTerminals = items.length ? await getCodexBackgroundTerminalService().list() : [];
+    return items.map(item => {
+      const occupancy = worktreeOccupancyReasons(item.record.worktreePath, codexTerminals);
+      return { ...item, canClean: item.canClean && occupancy.length === 0,
+        blockingReasons: [...(item.blockingReasons ?? []), ...occupancy],
+        busy: item.busy || occupancy.length > 0 || threadWorkLocationMutations.has(item.record.threadId) ||
+          conversationStore.listWorktreeThreads(item.record.id).some(thread =>
+            activeRunRuntimeState.hasRun(thread.id) || threadRunPreparations.has(thread.id) ||
+            contextMonitor.isCompactInFlight(thread.id)) };
+    });
   });
   for (const [channel, action] of [
     [IPC_CHANNELS.worktreeManagedCleanup, "cleanup"],
+    [IPC_CHANNELS.worktreeManagedForget, "forget"],
     [IPC_CHANNELS.worktreeManagedConfirmMerged, "confirm"],
   ] as const) {
     registerDesktopCommand(channel, async (payload: unknown) => {
       const request = parseWorktreeActionRequest(payload);
       return withThreadWorkLocationMutation(request.threadId, async () => {
-        assertThreadWorkLocationIdle(request.threadId, true);
+        await assertWorktreeIdle(request.worktreeId);
         try {
           return action === "cleanup" ? await threadWorktrees.cleanupManaged(request)
+            : action === "forget" ? await threadWorktrees.forgetManaged(request)
             : await threadWorktrees.confirmManagedMerged(request);
         } finally {
-          const location = conversationStore.getThread(request.threadId)?.workLocation;
-          if (action === "cleanup" && location?.mode === "needs_choice")
-            await resetThreadRuntimeForWorkLocation(request.threadId);
+          if (action !== "confirm") await resetCleanedWorktreeRuntimes(request.worktreeId);
         }
       });
     });
@@ -9928,16 +9947,19 @@ function registerIpcHandlers(): void {
   registerDesktopCommand(IPC_CHANNELS.worktreeConfirmMerged, async (payload: unknown) => {
     const request = parseWorktreeActionRequest(payload);
     assertThreadWorkLocationIdle(request.threadId);
+    await assertWorktreeIdle(request.worktreeId);
     return threadWorktrees.confirmMerged(request);
   });
   registerDesktopCommand(IPC_CHANNELS.worktreeCleanup, async (payload: unknown) => {
     const request = parseWorktreeActionRequest(payload);
-    return withThreadWorkLocationMutation(request.threadId, async () => {
+    const record = conversationStore.getWorktree(request.worktreeId);
+    if (!record) throw new Error("找不到工作树管理记录。");
+    return withThreadWorkLocationMutation(record.threadId, async () => {
       assertThreadWorkLocationIdle(request.threadId);
+      await assertWorktreeIdle(request.worktreeId);
       try { return await threadWorktrees.cleanup(request); }
       finally {
-        const location = conversationStore.getThread(request.threadId)?.workLocation;
-        if (location?.mode === "needs_choice") await resetThreadRuntimeForWorkLocation(request.threadId);
+        await resetCleanedWorktreeRuntimes(request.worktreeId);
       }
     });
   });
@@ -10915,6 +10937,40 @@ async function resetThreadRuntimeForWorkLocation(threadId: string): Promise<void
   conversationStore.resetThreadRuntimeForWorkLocation(threadId);
   pendingClaudeForksByThread.delete(threadId);
   resetSubagentContextWindows(threadId);
+}
+
+function worktreeOccupancyReasons(worktreePath: string, codexTerminals: readonly { workspacePath: string; processId: string }[]): string[] {
+  const reasons: string[] = [];
+  const terminals = interactiveTerminalManager.list().filter(session =>
+    isInsideWorktree(worktreePath, session.workspacePath));
+  if (terminals.length) reasons.push(`工作树仍有打开的终端：${terminals.map(item => item.sessionId).join("、")}，请先关闭。`);
+  const tasks = backgroundTerminalTaskRegistry.list()
+    .filter(task => isInsideWorktree(worktreePath, task.workspacePath) && (task.status === "starting" || task.status === "running"));
+  if (tasks.length) reasons.push(`工作树仍有后台任务：${tasks.map(item => item.taskId).join("、")}，请先停止。`);
+  const claudeTasks = claudeBackgroundTaskRegistry.list().filter(task => isInsideWorktree(worktreePath, task.workspacePath));
+  if (claudeTasks.length) reasons.push(`工作树仍有 Claude 后台任务：${claudeTasks.map(item => item.taskId).join("、")}，请先停止。`);
+  const nativeTerminals = codexTerminals.filter(item => isInsideWorktree(worktreePath, item.workspacePath));
+  if (nativeTerminals.length) reasons.push(`工作树仍有 Codex 后台进程：${nativeTerminals.map(item => item.processId).join("、")}，请先停止。`);
+  return reasons;
+}
+
+function isInsideWorktree(root: string, cwd: string): boolean {
+  const relative = path.relative(path.resolve(root), path.resolve(cwd));
+  return relative === "" || (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
+}
+
+async function assertWorktreeIdle(worktreeId: string): Promise<void> {
+  const record = conversationStore.getWorktree(worktreeId);
+  if (!record) throw new Error("找不到工作树管理记录。");
+  const reasons = worktreeOccupancyReasons(record.worktreePath, await getCodexBackgroundTerminalService().list());
+  if (reasons.length) throw new Error(reasons.join("\n"));
+  for (const thread of conversationStore.listWorktreeThreads(worktreeId))
+    assertThreadWorkLocationIdle(thread.id);
+}
+
+async function resetCleanedWorktreeRuntimes(worktreeId: string): Promise<void> {
+  for (const thread of conversationStore.listWorktreeThreads(worktreeId))
+    if (thread.workLocation?.mode === "needs_choice") await resetThreadRuntimeForWorkLocation(thread.id);
 }
 
 interface ThreadWorktreeResolution {
@@ -12656,14 +12712,14 @@ async function startCodexThreadRun(
   requireThreadCore(input.thread, "codex", input.continuation ? "continue with Codex" : "start Codex");
   const mode = resolveSessionMode(input.thread.runtimeConfig);
   const controller = new AbortController();
-  startActiveRun(input.thread.id, {
-    controller,
-    worktreePlan: createSessionPlan(input.workspace.path, input.thread.id),
-  });
 
   let worktreePlan = createSessionPlan(input.workspace.path, input.thread.id);
   let cwd = input.workspace.path;
   try {
+    startActiveRun(input.thread.id, {
+      controller,
+      worktreePlan: createSessionPlan(input.workspace.path, input.thread.id),
+    });
     {
       const resolved = await resolveThreadWorktree(input.workspace, input.thread.id);
       worktreePlan = resolved.worktreePlan;
@@ -13363,13 +13419,14 @@ async function runAskThread(
 ): Promise<void> {
   const controller = new AbortController();
   let cwd = workspace.path;
-  startActiveRun(thread.id, {
-    controller,
-    worktreePlan: resolveWorktreePlan(workspace.path, thread.id),
-  });
+
   resetSubagentContextWindows(thread.id);
 
   try {
+    startActiveRun(thread.id, {
+      controller,
+      worktreePlan: resolveWorktreePlan(workspace.path, thread.id),
+    });
     const selected = await resolveThreadWorktree(workspace, thread.id);
     cwd = selected.cwd;
     activeRunRuntimeState.setWorktreePlan(thread.id, selected.worktreePlan);
@@ -13488,10 +13545,7 @@ async function runPlanThread(
 ): Promise<void> {
   const controller = new AbortController();
   const cwd = worktreePath?.trim() || workspace.path;
-  startActiveRun(thread.id, {
-    controller,
-    worktreePlan: createSessionPlan(workspace.path, thread.id),
-  });
+
   resetSubagentContextWindows(thread.id);
 
   let worktreePlan = createSessionPlan(workspace.path, thread.id);
@@ -13507,6 +13561,10 @@ async function runPlanThread(
   const taskRunHooks = taskRuntime.taskRunHooks;
 
   try {
+    startActiveRun(thread.id, {
+      controller,
+      worktreePlan: createSessionPlan(workspace.path, thread.id),
+    });
     const { worktreePlan: resolvedPlan, cwd: resolvedCwd } = await resolveThreadWorktree(
       workspace,
       thread.id,
@@ -13699,10 +13757,7 @@ async function runCodingThreadAutonomous(
   runtimeDispatch?: PreparedHistoryRuntimeDispatch,
 ): Promise<void> {
   const controller = new AbortController();
-  startActiveRun(thread.id, {
-    controller,
-    worktreePlan: existingWorktreePlan ?? createSessionPlan(workspace.path, thread.id),
-  });
+
   resetSubagentContextWindows(thread.id);
 
   let worktreePlan = existingWorktreePlan ?? createSessionPlan(workspace.path, thread.id);
@@ -13717,6 +13772,10 @@ async function runCodingThreadAutonomous(
   const taskRunHooks = taskRuntime.taskRunHooks;
 
   try {
+    startActiveRun(thread.id, {
+      controller,
+      worktreePlan: existingWorktreePlan ?? createSessionPlan(workspace.path, thread.id),
+    });
     const {
       worktreePlan: resolvedPlan,
       cwd,
@@ -13907,14 +13966,6 @@ async function runCodingThreadExecution(
 
   let worktreePlan = resolveWorktreePlan(pending.workspacePath, threadId, pending.worktreePath);
   const controller = new AbortController();
-  startActiveRun(threadId, { controller, worktreePlan });
-  resetSubagentContextWindows(threadId);
-
-  const workspace = await ensureWorkspace(pending.workspacePath);
-  const resolved = await resolveThreadWorktree(workspace, threadId, worktreePlan);
-  worktreePlan = resolved.worktreePlan;
-  const executionCwd = resolved.cwd;
-  activeRunRuntimeState.setWorktreePlan(threadId, worktreePlan);
 
   const taskRuntime = createThreadSdkTaskRuntime({
     threadId,
@@ -13928,6 +13979,14 @@ async function runCodingThreadExecution(
   const executionPlan = buildExecutionFailureRestorePendingPlan(pending);
 
   try {
+    startActiveRun(threadId, { controller, worktreePlan });
+    resetSubagentContextWindows(threadId);
+
+    const workspace = await ensureWorkspace(pending.workspacePath);
+    const resolved = await resolveThreadWorktree(workspace, threadId, worktreePlan);
+    worktreePlan = resolved.worktreePlan;
+    const executionCwd = resolved.cwd;
+    activeRunRuntimeState.setWorktreePlan(threadId, worktreePlan);
     const executionOutcome = await runThreadRequestOnce(
       threadId,
       "execution",
@@ -14443,9 +14502,11 @@ async function startNewThread(
   options: { scheduled?: boolean; threadId?: string; title?: string; occurrenceId?: string } = {},
 ): Promise<ThreadStartResult> {
   if (payload.developmentMode !== undefined && payload.developmentMode !== "direct" && payload.developmentMode !== "isolated") throw new Error("无效的开发方式。");
+  if (payload.managedWorktreeId !== undefined &&
+    (typeof payload.managedWorktreeId !== "string" || !payload.managedWorktreeId.trim() || payload.developmentMode === "isolated"))
+    throw new Error("无效的已有工作树选择。");
   const attachments = parsePromptImageAttachments(payload.attachments);
   const prompt = resolveThreadMessagePrompt(payload.prompt);
-  const planExecutionId = resolvePlanExecutionId(prompt, payload.planExecutionId);
   if (!prompt && attachments.length === 0) {
     throw new Error("Task prompt is required.");
   }
@@ -14478,17 +14539,12 @@ async function startNewThread(
     coreKind === "acp" || options.scheduled
       ? normalizeThreadRuntimeConfig(parsedRuntimeConfig)
       : materializeThreadRuntimeConfig(settings, parsedRuntimeConfig);
-  if (planExecutionId) {
-    if (threadRuntime.sessionMode !== "agent") throw new Error("执行引用计划需要使用执行模式。");
-    conversationStore.validatePlanExecution(planExecutionId, workspace.path);
-  }
   const roleRoutes = coreKind === "acp" ? [] : roleRoutesForThreadConfig(settings, threadRuntime);
   const resolvedRuntimeConfig =
     coreKind === "acp"
       ? { ok: true as const, routes: [] as RuntimeRoute[] }
       : resolveRuntimeConfigForThreadConfig(settings, threadRuntime, roleRoutes);
   if (options.scheduled && !resolvedRuntimeConfig.ok) throw new Error(resolvedRuntimeConfig.reason);
-  if (planExecutionId && !resolvedRuntimeConfig.ok) throw new Error(resolvedRuntimeConfig.reason);
   const status: ThreadSummary["status"] = resolvedRuntimeConfig.ok ? "running" : "blocked";
   const now = new Date().toISOString();
   const acpAgentId = coreKind === "acp" ? ("cursor" as const) : undefined;
@@ -14511,13 +14567,14 @@ async function startNewThread(
     runtimeConfig: threadRuntime,
   };
 
-  conversationStore.saveThread(thread, () => {
-    if (planExecutionId) conversationStore.reservePlanExecution(planExecutionId, thread.id);
-  });
+  conversationStore.saveThread(thread);
   try {
     let worktreeCreationFailed = false;
-    if (payload.developmentMode === "isolated") {
-      const result = await threadWorktrees.create(thread.id);
+    if (payload.developmentMode === "isolated" || payload.managedWorktreeId) {
+      if (payload.managedWorktreeId) conversationStore.saveThreadWorkLocation(thread.id, { mode: "needs_choice" });
+      const result = payload.managedWorktreeId
+        ? await threadWorktrees.attach(thread.id, payload.managedWorktreeId)
+        : await threadWorktrees.create(thread.id);
       thread.workLocation = result.location!;
       if (result.location?.mode !== "isolated" || !result.exists || result.error) {
         worktreeCreationFailed = true;
@@ -14574,10 +14631,6 @@ async function startNewThread(
         .catch((error) => updateThread(thread.id, { status: "failed", message: errorMessage(error) }));
     }
 
-    if (planExecutionId) {
-      if (worktreeCreationFailed) conversationStore.failQueuedPlanExecution(thread.id, thread.message);
-      publishPlanExecutionChanges(thread.id);
-    }
     return { thread };
   } catch (error) {
     conversationStore.failQueuedPlanExecution(thread.id, errorMessage(error));
@@ -14631,8 +14684,11 @@ async function startPreparedThreadContinuation(
   input: StartThreadContinuationInput,
 ): Promise<ThreadContinueResult> {
   input.preparationSignal?.throwIfAborted();
-  if (threadWorkLocationMutations.has(input.threadId)) throw new Error("工作位置正在改变，请稍后重试。");
+  const locationOwner = conversationStore.getThread(input.threadId)?.workLocation?.worktree?.threadId;
+  if (threadWorkLocationMutations.has(input.threadId) || (locationOwner && threadWorkLocationMutations.has(locationOwner)))
+    throw new Error("工作位置正在改变，请稍后重试。");
   const selectedLocation = await threadWorktrees.resolve(input.threadId);
+  activeRunRuntimeState.assertWorkspaceAvailable(input.threadId, selectedLocation.worktreePlan, selectedLocation.isolated);
   const priorThread = conversationStore.getThread(input.threadId);
   const priorBinding = conversationStore.getThreadCoreSession(input.threadId);
   const priorCwd = priorBinding?.cwd ?? conversationStore.getSdkSession(input.threadId)?.cwd;
@@ -17739,10 +17795,7 @@ async function runThreadContinuation(
   runtimeDispatch?: PreparedHistoryRuntimeDispatch,
 ): Promise<void> {
   const controller = new AbortController();
-  startActiveRun(thread.id, {
-    controller,
-    worktreePlan: existingWorktreePlan ?? createSessionPlan(workspace.path, thread.id),
-  });
+
   resetSubagentContextWindows(thread.id);
 
   let planningPlanCaptured = false;
@@ -17762,6 +17815,10 @@ async function runThreadContinuation(
   const taskRunHooks = taskRuntime?.taskRunHooks;
 
   try {
+    startActiveRun(thread.id, {
+      controller,
+      worktreePlan: existingWorktreePlan ?? createSessionPlan(workspace.path, thread.id),
+    });
     {
       const resolved = await resolveThreadWorktree(workspace, thread.id, existingWorktreePlan);
       worktreePlan = resolved.worktreePlan;

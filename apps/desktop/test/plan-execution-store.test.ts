@@ -4,8 +4,6 @@ import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { createConversationStore } from "../src/main/conversation-store";
-import { resolvePlanExecutionId } from "../src/main/plan-execution-store";
-import { composerReferenceToken } from "../src/shared/composer-references";
 import type { ThreadPendingPlan, ThreadSummary } from "../src/shared/ipc";
 
 const directories: string[] = [];
@@ -87,22 +85,6 @@ test("reserving links both conversations without resolving approval, and rejects
     store.saveThread(thread("duplicate"), () => store.reservePlanExecution(planId, "duplicate")),
   ).toThrow("已交给");
   expect(store.getThread("duplicate")).toBeUndefined();
-});
-
-test("a plain plan reference stays read-only; execution intent is explicit and cannot be substituted", () => {
-  const ref = { kind: "plan" as const, id: "plan_1", label: "Plan", detail: "v1" };
-  expect(resolvePlanExecutionId(composerReferenceToken(ref), undefined)).toBeUndefined();
-  const execution = composerReferenceToken({ ...ref, intent: "execute" });
-  expect(resolvePlanExecutionId(execution, undefined)).toBe(ref.id);
-  expect(resolvePlanExecutionId(execution, ref.id)).toBe(ref.id);
-  expect(() => resolvePlanExecutionId(execution, "plan_2")).toThrow("原始计划引用");
-  expect(() => resolvePlanExecutionId(composerReferenceToken(ref), ref.id)).toThrow("原始计划引用");
-  expect(() =>
-    resolvePlanExecutionId(
-      execution + composerReferenceToken({ ...ref, id: "plan_2", intent: "execute" }),
-      undefined,
-    ),
-  ).toThrow("只能执行一份");
 });
 
 test("only the first launched runtime attempt releases the exact matching source approval", async () => {

@@ -207,7 +207,7 @@ test("tracked, untracked and ignored files block cleanup without staging or chan
   expect(f.store.getThread(f.thread.id)?.workLocation?.worktree?.error).toContain("loose.txt");
 });
 
-test("ignored dependency files do not block cleanup after the branch is merged", async () => {
+test("ignored files block cleanup even after the branch is merged", async () => {
   const f = await fixture();
   const record = (await f.service.create(f.thread.id)).location!.worktree!;
   await fs.writeFile(path.join(record.worktreePath, ".gitignore"), "node_modules/\n");
@@ -218,10 +218,10 @@ test("ignored dependency files do not block cleanup after the branch is merged",
   await git(f.repo, "merge", "--no-ff", record.branchName, "-m", "merge");
   const status = await f.service.status(f.thread.id);
   expect(status.changedFiles).toEqual([]);
-  expect(status.canClean).toBe(true);
-  expect((await f.service.cleanup({ threadId: f.thread.id, worktreeId: record.id })).location?.mode).toBe(
-    "needs_choice",
-  );
+  expect(status.ignoredFiles).toEqual(["node_modules/"]);
+  expect(status.canClean).toBe(false);
+  await expect(f.service.cleanup({ threadId: f.thread.id, worktreeId: record.id })).rejects.toThrow("忽略文件");
+  expect(await fs.readFile(path.join(record.worktreePath, "node_modules/dependency/index.js"), "utf8")).toBe("module\n");
 });
 
 test("Agent removal requires explicit location choice, can reattach unmerged branch, then create another generation", async () => {
@@ -270,8 +270,8 @@ test("mismatched branch and replacement path cannot be cleaned", async () => {
   const f = await fixture();
   const record = (await f.service.create(f.thread.id)).location!.worktree!;
   await git(record.worktreePath, "checkout", "-b", "someone-else");
-  expect((await f.service.status(f.thread.id)).error).toContain("不匹配");
-  await expect(f.service.cleanup({ threadId: f.thread.id, worktreeId: record.id })).rejects.toThrow("不匹配");
+  expect((await f.service.status(f.thread.id)).error).toBeUndefined();
+  expect((await f.service.resolve(f.thread.id)).worktreePlan.branchName).toBe("someone-else");
   expect(await fs.exists(record.worktreePath)).toBe(true);
   await git(f.repo, "worktree", "remove", record.worktreePath);
   await fs.mkdir(record.worktreePath);
@@ -461,4 +461,145 @@ test("legacy paths stay managed after changing the configured root and restartin
   await restarted.cleanupManaged({ threadId: f.thread.id, worktreeId: record.id });
   const next = await restarted.selectLocation({ threadId: f.thread.id, worktreeId: record.id, choice: "new_worktree" });
   expect(next.worktreePath.startsWith(await fs.realpath(path.join(f.root, "new-root")) + path.sep)).toBe(true);
+});
+
+test("new chats share an existing worktree without creating a new directory or changing project ownership", async () => {
+  const f = await fixture();
+  const record = (await f.service.create(f.thread.id)).location!.worktree!;
+  const sibling = { ...f.thread, id: "thr_shared", title: "Another chat" };
+  f.store.saveThread(sibling);
+  const attached = await f.service.attach(sibling.id, record.id);
+  expect(attached.worktreePath).toBe(record.worktreePath);
+  expect(f.store.getThread(sibling.id)?.workspacePath).toBe(f.repo);
+  expect(f.store.getWorktree(record.id)?.threadId).toBe(f.thread.id);
+  expect(f.store.listWorktrees()).toHaveLength(1);
+  expect(f.store.listWorktreeThreads(record.id).map(thread => thread.id).sort()).toEqual([sibling.id, f.thread.id].sort());
+  f.store.deleteThread(f.thread.id);
+  const restarted = new ThreadWorktreeService(f.store, runner, f.worktreeOptions);
+  expect((await restarted.resolve(sibling.id)).cwd).toBe(record.worktreePath);
+  expect((await restarted.listManaged())[0]?.exists).toBe(true);
+});
+
+test("a running shared chat blocks cleanup and successful cleanup resets all linked locations", async () => {
+  const f = await fixture();
+  const record = (await f.service.create(f.thread.id)).location!.worktree!;
+  f.store.saveThread({ ...f.thread, id: "thr_shared", title: "Shared chat" });
+  await f.service.attach("thr_shared", record.id);
+  f.store.saveThread({ ...f.store.getThread("thr_shared")!, status: "running" });
+  expect((await f.service.listManaged())[0]?.busy).toBe(true);
+  await expect(f.service.cleanupManaged({ threadId: f.thread.id, worktreeId: record.id })).rejects.toThrow("结束当前运行");
+  await expect(f.service.cleanup({ threadId: f.thread.id, worktreeId: record.id })).rejects.toThrow("结束当前运行");
+  f.store.saveThread({ ...f.store.getThread("thr_shared")!, status: "idle" });
+  await Promise.all([f.service.status(f.thread.id), f.service.status("thr_shared")]);
+  await f.service.cleanup({ threadId: "thr_shared", worktreeId: record.id });
+  for (const id of [f.thread.id, "thr_shared"]) {
+    expect(f.store.getThread(id)?.workLocation?.mode).toBe("needs_choice");
+    expect(f.store.getThread(id)?.workLocation?.contextResetPending).toBe(true);
+    await expect(f.service.resolve(id)).rejects.toThrow("请先选择");
+  }
+  await f.service.selectLocation({ threadId: "thr_shared", worktreeId: record.id, choice: "project" });
+  expect((await f.service.resolve("thr_shared")).cwd).toBe(f.repo);
+  expect(f.store.getThread(f.thread.id)?.workLocation?.mode).toBe("needs_choice");
+});
+
+test("unavailable worktrees and mismatched projects cannot silently become direct-edit chats", async () => {
+  const f = await fixture();
+  const record = (await f.service.create(f.thread.id)).location!.worktree!;
+  f.store.saveThread({ ...f.thread, id: "thr_wrong", workspacePath: f.root });
+  await expect(f.service.attach("thr_wrong", record.id)).rejects.toThrow("不属于所选项目");
+  await expect(f.service.resolve("thr_wrong")).rejects.toThrow("请先选择");
+  await f.service.cleanupManaged({ threadId: f.thread.id, worktreeId: record.id });
+  f.store.saveThread({ ...f.thread, id: "thr_late" });
+  await expect(f.service.attach("thr_late", record.id)).rejects.toThrow("清理或丢失");
+  await expect(f.service.resolve("thr_late")).rejects.toThrow("请先选择");
+  expect(f.store.getWorktree(record.id)?.state).toBe("removed");
+});
+
+
+test("switching branches preserves Git identity and cleanup deletes only Mori's owned branch", async () => {
+  const f = await fixture();
+  const record = (await f.service.create(f.thread.id)).location!.worktree!;
+  await git(record.worktreePath, "checkout", "-b", "user-feature");
+  await commitEdit(record.worktreePath);
+  await git(f.repo, "merge", "--no-ff", "user-feature", "-m", "merge feature");
+  const status = await f.service.status(f.thread.id);
+  expect(status.error).toBeUndefined();
+  expect(status.canClean).toBe(true);
+  expect(status.location?.worktree?.checkoutBranch).toBe("user-feature");
+  await f.service.cleanup({ threadId: f.thread.id, worktreeId: record.id });
+  expect(await git(f.repo, "rev-parse", "user-feature")).toBe(status.branchCommit!);
+  expect((await runner.run(["git", "show-ref", "--verify", `refs/heads/${record.branchName}`], f.repo)).exitCode).not.toBe(0);
+});
+
+test("restoring a shared worktree reactivates every linked chat", async () => {
+  const f = await fixture();
+  const record = (await f.service.create(f.thread.id)).location!.worktree!;
+  const second = { ...f.thread, id: "thr_shared" };
+  f.store.saveThread(second);
+  await f.service.attach(second.id, record.id);
+  await commitEdit(record.worktreePath);
+  await git(f.repo, "worktree", "remove", record.worktreePath);
+  await f.service.status(f.thread.id);
+  await f.service.status(second.id);
+  await f.service.selectLocation({ threadId: f.thread.id, worktreeId: record.id, choice: "reattach" });
+  expect((await f.service.status(second.id)).location?.mode).toBe("isolated");
+  expect((await f.service.resolve(second.id)).cwd).toBe(record.worktreePath);
+  expect(f.store.getThread(second.id)?.workLocation?.contextResetPending).toBe(true);
+});
+
+test("stale records can be forgotten only after their directory, registration and branches are gone", async () => {
+  const f = await fixture();
+  const record = (await f.service.create(f.thread.id)).location!.worktree!;
+  await expect(f.service.forgetManaged({ threadId: f.thread.id, worktreeId: record.id })).rejects.toThrow("不能移除");
+  await git(f.repo, "worktree", "remove", record.worktreePath);
+  await expect(f.service.forgetManaged({ threadId: f.thread.id, worktreeId: record.id })).rejects.toThrow("不能移除");
+  await git(f.repo, "branch", "-D", record.branchName);
+  expect((await f.service.listManaged())[0]?.canForget).toBe(true);
+  await f.service.forgetManaged({ threadId: f.thread.id, worktreeId: record.id });
+  expect(await f.service.listManaged()).toHaveLength(0);
+  expect(f.store.getThread(f.thread.id)?.workLocation?.mode).toBe("needs_choice");
+});
+
+test("creation retains the detached HEAD diagnostic", async () => {
+  const f = await fixture();
+  await git(f.repo, "checkout", "--detach");
+  const status = await f.service.create(f.thread.id);
+  expect(status.error).toContain("detached HEAD");
+  expect((await f.service.status(f.thread.id)).error).toContain("detached HEAD");
+});
+
+test("draft worktree binding survives reopen, empty text and legacy saves until explicitly cleared", async () => {
+  const f = await fixture();
+  const key = `landing:${f.repo}`;
+  f.store.saveComposerDraft(key, "", [], undefined, "managed-id");
+  const { store } = await openStore(f.dbPath);
+  expect(store.getComposerDraft(key)?.managedWorktreeId).toBe("managed-id");
+  store.saveComposerDraft(key, "resume prompt");
+  expect(store.getComposerDraft(key)?.managedWorktreeId).toBe("managed-id");
+  store.saveComposerDraft(key, "resume prompt", [], undefined, null);
+  expect(store.getComposerDraft(key)?.managedWorktreeId).toBeUndefined();
+  store.saveComposerDraft(key, "", [], undefined, null);
+  expect(store.getComposerDraft(key)).toBeUndefined();
+});
+
+test("recreating a registered checkout at the same path cannot inherit its former identity", async () => {
+  const f = await fixture();
+  const record = (await f.service.create(f.thread.id)).location!.worktree!;
+  await git(f.repo, "worktree", "remove", record.worktreePath);
+  await git(f.repo, "worktree", "add", record.worktreePath, record.branchName);
+  const status = await f.service.status(f.thread.id);
+  expect(status.error).toContain("身份");
+  await expect(f.service.cleanup({ threadId: f.thread.id, worktreeId: record.id })).rejects.toThrow("身份");
+  expect(await fs.exists(record.worktreePath)).toBe(true);
+});
+
+test("a switched checkout cannot discard unmerged commits on the Mori-owned branch", async () => {
+  const f = await fixture();
+  const record = (await f.service.create(f.thread.id)).location!.worktree!;
+  await commitEdit(record.worktreePath);
+  await git(record.worktreePath, "checkout", "-b", "already-merged", "main");
+  const status = await f.service.status(f.thread.id);
+  expect(status.merged).toBe("git");
+  expect(status.canClean).toBe(false);
+  expect(status.blockingReasons?.join()).toContain("Mori 创建的分支仍有未并入的提交");
 });

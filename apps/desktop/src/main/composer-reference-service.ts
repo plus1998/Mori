@@ -134,7 +134,6 @@ export class ComposerReferenceService {
           title: plan.title, workspacePath: plan.workspacePath,
           plan: Array.from(plan.plan).slice(0, 8000).join(""), planTruncated: Array.from(plan.plan).length > 8000,
           tool: "eco_context.read_plan",
-          ...(ref.intent === "execute" ? { intent: "execute", instruction: "Execute this exact plan version. Read all remaining plan text with read_plan before implementation." } : {}),
         });
       } else if (ref.kind === "ssh") {
         const ssh = this.deps.listSsh().find((item) => item.id === ref.id);

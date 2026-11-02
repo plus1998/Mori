@@ -313,13 +313,13 @@ export async function startPiThreadRun(
   }
 
   const controller = new AbortController();
-  deps.startActiveRun(input.thread.id, {
-    controller,
-    worktreePlan: deps.createSessionPlan(input.workspace.path, input.thread.id),
-  });
 
   let cwd = input.workspace.path;
   try {
+    deps.startActiveRun(input.thread.id, {
+      controller,
+      worktreePlan: deps.createSessionPlan(input.workspace.path, input.thread.id),
+    });
     const resolved = await deps.resolveThreadWorktree(input.workspace, input.thread.id);
     cwd = resolved.cwd;
     deps.startActiveRun(input.thread.id, {
