@@ -140,6 +140,29 @@ export class PlanExecutionStore {
       .run(attemptId, threadId);
   }
 
+  canResume(threadId: string): boolean {
+    return Boolean(
+      this.db
+        .prepare(`SELECT 1 FROM plan_execution_links WHERE execution_thread_id = ?
+        AND attempt_id IS NOT NULL AND status IN ('failed', 'cancelled', 'interrupted')`)
+        .get(threadId),
+    );
+  }
+
+  resumeAttempt(threadId: string, attemptId: string): void {
+    this.db
+      .prepare(`UPDATE plan_execution_links SET attempt_id = ?, status = 'running', message = ''
+      WHERE execution_thread_id = ? AND attempt_id IS NOT NULL
+        AND status IN ('failed', 'cancelled', 'interrupted')
+        AND NOT EXISTS (
+          SELECT 1 FROM plan_execution_links active
+          WHERE active.plan_id = plan_execution_links.plan_id
+            AND active.execution_thread_id != plan_execution_links.execution_thread_id
+            AND active.status IN ('queued', 'running')
+        )`)
+      .run(attemptId, threadId);
+  }
+
   settleAttempt(threadId: string, attemptId: string, status: PlanExecutionStatus, message: string): void {
     this.db
       .prepare(`UPDATE plan_execution_links SET status = ?, message = ?

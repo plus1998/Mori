@@ -9603,11 +9603,21 @@ export class ConversationStore {
     if (pending?.referenceId) this.planExecutions.assertAvailable(pending.referenceId);
   }
 
-  /** Bind only the first durable runtime attempt, and atomically resolve the matching source gate. */
+  /** Release source approval once; resumed execution follows its new durable attempt. */
   startPlanExecution(executionThreadId: string, attemptId: string): string | undefined {
     const queued = this.planExecutions.queuedForThread(executionThreadId);
-    if (!queued) return undefined;
-    if (!this.listRunAttempts(executionThreadId).some(attempt => attempt.attemptId === attemptId && attempt.status === "running")) {
+    if (!queued && !this.planExecutions.canResume(executionThreadId)) return undefined;
+    const attempt = this.listRunAttempts(executionThreadId).find(item => item.attemptId === attemptId);
+    if (!queued) {
+      // A provider failure or user stop ends an attempt, not the whole plan.
+      // Only a real execution/continuation can resume it; unrelated asks and
+      // completed plans retain their prior outcome. Source approval stays closed.
+      if (attempt?.status === "running" && (attempt.phase === "execution" || attempt.phase === "continuation")) {
+        this.planExecutions.resumeAttempt(executionThreadId, attemptId);
+      }
+      return undefined;
+    }
+    if (attempt?.status !== "running") {
       throw new Error("执行尚未启动，不能解除来源计划审批。");
     }
     const pending = this.getPendingPlan(queued.sourceThreadId);

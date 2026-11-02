@@ -146,15 +146,16 @@ test("failed launch retains source approval and allows a different execution con
 });
 
 for (const status of ["completed", "failed", "cancelled"] as const) {
-  test(`execution outcome ${status} survives reopening and is not overwritten by later runs`, async () => {
+  test(`execution outcome ${status} survives reopening and is not overwritten by unrelated asks`, async () => {
     const { store, planId, attempt, dbPath } = await setup();
     store.reservePlanExecution(planId, "execution");
     store.upsertRunAttempt(attempt("first"));
     store.startPlanExecution("execution", "first");
     store.upsertRunAttempt(attempt("first", status));
     store.settlePlanExecution("execution", "first", status === "failed" ? "Provider error" : "");
-    store.upsertRunAttempt(attempt("second"));
-    store.upsertRunAttempt(attempt("second", "completed"));
+    store.upsertRunAttempt({ ...attempt("second"), phase: "ask" });
+    store.startPlanExecution("execution", "second");
+    store.upsertRunAttempt({ ...attempt("second", "completed"), phase: "ask" });
     store.settlePlanExecution("execution", "second");
     const reopened = await createConversationStore(dbPath);
     reopened.recoverPlanExecutions();
@@ -162,6 +163,110 @@ for (const status of ["completed", "failed", "cancelled"] as const) {
     expect(reopened.getThread("source")?.status).toBe("idle");
   });
 }
+
+for (const phase of ["execution", "continuation"] as const) {
+  test(`failed plan follows resumed ${phase} and discards its stale card error`, async () => {
+    const { store, planId, attempt, dbPath } = await setup();
+    store.reservePlanExecution(planId, "execution");
+    store.upsertRunAttempt(attempt("first"));
+    store.startPlanExecution("execution", "first");
+    store.upsertRunAttempt(attempt("first", "failed"));
+    store.settlePlanExecution("execution", "first", "Selected model is at capacity.");
+    expect(store.listPlanExecutions("source")[0]?.status).toBe("failed");
+
+    store.upsertRunAttempt({ ...attempt("retry"), phase, retryIndex: 1 });
+    expect(store.startPlanExecution("execution", "retry")).toBeUndefined();
+    expect(store.listPlanExecutions("source")[0]).toMatchObject({ attemptId: "retry", status: "running", message: "" });
+    expect(store.listPlanExecutions("execution")).toEqual(store.listPlanExecutions("source"));
+    expect(store.getPendingPlan("source")).toBeUndefined();
+    expect(store.getThread("source")?.status).toBe("idle");
+    // A delayed terminal callback from the old attempt cannot fail the retry.
+    store.settlePlanExecution("execution", "first", "Selected model is at capacity.");
+    expect(store.listPlanExecutions("source")[0]?.status).toBe("running");
+    expect(store.listRunAttempts("execution").find(item => item.attemptId === "first")?.status).toBe("failed");
+
+    store.upsertRunAttempt({ ...attempt("retry", "completed"), phase, retryIndex: 1 });
+    store.settlePlanExecution("execution", "retry", "");
+    const reopened = await createConversationStore(dbPath);
+    reopened.recoverPlanExecutions();
+    expect(reopened.listPlanExecutions("source")[0]).toMatchObject({ attemptId: "retry", status: "completed", message: "" });
+    // Success ends this execution; later work must not reopen the plan.
+    reopened.upsertRunAttempt(attempt("later"));
+    reopened.startPlanExecution("execution", "later");
+    expect(reopened.listPlanExecutions("source")[0]).toMatchObject({ attemptId: "retry", status: "completed" });
+  });
+}
+
+test("transient errors cannot settle a running attempt or bind an unstarted retry", async () => {
+  const { store, planId, attempt } = await setup();
+  store.reservePlanExecution(planId, "execution");
+  store.upsertRunAttempt(attempt("first"));
+  store.startPlanExecution("execution", "first");
+  store.settlePlanExecution("execution", "first", "temporary provider error");
+  expect(store.listPlanExecutions("source")[0]).toMatchObject({ status: "running", message: "" });
+  store.upsertRunAttempt(attempt("first", "failed"));
+  store.settlePlanExecution("execution", "first", "Provider error");
+  store.startPlanExecution("execution", "not-started");
+  store.startPlanExecution("execution", "first");
+  expect(store.listPlanExecutions("source")[0]).toMatchObject({ attemptId: "first", status: "failed", message: "Provider error" });
+});
+
+test("resuming after a stop or restart updates the link while preserving changed source approval", async () => {
+  const { store, dbPath, planId, attempt, pending } = await setup();
+  store.reservePlanExecution(planId, "execution");
+  store.upsertRunAttempt(attempt("first"));
+  store.startPlanExecution("execution", "first");
+  store.upsertRunAttempt(attempt("first", "cancelled"));
+  store.settlePlanExecution("execution", "first", "User stopped");
+  store.savePendingPlan({ ...pending, plan: "# Revised source plan" });
+  store.updateThread("source", { status: "awaiting_plan", message: "New approval" });
+  store.upsertRunAttempt(attempt("second"));
+  store.startPlanExecution("execution", "second");
+  expect(store.listPlanExecutions("source")[0]).toMatchObject({ attemptId: "second", status: "running", version: 1, message: "" });
+
+  const reopened = await createConversationStore(dbPath);
+  reopened.recoverPlanExecutions();
+  expect(reopened.listPlanExecutions("source")[0]?.status).toBe("interrupted");
+  reopened.upsertRunAttempt(attempt("second", "cancelled"));
+  reopened.upsertRunAttempt(attempt("third"));
+  reopened.startPlanExecution("execution", "third");
+  expect(reopened.listPlanExecutions("source")[0]).toMatchObject({ attemptId: "third", status: "running", version: 1, message: "" });
+  expect(reopened.getPendingPlan("source")?.version).toBe(2);
+  expect(reopened.getThread("source")?.status).toBe("awaiting_plan");
+});
+
+test("resuming an old failed conversation cannot take over a plan active elsewhere", async () => {
+  const { store, planId, attempt, thread, pending } = await setup();
+  store.reservePlanExecution(planId, "execution");
+  store.upsertRunAttempt(attempt("first"));
+  store.startPlanExecution("execution", "first");
+  store.upsertRunAttempt(attempt("first", "failed"));
+  store.settlePlanExecution("execution", "first", "Provider error");
+  store.savePendingPlan(pending);
+  store.updateThread("source", { status: "awaiting_plan", message: "" });
+  store.saveThread(thread("other"));
+  store.reservePlanExecution(planId, "other");
+  store.upsertRunAttempt(attempt("retry"));
+  expect(() => store.startPlanExecution("execution", "retry")).not.toThrow();
+  expect(store.listPlanExecutions("execution")[0]).toMatchObject({ attemptId: "first", status: "failed" });
+  expect(store.listPlanExecutions("other")[0]?.status).toBe("queued");
+});
+
+test("a retry that really fails reports its own error and can be resumed again", async () => {
+  const { store, planId, attempt } = await setup();
+  store.reservePlanExecution(planId, "execution");
+  for (const [id, error] of [["first", "Capacity error"], ["second", "Authentication error"]] as const) {
+    store.upsertRunAttempt(attempt(id));
+    store.startPlanExecution("execution", id);
+    expect(store.listPlanExecutions("source")[0]).toMatchObject({ attemptId: id, status: "running", message: "" });
+    store.upsertRunAttempt(attempt(id, "failed"));
+    store.settlePlanExecution("execution", id, error);
+    expect(store.listPlanExecutions("source")[0]).toMatchObject({ attemptId: id, status: "failed", message: error });
+  }
+  store.upsertRunAttempt(attempt("third"));
+  store.startPlanExecution("execution", "third");
+  expect(store.listPlanExecutions("source")[0]).toMatchObject({ attemptId: "third", status: "running", message: "" });
+});
 
 test("restart marks unfinished links interrupted and preserves unstarted approval", async () => {
   const { store, dbPath, planId } = await setup();
