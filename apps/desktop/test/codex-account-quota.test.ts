@@ -364,7 +364,7 @@ test("opening details shares a one-minute cooldown without starting polling", as
   expect(reads).toBe(2);
 });
 
-test("native quota updates merge only into the bound account without RPCs or invented full-read freshness", async () => {
+test("native quota updates refresh the bound account timestamp without RPCs or replacing full-read metadata", async () => {
   const root = await serviceRoot();
   let reads = 0;
   let changes = 0;
@@ -380,6 +380,8 @@ test("native quota updates merge only into the bound account without RPCs or inv
   const account = await service.createAccount("Native quota");
   await service.setAuthJson(account.id, freshAuth);
   const cached = await service.queryQuota(account.id);
+  const clock = spyOn(Date, "now").mockReturnValue(cached.fetchedAt + 30_000);
+  cleanups.push(async () => { clock.mockRestore(); });
   const update = { rateLimits: { limitId: "codex", primary: { usedPercent: 42, windowDurationMins: 300, resetsAt: 2_000_000_000 } } };
   service.observeQuotaUpdate(account.id, "acct-other", update);
   service.observeQuotaUpdate(account.id, "acct-quota", { ...update, accountId: "acct-other" });
@@ -391,10 +393,14 @@ test("native quota updates merge only into the bound account without RPCs or inv
   expect(updated?.rateLimit.secondaryWindow).toEqual(cached.rateLimit.secondaryWindow);
   expect(updated?.rateLimit.limitReached).toBe(true); // weekly window is still exhausted
   expect(updated?.resetCreditsAvailable).toBe(2);
-  expect(updated?.fetchedAt).toBe(cached.fetchedAt);
+  expect(updated?.fetchedAt).toBe(cached.fetchedAt + 30_000);
   const published = changes;
   service.observeQuotaUpdate(account.id, "acct-quota", update);
   expect(changes).toBe(published);
+  clock.mockReturnValue(cached.fetchedAt + 60_000);
+  service.observeQuotaUpdate(account.id, "acct-quota", update);
+  expect(changes).toBe(published + 1);
+  expect((await service.listAccounts())[0]?.quota?.fetchedAt).toBe(cached.fetchedAt + 60_000);
   expect(reads).toBe(1);
 });
 

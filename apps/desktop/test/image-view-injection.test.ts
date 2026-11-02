@@ -33,7 +33,7 @@ test("Claude MCP merge always includes eco_image_view after image generation", (
   const slice = indexSource.slice(start, start + 2200);
   expect(slice).toContain("imageViewGateway.mergeIntoSdkConfig");
   expect(indexSource).toContain("ECO_IMAGE_VIEW_MCP_SERVER");
-  expect(indexSource).toContain("const hubBuiltinKeys = Object.keys(withWebSearchMcp.mcpServers)");
+  expect(indexSource).toContain("const hubBuiltinKeys = Object.keys(withWechatMcp.mcpServers)");
 });
 
 test("Pi session builder accepts always-on imageViewInject and excludes user override", () => {

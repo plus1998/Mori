@@ -1790,6 +1790,8 @@ test("V2-only reopen migrates and retires a recreated legacy pending-plan table"
   t.after(() => (reopened as unknown as { db: DatabaseSync }).db.close());
 
   assert.deepEqual(reopened.getPendingPlan(threadId), {
+    referenceId: "plan_thr_v2_only_pending_plan_reopen_4680065601b9a580003e274ddb2ce71bf413da4b91e63031cf4e77927b43b824",
+    version: 1,
     threadId,
     userPrompt: "reopen prompt",
     analysis: "reopen analysis",
@@ -1990,6 +1992,8 @@ test("cutover migrates pending plans from an older schema without optional colum
 
   store.switchToV2OnlyStorage();
   assert.deepEqual(store.getPendingPlan(threadId), {
+    referenceId: "plan_thr_pending_plan_old_schema_9adadde33003b800c9fcf18f23b817e7781638280a7642968a2050c164be86bb",
+    version: 1,
     threadId,
     userPrompt: "hello",
     analysis: "legacy analysis",
@@ -2067,6 +2071,8 @@ test("Node SQLite enforces the V2-only storage boundary after an atomic cutover"
   assert.deepEqual(
     { ...migratedPendingPlan, createdAt: undefined },
     {
+      referenceId: "plan_thr_v2_only_cutover_808bb999ae22449b09bc830edd7cda24a8ce25786a8f44a6ff3646b81cb203b6",
+      version: 1,
       threadId,
       userPrompt: "hello",
       analysis: "The request is ready.",
