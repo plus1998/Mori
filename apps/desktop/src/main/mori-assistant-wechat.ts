@@ -1,10 +1,14 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import { createCipheriv, createHash, randomBytes, randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { MoriAssistantSnapshot } from "../shared/mori-assistant";
 import { MoriWechatTyping, type WechatTypingDiagnostic } from "./mori-assistant-wechat-typing";
 
 const BASE = "https://ilinkai.weixin.qq.com";
+const CDN_BASE = "https://novac2c.cdn.weixin.qq.com/c2c";
+const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
+const TEXT_ITEM_TYPE = 1;
+const IMAGE_ITEM_TYPE = 2;
 function pause(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
     const done = () => {
@@ -25,11 +29,31 @@ interface WechatMessage {
   status: "queued" | "running" | "done" | "failed";
   error?: string;
 }
+export interface WechatNotificationMedia {
+  /** Absolute local image path. */
+  path?: string;
+  /** HTTP(S) image URL. */
+  url?: string;
+}
+export interface WechatNotification {
+  text?: string;
+  image?: WechatNotificationMedia;
+}
+type WechatItem = {
+  type: number;
+  text_item?: { text: string };
+  image_item?: {
+    media: { encrypt_query_param: string; aes_key: string; encrypt_type: number };
+    mid_size: number;
+  };
+};
 interface WechatOutbox {
   id: string;
   userId: string;
   contextToken: string;
   text: string;
+  itemList?: WechatItem[];
+  sentItemCount?: number;
   error?: string;
 }
 interface WechatState {
@@ -93,6 +117,21 @@ export class MoriAssistantWechat {
       const state = JSON.parse(await fs.readFile(this.file, "utf8")) as WechatState;
       if (!Array.isArray(state.inbox) || !Array.isArray(state.outbox) || typeof state.cursor !== "string")
         throw new Error("微信连接状态文件无效，原文件已保留。");
+      if (
+        state.outbox.some(
+          (item) =>
+            !item ||
+            typeof item !== "object" ||
+            typeof item.id !== "string" ||
+            typeof item.userId !== "string" ||
+            typeof item.contextToken !== "string" ||
+            typeof item.text !== "string" ||
+            (item.itemList !== undefined && !Array.isArray(item.itemList)) ||
+            (item.sentItemCount !== undefined &&
+              (!Number.isSafeInteger(item.sentItemCount) || item.sentItemCount < 0)),
+        )
+      )
+        throw new Error("微信待发送通知无效，原文件已保留。");
       if (state.sentNotificationIds !== undefined && (!Array.isArray(state.sentNotificationIds) || state.sentNotificationIds.some(id => typeof id !== "string")))
         throw new Error("微信通知回执无效，原文件已保留。");
       if (state.baseUrl) validateWechatBaseUrl(state.baseUrl);
@@ -168,6 +207,108 @@ export class MoriAssistantWechat {
         `微信返回错误 ${value.ret || value.errcode}：${typeof value.errmsg === "string" ? value.errmsg : "请求未成功"}`,
       );
     return value;
+  }
+
+  private imageMimeType(value: string): string {
+    const ext = path.extname(value).toLowerCase();
+    if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
+    if (ext === ".png") return "image/png";
+    if (ext === ".gif") return "image/gif";
+    if (ext === ".webp") return "image/webp";
+    if (ext === ".bmp") return "image/bmp";
+    throw new Error("微信图片只支持 PNG、JPEG、GIF、WEBP 或 BMP。");
+  }
+
+  private async readImage(media: WechatNotificationMedia): Promise<{ bytes: Buffer; mimeType: string }> {
+    const local = media.path?.trim();
+    const remote = media.url?.trim();
+    if ((local ? 1 : 0) + (remote ? 1 : 0) !== 1)
+      throw new Error("微信图片必须提供一个绝对路径或图片 URL。");
+    if (local) {
+      if (!path.isAbsolute(local)) throw new Error("微信图片路径必须是绝对路径。");
+      const mimeType = this.imageMimeType(local);
+      const stat = await fs.stat(local);
+      if (!stat.isFile()) throw new Error("微信图片路径不是文件。");
+      if (stat.size > MAX_IMAGE_BYTES) throw new Error("微信图片不能超过 20 MB。");
+      return { bytes: await fs.readFile(local), mimeType };
+    }
+    if (!remote) throw new Error("微信图片必须提供一个绝对路径或图片 URL。");
+    const url = new URL(remote);
+    if (url.protocol !== "https:" && url.protocol !== "http:")
+      throw new Error("微信图片 URL 必须使用 HTTP 或 HTTPS。");
+    const response = await fetch(url, { signal: AbortSignal.timeout(30_000) });
+    if (!response.ok) throw new Error(`微信图片下载失败（HTTP ${response.status}）。`);
+    const bytes = Buffer.from(await response.arrayBuffer());
+    if (bytes.length > MAX_IMAGE_BYTES) throw new Error("微信图片不能超过 20 MB。");
+    const headerType = response.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase();
+    const mimeType =
+      headerType && /^image\/(?:png|jpe?g|gif|webp|bmp)$/.test(headerType)
+        ? headerType === "image/jpg" ? "image/jpeg" : headerType
+        : this.imageMimeType(url.pathname);
+    return { bytes, mimeType };
+  }
+
+  private async uploadImage(media: WechatNotificationMedia, userId: string): Promise<WechatItem> {
+    const { bytes } = await this.readImage(media);
+    const rawSize = bytes.length;
+    const cipherSize = Math.ceil((rawSize + 1) / 16) * 16;
+    const fileKey = randomBytes(16).toString("hex");
+    const aesKey = randomBytes(16);
+    const upload = await this.api("/ilink/bot/getuploadurl", {
+      filekey: fileKey,
+      media_type: 1,
+      to_user_id: userId,
+      rawsize: rawSize,
+      rawfilemd5: createHash("md5").update(bytes).digest("hex"),
+      filesize: cipherSize,
+      no_need_thumb: true,
+      aeskey: aesKey.toString("hex"),
+      base_info: { channel_version: "2.4.8", bot_agent: "Mori/1" },
+    });
+    const uploadFullUrl = typeof upload.upload_full_url === "string" ? upload.upload_full_url.trim() : "";
+    const uploadParam = typeof upload.upload_param === "string" ? upload.upload_param : "";
+    const uploadUrl =
+      uploadFullUrl ||
+      (uploadParam
+        ? `${CDN_BASE}/upload?encrypted_query_param=${encodeURIComponent(uploadParam)}&filekey=${encodeURIComponent(fileKey)}`
+        : "");
+    if (!uploadUrl) throw new Error("微信没有返回图片上传地址。");
+    const cipher = createCipheriv("aes-128-ecb", aesKey, null);
+    const encrypted = Buffer.concat([cipher.update(bytes), cipher.final()]);
+    let downloadParam = "";
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 3 && !downloadParam; attempt++) {
+      try {
+        const response = await fetch(uploadUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/octet-stream" },
+          body: encrypted,
+          signal: AbortSignal.timeout(30_000),
+        });
+        if (!response.ok) {
+          const detail = response.headers.get("x-error-message") || `HTTP ${response.status}`;
+          if (response.status >= 400 && response.status < 500) throw new Error(`微信图片上传失败：${detail}`);
+          throw new Error(`微信图片上传暂时失败：${detail}`);
+        }
+        downloadParam = response.headers.get("x-encrypted-param")?.trim() ?? "";
+        if (!downloadParam) throw new Error("微信图片上传响应缺少下载参数。");
+      } catch (error) {
+        lastError = error;
+        if (attempt === 2 || (error instanceof Error && error.message.includes("HTTP 4"))) throw error;
+      }
+    }
+    if (!downloadParam) throw lastError instanceof Error ? lastError : new Error("微信图片上传失败。");
+    return {
+      type: IMAGE_ITEM_TYPE,
+      image_item: {
+        media: {
+          encrypt_query_param: downloadParam,
+          aes_key: aesKey.toString("base64"),
+          encrypt_type: 1,
+        },
+        mid_size: encrypted.length,
+      },
+    };
   }
 
   async bind(): Promise<void> {
@@ -453,18 +594,33 @@ export class MoriAssistantWechat {
       while (this.state.outbox.length && this.enabled && this.state.token) {
         const message = this.state.outbox[0];
         if (!message) break;
+        const itemList = message.itemList?.length
+          ? message.itemList
+          : [{ type: TEXT_ITEM_TYPE, text_item: { text: message.text } } satisfies WechatItem];
+        const sentItemCount = Math.max(0, Math.min(message.sentItemCount ?? 0, itemList.length));
+        const item = itemList[sentItemCount];
+        if (!item) {
+          this.state.outbox.shift();
+          continue;
+        }
         await this.api("/ilink/bot/sendmessage", {
           msg: {
             from_user_id: "",
             to_user_id: message.userId,
-            client_id: message.id,
+            client_id: itemList.length === 1 ? message.id : `${message.id}:${sentItemCount}`,
             message_type: 2,
             message_state: 2,
             context_token: message.contextToken,
-            item_list: [{ type: 1, text_item: { text: message.text } }],
+            item_list: [item],
           },
           base_info: { channel_version: "2.4.8", bot_agent: "Mori/1" },
         });
+        if (sentItemCount + 1 < itemList.length) {
+          message.itemList = itemList;
+          message.sentItemCount = sentItemCount + 1;
+          await this.save();
+          continue;
+        }
         this.state.outbox.shift();
         this.state.sentNotificationIds = [...(this.state.sentNotificationIds ?? []), message.id].slice(-2000);
         await this.save();
@@ -495,14 +651,34 @@ export class MoriAssistantWechat {
   }
 
   async enqueueNotification(text: string, messageId: string | undefined, id: string): Promise<void> {
+    await this.enqueueMediaNotification({ text }, messageId, id);
+  }
+
+  async enqueueMediaNotification(
+    notification: WechatNotification,
+    messageId: string | undefined,
+    id: string,
+  ): Promise<void> {
     if (this.hasSentNotification(id)) return;
     const original = messageId
       ? this.state.inbox.find((item) => item.id === messageId)
       : this.state.inbox.at(-1);
     if (!original || !this.state.token) throw new Error("没有可回复的微信会话，请先从微信向 Mori 发消息。");
     const latest = this.state.inbox.findLast((item) => item.userId === original.userId) ?? original;
-    if (!this.state.outbox.some((item) => item.id === id))
-      this.state.outbox.push({ id, userId: original.userId, contextToken: latest.contextToken, text });
+    const text = notification.text?.trim() ?? "";
+    if (!text && !notification.image) throw new Error("微信通知至少需要文字或图片。");
+    if (!this.state.outbox.some((item) => item.id === id)) {
+      const itemList: WechatItem[] = [];
+      if (text) itemList.push({ type: TEXT_ITEM_TYPE, text_item: { text } });
+      if (notification.image) itemList.push(await this.uploadImage(notification.image, original.userId));
+      this.state.outbox.push({
+        id,
+        userId: original.userId,
+        contextToken: latest.contextToken,
+        text,
+        itemList,
+      });
+    }
     await this.save();
     await this.flushOutbox();
     if (this.state.outbox.some(item => item.id === id))

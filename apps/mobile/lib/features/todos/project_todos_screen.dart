@@ -582,6 +582,11 @@ class _ProjectTodosScreenState extends ConsumerState<ProjectTodosScreen>
                         ),
                       ],
                       const SizedBox(height: 10),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: TodoStatusBadge(status: todo.status),
+                      ),
+                      const SizedBox(height: 8),
                       Text(
                         todoProjectName(projects, todo.projectPath),
                         maxLines: 1,

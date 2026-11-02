@@ -261,6 +261,7 @@ import {
   type ThreadStartRequest,
   type ThreadStartResult,
   type ThreadSummary,
+  type ThreadWechatFollowRequest,
   type ThreadUpdateRuntimeConfigRequest,
   type ThreadUserMessageEditGetRequest,
   type ThreadUserMessageEditGetResult,
@@ -1684,6 +1685,9 @@ const api = {
   },
   getThread(threadId: string): Promise<ThreadSummary | undefined> {
     return ipcRenderer.invoke(IPC_CHANNELS.threadGet, threadId);
+  },
+  setThreadWechatFollow(request: ThreadWechatFollowRequest): Promise<ThreadSummary | undefined> {
+    return ipcRenderer.invoke(IPC_CHANNELS.threadWechatFollow, request);
   },
   listProjectTodos(): Promise<ProjectTodo[]> { return ipcRenderer.invoke(IPC_CHANNELS.projectTodoList); },
   onProjectTodosChanged(callback: () => void): () => void {

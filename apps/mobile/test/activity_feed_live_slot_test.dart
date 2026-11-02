@@ -89,6 +89,90 @@ List<ActivityFeedEntry> _rows(List<ActivityFeedEntry> feed) => [
 ];
 
 void main() {
+  test('retrying one prompt keeps the failed turn above every live status', () {
+    const earlierAttempts = [
+      ThreadRunProjectionAttempt(
+        attemptId: 'old-run',
+        phase: 'main',
+        retryIndex: 0,
+        status: 'failed',
+        startedAt: '2026-10-20T23:59:02.631Z',
+        endedAt: '2026-10-20T23:59:14.845Z',
+      ),
+    ];
+    const promptAndError = [
+      ThreadRunProjectionTimelineItem(
+        id: 'user',
+        sequence: 1,
+        eventType: 'message.final',
+        scope: 'main',
+        role: 'user',
+        text: '检查实现',
+        at: '2026-10-20T23:59:02.483Z',
+        metadata: {'v2': true, 'liveType': 'message.user'},
+      ),
+      ThreadRunProjectionTimelineItem(
+        id: 'old-error',
+        sequence: 10,
+        eventType: 'api.error',
+        scope: 'main',
+        text: 'Selected model is at capacity. Please try a different model.',
+        at: '2026-10-20T23:59:14.836Z',
+        runAttemptId: 'old-run',
+        metadata: {'v2': true},
+      ),
+    ];
+    const prose = ThreadRunProjectionTimelineItem(
+      id: 'prose',
+      sequence: 36,
+      eventType: 'message.final',
+      scope: 'main',
+      text: '我先检查实现。',
+      at: _start,
+      runAttemptId: 'run',
+      metadata: {'v2': true},
+    );
+    final states = [
+      _feed(earlierAttempts: earlierAttempts, timeline: promptAndError),
+      for (final spans in [
+        <ThreadRunProjectionRequestSpan>[],
+        [_span(writing: true)],
+        [_span(thinking: true)],
+      ])
+        _feed(
+          earlierAttempts: earlierAttempts,
+          timeline: [...promptAndError, prose, _tool(sequence: 40)],
+          spans: spans,
+        ),
+      _feed(
+        earlierAttempts: earlierAttempts,
+        timeline: [
+          ...promptAndError,
+          prose,
+          _tool(sequence: 40, running: true),
+        ],
+      ),
+    ];
+    for (var index = 0; index < states.length; index++) {
+      final feed = states[index];
+      expect(feed.map((entry) => entry.runAttemptId), [
+        null,
+        'old-run',
+        'run',
+      ], reason: 'live state $index');
+      final failed = feed[1];
+      expect(failed.running, isFalse);
+      expect(failed.finalOutput?.id, 'main:old-error');
+      expect(failed.finalOutput?.at, '2026-10-20T23:59:14.836Z');
+      expect(feed.last.running, isTrue);
+      expect(feed.last.finalOutput, isNull);
+      expect(
+        feed.last.processEntries.any((entry) => entry.id == 'main:old-error'),
+        isFalse,
+      );
+    }
+  });
+
   for (final writing in [false, true]) {
     test('live status belongs to the running attempt after a stale stream', () {
       final feed = _feed(

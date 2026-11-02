@@ -3,6 +3,7 @@ import { BrowserWindow, dialog, ipcMain, type NativeImage } from "electron";
 import { MORI_ASSISTANT_CHANNELS as C } from "../shared/mori-assistant";
 import type { MoriPetHitMap } from "../shared/mori-pet";
 import { type MoriAssistantDeps, MoriAssistantService } from "./mori-assistant-service";
+import type { WechatNotification } from "./mori-assistant-wechat";
 import { MoriAssistantWechat } from "./mori-assistant-wechat";
 import { MoriAssistantWindows } from "./mori-assistant-windows";
 import { MoriPets } from "./mori-pets";
@@ -29,11 +30,18 @@ export class MoriAssistantHost {
     },
   ) {
     this.pets = new MoriPets(deps.dataDir);
+    let lastWechatStatus: string | undefined;
     const changed = () => {
       if (this.closed) return;
       this.service?.scheduledActions.reconcileWechatNotifications(id => this.wechat.hasSentNotification(id));
       this.wechat.setWaitingForInput(this.service.isWaitingForInput);
       this.service.wechatStatus = this.wechat.status;
+      const wechatStatus = this.wechat.status.status;
+      const retryWechat =
+        lastWechatStatus === undefined ? wechatStatus === "connected" : lastWechatStatus !== wechatStatus;
+      lastWechatStatus = wechatStatus;
+      if (retryWechat)
+        void this.service.retryWechatFollowNotifications().catch(deps.reportError);
       for (const window of BrowserWindow.getAllWindows())
         if (!window.isDestroyed()) window.webContents.send(C.changed);
     };
@@ -84,6 +92,10 @@ export class MoriAssistantHost {
     this.service.onWechatReply = (text, messageId, id) => {
       this.wechat.setWaitingForInput(this.service.isWaitingForInput);
       return this.wechat.enqueueNotification(text, messageId, id);
+    };
+    this.service.onWechatNotification = (notification, messageId, id) => {
+      this.wechat.setWaitingForInput(this.service.isWaitingForInput);
+      return this.wechat.enqueueMediaNotification(notification, messageId, id);
     };
     const initialThreads = deps.conversations.listThreads();
     const previousStatuses = new Map(initialThreads.map((thread) => [thread.id, thread.status]));
@@ -186,6 +198,17 @@ export class MoriAssistantHost {
       await this.service.initialize();
     })();
     return this.ready;
+  }
+
+  async sendWechatNotification(
+    notification: WechatNotification,
+    id: string,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    signal?.throwIfAborted();
+    if (!this.service.canNotifyWechat?.()) throw new Error("微信通知不可用，请重新连接后重试。");
+    await this.wechat.enqueueMediaNotification(notification, undefined, id);
+    signal?.throwIfAborted();
   }
   get keepsBackground(): boolean {
     return this.service.settings.enabled && this.service.settings.backgroundEnabled;

@@ -261,7 +261,7 @@ export class DesktopEventCenter {
       return shouldRespond
         ? buildEventCenterJsonRpcSuccess<EventCenterInvokeResult>(id, {
             channel: request.value.params.channel,
-            result: transformed,
+            result: transformed === undefined ? null : transformed,
           })
         : undefined;
     } catch (error) {

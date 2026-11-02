@@ -869,7 +869,10 @@ class EcoCenterClient {
   }
 
   static T unwrapInvokeResult<T>(dynamic result) {
-    if (result is Map<String, dynamic> && result.containsKey('result')) {
+    if (result is Map<String, dynamic> &&
+        (result.containsKey('result') ||
+            // Older desktops omit an undefined result during JSON encoding.
+            (result.length == 1 && result['channel'] is String))) {
       return result['result'] as T;
     }
     return result as T;

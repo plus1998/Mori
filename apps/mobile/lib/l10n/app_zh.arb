@@ -1004,6 +1004,8 @@
   "todosSearchProjects": "搜索项目名称或路径",
   "todosSearch": "搜索待办或项目",
   "todosPending": "未完成",
+  "todosNotStarted": "未开始",
+  "todosInProgress": "进行中",
   "todosCompleted": "已完成",
   "todosMarkComplete": "标记完成",
   "todosMarkPending": "恢复为未完成",

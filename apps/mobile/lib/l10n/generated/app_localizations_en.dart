@@ -3210,6 +3210,12 @@ class AppLocalizationsEn extends AppLocalizations {
   String get todosPending => 'To do';
 
   @override
+  String get todosNotStarted => 'Not started';
+
+  @override
+  String get todosInProgress => 'In progress';
+
+  @override
   String get todosCompleted => 'Completed';
 
   @override

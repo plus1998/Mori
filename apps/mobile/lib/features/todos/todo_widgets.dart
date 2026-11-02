@@ -3,8 +3,39 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 
 import '../../core/locale/app_localizations_ext.dart';
+import '../../core/models/project_todo_models.dart';
 import '../../core/theme/eco_theme.dart';
 import '../../core/widgets/eco_modal_sheet.dart';
+
+class TodoStatusBadge extends StatelessWidget {
+  const TodoStatusBadge({super.key, required this.status});
+
+  final ProjectTodoStatus status;
+
+  @override
+  Widget build(BuildContext context) {
+    final l = context.l10n;
+    final eco = ecoColors(context);
+    final (label, color) = switch (status) {
+      ProjectTodoStatus.pending => (l.todosNotStarted, eco.textSecondary),
+      ProjectTodoStatus.inProgress => (l.todosInProgress, eco.accent),
+      ProjectTodoStatus.completed => (l.todosCompleted, eco.success),
+    };
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: .10),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        child: Text(
+          label,
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(color: color),
+        ),
+      ),
+    );
+  }
+}
 
 String todoProjectName(Map<String, String> projects, String path) =>
     projects[path] ??

@@ -60,7 +60,7 @@ export interface AssistantCustomProviderRoute {
 function isTaskTool(tool: AssistantTool): boolean {
   return (
     MORI_TODO_TOOLS.some((todoTool) => todoTool.name === tool.name) ||
-    ["mori_start_task", "mori_send_to_task", "mori_read_thread_errors"].includes(tool.name)
+    ["mori_start_task", "mori_send_to_task", "mori_read_thread_errors", "mori_send_wechat"].includes(tool.name)
   );
 }
 

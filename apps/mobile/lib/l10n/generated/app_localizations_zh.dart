@@ -3039,6 +3039,12 @@ class AppLocalizationsZh extends AppLocalizations {
   String get todosPending => '未完成';
 
   @override
+  String get todosNotStarted => '未开始';
+
+  @override
+  String get todosInProgress => '进行中';
+
+  @override
   String get todosCompleted => '已完成';
 
   @override

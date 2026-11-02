@@ -315,7 +315,14 @@ List<ActivityFeedEntry> groupProjectionActivityFeedTurns(
     sections.add(
       _OrderedFeedSection(
         value: turn,
-        at: turn.boundaryAt ?? turn.attempt.startedAt,
+        // Retries can share one prompt. Keep each attempt at its own start;
+        // a synthetic live row has sequence 0 and must not reorder the runs.
+        // A later mid-turn prompt still anchors its continuation segment.
+        at:
+            turn.boundaryAt != null &&
+                turn.boundaryAt!.compareTo(turn.attempt.startedAt) > 0
+            ? turn.boundaryAt!
+            : turn.attempt.startedAt,
         sequence: sortSequence,
         isUser: false,
         sortKey: entry.key,

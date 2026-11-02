@@ -10,7 +10,7 @@ ProjectTodo todo({String text = '待办标题\n完整正文', String id = 'todo-
       projectPath: '/project',
       text: text,
       images: [],
-      completed: false,
+      status: ProjectTodoStatus.pending,
       createdAt: '',
       updatedAt: '',
     );

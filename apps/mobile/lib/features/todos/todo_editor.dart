@@ -245,6 +245,7 @@ class _TodoEditorState extends ConsumerState<TodoEditor> {
         'text': _text.text,
         'images': wireImages,
         'completed': widget.todo?.completed ?? false,
+        'status': (widget.todo?.status ?? ProjectTodoStatus.pending).wireValue,
       });
       ref.invalidate(projectTodosProvider);
       if (mounted) Navigator.pop(context, true);

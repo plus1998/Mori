@@ -237,6 +237,22 @@ test("handles JSON-RPC invoke requests through registered desktop commands", asy
   });
 });
 
+test("absent approvals remain null after the invoke envelope is JSON encoded", async () => {
+  const center = new DesktopEventCenter({ now: fixedNow, idPrefix: "test_evt" });
+  center.registerCommand(IPC_CHANNELS.bashApprovalGetPending, () => undefined);
+  const response = await center.handleJsonRpcMessage({
+    jsonrpc: "2.0",
+    id: "approval_request",
+    method: EVENT_CENTER_JSON_RPC_METHODS.invoke,
+    params: { channel: IPC_CHANNELS.bashApprovalGetPending, args: ["thr_1"] },
+  });
+  expect(JSON.parse(JSON.stringify(response))).toEqual({
+    jsonrpc: "2.0",
+    id: "approval_request",
+    result: { channel: IPC_CHANNELS.bashApprovalGetPending, result: null },
+  });
+});
+
 test("rejects commands that are not remote-enabled", async () => {
   const center = new DesktopEventCenter({ now: fixedNow, idPrefix: "test_evt" });
 

@@ -28,7 +28,6 @@ class ThreadsScreen extends ConsumerStatefulWidget {
 }
 
 class _ThreadsScreenState extends ConsumerState<ThreadsScreen> {
-  final _dismissedAttentionIds = <String>{};
   bool _attentionSheetOpen = false;
   bool _newThreadOpening = false;
   bool _searchOpening = false;
@@ -43,15 +42,9 @@ class _ThreadsScreenState extends ConsumerState<ThreadsScreen> {
     final attention = ref.watch(threadAttentionProvider);
     final attentionItems =
         attention.valueOrNull ?? const <ThreadAttentionItem>[];
-    final visibleAttentionItems = attentionItems
-        .where((item) => !_dismissedAttentionIds.contains(item.id))
-        .toList(growable: false);
     ref.watch(collapsedProjectPathsProvider);
     final collapsedNotifier = ref.read(collapsedProjectPathsProvider.notifier);
 
-    ref.listen(threadAttentionProvider, (previous, next) {
-      next.whenData(_retainActiveDismissedAttentionIds);
-    });
     ref.listen(displayProjectsProvider, (previous, next) {
       next.whenData(collapsedNotifier.applyProjectDefaults);
     });
@@ -115,7 +108,7 @@ class _ThreadsScreenState extends ConsumerState<ThreadsScreen> {
                 ),
                 const SizedBox(width: sessionToolbarButtonGap),
                 _ThreadAttentionButton(
-                  count: visibleAttentionItems.length,
+                  count: attentionItems.length,
                   loading: attention.isLoading || projectsAsync.isLoading,
                   onPressed: _attentionSheetOpen
                       ? null
@@ -289,35 +282,17 @@ class _ThreadsScreenState extends ConsumerState<ThreadsScreen> {
     if (_attentionSheetOpen) return;
     setState(() => _attentionSheetOpen = true);
     try {
-      final item = await showThreadAttentionSheet(
-        context: context,
-        itemsFuture: ref.read(threadAttentionProvider.future),
-        hiddenItemIds: Set.unmodifiable(_dismissedAttentionIds),
-      );
+      ref.invalidate(threadAttentionProvider);
+      final item = await showThreadAttentionSheet(context: context);
       if (item != null && context.mounted) {
-        setState(() => _dismissedAttentionIds.add(item.id));
-        ref.invalidate(threadAttentionProvider);
-        context.push('/threads/${item.threadId}');
+        await context.push('/threads/${item.threadId}');
+        if (mounted) ref.invalidate(threadAttentionProvider);
       }
     } finally {
       if (mounted) {
         setState(() => _attentionSheetOpen = false);
       }
     }
-  }
-
-  void _retainActiveDismissedAttentionIds(List<ThreadAttentionItem> items) {
-    final activeIds = items.map((item) => item.id).toSet();
-    final retainedIds = _dismissedAttentionIds
-        .where(activeIds.contains)
-        .toSet();
-    if (retainedIds.length == _dismissedAttentionIds.length) return;
-    if (!mounted) return;
-    setState(() {
-      _dismissedAttentionIds
-        ..clear()
-        ..addAll(retainedIds);
-    });
   }
 
   Future<void> _onProjectHeaderTap(

@@ -79,6 +79,25 @@ void main() {
     test('returns raw result when not wrapped', () {
       expect(EcoCenterClient.unwrapInvokeResult<List<dynamic>>([1, 2]), [1, 2]);
     });
+
+    test('absent invoke results stay null for current and older desktops', () {
+      for (final envelope in [
+        {'channel': 'bash-approval:get-pending', 'result': null},
+        {'channel': 'bash-approval:get-pending'},
+      ]) {
+        expect(EcoCenterClient.unwrapInvokeResult<dynamic>(envelope), isNull);
+      }
+      expect(EcoCenterClient.unwrapInvokeResult<dynamic>(null), isNull);
+      for (final result in [false, 0, '', <String, dynamic>{}]) {
+        expect(
+          EcoCenterClient.unwrapInvokeResult<dynamic>({
+            'channel': 'test',
+            'result': result,
+          }),
+          result,
+        );
+      }
+    });
   });
 
   group('JSON-RPC errors', () {

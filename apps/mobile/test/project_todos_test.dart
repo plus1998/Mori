@@ -36,6 +36,7 @@ Map<String, dynamic> row(
   String text, {
   String project = '/a',
   bool completed = false,
+  String? status,
 }) => {
   'id': id,
   'revision': 3,
@@ -43,6 +44,7 @@ Map<String, dynamic> row(
   'projectPath': project,
   'images': <dynamic>[],
   'completed': completed,
+  'status': ?status,
   'createdAt': '2026-10-23T00:00:00Z',
   'updatedAt': '2026-10-23T00:00:00Z',
 };
@@ -266,6 +268,84 @@ Widget app(TodoClient client, {Widget? home, double scale = 1}) =>
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
+
+  test('todo states survive parsing, editing, and completion toggles', () {
+    for (final status in ProjectTodoStatus.values) {
+      final completed = status == ProjectTodoStatus.completed;
+      final todo = ProjectTodo.fromJson(
+        row('status', 'Task', completed: completed, status: status.wireValue),
+      );
+      expect(todo.status, status);
+      expect(todo.completed, completed);
+      expect(todo.toSaveJson()['status'], status.wireValue);
+      expect(todo.toSaveJson(completed: completed)['status'], status.wireValue);
+      final toggled = todo.toSaveJson(completed: !completed);
+      expect(toggled['completed'], !completed);
+      expect(toggled['status'], completed ? 'pending' : 'completed');
+    }
+  });
+
+  test('legacy completion flags remain readable; invalid states fail', () {
+    for (final completed in [false, true]) {
+      expect(
+        ProjectTodo.fromJson(
+          row('legacy', 'Task', completed: completed),
+        ).status,
+        completed ? ProjectTodoStatus.completed : ProjectTodoStatus.pending,
+      );
+    }
+    for (final invalid in [null, '', 'unknown', 1, 'completed']) {
+      expect(
+        () => ProjectTodo.fromJson({
+          ...row('invalid', 'Task'),
+          'status': invalid,
+        }),
+        throwsFormatException,
+      );
+    }
+  });
+
+  testWidgets('cards show todo state and refresh changes from the desktop', (
+    tester,
+  ) async {
+    final client = TodoClient();
+    await tester.pumpWidget(app(client));
+    await tester.pumpAndSettle();
+    expect(find.text('Not started'), findsNWidgets(2));
+    expect(find.text('In progress'), findsNothing);
+
+    client.items[0] = {
+      ...client.items[0],
+      'status': 'in_progress',
+      'revision': 4,
+    };
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(ProjectTodosScreen)),
+    );
+    container.invalidate(projectTodosProvider);
+    await tester.pumpAndSettle();
+    expect(find.text('Not started'), findsOneWidget);
+    expect(find.text('In progress'), findsOneWidget);
+
+    await tester.tap(find.text('Fix mobile layout'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last, 'Updated task');
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+    final save = client.calls.lastWhere(
+      (c) => c.channel == 'project-todo:save',
+    );
+    expect((save.args.first as Map)['status'], 'in_progress');
+    expect((save.args.first as Map)['completed'], isFalse);
+    expect(find.text('In progress'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('todos-category-true')));
+    await tester.pumpAndSettle();
+    expect(find.text('Completed task'), findsOneWidget);
+    expect(find.text('Completed'), findsOneWidget);
+    expect(find.text('In progress'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
 
   test(
     'pagination coalesces requests and preserves loaded rows on a retryable page failure',

@@ -320,3 +320,69 @@ test("定时通知只在实际发送后确认，重复重试沿用已保存的�
     await restored.close();
   } finally { await f.wechat.close(); }
 });
+
+test("微信通知支持本地图片和 URL 图片，并按媒体消息流程上传后发送", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "mori-wechat-image-test-"));
+  directories.push(dir);
+  const file = path.join(dir, "state.json");
+  const imagePath = path.join(dir, "shot.png");
+  await writeFile(file, JSON.stringify({
+    token: "token",
+    userId: "user",
+    cursor: "",
+    inbox: [{ id: "42", userId: "user", contextToken: "context", text: "截图", status: "done" }],
+    outbox: [],
+  }));
+  await writeFile(imagePath, Buffer.from("local-image"));
+  const sent: Array<Record<string, unknown>> = [];
+  let polls = 0;
+  globalThis.fetch = (async (input, init) => {
+    const url = String(input);
+    if (url.endsWith("/getupdates")) {
+      polls++;
+      return new Promise<Response>((_resolve, reject) => {
+        const signal = init?.signal;
+        if (signal?.aborted) reject(signal.reason);
+        else signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+      });
+    }
+    if (url === "https://example.test/shot.png")
+      return new Response(Buffer.from("remote-image"), { headers: { "content-type": "image/png" } });
+    if (url.endsWith("/getuploadurl")) return Response.json({ upload_param: "upload-param" });
+    if (url.includes("novac2c.cdn.weixin.qq.com/c2c/upload")) {
+      return new Response(null, { headers: { "x-encrypted-param": "download-param" } });
+    }
+    if (url.endsWith("/sendmessage")) {
+      sent.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+      return Response.json({});
+    }
+    throw new Error(`unexpected request ${url}`);
+  }) as typeof fetch;
+  const wechat = new MoriAssistantWechat(file, { changed() {}, receive: async () => "unused" });
+  await wechat.load();
+  await wechat.setEnabled(true);
+  try {
+    await wechat.enqueueMediaNotification(
+      { text: "本地截图", image: { path: imagePath } },
+      "42",
+      "image-local",
+    );
+    await wechat.enqueueMediaNotification({ image: { url: "https://example.test/shot.png" } }, "42", "image-url");
+    expect(sent).toHaveLength(3);
+    expect((sent[0]?.msg as { item_list?: unknown[] }).item_list?.[0]).toEqual({
+      type: 1,
+      text_item: { text: "本地截图" },
+    });
+    expect((sent[1]?.msg as { item_list?: Array<{ image_item?: unknown }> }).item_list?.[0]?.image_item).toMatchObject({
+      media: { encrypt_query_param: "download-param", encrypt_type: 1 },
+    });
+    expect((sent[2]?.msg as { item_list?: Array<{ image_item?: unknown }> }).item_list?.[0]?.image_item).toMatchObject({
+      media: { encrypt_query_param: "download-param", encrypt_type: 1 },
+    });
+    expect(wechat.hasSentNotification("image-local")).toBe(true);
+    expect(wechat.hasSentNotification("image-url")).toBe(true);
+    expect(polls).toBeGreaterThan(0);
+  } finally {
+    await wechat.close();
+  }
+});

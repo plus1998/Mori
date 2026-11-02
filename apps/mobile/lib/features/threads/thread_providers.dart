@@ -450,6 +450,21 @@ class ThreadAttentionItem {
 final threadAttentionProvider = FutureProvider<List<ThreadAttentionItem>>((
   ref,
 ) async {
+  ref.listen(ecoEventsProvider, (_, next) {
+    final kind = next.valueOrNull?.kind;
+    if (kind == 'thread.bash_approval' || kind == 'thread.plan') {
+      ref.invalidateSelf();
+    }
+  });
+  ref.listen(connectionStatusProvider, (previous, next) {
+    if (previous?.valueOrNull?.state != next.valueOrNull?.state &&
+        next.valueOrNull?.state == EcoConnectionState.connected) {
+      ref.invalidateSelf();
+    }
+  });
+  ref.listen(appForegroundProvider, (previous, next) {
+    if (previous == false && next) ref.invalidateSelf();
+  });
   final rpc = ref.watch(desktopRpcProvider);
   if (rpc == null) return const [];
   final threadState = ref.watch(threadListProvider);

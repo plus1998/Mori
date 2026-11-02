@@ -172,6 +172,7 @@ export const IPC_CHANNELS = {
   threadListInitial: "thread:list-initial",
   threadListMore: "thread:list-more",
   threadGet: "thread:get",
+  threadWechatFollow: "thread:wechat-follow",
   projectTodoList: "project-todo:list",
   projectTodoQuery: "project-todo:query",
   projectTodoGet: "project-todo:get",
@@ -1993,6 +1994,13 @@ export interface ThreadSummary {
    * Set by the user or automatically when the thread enters failed/blocked.
    */
   followUpQueuePaused?: boolean;
+  /** User explicitly follows this thread and wants a WeChat completion notice. */
+  wechatFollowEnabled?: boolean;
+}
+
+export interface ThreadWechatFollowRequest {
+  threadId: string;
+  enabled: boolean;
 }
 
 export interface ThreadCompletionNotificationRequest {

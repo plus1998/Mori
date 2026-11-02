@@ -429,6 +429,7 @@ import {
   type ThreadStartResult,
   type ThreadStatus,
   type ThreadSummary,
+  type ThreadWechatFollowRequest,
   type ThreadUpdateRuntimeConfigRequest,
   type ThreadUsageSnapshot,
   type ThreadUserMessageEditGetRequest,
@@ -667,6 +668,8 @@ import {
 } from "./codex-gateway-usage-billing";
 import { CodexGatewayUsagePendingBuffer } from "./codex-gateway-usage-pending";
 import { MoriAssistantHost } from "./mori-assistant-host";
+import { ECO_WECHAT_MCP_SERVER, WechatMcpGateway } from "./wechat-mcp-gateway";
+import { explicitlyRequestsWechat } from "./mori-assistant-service";
 import { isMoriAssistantWindow } from "./mori-assistant-windows";
 import { MORI_ASSISTANT_CHANNELS } from "../shared/mori-assistant";
 import { MoriNotificationUncertainError } from "../shared/mori-scheduled-action";
@@ -1250,6 +1253,7 @@ let pendingEcoDeepLink: string | undefined;
 // True once the renderer reports ready (it then subscribes to deep-link events).
 let desktopRendererReady = false;
 let moriAssistantHost: MoriAssistantHost | undefined;
+let wechatMcpGateway: WechatMcpGateway | undefined;
 let moriAssistantReady = false;
 const startupSplashWindows = new WeakSet<BrowserWindow>();
 let resolveInitialDesktopRendererReady: (() => void) | undefined;
@@ -4279,6 +4283,8 @@ installApplicationShutdownHook(
     closeOpenAIAccountService: async () => {
       await moriAssistantHost?.close();
       moriAssistantHost = undefined;
+      await wechatMcpGateway?.close();
+      wechatMcpGateway = undefined;
       openaiAccountAssistant?.dispose();
       openaiAccountAssistant = undefined;
       await openaiAccountBrowser?.dispose();
@@ -6933,6 +6939,22 @@ function registerIpcHandlers(): void {
     return enriched;
   });
 
+  registerDesktopCommand(IPC_CHANNELS.threadWechatFollow, async (payload: unknown) => {
+    if (!isRecord(payload) || typeof payload.threadId !== "string" || typeof payload.enabled !== "boolean") {
+      throw new Error("微信关注参数无效。");
+    }
+    const request = payload as unknown as ThreadWechatFollowRequest;
+    if (request.enabled && !moriAssistantHost?.service.canNotifyWechat?.()) {
+      throw new Error("微信通知不可用，请先连接微信并向 Mori 发一条消息。");
+    }
+    const thread = conversationStore.setThreadWechatFollow(request.threadId.trim(), request.enabled);
+    if (!thread) throw new Error("会话不存在或已删除。");
+    if (request.enabled && thread.status === "completed" && moriAssistantHost) {
+      void moriAssistantHost.service.taskChanged(thread.id).catch((error) => logEcoDiag("mori.wechat-follow.failed", { error: errorMessage(error) }));
+    }
+    return attachThreadCancelling(ensureThreadRuntimeConfig(thread));
+  });
+
   registerDesktopCommand(IPC_CHANNELS.composerDraftGet, async (contextKey: unknown) => {
     const draft = conversationStore.getComposerDraft(parseComposerDraftContextKey(contextKey));
     if (!draft?.attachments?.length) {
@@ -7968,6 +7990,12 @@ function registerIpcHandlers(): void {
     },
     subscribeTasks: callback => desktopEventCenter.subscribe({ publish: envelope => { if (envelope.threadId) callback(envelope.threadId); } }),
     reportError: error => logEcoDiag("mori-assistant.error", { error: errorMessage(error) }),
+  });
+  wechatMcpGateway = new WechatMcpGateway({
+    send: async (threadId, notification, notificationId, signal) => {
+      if (!moriAssistantHost) throw new Error("Mori 微信通道尚未就绪。");
+      await moriAssistantHost.sendWechatNotification(notification, notificationId, signal);
+    },
   });
   void moriAssistantHost.initialize().then(() => { moriAssistantReady = true; }, error => logEcoDiag("mori-assistant.initialize.failed", { error: errorMessage(error) }));
 
@@ -11813,7 +11841,11 @@ async function startPreparedPiThreadRunFromCoordinator(
   signal: AbortSignal,
 ): Promise<void> {
   imageViewGateway.noteThreadPrompt(input.thread.id, input.prompt);
-  const prepared = await resolvePiSessionResourcesForThread(input.thread.id, (await resolveThreadWorktree(input.workspace, input.thread.id)).cwd);
+  const prepared = await resolvePiSessionResourcesForThread(
+    input.thread.id,
+    (await resolveThreadWorktree(input.workspace, input.thread.id)).cwd,
+    input.prompt,
+  );
   const agentRegistry = resolveAgentRuntimeConfigForThread(input.thread);
   signal.throwIfAborted();
   await startPiThreadRun(
@@ -11888,7 +11920,11 @@ async function startPiThreadContinuation(input: StartThreadContinuationInput): P
   }
   imageViewGateway.noteThreadPrompt(thread.id, prompt);
   const updated = ensureThreadRuntimeConfig(conversationStore.getThread(thread.id) ?? activeThread);
-  const prepared = await resolvePiSessionResourcesForThread(updated.id, (await resolveThreadWorktree(workspace, updated.id)).cwd);
+  const prepared = await resolvePiSessionResourcesForThread(
+    updated.id,
+    (await resolveThreadWorktree(workspace, updated.id)).cwd,
+    prompt,
+  );
   const agentRegistry = resolveAgentRuntimeConfigForThread(updated);
   input.preparationSignal?.throwIfAborted();
   await finalizeAcceptedV2Messages(input.threadId, input.v2AcceptedMessageIds ?? [], input.preparationSignal);
@@ -12808,6 +12844,10 @@ async function startCodexThreadRun(
             if (centerServerClient.getHtmlHostingCapability().available) {
               append = appendBrowserPrompt(append, buildHtmlHostPromptAppend());
             }
+            if (wechatMcpGateway && explicitlyRequestsWechat(mainPrompt)) {
+              const wechatPrompt = "用户已明确要求微信通知；本轮可调用 send_wechat_message 发送文字或图片，只有调用成功后才能确认已发送。";
+              append = appendBrowserPrompt(append, wechatPrompt);
+            }
             if (sessionIntegratedWebSearchEnabled) {
               append = appendBrowserPrompt(
                 append,
@@ -12923,6 +12963,14 @@ async function startCodexThreadRun(
             registerBuiltin(ECO_IMAGE_VIEW_MCP_SERVER, imageViewInject.sdkEntry);
             const imageDisplayInject = await imageDisplayGateway.resolveInjection(input.thread.id);
             registerBuiltin(ECO_IMAGE_DISPLAY_MCP_SERVER, imageDisplayInject.sdkEntry);
+            if (wechatMcpGateway) {
+              const wechatInject = await wechatMcpGateway.resolveInjection(
+                input.thread.id,
+                explicitlyRequestsWechat(mainPrompt),
+              );
+              if (wechatInject.enabled && wechatInject.sdkEntry)
+                registerBuiltin(ECO_WECHAT_MCP_SERVER, wechatInject.sdkEntry);
+            }
             const htmlCap = await centerServerClient.refreshHtmlHostingCapability();
             if (htmlCap.available) {
               const htmlHostInject = await htmlHostGateway.resolveInjection(input.thread.id);
@@ -13210,6 +13258,7 @@ async function resolvePiSkillPathsForThread(threadId: string, workspacePath: str
 async function resolvePiSessionResourcesForThread(
   threadId: string,
   workspacePath: string,
+  prompt?: string,
 ): Promise<{
   skillPaths: string[];
   mcpServers: Record<string, unknown>;
@@ -13272,6 +13321,9 @@ async function resolvePiSessionResourcesForThread(
   const htmlHostInject = htmlHostingCapability.available
     ? await htmlHostGateway.resolveInjection(threadId)
     : undefined;
+  const wechatInject = wechatMcpGateway
+    ? await wechatMcpGateway.resolveInjection(threadId, explicitlyRequestsWechat(prompt ?? ""))
+    : { enabled: false };
 
   let browserSkillDirectory: string | undefined;
   if (browserInject.enabled) {
@@ -13327,6 +13379,10 @@ async function resolvePiSessionResourcesForThread(
       : {}),
     ...(browserSkillDirectory ? { browserSkillDirectory } : {}),
   });
+  if (wechatInject.enabled && wechatInject.sdkEntry) {
+    mcpSession.mcpServers[ECO_WECHAT_MCP_SERVER] = wechatInject.sdkEntry;
+    if (wechatInject.promptAppend) mcpSession.appendSystemPrompt.push(wechatInject.promptAppend);
+  }
 
   mcpSession.mcpServers[CONTEXT_MCP_SERVER] = (
     await contextReferenceGateway.resolveInjection(threadId)
@@ -19336,20 +19392,26 @@ async function buildSdkSessionOptions(
     ? htmlHostGateway.mergeIntoSdkConfig(withImageDisplayMcp, htmlHostInject)
     : withImageDisplayMcp;
   const withWebSearchMcp = integratedWebSearchGateway.mergeIntoSdkConfig(withHtmlHostMcp, webSearchInject);
-  withWebSearchMcp.mcpServers[SCHEDULING_MCP_SERVER] = (
+  const wechatInject = wechatMcpGateway
+    ? await wechatMcpGateway.resolveInjection(threadId, explicitlyRequestsWechat(prompt ?? ""))
+    : { enabled: false };
+  const withWechatMcp = wechatMcpGateway
+    ? wechatMcpGateway.mergeIntoSdkConfig(withWebSearchMcp, wechatInject)
+    : withWebSearchMcp;
+  withWechatMcp.mcpServers[SCHEDULING_MCP_SERVER] = (
     await schedulingGateway.resolveInjection(threadId)
   ).sdkEntry;
-  withWebSearchMcp.mcpServers[CONTEXT_MCP_SERVER] = (
+  withWechatMcp.mcpServers[CONTEXT_MCP_SERVER] = (
     await contextReferenceGateway.resolveInjection(threadId)
   ).sdkEntry;
-  withWebSearchMcp.mcpServers[MODEL_MANAGEMENT_MCP_SERVER] = (
+  withWechatMcp.mcpServers[MODEL_MANAGEMENT_MCP_SERVER] = (
     await modelManagementGateway.resolveInjection(threadId)
   ).sdkEntry;
-  const hubBuiltinKeys = Object.keys(withWebSearchMcp.mcpServers).filter(
+  const hubBuiltinKeys = Object.keys(withWechatMcp.mcpServers).filter(
     (key) => key.startsWith("eco_") && key !== "eco_mcp",
   );
   for (const key of hubBuiltinKeys) {
-    const entry = withWebSearchMcp.mcpServers[key];
+    const entry = withWechatMcp.mcpServers[key];
     if (isRecord(entry)) {
       mcpHubGateway.registerThreadServerEntry({ name: key, threadId, sdkEntry: entry });
     }
@@ -19359,8 +19421,8 @@ async function buildSdkSessionOptions(
     config: mcp,
     allowedServers: [...hubServerKeys, ...hubBuiltinKeys],
   });
-  const hubRuntimeConfig: typeof withWebSearchMcp = {
-    mcpServers: { ...withWebSearchMcp.mcpServers },
+  const hubRuntimeConfig: typeof withWechatMcp = {
+    mcpServers: { ...withWechatMcp.mcpServers },
     allowedTools: hubInjection ? ["mcp__eco_mcp__search_tools", "mcp__eco_mcp__call_tool"] : [],
   };
   for (const key of hubServerKeys) delete hubRuntimeConfig.mcpServers[key];

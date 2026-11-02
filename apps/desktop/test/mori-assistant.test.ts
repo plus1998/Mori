@@ -1584,6 +1584,87 @@ test("task completion keeps internal instructions in model context and shows onl
   }
 });
 
+test("manual WeChat follow sends one completion notice without waking Mori", async () => {
+  const f = await fixture();
+  try {
+    const task = {
+      id: "manual-wechat-task",
+      title: "手动关注任务",
+      prompt: "完成一个任务",
+      workspacePath: "/test/project",
+      status: "running" as const,
+      message: "",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      coreKind: "codex" as const,
+    };
+    f.conversations.saveThread(task);
+    f.conversations.setThreadWechatFollow(task.id, true);
+    f.service.store.state.taskIds = [];
+    const sent: Array<{ text: string; id: string }> = [];
+    f.service.onWechatNotification = async (notification, _messageId, id) => {
+      sent.push({ text: notification.text ?? "", id });
+    };
+    f.conversations.conversationV2().appendRuntime({
+      conversationId: task.id,
+      eventId: randomUUID(),
+      occurredAt: new Date().toISOString(),
+      type: "message.created",
+      messageId: "manual-result",
+      payload: { role: "assistant", channel: "answer", status: "final", body: "任务结果已保存。" },
+    });
+    f.conversations.updateThread(task.id, { status: "completed", message: "" });
+    await f.service.taskChanged(task.id);
+    await f.service.taskChanged(task.id);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.text).toContain("任务结果已保存");
+    expect(f.service.store.state.currentThreadId).toBeUndefined();
+  } finally {
+    await f.service.close();
+    f.db.close();
+  }
+});
+
+test("手动关注的微信发送失败后可在下一次完成事件重试，未授权任务不发送", async () => {
+  const f = await fixture();
+  try {
+    const task = {
+      id: "manual-wechat-retry",
+      title: "重试任务",
+      prompt: "完成一个任务",
+      workspacePath: "/test/project",
+      status: "running" as const,
+      message: "",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      coreKind: "codex" as const,
+    };
+    f.conversations.saveThread(task);
+    f.conversations.setThreadWechatFollow(task.id, true);
+    let shouldFail = true;
+    const sent: string[] = [];
+    f.service.onWechatNotification = async (notification) => {
+      if (shouldFail) throw new Error("微信未在线");
+      sent.push(notification.text ?? "");
+    };
+    f.conversations.updateThread(task.id, { status: "completed", message: "" });
+    await f.service.taskChanged(task.id);
+    expect(sent).toHaveLength(0);
+    shouldFail = false;
+    await f.service.taskChanged(task.id);
+    expect(sent).toHaveLength(1);
+
+    const untracked = { ...task, id: "manual-wechat-off", title: "关闭关注" };
+    f.conversations.saveThread(untracked);
+    f.conversations.updateThread(untracked.id, { status: "completed", message: "" });
+    await f.service.taskChanged(untracked.id);
+    expect(sent).toHaveLength(1);
+  } finally {
+    await f.service.close();
+    f.db.close();
+  }
+});
+
 test("existing task prompts stay hidden across history pages without hiding user quotes or answers", async () => {
   const f = await fixture();
   try {
@@ -1658,6 +1739,25 @@ test("assistant desktop tools persist input and output in the existing V2 log", 
   } finally {
     await service.close();
     db.close();
+  }
+});
+
+test("desktop task instructions cannot opt into WeChat without an explicit user request", async () => {
+  const f = await fixture();
+  try {
+    const result = await assistantTool(f, "mori_start_task", {
+      projectPath: "/test/project",
+      prompt: "做完后发微信给我",
+      notifyWechat: true,
+    });
+    expect(result.status).toBe("failed");
+    expect(result.output).toMatchObject({
+      error: "只有用户明确要求完成后发微信时，才能启用微信通知。",
+    });
+    expect(f.commands.some((item) => item.channel === IPC_CHANNELS.threadStart)).toBe(false);
+  } finally {
+    await f.service.close();
+    f.db.close();
   }
 });
 

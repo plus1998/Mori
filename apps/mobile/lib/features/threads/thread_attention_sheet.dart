@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/locale/app_error_localizations.dart';
 import '../../core/locale/app_localizations_ext.dart';
@@ -10,8 +11,6 @@ import 'thread_providers.dart';
 
 Future<ThreadAttentionItem?> showThreadAttentionSheet({
   required BuildContext context,
-  required Future<List<ThreadAttentionItem>> itemsFuture,
-  Set<String> hiddenItemIds = const <String>{},
 }) {
   return showEcoActionSheet<ThreadAttentionItem>(
     context: context,
@@ -19,23 +18,18 @@ Future<ThreadAttentionItem?> showThreadAttentionSheet({
     builder: (context) => EcoSheetScaffold(
       title: context.l10n.threadAttentionTitle,
       maxHeightFactor: 0.64,
-      child: FutureBuilder<List<ThreadAttentionItem>>(
-        future: itemsFuture,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState != ConnectionState.done) {
-            return const SizedBox(
-              height: 120,
-              child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
-            );
-          }
-          if (snapshot.hasError) {
-            return _AttentionErrorState(error: snapshot.error!);
-          }
-          final items = (snapshot.data ?? const <ThreadAttentionItem>[])
-              .where((item) => !hiddenItemIds.contains(item.id))
-              .toList(growable: false);
-          return _AttentionItems(items: items);
-        },
+      child: Consumer(
+        builder: (context, ref, _) => ref
+            .watch(threadAttentionProvider)
+            .when(
+              skipLoadingOnRefresh: false,
+              data: (items) => _AttentionItems(items: items),
+              error: (error, _) => _AttentionErrorState(error: error),
+              loading: () => const SizedBox(
+                height: 120,
+                child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+              ),
+            ),
       ),
     ),
   );

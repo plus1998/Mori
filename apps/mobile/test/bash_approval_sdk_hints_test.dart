@@ -21,10 +21,27 @@ void main() {
   test('desktop SDK permission hints survive mobile decoding', () {
     expect(request.defaultToNo, isTrue);
     expect(request.suppressAlwaysAllowRule, isTrue);
-    final legacy = BashApprovalRequest.fromJson({'toolUseId': 'legacy'});
+    final legacy = BashApprovalRequest.fromJson({
+      'toolUseId': 'legacy',
+      'threadId': 'thread-sdk',
+    });
     expect(legacy.defaultToNo, isFalse);
     expect(legacy.suppressAlwaysAllowRule, isFalse);
   });
+
+  test(
+    'missing approval identities fail instead of creating an empty request',
+    () {
+      for (final json in [
+        <String, dynamic>{},
+        {'channel': 'bash-approval:get-pending'},
+        {'threadId': 'thread-sdk', 'toolUseId': ''},
+        {'threadId': '', 'toolUseId': 'tool'},
+      ]) {
+        expect(() => BashApprovalRequest.fromJson(json), throwsFormatException);
+      }
+    },
+  );
 
   testWidgets('SDK prompt starts on decline and hides persistent approval', (
     tester,

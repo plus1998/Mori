@@ -5630,6 +5630,18 @@ abstract class AppLocalizations {
   /// **'To do'**
   String get todosPending;
 
+  /// No description provided for @todosNotStarted.
+  ///
+  /// In en, this message translates to:
+  /// **'Not started'**
+  String get todosNotStarted;
+
+  /// No description provided for @todosInProgress.
+  ///
+  /// In en, this message translates to:
+  /// **'In progress'**
+  String get todosInProgress;
+
   /// No description provided for @todosCompleted.
   ///
   /// In en, this message translates to:

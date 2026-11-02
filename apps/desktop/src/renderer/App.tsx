@@ -8607,6 +8607,19 @@ function App() {
       JSON.stringify(thread.workLocation) !== JSON.stringify(location) ? { ...thread, workLocation: location } : thread));
   }, []);
 
+  const updateThreadWechatFollow = useCallback(async (enabled: boolean) => {
+    const threadId = selectedThreadIdRef.current;
+    if (!threadId || !window.eco?.setThreadWechatFollow) return;
+    try {
+      const updated = await window.eco.setThreadWechatFollow({ threadId, enabled });
+      if (updated) {
+        setThreads((current) => current.map((thread) => (thread.id === updated.id ? updated : thread)));
+      }
+    } catch (error) {
+      showAppMessageError(error instanceof Error ? error.message : String(error));
+    }
+  }, [showAppMessageError]);
+
   async function sendComposerMessage(
     promptOverride?: string,
     options?: { followUpDeliveryMode?: FollowUpDeliveryMode },
@@ -12577,6 +12590,8 @@ function App() {
                         {...(activeThread && {
                           threadId: activeThread.id,
                           threadStatus: activeThread.status,
+                          wechatFollowEnabled: activeThread.wechatFollowEnabled === true,
+                          onWechatFollowChange: updateThreadWechatFollow,
                         })}
                         {...(threadUsageSummary && { usageSummary: threadUsageSummary })}
                         showBilling={workflowSettings.showBilling !== false}

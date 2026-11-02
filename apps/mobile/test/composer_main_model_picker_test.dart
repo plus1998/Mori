@@ -12,9 +12,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _AccountsRpc extends DesktopRpc {
-  _AccountsRpc({this.catalogFailure})
+  _AccountsRpc({this.catalogFailure, this.includeQuota = false})
     : super(EcoCenterClient(store: CredentialStore()), 'desktop');
   final String? catalogFailure;
+  final bool includeQuota;
   final oauthRequests = <String>[];
   @override
   Future<List<CodexAccount>> listCodexAccounts() async => [
@@ -25,6 +26,26 @@ class _AccountsRpc extends DesktopRpc {
         email: '',
         isLoggedIn: true,
         authState: 'configured',
+        quota: includeQuota
+            ? CodexAccountQuota(
+                planType: 'pro',
+                email: '',
+                allowed: true,
+                limitReached: false,
+                windows: [
+                  CodexQuotaWindow(
+                    usedPercent: id == 'A' ? 25 : 60,
+                    seconds: 5 * 60 * 60,
+                    resetAfterSeconds: 0,
+                    resetAt:
+                        DateTime.utc(2030, 1, 2, 12).millisecondsSinceEpoch ~/
+                        1000,
+                  ),
+                ],
+                resetCreditsAvailable: 0,
+                fetchedAt: DateTime.utc(2030, 1, 1).millisecondsSinceEpoch,
+              )
+            : null,
       ),
   ];
   @override
@@ -58,6 +79,13 @@ class _AccountsRpc extends DesktopRpc {
       {'id': 'gpt-test', 'displayName': 'GPT Test'},
     ];
   }
+}
+
+Future<void> _chooseAccount(WidgetTester tester, String accountName) async {
+  await tester.tap(find.text('Select an account first').first);
+  await tester.pumpAndSettle();
+  await tester.tap(find.text(accountName));
+  await tester.pumpAndSettle();
 }
 
 Future<void> _open(
@@ -123,8 +151,7 @@ void main() {
       expect(find.byType(Slider), findsOneWidget);
       expect(find.text('GPT Test'), findsNothing);
       expect(changes, isEmpty);
-      await tester.tap(find.text('Login B'));
-      await tester.pumpAndSettle();
+      await _chooseAccount(tester, 'Login B');
       expect(changes, isEmpty);
       await tester.tap(find.text('GPT Test'));
       await tester.pumpAndSettle();
@@ -150,8 +177,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(Slider), findsOneWidget);
     expect(rpc.oauthRequests, isEmpty);
-    await tester.tap(find.text('OAuth B'));
-    await tester.pumpAndSettle();
+    await _chooseAccount(tester, 'OAuth B');
     expect(rpc.oauthRequests, ['oauth-B']);
     await tester.tap(find.text('GPT Test'));
     await tester.pumpAndSettle();
@@ -161,13 +187,29 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('account selection shows quota and the next reset time', (
+    tester,
+  ) async {
+    final rpc = _AccountsRpc(includeQuota: true);
+    await _open(tester, rpc, []);
+    await _chooseAccount(tester, 'Login A');
+
+    expect(find.textContaining('75%'), findsOneWidget);
+    expect(find.textContaining('↻'), findsOneWidget);
+
+    await tester.tap(find.text('Login A'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('75%'), findsAtLeastNWidgets(2));
+    expect(find.textContaining('↻'), findsAtLeastNWidgets(2));
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('search clear button resets the query and restores models', (
     tester,
   ) async {
     final rpc = _AccountsRpc();
     await _open(tester, rpc, []);
-    await tester.tap(find.text('Login A'));
-    await tester.pumpAndSettle();
+    await _chooseAccount(tester, 'Login A');
     expect(find.text('GPT Test'), findsOneWidget);
 
     await tester.enterText(find.byType(TextField), 'no matching model');

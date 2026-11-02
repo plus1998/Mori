@@ -1362,29 +1362,38 @@ class BashApprovalRequest {
     this.mcpToolName,
   });
 
-  factory BashApprovalRequest.fromJson(Map<String, dynamic> json) =>
-      BashApprovalRequest(
-        toolUseId: json['toolUseId'] as String? ?? '',
-        threadId: json['threadId'] as String? ?? '',
-        command: json['command'] as String? ?? '',
-        cwd: json['cwd'] as String? ?? '',
-        reason: json['reason'] as String? ?? '',
-        riskScore: (json['riskScore'] as num?)?.toInt() ?? 0,
-        riskLevel: json['riskLevel'] as String? ?? 'medium',
-        description: json['description'] as String?,
-        reviewRationale: json['reviewRationale'] as String?,
-        filesystemTool: json['filesystemTool'] as String?,
-        filesystemPath: json['filesystemPath'] as String?,
-        agentId: json['agentId'] as String?,
-        defaultToNo: json['defaultToNo'] == true,
-        suppressAlwaysAllowRule: json['suppressAlwaysAllowRule'] == true,
-        mcpToolServerName:
-            (json['mcpToolApproval'] as Map<String, dynamic>?)?['serverName']
-                as String?,
-        mcpToolName:
-            (json['mcpToolApproval'] as Map<String, dynamic>?)?['toolName']
-                as String?,
-      );
+  factory BashApprovalRequest.fromJson(Map<String, dynamic> json) {
+    final toolUseId = json['toolUseId'];
+    final threadId = json['threadId'];
+    if (toolUseId is! String ||
+        toolUseId.trim().isEmpty ||
+        threadId is! String ||
+        threadId.trim().isEmpty) {
+      throw const FormatException('Invalid pending Bash approval identity');
+    }
+    return BashApprovalRequest(
+      toolUseId: toolUseId,
+      threadId: threadId,
+      command: json['command'] as String? ?? '',
+      cwd: json['cwd'] as String? ?? '',
+      reason: json['reason'] as String? ?? '',
+      riskScore: (json['riskScore'] as num?)?.toInt() ?? 0,
+      riskLevel: json['riskLevel'] as String? ?? 'medium',
+      description: json['description'] as String?,
+      reviewRationale: json['reviewRationale'] as String?,
+      filesystemTool: json['filesystemTool'] as String?,
+      filesystemPath: json['filesystemPath'] as String?,
+      agentId: json['agentId'] as String?,
+      defaultToNo: json['defaultToNo'] == true,
+      suppressAlwaysAllowRule: json['suppressAlwaysAllowRule'] == true,
+      mcpToolServerName:
+          (json['mcpToolApproval'] as Map<String, dynamic>?)?['serverName']
+              as String?,
+      mcpToolName:
+          (json['mcpToolApproval'] as Map<String, dynamic>?)?['toolName']
+              as String?,
+    );
+  }
 
   final String toolUseId;
   final String threadId;

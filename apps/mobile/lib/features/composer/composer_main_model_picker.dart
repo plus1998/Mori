@@ -2,8 +2,10 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart' hide TextDirection;
 
 import '../../core/locale/app_localizations_ext.dart';
+import '../../core/models/codex_account_models.dart';
 import '../../core/models/git_models.dart';
 import '../../core/models/thread_models.dart';
 import '../../core/theme/eco_icons.dart';
@@ -11,7 +13,14 @@ import '../../core/theme/eco_theme.dart';
 import '../../core/widgets/eco_action_sheet.dart';
 import '../threads/thread_providers.dart';
 
-typedef _PickerAccount = ({String id, String name});
+class _PickerAccount {
+  const _PickerAccount({required this.id, required this.name, this.quota});
+
+  final String id;
+  final String name;
+  final CodexAccountQuota? quota;
+}
+
 typedef _PickerModel = ({
   String id,
   String name,
@@ -20,6 +29,52 @@ typedef _PickerModel = ({
 });
 
 const _allEfforts = ['off', 'low', 'medium', 'high', 'xhigh', 'max'];
+
+String _quotaNumber(num value) => (value * 10).round() % 10 == 0
+    ? value.toStringAsFixed(0)
+    : value.toStringAsFixed(1);
+
+String _quotaWindowShortLabel(CodexQuotaWindow window) {
+  if (window.seconds >= 86400 && window.seconds % 86400 == 0) {
+    return '${_quotaNumber(window.seconds / 86400)}d';
+  }
+  if (window.seconds >= 3600 && window.seconds % 3600 == 0) {
+    return '${_quotaNumber(window.seconds / 3600)}h';
+  }
+  return '';
+}
+
+String? _quotaResetTime(
+  BuildContext context,
+  CodexQuotaWindow window,
+  int fetchedAt,
+) {
+  final resetAt = window.resetsAt(fetchedAt);
+  if (resetAt == null) return null;
+  return DateFormat.Md(
+    Localizations.localeOf(context).toLanguageTag(),
+  ).add_Hm().format(resetAt);
+}
+
+String _pickerAccountQuotaText(BuildContext context, CodexAccountQuota? quota) {
+  if (quota == null) return context.l10n.codexQuotaIdle;
+  final windows = quota.windows.where((window) => window.valid).toList();
+  if (windows.isEmpty) return context.l10n.codexQuotaIdle;
+  final remaining = windows
+      .map(
+        (window) => [
+          if (_quotaWindowShortLabel(window).isNotEmpty)
+            _quotaWindowShortLabel(window),
+          '${_quotaNumber(window.remaining)}%',
+        ].join(' '),
+      )
+      .join(' / ');
+  final resetTimes = windows
+      .map((window) => _quotaResetTime(context, window, quota.fetchedAt))
+      .whereType<String>()
+      .join(' / ');
+  return resetTimes.isEmpty ? remaining : '$remaining · ↻ $resetTimes';
+}
 
 Future<void> showComposerMainModelPickerSheet(
   BuildContext context, {
@@ -131,7 +186,12 @@ class _MainModelPickerState extends ConsumerState<_MainModelPicker> {
       _loadCatalogPart('loginAccounts', rpc.listCodexAccounts(), (accounts) {
         _loginAccounts = [
           for (final account in accounts)
-            if (account.canUseCredentials) (id: account.id, name: account.name),
+            if (account.canUseCredentials)
+              _PickerAccount(
+                id: account.id,
+                name: account.name,
+                quota: account.quota,
+              ),
         ];
       }),
       _loadCatalogPart('oauthAccounts', rpc.listChatGptOauthAccounts(), (
@@ -140,7 +200,7 @@ class _MainModelPickerState extends ConsumerState<_MainModelPicker> {
         _oauthAccounts = [
           for (final account in accounts)
             if (account['enabled'] == true && account['hasCredentials'] == true)
-              (
+              _PickerAccount(
                 id: account['accountId'] as String,
                 name:
                     account['displayName'] as String? ??
@@ -219,6 +279,32 @@ class _MainModelPickerState extends ConsumerState<_MainModelPicker> {
           _oauthModelsLoading = false;
         });
       }
+    }
+  }
+
+  Future<void> _chooseAccount(List<_PickerAccount> accounts) async {
+    if (_saving || accounts.isEmpty) return;
+    final nextAccountId = await showEcoActionSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => _AccountPickerSheet(
+        accounts: accounts,
+        selectedAccountId: _accountId,
+        showQuota: _source == 'login',
+      ),
+    );
+    if (!mounted ||
+        nextAccountId == null ||
+        nextAccountId == _accountId ||
+        _saving) {
+      return;
+    }
+    setState(() {
+      _accountId = nextAccountId;
+      _selectedModel = null;
+    });
+    if (_source == 'oauth') {
+      unawaited(_loadOauthModels(nextAccountId));
     }
   }
 
@@ -323,6 +409,9 @@ class _MainModelPickerState extends ConsumerState<_MainModelPicker> {
     if (_source.isEmpty && providers.isNotEmpty) _source = providers.keys.first;
     final accountSource = _source == 'login' || _source == 'oauth';
     final accounts = _source == 'login' ? _loginAccounts : _oauthAccounts;
+    final selectedAccount = accounts
+        .where((account) => account.id == _accountId)
+        .firstOrNull;
     final candidateAsync = !accountSource && _source.isNotEmpty
         ? ref.watch(candidateModelsProvider(_source))
         : const AsyncValue<List<CandidateModelView>>.data([]);
@@ -521,7 +610,7 @@ class _MainModelPickerState extends ConsumerState<_MainModelPicker> {
                                   context.l10n.composerMainModelPickerProvider,
                             ),
                             SizedBox(
-                              height: 52,
+                              height: 44,
                               child: SingleChildScrollView(
                                 controller: _providersScroll,
                                 scrollDirection: Axis.horizontal,
@@ -570,53 +659,21 @@ class _MainModelPickerState extends ConsumerState<_MainModelPicker> {
                               _PickerSectionLabel(
                                 title: context.l10n.settingsAccount,
                               ),
-                              SizedBox(
-                                height: 52,
-                                child: accounts.isEmpty
-                                    ? const SizedBox.shrink()
-                                    : ListView.builder(
-                                        scrollDirection: Axis.horizontal,
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 12,
-                                        ),
-                                        itemCount: accounts.length,
-                                        itemBuilder: (context, index) {
-                                          final account = accounts[index];
-                                          return Padding(
-                                            padding: const EdgeInsets.only(
-                                              right: 7,
-                                            ),
-                                            child: ConstrainedBox(
-                                              constraints: const BoxConstraints(
-                                                minWidth: 104,
-                                                maxWidth: 184,
-                                              ),
-                                              child: _PickerChoice(
-                                                title: account.name,
-                                                selected:
-                                                    account.id == _accountId,
-                                                onTap: _saving
-                                                    ? null
-                                                    : () {
-                                                        setState(() {
-                                                          _accountId =
-                                                              account.id;
-                                                          _selectedModel = null;
-                                                        });
-                                                        if (_source ==
-                                                            'oauth') {
-                                                          unawaited(
-                                                            _loadOauthModels(
-                                                              account.id,
-                                                            ),
-                                                          );
-                                                        }
-                                                      },
-                                              ),
-                                            ),
-                                          );
-                                        },
-                                      ),
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(
+                                  12,
+                                  6,
+                                  12,
+                                  12,
+                                ),
+                                child: _SelectedAccountSummary(
+                                  account: selectedAccount,
+                                  showQuota: _source == 'login',
+                                  enabled: !_saving && accounts.isNotEmpty,
+                                  onTap: accounts.isEmpty
+                                      ? null
+                                      : () => _chooseAccount(accounts),
+                                ),
                               ),
                               Divider(height: 1, color: eco.borderSubtle),
                             ],
@@ -690,7 +747,14 @@ class _MainModelPickerState extends ConsumerState<_MainModelPicker> {
                       else
                         SliverPadding(
                           padding: const EdgeInsets.symmetric(horizontal: 10),
-                          sliver: SliverList(
+                          sliver: SliverGrid(
+                            gridDelegate:
+                                const SliverGridDelegateWithFixedCrossAxisCount(
+                                  crossAxisCount: 2,
+                                  mainAxisExtent: 46,
+                                  mainAxisSpacing: 6,
+                                  crossAxisSpacing: 7,
+                                ),
                             delegate: SliverChildBuilderDelegate((
                               context,
                               index,
@@ -743,7 +807,9 @@ class _MainModelPickerState extends ConsumerState<_MainModelPicker> {
                       ),
                       const SizedBox(height: 1),
                       Text(
-                        supported.isEmpty && selectedEntry != null
+                        selectedEntry == null
+                            ? '—'
+                            : supported.isEmpty
                             ? context.l10n.composerReasoningUnsupported
                             : _effortLabel(effortValue),
                         style: TextStyle(
@@ -803,8 +869,9 @@ class _MainModelPickerState extends ConsumerState<_MainModelPicker> {
                     onChanged:
                         _saving ||
                             candidateAsync.hasError ||
+                            selectedEntry == null ||
                             supported.isEmpty ||
-                            selectedEntry?.candidateId != null &&
+                            selectedEntry.candidateId != null &&
                                 candidateAsync.isLoading
                         ? null
                         : (value) => setState(
@@ -813,7 +880,9 @@ class _MainModelPickerState extends ConsumerState<_MainModelPicker> {
                     onChangeEnd: (value) {
                       final effort = effortOptions[value.round()];
                       final current = _selectedModel;
-                      if (current != null && current.thinkingEffort != effort) {
+                      if (selectedEntry != null &&
+                          current != null &&
+                          current.thinkingEffort != effort) {
                         unawaited(
                           _save(
                             OrchestrationModelRef(
@@ -850,6 +919,326 @@ class _MainModelPickerState extends ConsumerState<_MainModelPicker> {
           );
         },
       ),
+    );
+  }
+}
+
+class _SelectedAccountSummary extends StatelessWidget {
+  const _SelectedAccountSummary({
+    required this.account,
+    required this.showQuota,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  final _PickerAccount? account;
+  final bool showQuota;
+  final bool enabled;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final eco = ecoColors(context);
+    final l10n = context.l10n;
+    final title =
+        account?.name ??
+        (enabled
+            ? l10n.composerMainModelPickerSelectAccount
+            : l10n.composerMainModelPickerNoAccounts);
+    return Semantics(
+      button: true,
+      enabled: enabled,
+      label: title,
+      child: Material(
+        color: enabled
+            ? eco.composerPillBg
+            : eco.composerPillBg.withValues(alpha: 0.45),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: eco.borderSubtle),
+        ),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: enabled ? onTap : null,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 9, 10, 9),
+            child: Row(
+              children: [
+                Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    color: eco.cardSurface,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(
+                    EcoIcons.user,
+                    size: 17,
+                    color: enabled ? eco.accentText : eco.textMuted,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: eco.textPrimary,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      if (showQuota && account != null) ...[
+                        const SizedBox(height: 3),
+                        _AccountQuotaDetails(
+                          quota: account!.quota,
+                          showProgress: false,
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Icon(
+                  EcoIcons.chevronRight,
+                  size: 18,
+                  color: enabled
+                      ? eco.textMuted
+                      : eco.textMuted.withValues(alpha: 0.55),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AccountPickerSheet extends StatelessWidget {
+  const _AccountPickerSheet({
+    required this.accounts,
+    required this.selectedAccountId,
+    required this.showQuota,
+  });
+
+  final List<_PickerAccount> accounts;
+  final String selectedAccountId;
+  final bool showQuota;
+
+  @override
+  Widget build(BuildContext context) {
+    return EcoSheetScaffold(
+      title: context.l10n.settingsAccount,
+      maxHeightFactor: 0.72,
+      bottomPadding: 8,
+      child: ListView.separated(
+        padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+        itemCount: accounts.length,
+        separatorBuilder: (_, _) => const SizedBox(height: 8),
+        itemBuilder: (context, index) {
+          final account = accounts[index];
+          final selected = account.id == selectedAccountId;
+          return _AccountOptionTile(
+            account: account,
+            selected: selected,
+            showQuota: showQuota,
+            onTap: () => Navigator.of(context).pop(account.id),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _AccountOptionTile extends StatelessWidget {
+  const _AccountOptionTile({
+    required this.account,
+    required this.selected,
+    required this.showQuota,
+    required this.onTap,
+  });
+
+  final _PickerAccount account;
+  final bool selected;
+  final bool showQuota;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final eco = ecoColors(context);
+    return Semantics(
+      button: true,
+      selected: selected,
+      child: Material(
+        color: selected ? eco.composerPillBg : eco.cardSurface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(
+            color: selected
+                ? eco.accent.withValues(alpha: 0.58)
+                : eco.borderSubtle,
+          ),
+        ),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(14, 11, 12, 11),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        account.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: eco.textPrimary,
+                          fontSize: 14,
+                          fontWeight: selected
+                              ? FontWeight.w600
+                              : FontWeight.w500,
+                        ),
+                      ),
+                      if (showQuota) ...[
+                        const SizedBox(height: 7),
+                        _AccountQuotaDetails(
+                          quota: account.quota,
+                          showProgress: true,
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Icon(
+                  selected ? EcoIcons.checkCircle : EcoIcons.chevronRight,
+                  size: selected ? 19 : 18,
+                  color: selected ? eco.accentText : eco.textMuted,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AccountQuotaDetails extends StatelessWidget {
+  const _AccountQuotaDetails({required this.quota, required this.showProgress});
+
+  final CodexAccountQuota? quota;
+  final bool showProgress;
+
+  @override
+  Widget build(BuildContext context) {
+    final eco = ecoColors(context);
+    final l10n = context.l10n;
+    if (quota == null) {
+      return Text(
+        l10n.codexQuotaIdle,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(color: eco.textMuted, fontSize: 11),
+      );
+    }
+    final windows = quota!.windows.where((window) => window.valid).toList();
+    if (windows.isEmpty) {
+      return Text(
+        l10n.codexQuotaIdle,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(color: eco.textMuted, fontSize: 11),
+      );
+    }
+    if (!showProgress) {
+      return Tooltip(
+        message: _pickerAccountQuotaText(context, quota),
+        child: Text(
+          _pickerAccountQuotaText(context, quota),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(color: eco.textMuted, fontSize: 11),
+        ),
+      );
+    }
+    return Semantics(
+      label: _pickerAccountQuotaText(context, quota),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (var index = 0; index < windows.length; index++) ...[
+            if (index > 0) const SizedBox(height: 8),
+            _AccountQuotaWindow(
+              window: windows[index],
+              fetchedAt: quota!.fetchedAt,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _AccountQuotaWindow extends StatelessWidget {
+  const _AccountQuotaWindow({required this.window, required this.fetchedAt});
+
+  final CodexQuotaWindow window;
+  final int fetchedAt;
+
+  @override
+  Widget build(BuildContext context) {
+    final eco = ecoColors(context);
+    final l10n = context.l10n;
+    final remaining = window.remaining.clamp(0, 100).toDouble();
+    final label = _quotaWindowShortLabel(window);
+    final reset = _quotaResetTime(context, window, fetchedAt);
+    final color = remaining <= 10
+        ? eco.danger
+        : remaining <= 25
+        ? eco.statusWarnText
+        : eco.accent;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                label.isEmpty
+                    ? l10n.codexQuotaRemaining(_quotaNumber(remaining))
+                    : '$label · ${_quotaNumber(remaining)}%',
+                style: TextStyle(color: eco.textMuted, fontSize: 10),
+              ),
+            ),
+            if (reset != null)
+              Text(
+                '↻ $reset',
+                style: TextStyle(color: eco.textMuted, fontSize: 10),
+              ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(99),
+          child: LinearProgressIndicator(
+            value: remaining / 100,
+            minHeight: 4,
+            backgroundColor: eco.borderSubtle,
+            color: color,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -902,7 +1291,7 @@ class _PickerChoice extends StatelessWidget {
       child: Material(
         color: selected ? eco.composerPillBg : Colors.transparent,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(999),
           side: BorderSide(
             color: selected
                 ? eco.accent.withValues(alpha: 0.58)
@@ -910,23 +1299,23 @@ class _PickerChoice extends StatelessWidget {
           ),
         ),
         child: InkWell(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(999),
           onTap: onTap,
           child: SizedBox(
-            height: 44,
+            height: 34,
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 11),
+              padding: const EdgeInsets.symmetric(horizontal: 12),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   if (icon != null) ...[
                     Image.asset(
                       icon!,
-                      width: 18,
-                      height: 18,
+                      width: 16,
+                      height: 16,
                       filterQuality: FilterQuality.medium,
                     ),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 7),
                   ],
                   Flexible(
                     child: Text(
@@ -943,8 +1332,8 @@ class _PickerChoice extends StatelessWidget {
                     ),
                   ),
                   if (selected) ...[
-                    const SizedBox(width: 7),
-                    Icon(EcoIcons.check, size: 15, color: eco.accentText),
+                    const SizedBox(width: 6),
+                    Icon(EcoIcons.check, size: 14, color: eco.accentText),
                   ],
                 ],
               ),
@@ -1036,15 +1425,14 @@ class _PickerTile extends StatelessWidget {
       button: true,
       selected: selected,
       child: InkWell(
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(12),
         onTap: onTap,
         child: Container(
-          constraints: const BoxConstraints(minHeight: 48),
-          margin: const EdgeInsets.symmetric(vertical: 2),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          constraints: const BoxConstraints(minHeight: 42),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
           decoration: BoxDecoration(
             color: selected ? eco.composerPillBg : null,
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: BorderRadius.circular(12),
             border: Border.all(
               color: selected
                   ? eco.accent.withValues(alpha: 0.46)

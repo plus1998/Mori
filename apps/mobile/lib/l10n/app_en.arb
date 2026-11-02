@@ -1054,6 +1054,8 @@
   "todosSearchProjects": "Search project name or path",
   "todosSearch": "Search to-dos or projects",
   "todosPending": "To do",
+  "todosNotStarted": "Not started",
+  "todosInProgress": "In progress",
   "todosCompleted": "Completed",
   "todosMarkComplete": "Mark complete",
   "todosMarkPending": "Mark incomplete",

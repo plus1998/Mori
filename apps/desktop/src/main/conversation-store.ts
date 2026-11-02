@@ -154,6 +154,7 @@ interface ThreadRow {
   runtime_config_json: string | null;
   external_session_id: string | null;
   follow_up_queue_paused: number | null;
+  wechat_follow_enabled: number | null;
   has_composer_draft?: number;
   work_location_json?: string | null;
 }
@@ -1407,7 +1408,8 @@ export class ConversationStore {
         core_locked_at TEXT,
         acp_agent_id TEXT,
         claude_plan_file_path TEXT,
-        follow_up_queue_paused INTEGER NOT NULL DEFAULT 0
+        follow_up_queue_paused INTEGER NOT NULL DEFAULT 0,
+        wechat_follow_enabled INTEGER NOT NULL DEFAULT 0
       );
 
       CREATE INDEX IF NOT EXISTS idx_threads_workspace_updated
@@ -2164,6 +2166,9 @@ export class ConversationStore {
     }
     if (!names.has("follow_up_queue_paused")) {
       this.db.exec(`ALTER TABLE threads ADD COLUMN follow_up_queue_paused INTEGER NOT NULL DEFAULT 0`);
+    }
+    if (!names.has("wechat_follow_enabled")) {
+      this.db.exec(`ALTER TABLE threads ADD COLUMN wechat_follow_enabled INTEGER NOT NULL DEFAULT 0`);
     }
 
     const pendingPlanColumns = this.db.prepare(`PRAGMA table_info(thread_pending_plans)`).all() as Array<{
@@ -4322,6 +4327,18 @@ export class ConversationStore {
          WHERE id = ?`,
       )
       .run(paused ? 1 : 0, new Date().toISOString(), threadId);
+    return this.getThread(threadId);
+  }
+
+  setThreadWechatFollow(threadId: string, enabled: boolean): ThreadSummary | undefined {
+    if (!this.getThread(threadId)) return undefined;
+    this.db
+      .prepare(
+        `UPDATE threads
+         SET wechat_follow_enabled = ?, updated_at = ?
+         WHERE id = ?`,
+      )
+      .run(enabled ? 1 : 0, new Date().toISOString(), threadId);
     return this.getThread(threadId);
   }
 
@@ -11123,6 +11140,7 @@ const THREAD_SUMMARY_SELECT = `SELECT threads.id AS id,
                 threads.runtime_config_json AS runtime_config_json,
                 threads.work_location_json AS work_location_json,
                 threads.follow_up_queue_paused AS follow_up_queue_paused,
+                threads.wechat_follow_enabled AS wechat_follow_enabled,
                 sessions.external_session_id AS external_session_id,
                 EXISTS (
                   SELECT 1 FROM composer_drafts
@@ -11169,6 +11187,7 @@ function rowToThread(row: ThreadRow): ThreadSummary {
     ...(runtimeConfig ? { runtimeConfig } : {}),
     ...(row.work_location_json ? { workLocation: JSON.parse(row.work_location_json) as ThreadWorkLocation } : {}),
     ...(row.follow_up_queue_paused ? { followUpQueuePaused: true } : {}),
+    ...(row.wechat_follow_enabled ? { wechatFollowEnabled: true } : {}),
     ...(row.has_composer_draft ? { hasComposerDraft: true } : {}),
   };
 }

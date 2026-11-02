@@ -4,6 +4,22 @@ const todoMaxImages = 5;
 const todoMaxImageBytes = 5 * 1024 * 1024;
 const todoPageSize = 20;
 
+enum ProjectTodoStatus {
+  pending('pending'),
+  inProgress('in_progress'),
+  completed('completed');
+
+  const ProjectTodoStatus(this.wireValue);
+  final String wireValue;
+
+  static ProjectTodoStatus fromWireValue(Object? value) => switch (value) {
+    'pending' => pending,
+    'in_progress' => inProgress,
+    'completed' => completed,
+    _ => throw FormatException('Invalid project todo status: $value'),
+  };
+}
+
 typedef ProjectTodosQuery = ({
   bool completed,
   String projectPath,
@@ -115,43 +131,66 @@ class ProjectTodo {
     required this.projectPath,
     required this.text,
     required this.images,
-    required this.completed,
+    required this.status,
     required this.createdAt,
     required this.updatedAt,
   });
 
-  factory ProjectTodo.fromJson(Map<String, dynamic> json) => ProjectTodo(
-    id: json['id'] as String,
-    revision: json['revision'] as int,
-    projectPath: json['projectPath'] as String,
-    text: json['text'] as String,
-    images: (json['images'] as List)
-        .map(
-          (image) => ProjectTodoImage.fromJson(
-            Map<String, dynamic>.from(image as Map),
-          ),
-        )
-        .toList(),
-    completed: json['completed'] as bool,
-    createdAt: json['createdAt'] as String,
-    updatedAt: json['updatedAt'] as String,
-  );
+  factory ProjectTodo.fromJson(Map<String, dynamic> json) {
+    final completed = json['completed'] as bool;
+    // Desktops predating three-state todos return only the completion flag.
+    final status = json.containsKey('status')
+        ? ProjectTodoStatus.fromWireValue(json['status'])
+        : completed
+        ? ProjectTodoStatus.completed
+        : ProjectTodoStatus.pending;
+    if ((status == ProjectTodoStatus.completed) != completed) {
+      throw const FormatException(
+        'Project todo status conflicts with completed',
+      );
+    }
+    return ProjectTodo(
+      id: json['id'] as String,
+      revision: json['revision'] as int,
+      projectPath: json['projectPath'] as String,
+      text: json['text'] as String,
+      images: (json['images'] as List)
+          .map(
+            (image) => ProjectTodoImage.fromJson(
+              Map<String, dynamic>.from(image as Map),
+            ),
+          )
+          .toList(),
+      status: status,
+      createdAt: json['createdAt'] as String,
+      updatedAt: json['updatedAt'] as String,
+    );
+  }
 
   final String id;
   final int revision;
   final String projectPath;
   final String text;
   final List<ProjectTodoImage> images;
-  final bool completed;
+  final ProjectTodoStatus status;
+  bool get completed => status == ProjectTodoStatus.completed;
   final String createdAt;
   final String updatedAt;
 
-  Map<String, dynamic> toSaveJson({bool? completed}) => {
-    'id': id,
-    'revision': revision,
-    'projectPath': projectPath,
-    'text': text,
-    'images': images.map((image) => image.toSaveJson()).toList(),
-    'completed': completed ?? this.completed,
-  };
+  Map<String, dynamic> toSaveJson({bool? completed}) {
+    final nextStatus = completed == null || completed == this.completed
+        ? status
+        : completed
+        ? ProjectTodoStatus.completed
+        : ProjectTodoStatus.pending;
+    return {
+      'id': id,
+      'revision': revision,
+      'projectPath': projectPath,
+      'text': text,
+      'images': images.map((image) => image.toSaveJson()).toList(),
+      'completed': nextStatus == ProjectTodoStatus.completed,
+      'status': nextStatus.wireValue,
+    };
+  }
 }
