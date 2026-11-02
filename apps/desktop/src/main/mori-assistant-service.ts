@@ -864,6 +864,31 @@ export class MoriAssistantService {
     return this.activeSource === "wechat" || explicitlyRequestsWechat(this.activePrompt);
   }
 
+  private async viewComputerScreenshot(path: string, prompt: string, signal: AbortSignal) {
+    const threadId = this.activeThreadId ?? "";
+    try {
+      return await this.deps.computerUse.viewScreenshot(threadId, path, prompt, signal);
+    } catch (error) {
+      signal.throwIfAborted();
+      // Mori threads are created without a coding runtime config. The shared
+      // image-view host needs one to resolve the saved default vision/main route.
+      // Recover only this confirmed local configuration gap, never model errors
+      // or an arbitrary MCP failure, and never replace an existing selection.
+      const thread = this.deps.conversations.getThread(threadId);
+      if (
+        !(error instanceof Error) || error.message !== "Thread runtime configuration is missing." ||
+        !thread || thread.runtimeConfig ||
+        !this.store.state.sessions.some((item) => item.threadId === threadId)
+      ) throw error;
+      const config = this.deps.defaultRuntimeConfig();
+      signal.throwIfAborted();
+      this.deps.conversations.saveThreadRuntimeConfig(threadId, config);
+    }
+    // Outside the catch: a second failure is returned to the caller as-is.
+    signal.throwIfAborted();
+    return this.deps.computerUse.viewScreenshot(threadId, path, prompt, signal);
+  }
+
   private async callTool(
     name: string,
     args: Record<string, unknown>,
@@ -968,12 +993,7 @@ export class MoriAssistantService {
     if (name === "mori_computer_tools")
       return { ...this.deps.computerUse.status(), ...(await this.deps.computerUse.listTools(signal)) };
     if (name === "mori_computer_view")
-      return this.deps.computerUse.viewScreenshot(
-        this.activeThreadId ?? "",
-        str("path"),
-        str("prompt"),
-        signal,
-      );
+      return this.viewComputerScreenshot(str("path"), str("prompt"), signal);
     if (name === "mori_computer_call") {
       const status = this.deps.computerUse.status();
       if (!status.available) throw new Error(status.reason ?? "电脑操作不可用，请检查设置和权限。");

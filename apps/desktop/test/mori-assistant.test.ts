@@ -9,7 +9,7 @@ import { defaultSubagentAvailability } from "@eco/runtime/subagent-availability"
 import { ConversationStore } from "../src/main/conversation-store";
 import { ProviderStore } from "../src/main/provider-store";
 import { ModelManagementService } from "../src/main/model-management-service";
-import { MoriAssistantService } from "../src/main/mori-assistant-service";
+import { MoriAssistantService, type MoriAssistantDeps } from "../src/main/mori-assistant-service";
 import { MoriScheduledActions } from "../src/main/mori-scheduled-actions";
 import { MoriAssistantStore, parseAssistantSettings } from "../src/main/mori-assistant-store";
 import { SchedulingService } from "../src/main/scheduling-service";
@@ -130,7 +130,12 @@ test("WeChat keeps opaque message IDs lossless and rejects untrusted credential 
   expect(() => validateWechatBaseUrl("https://a@ilinkai.weixin.qq.com")).toThrow("不受信任");
 });
 
-async function fixture(options: { custom?: boolean; realTaskMessages?: boolean } = {}) {
+async function fixture(options: {
+  custom?: boolean;
+  realTaskMessages?: boolean;
+  viewScreenshot?: MoriAssistantDeps["computerUse"]["viewScreenshot"];
+  defaultRuntimeConfig?: MoriAssistantDeps["defaultRuntimeConfig"];
+} = {}) {
   const root = await fs.realpath(await temp());
   const executable = path.join(root, "fake-codex");
   await fs.writeFile(
@@ -190,7 +195,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
   }
   else if(text.startsWith('mcp-tool:')){
    const request=JSON.parse(text.slice('mcp-tool:'.length));
-   callMcp(scheduling?.enabled_tools.includes(request.name)?scheduling:models?.enabled_tools.includes(request.name)?models:tasks,request.name,request.args).catch(error=>send({method:'turn/completed',params:{threadId:thread,turn:{id:'turn-'+turn,status:'failed',error:{message:String(error)}}}}));
+   callMcp(computer?.enabled_tools.includes(request.name)?computer:scheduling?.enabled_tools.includes(request.name)?scheduling:models?.enabled_tools.includes(request.name)?models:tasks,request.name,request.args).catch(error=>send({method:'turn/completed',params:{threadId:thread,turn:{id:'turn-'+turn,status:'failed',error:{message:String(error)}}}}));
   }
   else if(text.includes('SCHEDULE_TOOL:')){
    const request=JSON.parse(text.slice(text.indexOf('SCHEDULE_TOOL:')+'SCHEDULE_TOOL:'.length));
@@ -327,11 +332,11 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
       }
       throw new Error(`Unexpected command ${channel}`);
     },
-    defaultRuntimeConfig: () => ({
+    defaultRuntimeConfig: options.defaultRuntimeConfig ?? (() => ({
       subagentEnabled: defaultSubagentAvailability(),
       sessionMode: "agent",
       bashReviewMode: "auto",
-    }),
+    })),
     defaultScheduleProfile: scheduleProfile,
     modelSettings: () => ({}),
     manageModels: (name, args) => modelManagement.invoke(name, args),
@@ -356,7 +361,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
         computerCalls.push(name);
         return { content: [{ type: "text", text: "done" }] };
       },
-      viewScreenshot: async () => ({ content: [{ type: "text", text: "screen" }] }),
+      viewScreenshot: options.viewScreenshot ?? (async () => ({ content: [{ type: "text", text: "screen" }] })),
       close: () => {},
     },
     openThread: async () => {},
@@ -1798,6 +1803,111 @@ async function waitForApproval(service: MoriAssistantService) {
   }
   throw new Error("Computer Use approval did not arrive");
 }
+
+test("Mori screenshot MCP restores a missing runtime config once and reuses it after resume", async () => {
+  const visionModel = { providerId: "custom", candidateModelId: "vision", modelId: "vision-model" };
+  const calls: Array<{ threadId: string; path: string; prompt: string; signal: AbortSignal }> = [];
+  let defaultsRead = 0;
+  const f = await fixture({
+    defaultRuntimeConfig: () => {
+      defaultsRead++;
+      return { subagentEnabled: defaultSubagentAvailability(), sessionMode: "agent", bashReviewMode: "auto", visionModel };
+    },
+    viewScreenshot: async (threadId, path, prompt, signal) => {
+      calls.push({ threadId, path, prompt, signal });
+      const config = f.conversations.getThread(threadId)?.runtimeConfig;
+      if (!config) throw new Error("Thread runtime configuration is missing.");
+      expect(config.visionModel).toEqual(visionModel);
+      return { content: [{ type: "text", text: "ChatGPT 对话页面" }] };
+    },
+  });
+  try {
+    await f.service.send("prepare existing Mori conversation");
+    const threadId = f.service.store.state.currentThreadId!;
+    expect(f.conversations.getThread(threadId)?.runtimeConfig).toBeUndefined();
+    const args = { path: "/tmp/mori-owned.png", prompt: "ChatGPT 当前是什么页面？" };
+    const result = await assistantTool(f, "mori_computer_view", args);
+    expect(result.status).toBe("completed");
+    expect(result.output).toEqual({ content: [{ type: "text", text: "ChatGPT 对话页面" }] });
+    expect(calls).toHaveLength(2);
+    expect(calls[0]).toEqual({ threadId, ...args, signal: expect.any(AbortSignal) });
+    expect(calls[1]).toEqual(calls[0]);
+    expect(defaultsRead).toBe(1);
+    await f.service.saveSettings({ ...f.service.settings, name: "Mori resumed" });
+    expect((await assistantTool(f, "mori_computer_view", args)).status).toBe("completed");
+    expect(calls).toHaveLength(3);
+    expect(defaultsRead).toBe(1);
+    expect(f.conversations.getThread(threadId)?.runtimeConfig?.visionModel).toEqual(visionModel);
+  } finally {
+    await f.service.close();
+    f.db.close();
+  }
+});
+
+test.each([
+  { name: "repeated config failure", first: "Thread runtime configuration is missing.", second: "Thread runtime configuration is missing.", attempts: 2, restores: 1 },
+  { name: "model failure after recovery", first: "Thread runtime configuration is missing.", second: "vision provider disabled", attempts: 2, restores: 1 },
+  { name: "unrelated model error", first: "vision provider disabled", attempts: 1, restores: 0 },
+  { name: "unclassified MCP error", first: "MCP transport disconnected", attempts: 1, restores: 0 },
+  { name: "existing config", first: "Thread runtime configuration is missing.", existing: true, attempts: 1, restores: 0 },
+  { name: "default config unavailable", first: "Thread runtime configuration is missing.", restoreError: "请选择完整编排组合", attempts: 1, restores: 1 },
+])("Mori screenshot recovery reports $name without looping or replacing config", async (scenario) => {
+  let attempts = 0;
+  let restores = 0;
+  const config = { subagentEnabled: defaultSubagentAvailability(), sessionMode: "agent" as const, bashReviewMode: "always" as const };
+  const f = await fixture({
+    defaultRuntimeConfig: () => {
+      restores++;
+      if (scenario.restoreError) throw new Error(scenario.restoreError);
+      return config;
+    },
+    viewScreenshot: async () => {
+      attempts++;
+      throw new Error(attempts === 1 ? scenario.first : scenario.second);
+    },
+  });
+  try {
+    await f.service.send("prepare existing Mori conversation");
+    const threadId = f.service.store.state.currentThreadId!;
+    if (scenario.existing) f.conversations.saveThreadRuntimeConfig(threadId, config);
+    const result = await assistantTool(f, "mori_computer_view", { path: "/tmp/mori-owned.png", prompt: "查看截图" });
+    const message = scenario.restoreError ?? scenario.second ?? scenario.first;
+    expect(result.status).toBe("failed");
+    expect(JSON.stringify(result)).toContain(message);
+    const responses = (await fs.readFile(path.join(f.root, "runtime-tool-results.jsonl"), "utf8")).trim().split("\n").map(line => JSON.parse(line));
+    expect(responses.at(-1).result).toEqual({ isError: true, content: [{ type: "text", text: message }] });
+    expect(attempts).toBe(scenario.attempts);
+    expect(restores).toBe(scenario.restores);
+    if (scenario.existing) expect(f.conversations.getThread(threadId)?.runtimeConfig?.bashReviewMode).toBe("always");
+  } finally {
+    await f.service.close();
+    f.db.close();
+  }
+});
+
+test("stopping Mori during screenshot failure prevents runtime recovery and retry", async () => {
+  let attempts = 0;
+  let restores = 0;
+  let cancellation: Promise<void> | undefined;
+  const f = await fixture({
+    defaultRuntimeConfig: () => { restores++; throw new Error("must not restore"); },
+    viewScreenshot: async () => {
+      attempts++;
+      cancellation = f.service.cancel();
+      throw new Error("Thread runtime configuration is missing.");
+    },
+  });
+  try {
+    await expect(f.service.send(`mcp-tool:${JSON.stringify({ name: "mori_computer_view", args: { path: "/tmp/mori-owned.png", prompt: "查看" } })}`)).rejects.toThrow("停止");
+    await cancellation;
+    expect(attempts).toBe(1);
+    expect(restores).toBe(0);
+    expect(f.conversations.getThread(f.service.store.state.currentThreadId!)?.runtimeConfig).toBeUndefined();
+  } finally {
+    await f.service.close();
+    f.db.close();
+  }
+});
 
 test("computer actions wait for explicit approval, rejection never clicks, read tools do not ask", async () => {
   const { service, db, computerCalls } = await fixture();
