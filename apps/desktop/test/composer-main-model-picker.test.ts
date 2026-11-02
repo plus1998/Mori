@@ -1,3 +1,4 @@
+import { codexQuotaPeriod, codexQuotaResetAt } from "../src/renderer/codex-quota-reminder";
 import { expect, test } from "bun:test";
 import { buildMainModelProviderOptions, resolvePickerThinkingEffort,
   thinkingEffortsForModel } from "../src/renderer/ComposerMainModelPicker";
@@ -51,4 +52,21 @@ test("waits for a custom model capability before offering or saving a strength",
   expect(thinkingEffortsForModel(model, {
     "candidate-a": { id: "candidate-a", resolvedSupportsReasoning: true } as CandidateModelView,
   })).toContain("low");
+});
+
+
+test("identifies standard quota periods without rounding other windows", () => {
+  expect(codexQuotaPeriod(5 * 3_600)).toBe("hours");
+  expect(codexQuotaPeriod(7 * 24 * 3_600)).toBe("week");
+  expect(codexQuotaPeriod(30 * 24 * 3_600)).toBe("month");
+  expect(codexQuotaPeriod(29 * 24 * 3_600)).toBe("hours");
+  expect(codexQuotaPeriod(0)).toBe("unknown");
+});
+
+
+test("resolves each quota window reset from its absolute or snapshot-relative time", () => {
+  const window = { usedPercent: 20, limitWindowSeconds: 18_000, resetAfterSeconds: 300, resetAt: 1_800_000_000 };
+  expect(codexQuotaResetAt(window, 1_700_000_000_000)).toBe(1_800_000_000_000);
+  expect(codexQuotaResetAt({ ...window, resetAt: 0 }, 1_700_000_000_000)).toBe(1_700_000_300_000);
+  expect(codexQuotaResetAt({ ...window, resetAt: 0, resetAfterSeconds: 0 }, 1_700_000_000_000)).toBeUndefined();
 });

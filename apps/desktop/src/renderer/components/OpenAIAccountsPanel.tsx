@@ -1,3 +1,4 @@
+import { codexQuotaPeriod } from "../codex-quota-reminder";
 import { AccountWakeBatchesPanel } from "./AccountWakeBatchesPanel";
 import { canUseOpenAIAccountCredentials } from "../../shared/openai-account";
 import { useImageQuotaResetRefresh } from "../useImageQuotaResetRefresh";
@@ -95,9 +96,11 @@ export function OpenAIAccountQuotaSummary({ quota, isLoggedIn, loading, error, s
         if (!window) return null;
         const remaining = Math.min(100, Math.max(0, 100 - window.usedPercent));
         const tone = remaining <= 10 ? "is-limited" : remaining <= 20 ? "is-low" : "is-ok";
-        const label = window.limitWindowSeconds === 604_800
-          ? t("settings.openaiAccounts.weeklyQuota")
-          : window.limitWindowSeconds > 0
+        const label = codexQuotaPeriod(window.limitWindowSeconds) === "month"
+          ? t("settings.openaiAccounts.monthlyQuota")
+          : codexQuotaPeriod(window.limitWindowSeconds) === "week"
+            ? t("settings.openaiAccounts.weeklyQuota")
+            : window.limitWindowSeconds > 0
             ? t("settings.openaiAccounts.windowHours", { count: window.limitWindowSeconds / 3_600 })
             : t("settings.openaiAccounts.quotaWindow");
         const remainingText = t("codexSwitch.remaining", { percent: Math.round(remaining) });

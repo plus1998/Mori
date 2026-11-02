@@ -2,8 +2,12 @@ import { ComposerReferenceIcon } from "./ComposerReferenceIcon";
 import { AtSign, CornerDownLeft, X } from "lucide-react";
 import { useEffect, useRef, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
-import type { ComposerReference } from "../shared/composer-references";
+import type { ComposerReference, ComposerReferenceKind } from "../shared/composer-references";
 import { ComposerAbovePanel } from "./ComposerAbovePanel";
+
+const FILTER_KINDS: ComposerReferenceKind[] = [
+  "project", "todo", "plan", "conversation", "web", "ssh", "integration", "subagent", "mcp",
+];
 
 export function ComposerReferencesMenu({
   anchorRef,
@@ -12,6 +16,8 @@ export function ComposerReferencesMenu({
   loading,
   error,
   hasMore,
+  selectedKind,
+  onSelectedKindChange,
   onActiveIndexChange,
   onSelect,
   onClose,
@@ -22,6 +28,8 @@ export function ComposerReferencesMenu({
   loading: boolean;
   error?: string | undefined;
   hasMore: boolean;
+  selectedKind: ComposerReferenceKind | undefined;
+  onSelectedKindChange(kind: ComposerReferenceKind | undefined): void;
   onActiveIndexChange(index: number): void;
   onSelect(item: ComposerReference): void;
   onClose(): void;
@@ -53,6 +61,35 @@ export function ComposerReferencesMenu({
         >
           <X size={14} aria-hidden />
         </button>
+      </div>
+      <div
+        className="composer-references-filters"
+        role="group"
+        aria-label={t("composer.references.filterCategories")}
+        onMouseDown={(event) => event.preventDefault()}
+      >
+        <button
+          type="button"
+          className="composer-references-filter"
+          aria-pressed={!selectedKind}
+          onClick={() => onSelectedKindChange(undefined)}
+        >
+          {t("composer.references.all")}
+        </button>
+        {FILTER_KINDS.map((kind) => {
+          const selected = selectedKind === kind;
+          return (
+            <button
+              key={kind}
+              type="button"
+              className="composer-references-filter"
+              aria-pressed={selected}
+              onClick={() => onSelectedKindChange(kind)}
+            >
+              {t(`composer.references.${kind}`)}
+            </button>
+          );
+        })}
       </div>
       <div
         ref={list}

@@ -13,6 +13,7 @@ import {
   composerReferences,
   parseMentionQuery,
   type ComposerReference,
+  type ComposerReferenceKind,
 } from "../shared/composer-references";
 import type { ComposerSkillsInputHandle } from "./ComposerSkillsInput";
 import { matchesProjectSearchTerms } from "../shared/project-pinyin-search";
@@ -38,6 +39,7 @@ export function useComposerReferences({
 }) {
   const query = useMemo(() => parseMentionQuery(prompt, cursor), [prompt, cursor]);
   const queryKey = query ? JSON.stringify(query) : "";
+  const [selectedKind, setSelectedKind] = useState<ComposerReferenceKind>();
   const [dismissed, setDismissed] = useState("");
   const [result, setResult] = useState<{
     key: string;
@@ -59,6 +61,14 @@ export function useComposerReferences({
   }, [prompt, inputRef]);
   const open = Boolean(query && dismissed !== queryKey);
   useEffect(() => {
+    setSelectedKind(query?.kind);
+  }, [open, query?.start, query?.kind]);
+  const searchRequest = useMemo(() => ({
+    query: query?.query ?? "",
+    ...(selectedKind ? { kind: selectedKind } : {}),
+  }), [query?.query, selectedKind]);
+  const searchKey = JSON.stringify(searchRequest);
+  useEffect(() => {
     if (!queryKey) setDismissed("");
     setActiveIndex(0);
   }, [queryKey]);
@@ -68,36 +78,36 @@ export function useComposerReferences({
     const timer = setTimeout(() => {
       const api = window.eco;
       if (!api) {
-        setResult({ key: queryKey, items: [], hasMore: false, error: "引用服务尚未连接" });
+        setResult({ key: searchKey, items: [], hasMore: false, error: "引用服务尚未连接" });
         return;
       }
       void api
-        .searchComposerReferences({ query: query.query, ...(query.kind ? { kind: query.kind } : {}) })
+        .searchComposerReferences(searchRequest)
         .then((value) => {
-          if (!cancelled) setResult({ key: queryKey, ...value });
+          if (!cancelled) setResult({ key: searchKey, ...value });
         })
         .catch((error) => {
-          if (!cancelled) setResult({ key: queryKey, items: [], hasMore: false, error: String(error) });
+          if (!cancelled) setResult({ key: searchKey, items: [], hasMore: false, error: String(error) });
         });
     }, 120);
     return () => {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [open, queryKey]);
+  }, [open, searchKey, searchRequest]);
   const referenced = useMemo(
     () => new Set(composerReferences(prompt).map((item) => `${item.kind}:${item.id}`)),
     [prompt],
   );
   const matchingProjects = useMemo(() => {
-    if (!query || (query.kind && query.kind !== "project")) return [];
+    if (!query || (selectedKind && selectedKind !== "project")) return [];
     const term = query.query.trim().toLocaleLowerCase();
     return projects.filter((project) =>
       !referenced.has(`project:${project.path}`) &&
       (`${project.name} ${project.path}`.toLocaleLowerCase().includes(term)
         || matchesProjectSearchTerms(project.searchTerms, term)),
     );
-  }, [projects, query, referenced]);
+  }, [projects, query, referenced, selectedKind]);
   const items = useMemo(
     () =>
       [
@@ -105,10 +115,10 @@ export function useComposerReferences({
               .map((project): ComposerReference => ({
                 kind: "project", id: project.path, label: project.name, detail: project.path,
               })),
-        ...(query ? filterComposerCapabilityReferences(capabilities, query) : []),
-        ...(result.key === queryKey ? result.items : []),
+        ...(query ? filterComposerCapabilityReferences(capabilities, searchRequest) : []),
+        ...(result.key === searchKey ? result.items : []),
       ].filter((item) => !referenced.has(`${item.kind}:${item.id}`)),
-    [capabilities, matchingProjects, query, result, queryKey, referenced],
+    [capabilities, matchingProjects, query, result, searchKey, searchRequest, referenced],
   );
   const selectionKey = items.map((item) => `${item.kind}:${item.id}`).join("|");
   useEffect(() => {
@@ -153,14 +163,16 @@ export function useComposerReferences({
   };
   return {
     open,
+    selectedKind,
+    setSelectedKind,
     items,
     activeIndex,
     setActiveIndex,
     select,
     close,
     onKeyDown,
-    loading: open && result.key !== queryKey,
-    error: result.key === queryKey ? result.error : undefined,
-    hasMore: matchingProjects.length > 12 || (result.key === queryKey && result.hasMore),
+    loading: open && result.key !== searchKey,
+    error: result.key === searchKey ? result.error : undefined,
+    hasMore: matchingProjects.length > 12 || (result.key === searchKey && result.hasMore),
   };
 }

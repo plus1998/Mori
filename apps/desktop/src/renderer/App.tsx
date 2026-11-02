@@ -12178,7 +12178,6 @@ function App() {
 
       {composerImageNotice && <p className="composer-image-notice">{composerImageNotice}</p>}
       <div className="composer-feed-notices">
-        {!activeThread ? <PlanReferenceNotice prompt={prompt} onChange={setPrompt} disabled={isStarting} /> : null}
         {composerPromptCacheHint ? <FeedStatusDivider message={composerPromptCacheHint} /> : null}
         {composerRuntimeConfig ? (
           <FullAccessNotice
@@ -12327,6 +12326,8 @@ function App() {
                   loading={composerReferencesMenu.loading}
                   error={composerReferencesMenu.error}
                   hasMore={composerReferencesMenu.hasMore}
+                  selectedKind={composerReferencesMenu.selectedKind}
+                  onSelectedKindChange={composerReferencesMenu.setSelectedKind}
                   onActiveIndexChange={composerReferencesMenu.setActiveIndex}
                   onSelect={composerReferencesMenu.select}
                   onClose={composerReferencesMenu.close}
@@ -12343,6 +12344,9 @@ function App() {
                   onClose={() => syncComposerCursor()}
                 />
                 <div className="composer-primary">
+                  {!activeThread ? (
+                    <PlanReferenceNotice prompt={prompt} onChange={setPrompt} disabled={isStarting} />
+                  ) : null}
                   {composerAttachments.length > 0 ? (
                     <ul className="composer-attachments" aria-label={t("app.pastedImages")}>
                       {composerAttachments.map((attachment, index) => {

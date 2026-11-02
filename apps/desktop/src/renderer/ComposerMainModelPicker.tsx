@@ -1,13 +1,15 @@
+import { codexQuotaPeriod, codexQuotaResetAt } from "./codex-quota-reminder";
 import { Check, Search } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import type { CandidateModelView, CommitModelOptionView, ModelRef, ThinkingEffort } from "../shared/ipc";
+import type { OpenAIAccountQuota } from "../shared/openai-account";
 import { resolveProviderBrandLogo } from "../shared/provider-brand-logo";
 import { ComposerAbovePanel } from "./ComposerAbovePanel";
 import { ComposerModelLabel, formatComposerThinkingEffortLabel } from "./ComposerModelLabel";
 
 type Source = "login" | "oauth" | string;
-type Account = { id: string; name: string };
+type Account = { id: string; name: string; quota?: OpenAIAccountQuota | undefined; quotaError?: string | undefined };
 type PickerModel = { id: string; name: string; candidateModelId?: string;
   reasoningEfforts?: ThinkingEffort[] };
 type ProviderOption = { id: Source; name: string; color?: string; icon?: string; models: PickerModel[] };
@@ -151,7 +153,7 @@ export function ComposerMainModelPicker({
   onSelect: (model: ModelRef) => void | Promise<void>;
   onAddProvider: () => void;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const providerListRef = useRef<HTMLDivElement>(null);
   const modelListRef = useRef<HTMLDivElement>(null);
@@ -207,7 +209,8 @@ export function ComposerMainModelPicker({
       if (login.status === "fulfilled") setLoginAccounts(login.value
         .filter((account) => account.isLoggedIn || account.authState === "refreshable" ||
           account.authState === "refreshing")
-        .map((account) => ({ id: account.id, name: account.name })));
+        .map((account) => ({ id: account.id, name: account.name, quota: account.quota,
+          quotaError: account.quotaRefresh?.error })));
       if (oauth.status === "fulfilled") setOauthAccounts(oauth.value
         .filter((account) => account.enabled && account.hasCredentials)
         .map((account) => ({ id: account.accountId, name: account.displayName })));
@@ -223,6 +226,23 @@ export function ComposerMainModelPicker({
     });
     return () => { cancelled = true; };
   }, [open]);
+
+  const loginAccountIds = loginAccounts.map((account) => account.id).join("\0");
+  useEffect(() => {
+    if (!open || source !== "login" || !loginAccountIds || !window.eco) return;
+    let cancelled = false;
+    const eco = window.eco;
+    for (const id of loginAccountIds.split("\0")) {
+      void eco.openAIAccountsQueryQuota(id, "view").then((quota) => {
+        if (!cancelled) setLoginAccounts((accounts) => accounts.map((account) =>
+          account.id === id ? { ...account, quota, quotaError: undefined } : account));
+      }).catch((cause: unknown) => {
+        if (!cancelled) setLoginAccounts((accounts) => accounts.map((account) =>
+          account.id === id ? { ...account, quotaError: cause instanceof Error ? cause.message : String(cause) } : account));
+      });
+    }
+    return () => { cancelled = true; };
+  }, [open, source, loginAccountIds]);
 
   useEffect(() => {
     if (!open || source !== "oauth" || !accountId || !window.eco) {
@@ -408,7 +428,45 @@ export function ComposerMainModelPicker({
                 className={account.id === accountId ? "is-selected" : ""}
                 aria-pressed={account.id === accountId}
                 onClick={() => chooseAccount(account.id)}>
-                <span>{account.name}</span>{account.id === accountId ? <Check size={14} aria-hidden /> : null}
+                <span className="composer-main-model-picker-account-details">
+                  <span className="composer-main-model-picker-account-name">{account.name}</span>
+                  {source === "login" ? <span className="composer-main-model-picker-account-quota"
+                    title={account.quotaError || undefined}>
+                    {account.quotaError ? <span className="composer-main-model-picker-quota-error">{t("codexQuota.refreshFailed")}</span> : null}
+                    {account.quota && (account.quota.rateLimit.primaryWindow || account.quota.rateLimit.secondaryWindow)
+                      ? [account.quota.rateLimit.primaryWindow, account.quota.rateLimit.secondaryWindow]
+                        .filter((window) => window !== null)
+                        .map((window, index) => {
+                          const label = codexQuotaPeriod(window.limitWindowSeconds) === "month"
+                            ? t("settings.openaiAccounts.monthlyQuota")
+                            : codexQuotaPeriod(window.limitWindowSeconds) === "week"
+                              ? t("settings.openaiAccounts.weeklyQuota")
+                              : window.limitWindowSeconds > 0
+                              ? t("settings.openaiAccounts.windowHours", { count: window.limitWindowSeconds / 3_600 })
+                              : t("settings.openaiAccounts.quotaWindow");
+                          const remaining = Math.round(Math.max(0, Math.min(100, 100 - window.usedPercent)));
+                          const remainingText = t("codexSwitch.remaining", { percent: remaining });
+                          const resetAt = codexQuotaResetAt(window, account.quota!.fetchedAt);
+                          const resetText = resetAt === undefined
+                            ? t("settings.openaiAccounts.quotaResetUnknown")
+                            : resetAt <= Date.now()
+                              ? t("settings.openaiAccounts.quotaResetDueShort")
+                              : t("settings.openaiAccounts.quotaResetAtShort", { time: new Date(resetAt).toLocaleString(i18n.language, {
+                                month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit",
+                              }) });
+                          return <span className="composer-main-model-picker-quota-window" key={index}>
+                            <span className="composer-main-model-picker-quota-heading"><span>{label}</span><span>{remaining}%</span></span>
+                            <span className={`composer-main-model-picker-quota-track${remaining <= 10 ? " is-limited" : remaining <= 20 ? " is-low" : ""}`}
+                              role="meter" aria-label={label} aria-valuemin={0} aria-valuemax={100}
+                              aria-valuenow={remaining} aria-valuetext={remainingText}>
+                              <span style={{ width: `${remaining}%` }} />
+                            </span>
+                            <span className="composer-main-model-picker-quota-reset" title={resetText}>{resetText}</span>
+                          </span>;
+                        })
+                      : t("settings.openaiAccounts.quotaIdle")}
+                  </span> : null}
+                </span>{account.id === accountId ? <Check size={14} aria-hidden /> : null}
               </button>) : <p className="composer-main-model-picker-hint">{loading
                 ? t("composer.mainPicker.loading") : t("composer.mainPicker.noAccounts")}</p>}
             </div>

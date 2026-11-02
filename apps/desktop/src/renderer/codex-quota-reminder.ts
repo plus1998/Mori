@@ -5,6 +5,22 @@ import type { OpenAIAccountQuota, OpenAIAccountQuotaWindow, OpenAIAccountQuotaRe
 
 export { CODEX_QUOTA_REFRESH_MS } from "../shared/codex-quota-refresh";
 
+/** Resolve the reset timestamp using the snapshot time for relative-only windows. */
+export function codexQuotaResetAt(window: OpenAIAccountQuotaWindow, fetchedAt: number): number | undefined {
+  if (window.resetAt > 0 && Number.isFinite(window.resetAt)) return window.resetAt * 1_000;
+  if (window.resetAfterSeconds > 0 && Number.isFinite(window.resetAfterSeconds) && fetchedAt > 0 && Number.isFinite(fetchedAt)) {
+    return fetchedAt + window.resetAfterSeconds * 1_000;
+  }
+  return undefined;
+}
+
+/** Identify the standard quota periods without rounding other durations into them. */
+export function codexQuotaPeriod(seconds: number): "week" | "month" | "hours" | "unknown" {
+  if (seconds === 7 * 24 * 3_600) return "week";
+  if (seconds === 30 * 24 * 3_600) return "month";
+  return seconds > 0 ? "hours" : "unknown";
+}
+
 export const CODEX_AUTH_RECENT_USE_MS = 30 * 60_000;
 
 export { isCodexAuthThread } from "../shared/codex-auth-thread";

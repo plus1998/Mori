@@ -7,7 +7,7 @@ import {
   parseComposerReference,
 } from "../shared/composer-references";
 
-/** Execution is an explicit, draft-persisted choice. A plain @plan can still be discussed. */
+/** Only a pending execution needs a notice; ordinary plan references stay inline. */
 export function PlanReferenceNotice({
   prompt,
   onChange,
@@ -21,7 +21,7 @@ export function PlanReferenceNotice({
   const plans = [
     ...new Map(
       composerReferences(prompt)
-        .filter((ref) => ref.kind === "plan")
+        .filter((ref) => ref.kind === "plan" && ref.intent === "execute")
         .map((ref) => [ref.id, ref]),
     ).values(),
   ];
@@ -30,30 +30,29 @@ export function PlanReferenceNotice({
     <div className="plan-reference-notices">
       {plans.map((plan) => (
         <div key={plan.id} className="plan-reference-notice">
-          <FileText size={14} aria-hidden />
-          <span>
-            {t(plan.intent === "execute" ? "planExecution.willExecute" : "planExecution.referenceOnly", {
-              title: plan.label,
-            })}
+          <span className="plan-reference-notice-icon" aria-hidden>
+            <FileText size={16} />
+          </span>
+          <span className="plan-reference-notice-label">
+            {t("planExecution.willExecute", { title: plan.label })}
           </span>
           <button
             type="button"
             disabled={disabled}
+            aria-label={t("planExecution.cancelExecution")}
+            title={t("planExecution.cancelExecution")}
             onClick={() =>
               onChange(
                 prompt.replace(COMPOSER_REFERENCE_PATTERN, (token, kind: string, value: string) => {
                   const ref = parseComposerReference(kind, value);
                   if (ref?.kind !== "plan" || ref.id !== plan.id) return token;
                   const { intent: _intent, ...reference } = ref;
-                  return composerReferenceToken({
-                    ...reference,
-                    ...(plan.intent === "execute" ? {} : { intent: "execute" as const }),
-                  });
+                  return composerReferenceToken(reference);
                 }),
               )
             }
           >
-            {t(plan.intent === "execute" ? "planExecution.useAsReference" : "planExecution.executeHere")}
+            {t("common.cancel")}
           </button>
         </div>
       ))}

@@ -21,7 +21,7 @@ export function resolvePlanExecutionId(prompt: string, requested: unknown): stri
         .map((ref) => ref.id),
     ),
   ];
-  if (ids.length > 1) throw new Error("一个新会话只能执行一份计划，其他计划请设为仅作参考。");
+  if (ids.length > 1) throw new Error("一个新会话只能执行一份计划，请取消其他计划的执行。");
   if (requested !== undefined && (typeof requested !== "string" || requested !== ids[0])) {
     throw new Error("执行计划必须保留原始计划引用，请重新选择计划。");
   }
