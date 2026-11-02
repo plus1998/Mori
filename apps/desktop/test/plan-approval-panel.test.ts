@@ -55,7 +55,7 @@ test("plan approval exposes the subagent delegation split button and popover", (
 
 test("plan approval exposes the new-session option without requiring executable subagents", () => {
   expect(panelSource).toContain("onStartNewSession?: (() => void) | undefined");
-  expect(panelSource).toContain("const canOpenExecuteMenu = canDelegate || Boolean(onStartNewSession)");
+  expect(panelSource).toMatch(/const canOpenExecuteMenu =\s*canDelegate \|\| Boolean\(onStartNewSession\)/);
   expect(panelSource).toContain("{canOpenExecuteMenu ? (");
   expect(panelSource).toContain('className="plan-approval-menu-option"');
   expect(panelSource).toContain('executeMenuView === "options" ? (');
@@ -74,7 +74,9 @@ test("subagent controls appear only in the second view, with a back action", () 
   expect(panelSource).toContain('setExecuteMenuView("options")');
   expect(panelSource).toContain('role="dialog"');
   expect(panelSource).toContain('aria-haspopup="dialog"');
-  expect(panelSource).toContain('event.key === "Escape"');
+  const floatingPanel = readFileSync(fileURLToPath(new URL("../src/renderer/ComposerAbovePanel.tsx", import.meta.url)), "utf8");
+  expect(panelSource).toContain("<ComposerAbovePanel");
+  expect(floatingPanel).toContain('event.key === "Escape"');
   expect(panelSource).toContain("onClick={() => submitDelegation(agent)}");
   expect(panelSource).toContain("additionalMessage?.trim()");
   expect(styles).toContain(".plan-approval-menu-agents");

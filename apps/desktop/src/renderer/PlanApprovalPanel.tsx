@@ -13,10 +13,11 @@ import {
   Minimize2,
   UsersRound,
 } from "lucide-react";
-import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ThreadPendingPlan } from "../shared/ipc";
 import { MAIN_SHELL_MEDIA_QUERIES } from "./activity-workspace-layout";
+import { ComposerAbovePanel } from "./ComposerAbovePanel";
 import { copyTextToClipboard } from "./clipboard";
 import { MarkdownContent } from "./MarkdownContent";
 
@@ -31,7 +32,7 @@ interface PlanApprovalPanelProps {
    * orchestration snapshot exposes at least one enabled, delegation-capable subagent.
    */
   onApproveWithSubagent?: ((agentKey: string, additionalMessage?: string) => void) | undefined;
-  /** Starts a new landing composer prefilled with the current plan, without approving it. */
+  /** Starts a new composer with a versioned plan reference; sending launches execution. */
   onStartNewSession?: (() => void) | undefined;
   /** Confirms the plan was implemented and asks the current agent to review the code. */
   onReviewCode?: (() => void) | undefined;
@@ -69,13 +70,13 @@ export function PlanApprovalPanel({
   const toggleRef = useRef<HTMLButtonElement | null>(null);
   const firstOptionRef = useRef<HTMLButtonElement | null>(null);
   const backRef = useRef<HTMLButtonElement | null>(null);
-  const popoverRef = useRef<HTMLDivElement | null>(null);
   const textareaId = useId();
 
   const agents = delegationAgents ?? [];
   const executableAgents = agents.filter((agent) => agent.canExecutePlan);
   const canDelegate = executableAgents.length > 0 && Boolean(onApproveWithSubagent);
-  const canOpenExecuteMenu = canDelegate || Boolean(onStartNewSession) || Boolean(onReviewCode) || Boolean(onScheduleExecution);
+  const canOpenExecuteMenu =
+    canDelegate || Boolean(onStartNewSession) || Boolean(onReviewCode) || Boolean(onScheduleExecution);
   const executeMenuDisabled = Boolean(busy) || !planTrimmed;
 
   useEffect(() => {
@@ -99,24 +100,6 @@ export function PlanApprovalPanel({
       setExecuteMenuView("options");
     }
   }, [canDelegate, canOpenExecuteMenu, executeMenuDisabled]);
-
-  useEffect(() => {
-    if (!executeMenuOpen) {
-      return;
-    }
-    const onPointerDown = (event: MouseEvent) => {
-      const target = event.target as Node | null;
-      if (!target) {
-        return;
-      }
-      if (popoverRef.current?.contains(target) || toggleRef.current?.contains(target)) {
-        return;
-      }
-      setExecuteMenuOpen(false);
-    };
-    document.addEventListener("mousedown", onPointerDown);
-    return () => document.removeEventListener("mousedown", onPointerDown);
-  }, [executeMenuOpen]);
 
   useEffect(() => {
     if (!executeMenuOpen) {
@@ -158,13 +141,6 @@ export function PlanApprovalPanel({
     const note = additionalMessage?.trim();
     onApproveWithSubagent?.(agent.agentKey, note ? note : undefined);
     setExecuteMenuOpen(false);
-  };
-
-  const onPopoverKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      closeExecuteMenu();
-    }
   };
 
   const expandLabel = expanded ? t("approval.plan.collapse") : t("approval.plan.expand");
@@ -291,131 +267,136 @@ export function PlanApprovalPanel({
             </button>
           ) : null}
           {canOpenExecuteMenu && executeMenuOpen ? (
-            <div
-              ref={popoverRef}
-              className="plan-approval-delegation-popover"
+            <ComposerAbovePanel
+              anchorRef={toggleRef}
+              triggerRef={toggleRef}
+              className="plan-approval-execution-panel"
               role="dialog"
-              aria-label={
+              width={280}
+              autoFocus={false}
+              label={
                 executeMenuView === "agents"
                   ? t("approval.plan.delegateTitle")
                   : t("approval.plan.executeMenuAria")
               }
-              onKeyDown={onPopoverKeyDown}
+              onClose={closeExecuteMenu}
             >
-              {executeMenuView === "options" ? (
-                <div className="plan-approval-menu-options">
-                  {onStartNewSession ? (
+              <div className="plan-approval-delegation-popover">
+                {executeMenuView === "options" ? (
+                  <div className="plan-approval-menu-options">
+                    {onStartNewSession ? (
+                      <button
+                        ref={firstOptionRef}
+                        type="button"
+                        className="plan-approval-menu-option"
+                        onClick={startNewSession}
+                        disabled={executeMenuDisabled}
+                      >
+                        <MessageCirclePlus size={16} aria-hidden />
+                        <span>{t("approval.plan.executeInNewSession")}</span>
+                      </button>
+                    ) : null}
+                    {onReviewCode ? (
+                      <button
+                        ref={!onStartNewSession ? firstOptionRef : undefined}
+                        type="button"
+                        className="plan-approval-menu-option"
+                        onClick={reviewCode}
+                        disabled={executeMenuDisabled}
+                      >
+                        <FileSearch size={16} aria-hidden />
+                        <span>{t("approval.plan.reviewCode")}</span>
+                      </button>
+                    ) : null}
+                    {canDelegate ? (
+                      <button
+                        ref={!onStartNewSession && !onReviewCode ? firstOptionRef : undefined}
+                        type="button"
+                        className="plan-approval-menu-option"
+                        onClick={() => setExecuteMenuView("agents")}
+                        disabled={executeMenuDisabled}
+                      >
+                        <UsersRound size={16} aria-hidden />
+                        <span>{t("approval.plan.delegateTitle")}</span>
+                        <ChevronRight size={15} aria-hidden />
+                      </button>
+                    ) : null}
+                    {onScheduleExecution ? (
+                      <button
+                        ref={!onStartNewSession && !onReviewCode && !canDelegate ? firstOptionRef : undefined}
+                        type="button"
+                        className="plan-approval-menu-option"
+                        onClick={() => {
+                          if (executeMenuDisabled) return;
+                          closeExecuteMenu();
+                          onScheduleExecution();
+                        }}
+                        disabled={executeMenuDisabled}
+                      >
+                        <Clock3 size={16} aria-hidden />
+                        <span>{t("approval.plan.scheduleExecution")}</span>
+                      </button>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="plan-approval-menu-agents">
                     <button
-                      ref={firstOptionRef}
+                      ref={backRef}
                       type="button"
-                      className="plan-approval-menu-option"
-                      onClick={startNewSession}
-                      disabled={executeMenuDisabled}
-                    >
-                      <MessageCirclePlus size={16} aria-hidden />
-                      <span>{t("approval.plan.executeInNewSession")}</span>
-                    </button>
-                  ) : null}
-                  {onReviewCode ? (
-                    <button
-                      ref={!onStartNewSession ? firstOptionRef : undefined}
-                      type="button"
-                      className="plan-approval-menu-option"
-                      onClick={reviewCode}
-                      disabled={executeMenuDisabled}
-                    >
-                      <FileSearch size={16} aria-hidden />
-                      <span>{t("approval.plan.reviewCode")}</span>
-                    </button>
-                  ) : null}
-                  {canDelegate ? (
-                    <button
-                      ref={!onStartNewSession && !onReviewCode ? firstOptionRef : undefined}
-                      type="button"
-                      className="plan-approval-menu-option"
-                      onClick={() => setExecuteMenuView("agents")}
-                      disabled={executeMenuDisabled}
-                    >
-                      <UsersRound size={16} aria-hidden />
-                      <span>{t("approval.plan.delegateTitle")}</span>
-                      <ChevronRight size={15} aria-hidden />
-                    </button>
-                  ) : null}
-                  {onScheduleExecution ? (
-                    <button
-                      ref={!onStartNewSession && !onReviewCode && !canDelegate ? firstOptionRef : undefined}
-                      type="button"
-                      className="plan-approval-menu-option"
+                      className="plan-approval-menu-back"
                       onClick={() => {
-                        if (executeMenuDisabled) return;
-                        closeExecuteMenu();
-                        onScheduleExecution();
+                        setExecuteMenuView("options");
                       }}
-                      disabled={executeMenuDisabled}
+                      aria-label={t("approval.plan.backToOptions")}
+                      title={t("approval.plan.backToOptions")}
                     >
-                      <Clock3 size={16} aria-hidden />
-                      <span>{t("approval.plan.scheduleExecution")}</span>
+                      <ArrowLeft size={16} aria-hidden />
+                      <span>{t("approval.plan.delegateTitle")}</span>
                     </button>
-                  ) : null}
-                </div>
-              ) : (
-                <div className="plan-approval-menu-agents">
-                  <button
-                    ref={backRef}
-                    type="button"
-                    className="plan-approval-menu-back"
-                    onClick={() => {
-                      setExecuteMenuView("options");
-                    }}
-                    aria-label={t("approval.plan.backToOptions")}
-                    title={t("approval.plan.backToOptions")}
-                  >
-                    <ArrowLeft size={16} aria-hidden />
-                    <span>{t("approval.plan.delegateTitle")}</span>
-                  </button>
-                  <ul className="plan-approval-delegation-agents">
-                    {agents.map((agent) => (
-                      <li key={agent.agentKey}>
-                        <button
-                          type="button"
-                          className={[
-                            "plan-approval-delegation-agent",
-                            agent.canExecutePlan ? "" : "is-read-only",
-                          ]
-                            .filter(Boolean)
-                            .join(" ")}
-                          onClick={() => submitDelegation(agent)}
-                          disabled={executeMenuDisabled || !agent.canExecutePlan}
-                          title={agent.canExecutePlan ? undefined : t("approval.plan.delegateReadOnly")}
-                        >
-                          <span className="plan-approval-delegation-agent-name">{agent.displayName}</span>
-                          {agent.displayName !== agent.agentKey ? (
-                            <span className="plan-approval-delegation-agent-key">{agent.agentKey}</span>
-                          ) : null}
-                          {agent.canExecutePlan ? null : (
-                            <span className="plan-approval-delegation-agent-note">
-                              {t("approval.plan.delegateReadOnly")}
-                            </span>
-                          )}
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                  <label className="plan-approval-delegation-message-label" htmlFor={textareaId}>
-                    {t("approval.plan.delegateMessageLabel")}
-                  </label>
-                  <textarea
-                    id={textareaId}
-                    className="plan-approval-delegation-message"
-                    value={additionalMessage ?? ""}
-                    onChange={(event) => onAdditionalMessageChange?.(event.target.value)}
-                    placeholder={t("approval.plan.delegateMessagePlaceholder")}
-                    rows={2}
-                    disabled={executeMenuDisabled}
-                  />
-                </div>
-              )}
-            </div>
+                    <ul className="plan-approval-delegation-agents">
+                      {agents.map((agent) => (
+                        <li key={agent.agentKey}>
+                          <button
+                            type="button"
+                            className={[
+                              "plan-approval-delegation-agent",
+                              agent.canExecutePlan ? "" : "is-read-only",
+                            ]
+                              .filter(Boolean)
+                              .join(" ")}
+                            onClick={() => submitDelegation(agent)}
+                            disabled={executeMenuDisabled || !agent.canExecutePlan}
+                            title={agent.canExecutePlan ? undefined : t("approval.plan.delegateReadOnly")}
+                          >
+                            <span className="plan-approval-delegation-agent-name">{agent.displayName}</span>
+                            {agent.displayName !== agent.agentKey ? (
+                              <span className="plan-approval-delegation-agent-key">{agent.agentKey}</span>
+                            ) : null}
+                            {agent.canExecutePlan ? null : (
+                              <span className="plan-approval-delegation-agent-note">
+                                {t("approval.plan.delegateReadOnly")}
+                              </span>
+                            )}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                    <label className="plan-approval-delegation-message-label" htmlFor={textareaId}>
+                      {t("approval.plan.delegateMessageLabel")}
+                    </label>
+                    <textarea
+                      id={textareaId}
+                      className="plan-approval-delegation-message"
+                      value={additionalMessage ?? ""}
+                      onChange={(event) => onAdditionalMessageChange?.(event.target.value)}
+                      placeholder={t("approval.plan.delegateMessagePlaceholder")}
+                      rows={2}
+                      disabled={executeMenuDisabled}
+                    />
+                  </div>
+                )}
+              </div>
+            </ComposerAbovePanel>
           ) : null}
         </div>
       </footer>

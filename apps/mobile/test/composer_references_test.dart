@@ -13,6 +13,7 @@ void main() {
       for (final kind in [
         'ssh',
         'todo',
+        'plan',
         'web',
         'web_selection',
         'conversation',

@@ -1595,6 +1595,9 @@ const api = {
   getPendingPlan(threadId: string): Promise<ThreadPendingPlan | undefined> {
     return ipcRenderer.invoke(IPC_CHANNELS.threadGetPendingPlan, threadId);
   },
+  listPlanExecutions(threadId: string): Promise<import("../shared/plan-execution").PlanExecutionLink[]> {
+    return ipcRenderer.invoke(IPC_CHANNELS.threadPlanExecutions, threadId);
+  },
   getApprovedPlan(threadId: string): Promise<ThreadPendingPlan | undefined> {
     return ipcRenderer.invoke(IPC_CHANNELS.threadGetApprovedPlan, threadId);
   },

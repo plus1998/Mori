@@ -46,7 +46,7 @@ test("plan handoff reuses new-chat flow without approving or sending the origina
   expect(handler).not.toContain("sendMessage");
   expect(appSource).toContain("resolveComposerContextPrompt(");
   expect(appSource).toContain("resolveComposerPlanRuntimeConfig(current, promptResolution.sessionMode)");
-  expect(appSource).toContain("onStartNewSession={() => startNewChatWithPlan(pendingPlan)}");
+  expect(appSource).toContain("onStartNewSession={() => void startNewChatWithPlan(pendingPlan)}");
   expect(appSource).toContain(
     "const pendingPlan = activeThread ? pendingPlansByThread[activeThread.id] : undefined;",
   );

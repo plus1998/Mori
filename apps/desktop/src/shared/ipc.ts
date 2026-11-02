@@ -209,6 +209,7 @@ export const IPC_CHANNELS = {
   threadRevertAppliedDiff: "thread:revert-applied-diff",
   threadApprovePlan: "thread:approve-plan",
   threadDismissPlan: "thread:dismiss-plan",
+  threadPlanExecutions: "thread:plan-executions",
   threadFollowUpEnqueue: "thread:follow-up-enqueue",
   threadFollowUpEscalate: "thread:follow-up-escalate",
   threadFollowUpEditing: "thread:follow-up-editing",
@@ -1898,6 +1899,8 @@ export type ThreadStatus =
   | "failed";
 
 export interface ThreadPendingPlan {
+  referenceId?: string;
+  version?: number;
   threadId: string;
   userPrompt: string;
   analysis: string;
@@ -2028,6 +2031,8 @@ export interface ThreadClarificationNotificationResult {
 }
 
 export interface ThreadStartRequest {
+  /** Explicit execution intent from a plan reference; validated again by the host. */
+  planExecutionId?: string;
   workspacePath: string;
   prompt: string;
   coreKind?: import("@eco/runtime/core-runtime").CoreKind;

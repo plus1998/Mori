@@ -72,6 +72,12 @@ export const contextReferenceTools = [
     false,
   ),
   tool(
+    "read_plan",
+    "Read an immutable referenced plan version by planId. Returns plan text, version and source conversation. Continue with nextOffset when hasMore is true; execution status is maintained by the host runtime.",
+    { planId: string, offset: { type: "integer", minimum: 0 }, limit: { type: "integer", minimum: 1, maximum: 16000 } },
+    ["planId"],
+  ),
+  tool(
     "read_conversation",
     "Read a local Mori conversation across projects by conversationId. Returns bounded user/assistant text, role, messageId, runId, status, timestamps, truncation flags, and an older-page cursor. Excludes thinking, system prompts, runtime configuration and inline attachments. Long text can be continued with read_conversation_message. includeTools adds bounded tool summaries.",
     { conversationId: string, beforeCursor: string, limit, includeTools: { type: "boolean" } },
@@ -172,7 +178,9 @@ export class ContextReferenceMcpGateway {
               if (["list_todos", "read_todo", "create_todo", "update_todo_status"].includes(name))
                 return this.service.todoTool(threadId, name, args);
               const result =
-                name === "read_conversation"
+                name === "read_plan"
+                  ? this.service.readPlan(args)
+                  : name === "read_conversation"
                   ? this.service.readConversation(args)
                   : name === "read_conversation_message"
                     ? this.service.readMessage(args)

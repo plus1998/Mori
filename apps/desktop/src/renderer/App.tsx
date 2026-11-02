@@ -9,7 +9,7 @@ import { buildComposerCapabilityReferences } from "../shared/composer-capability
 import { ComposerReferencesMenu } from "./ComposerReferencesMenu";
 import { useComposerReferences } from "./use-composer-references";
 import { useRevealSelectedThread } from "./use-reveal-selected-thread";
-import { composerReferenceToken } from "../shared/composer-references";
+import { composerReferenceToken, composerReferences } from "../shared/composer-references";
 import { browserSelectionReference, type BrowserSelection } from "../shared/browser-selection";
 import { BrowserSelectionPreview } from "./BrowserSelectionPreview";
 import { FollowUpQueuePanel } from "./FollowUpQueuePanel";
@@ -428,6 +428,8 @@ import {
 } from "./orchestration-readiness";
 import { PackageScriptsDialog } from "./PackageScriptsDialog";
 import { PlanApprovalPanel } from "./PlanApprovalPanel";
+import { PlanExecutionLinks } from "./PlanExecutionLinks";
+import { PlanReferenceNotice } from "./PlanReferenceNotice";
 import { ProjectSidebarTree } from "./ProjectSidebarTree";
 import { ProjectTerminalSettingsDialog } from "./ProjectTerminalSettingsDialog";
 import { waitForOverlayDismiss } from "./package-script-ui";
@@ -8515,6 +8517,11 @@ function App() {
     if (!currentProjectPath || !window.eco || (!promptForSend.trim() && composerAttachments.length === 0)) {
       return;
     }
+    const executionPlans = [...new Set(composerReferences(promptForSend).filter(ref => ref.kind === "plan" && ref.intent === "execute").map(ref => ref.id))];
+    if (executionPlans.length > 1 || (executionPlans.length && activeThread)) {
+      setError(t("planExecution.onePlanPerNewConversation"));
+      return;
+    }
     const canSendWithPrompt = composerFollowUpMode
       ? Boolean(activeThread && !followUpBusy && !isStarting && !planActionBusy && !contextCompactionInFlight)
       : Boolean(
@@ -8667,6 +8674,7 @@ function App() {
           prompt: messagePrompt,
           coreKind: newThreadCoreKind,
           runtimeConfig: runtimeConfigForSend,
+          ...(executionPlans[0] ? { planExecutionId: executionPlans[0] } : {}),
           ...(attachments && { attachments }),
         });
         adoptLandingTaskPanelUiRef.current = true;
@@ -11094,17 +11102,47 @@ function App() {
     showAppMessageSuccessRef.current(t(targetThread ? "todos.composedExisting" : "todos.composed"));
   }
 
-  function startNewChatWithPlan(plan: ThreadPendingPlan) {
+  async function startNewChatWithPlan(plan: ThreadPendingPlan) {
     const contextKey = composerContextKeyFromParts(undefined, currentProjectPath);
     if (!contextKey) {
       return;
     }
-    pendingPlanComposerHandoffRef.current = {
-      contextKey,
-      prompt: plan.plan,
-      sessionMode: "agent",
-    };
-    startNewChat();
+    if (!window.eco || planActionBusy) return;
+    setPlanActionBusy(true);
+    setError(undefined);
+    try {
+      const current = await window.eco.getPendingPlan(plan.threadId);
+      if (!current?.referenceId || current.plan !== plan.plan || current.analysis !== plan.analysis || current.userPrompt !== plan.userPrompt) {
+        throw new Error(t("planExecution.planChanged"));
+      }
+      if (selectedThreadIdRef.current !== plan.threadId) return;
+      pendingPlanComposerHandoffRef.current = {
+        contextKey,
+        prompt: composerReferenceToken({ kind: "plan", id: current.referenceId, label: t("planExecution.referenceLabel", { version: current.version }),
+          detail: activeThread?.title ?? "", intent: "execute" }),
+        sessionMode: "agent",
+      };
+      startNewChat();
+    } catch (caught) {
+      setError(errorMessage(caught));
+    } finally {
+      setPlanActionBusy(false);
+    }
+  }
+
+  async function navigatePlanConversation(threadId: string) {
+    try {
+      const thread = await window.eco!.getThread(threadId);
+      if (!thread) throw new Error(t("planExecution.conversationMissing"));
+      if (!projects.some(project => project.path === thread.workspacePath)) {
+        await window.eco!.openWorkspacePath(thread.workspacePath);
+        registerImportedProject(thread.workspacePath);
+      }
+      setThreads(current => current.some(item => item.id === thread.id) ? current : [thread, ...current]);
+      selectSearchThread(thread);
+    } catch (caught) {
+      setError(errorMessage(caught));
+    }
   }
 
   async function addComposerImageFiles(files: FileList | File[]) {
@@ -12129,6 +12167,7 @@ function App() {
     >
       {composerImageNotice && <p className="composer-image-notice">{composerImageNotice}</p>}
       <div className="composer-feed-notices">
+        {!activeThread ? <PlanReferenceNotice prompt={prompt} onChange={setPrompt} disabled={isStarting} /> : null}
         {composerPromptCacheHint ? <FeedStatusDivider message={composerPromptCacheHint} /> : null}
         {composerRuntimeConfig ? (
           <FullAccessNotice
@@ -12197,7 +12236,7 @@ function App() {
                 variant="dock"
                 {...(planFailureMessage && { failureMessage: planFailureMessage })}
                 onApprove={() => void approvePendingPlan()}
-                onStartNewSession={() => startNewChatWithPlan(pendingPlan)}
+                onStartNewSession={() => void startNewChatWithPlan(pendingPlan)}
                 onReviewCode={() => void reviewPendingPlanCode()}
                 onScheduleExecution={() => {
                   setScheduledMessageEditor({
@@ -13017,6 +13056,7 @@ function App() {
                       </div>
                     ) : (
                       <div className="codex-feed-stack">
+                        {activeThread ? <PlanExecutionLinks threadId={activeThread.id} onNavigate={threadId => void navigatePlanConversation(threadId)} /> : null}
                         <div
                           className={["activity-feed", !activityFeedBootReady ? "is-booting" : ""]
                             .filter(Boolean)

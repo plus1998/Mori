@@ -360,6 +360,7 @@ const handlers: Partial<Record<string, DemoHandler>> = {
   [IPC_CHANNELS.threadFollowUpList]: () => ({ followUps: [] }),
   [IPC_CHANNELS.threadGetPendingPlan]: () => undefined,
   [IPC_CHANNELS.threadGetApprovedPlan]: () => undefined,
+  [IPC_CHANNELS.threadPlanExecutions]: () => [],
   [IPC_CHANNELS.clarificationGetPending]: () => undefined,
   [IPC_CHANNELS.bashApprovalGetPending]: () => undefined,
   [IPC_CHANNELS.composerDraftGet]: () => undefined,

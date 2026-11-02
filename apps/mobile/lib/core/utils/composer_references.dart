@@ -12,13 +12,15 @@ ComposerMentionQuery? parseComposerMentionQuery(String text, int cursor) {
   if (match == null) return null;
   final raw = match.group(1)!;
   final category = RegExp(
-    r'^(SSH|待办|todo|网页|会话|集成|工具|子代理|MCP|web|conversation|chat|integration|subagent)[:：]?',
+    r'^(SSH|待办|todo|计划|plan|网页|会话|集成|工具|子代理|MCP|web|conversation|chat|integration|subagent)[:：]?',
     caseSensitive: false,
   ).firstMatch(raw);
   const categories = {
     'ssh': 'ssh',
     '待办': 'todo',
     'todo': 'todo',
+    '计划': 'plan',
+    'plan': 'plan',
     '网页': 'web',
     'web': 'web',
     '会话': 'conversation',
@@ -67,7 +69,7 @@ class ComposerPromptSegment {
 }
 
 final _referencePattern = RegExp(
-  r'@(ssh|todo|web|web_selection|conversation|integration|subagent|mcp)\{([^{}\s]+)\}',
+  r'@(ssh|todo|plan|web|web_selection|conversation|integration|subagent|mcp)\{([^{}\s]+)\}',
 );
 
 List<ComposerPromptSegment> parseComposerPrompt(String text) {

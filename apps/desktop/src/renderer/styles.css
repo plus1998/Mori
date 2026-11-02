@@ -2984,6 +2984,55 @@ button.sidebar-settings-meta {
   margin-inline: auto;
 }
 
+.plan-execution-links {
+  flex: 0 0 auto;
+  max-height: 164px;
+  overflow: auto;
+  padding: 8px 16px 4px;
+  font-size: 12px;
+}
+.plan-execution-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  margin-bottom: 6px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  color: var(--text-secondary);
+}
+.plan-execution-link > svg { flex-shrink: 0; }
+.plan-execution-link-content { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 3px; }
+.plan-execution-link-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 11px; }
+.plan-execution-status { display: inline-flex; align-items: center; gap: 4px; }
+.plan-execution-link-title, .plan-execution-open span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plan-execution-link-message { overflow-wrap: anywhere; font-size: 11px; }
+.plan-execution-open, .plan-reference-notice button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.plan-execution-open { max-width: 32%; }
+.plan-execution-open > svg { flex-shrink: 0; }
+.plan-execution-open:hover, .plan-reference-notice button:hover { background: var(--nav-hover); }
+.plan-execution-open:disabled, .plan-reference-notice button:disabled { opacity: .5; cursor: default; }
+.plan-execution-link-error { margin: 4px 0; color: var(--text-danger, #d55); }
+.plan-reference-notices { display: flex; flex-direction: column; gap: 4px; }
+.plan-reference-notice { display: flex; align-items: center; gap: 6px; color: var(--text-secondary); font-size: 12px; }
+.plan-reference-notice > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plan-execution-status .is-spinning { animation: plan-execution-spin 1.2s linear infinite; }
+@keyframes plan-execution-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .plan-execution-status .is-spinning { animation: none; }
+}
+
 .codex-main-scroll.is-feed-panel-layout .codex-chat-shell,
 .codex-main-scroll.is-feed-panel-layout .codex-feed-stack {
   margin-inline: auto;
@@ -8744,6 +8793,17 @@ button.sidebar-settings-meta {
 .plan-button.secondary:hover:not(:disabled) {
   background: var(--codex-panel-hover);
   color: var(--codex-log-text);
+}
+
+.plan-approval-execution-panel .plan-approval-delegation-popover {
+  position: static;
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .plan-button.primary {

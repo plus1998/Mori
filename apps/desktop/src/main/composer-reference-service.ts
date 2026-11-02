@@ -12,6 +12,7 @@ import {
   type ComposerReferenceSearchResult,
 } from "../shared/composer-references";
 import type { ThreadSummary } from "../shared/ipc";
+import type { PlanReferenceSnapshot } from "../shared/plan-execution";
 import type { SshBookmarkPublic } from "../shared/ssh-bookmarks";
 import type { BrowserSelectionService } from "./browser-selection-service";
 import type { ProjectTodoAgentService } from "./project-todo-agent-service";
@@ -39,6 +40,8 @@ export interface ComposerReferenceDeps {
     limit: number,
   ): Array<Pick<ThreadSummary, "id" | "title" | "workspacePath" | "updatedAt">>;
   getThread(id: string): ThreadSummary | undefined;
+  listPlans(query: string, limit: number): ComposerReference[];
+  readPlan(id: string): PlanReferenceSnapshot;
   listSsh(): SshBookmarkPublic[];
   listBrowsers(): BrowserInstanceView[];
   listCapabilities(threadId: string): Promise<ComposerCapabilityReference[]>;
@@ -98,6 +101,7 @@ export class ComposerReferenceService {
             detail: item.workspacePath,
           })),
       );
+    if (!request.kind || request.kind === "plan") groups.push(this.deps.listPlans(query, limit + 1));
     let hasMore = false;
     const items = groups.flatMap((group) => {
       const matches = group.filter((item) =>
@@ -123,6 +127,15 @@ export class ComposerReferenceService {
         return ref.id;
       } else if (ref.kind === "todo") {
         details.push(this.deps.todos.resolveReference(threadId, ref.id));
+      } else if (ref.kind === "plan") {
+        const plan = this.deps.readPlan(ref.id);
+        details.push({
+          type: "plan", planId: plan.id, sourceThreadId: plan.sourceThreadId, version: plan.version,
+          title: plan.title, workspacePath: plan.workspacePath,
+          plan: Array.from(plan.plan).slice(0, 8000).join(""), planTruncated: Array.from(plan.plan).length > 8000,
+          tool: "eco_context.read_plan",
+          ...(ref.intent === "execute" ? { intent: "execute", instruction: "Execute this exact plan version. Read all remaining plan text with read_plan before implementation." } : {}),
+        });
       } else if (ref.kind === "ssh") {
         const ssh = this.deps.listSsh().find((item) => item.id === ref.id);
         if (!ssh) throw new Error(`SSH 标签已删除：${ref.label}`);
@@ -211,6 +224,21 @@ export class ComposerReferenceService {
   }
   todoTool(threadId: string, name: string, args: Record<string, unknown>) {
     return this.deps.todos.invoke(threadId, name, args);
+  }
+  readPlan(args: Record<string, unknown>) {
+    if (typeof args.planId !== "string" || !args.planId.trim()) throw new Error("planId 必须是非空字符串。");
+    const plan = this.deps.readPlan(args.planId);
+    const offset = args.offset ?? 0, limit = args.limit ?? 8000;
+    if (!Number.isSafeInteger(offset) || Number(offset) < 0 || !Number.isSafeInteger(limit) || Number(limit) < 1 || Number(limit) > 16000)
+      throw new Error("offset 必须非负，limit 必须在 1–16000 之间。");
+    const characters = Array.from(plan.plan);
+    const end = Math.min(characters.length, Number(offset) + Number(limit));
+    return {
+      planId: plan.id, sourceThreadId: plan.sourceThreadId, version: plan.version, title: plan.title,
+      workspacePath: plan.workspacePath, plan: characters.slice(Number(offset), end).join(""),
+      totalCharacters: characters.length, hasMore: end < characters.length,
+      ...(end < characters.length ? { nextOffset: end } : {}),
+    };
   }
   readConversation(args: Record<string, unknown>) {
     const thread = this.requireThread(args.conversationId);

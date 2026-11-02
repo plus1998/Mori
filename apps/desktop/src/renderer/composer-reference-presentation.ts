@@ -4,6 +4,7 @@ type IconNode = readonly ["path" | "rect" | "circle", Readonly<Record<string, st
 const ICONS = {
   project: [["path", { d: "M3 6a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" }]],
   todo: [["rect", { x: "4", y: "3", width: "16", height: "18", rx: "2" }], ["path", { d: "m8 12 3 3 5-6" }]],
+  plan: [["path", { d: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13h8M8 17h6" }]],
   ssh: [["path", { d: "m4 6 6 6-6 6M12 18h8" }]],
   web: [
     ["circle", { cx: "12", cy: "12", r: "9" }],

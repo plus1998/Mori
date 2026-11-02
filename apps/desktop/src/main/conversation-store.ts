@@ -1,3 +1,5 @@
+import { PlanExecutionStore, planReferenceId } from "./plan-execution-store";
+import type { PlanExecutionLink, PlanReferenceSnapshot } from "../shared/plan-execution";
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -700,6 +702,7 @@ export class ConversationStore {
   private readonly threadRunEventAppendedListeners = new Set<(event: ThreadRunEvent) => void>();
   private readonly v2: ConversationV2Store;
   private readonly runtimeWriter: ConversationV2RuntimeWriter;
+  private readonly planExecutions: PlanExecutionStore;
   private storageMode: ConversationV2StorageMode = "legacy_compat";
   private promptImageFileStore: PromptImageFileStore | undefined;
 
@@ -708,6 +711,7 @@ export class ConversationStore {
     private readonly options: ConversationStoreOptions = {},
   ) {
     this.v2 = new ConversationV2Store(db);
+    this.planExecutions = new PlanExecutionStore(db);
     this.runtimeWriter = new ConversationV2RuntimeWriter(db, this.v2);
     this.promptImageFileStore = options.promptImageFileStore;
   }
@@ -1497,6 +1501,7 @@ export class ConversationStore {
 
     `);
     this.ensureCommonSchemaColumns();
+    this.planExecutions.initialize();
     if (this.storageMode === "legacy_compat") {
       this.initializeLegacyStorageTables();
       this.migrateSchema();
@@ -3414,6 +3419,7 @@ export class ConversationStore {
       }
       this.v2.deleteConversationInCurrentTransaction(id);
       this.db.prepare(`DELETE FROM threads WHERE id = ?`).run(id);
+      this.planExecutions.threadDeleted(id);
       this.db.exec("COMMIT");
       this.invalidateThreadRunEventCaches(id);
       return true;
@@ -3589,6 +3595,7 @@ export class ConversationStore {
       }
       this.v2.deleteConversationInCurrentTransaction(receipt.threadId);
       this.db.prepare(`DELETE FROM threads WHERE id = ?`).run(receipt.threadId);
+      this.planExecutions.threadDeleted(receipt.threadId);
       const changed = this.db
         .prepare(
           `UPDATE thread_delete_receipts_v2
@@ -9315,6 +9322,7 @@ export class ConversationStore {
 
   savePendingPlan(plan: ThreadPendingPlan & { routesJson: string }): void {
     this.v2.initialize();
+    this.planExecutions.capture(plan);
     if (this.isV2OnlyStorage()) {
       this.v2.savePendingPlan({
         conversationId: plan.threadId,
@@ -9367,6 +9375,8 @@ export class ConversationStore {
       const plan = this.v2.getPendingPlan(threadId);
       if (!plan) return undefined;
       return {
+        ...this.pendingPlanReference({ threadId, userPrompt: plan.userPrompt, analysis: plan.analysis, plan: plan.plan,
+          workspacePath: plan.workspacePath, worktreePath: plan.worktreePath }),
         threadId: plan.conversationId,
         userPrompt: plan.userPrompt,
         analysis: plan.analysis,
@@ -9406,6 +9416,8 @@ export class ConversationStore {
     }
 
     return {
+      ...this.pendingPlanReference({ threadId, userPrompt: row.user_prompt, analysis: row.analysis, plan: row.plan,
+        workspacePath: row.workspace_path, worktreePath: row.worktree_path }),
       threadId: row.thread_id,
       userPrompt: row.user_prompt,
       analysis: row.analysis,
@@ -9418,6 +9430,105 @@ export class ConversationStore {
         ? { deferredExitPlanToolUseId: row.deferred_exit_plan_tool_use_id.trim() }
         : {}),
     };
+  }
+
+  private pendingPlanReference(plan: ThreadPendingPlan): { referenceId: string; version: number } {
+    const snapshot = this.planExecutions.capture(plan);
+    return { referenceId: snapshot.id, version: snapshot.version };
+  }
+
+  getPlanReference(id: string): PlanReferenceSnapshot {
+    return this.planExecutions.requireSnapshot(id);
+  }
+
+  searchPlanReferences(query: string, limit: number) {
+    // Materialize versions for plans saved before this feature was installed.
+    const table = this.isV2OnlyStorage() ? "conversation_pending_plans_v2" : "thread_pending_plans";
+    const column = this.isV2OnlyStorage() ? "conversation_id" : "thread_id";
+    for (const row of this.db.prepare(`SELECT ${column} AS id FROM ${table}`).all()) {
+      this.getPendingPlan(String(row.id));
+    }
+    return this.planExecutions.references(query, limit);
+  }
+
+  validatePlanExecution(planId: string, workspacePath: string): PlanReferenceSnapshot {
+    const plan = this.getPlanReference(planId);
+    const source = this.getThread(plan.sourceThreadId);
+    if (!source) throw new Error("来源会话已删除，无法交接执行计划。");
+    if (plan.workspacePath !== workspacePath) throw new Error("请在计划所属项目中执行，避免修改其他项目。");
+    this.planExecutions.assertAvailable(planId);
+    if (this.v2.listRecoverableCommandJobs().some(job => job.conversationId === source.id && job.commandType === "plan.resolve")) {
+      throw new Error("来源计划正在处理审批，请等待处理结束后再执行。");
+    }
+    const pending = this.getPendingPlan(plan.sourceThreadId);
+    if (!pending || planReferenceId(pending) !== plan.id || source.status !== "awaiting_plan") {
+      throw new Error("来源计划已更新或已处理，请回到来源会话选择当前待执行计划。");
+    }
+    return plan;
+  }
+
+  reservePlanExecution(planId: string, executionThreadId: string): void {
+    const thread = this.getThread(executionThreadId);
+    if (!thread) throw new Error("执行会话不存在。");
+    this.validatePlanExecution(planId, thread.workspacePath);
+    this.planExecutions.reserve(planId, executionThreadId);
+  }
+
+  assertPlanApprovalNotHandedOff(threadId: string): void {
+    const pending = this.getPendingPlan(threadId);
+    if (pending?.referenceId) this.planExecutions.assertAvailable(pending.referenceId);
+  }
+
+  /** Bind only the first durable runtime attempt, and atomically resolve the matching source gate. */
+  startPlanExecution(executionThreadId: string, attemptId: string): string | undefined {
+    const queued = this.planExecutions.queuedForThread(executionThreadId);
+    if (!queued) return undefined;
+    if (!this.listRunAttempts(executionThreadId).some(attempt => attempt.attemptId === attemptId && attempt.status === "running")) {
+      throw new Error("执行尚未启动，不能解除来源计划审批。");
+    }
+    const pending = this.getPendingPlan(queued.sourceThreadId);
+    const source = this.getThread(queued.sourceThreadId);
+    const clearSource = pending && planReferenceId(pending) === queued.planId && source?.status === "awaiting_plan";
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      this.planExecutions.bindAttempt(executionThreadId, attemptId);
+      if (clearSource) {
+        if (this.isV2OnlyStorage()) this.v2.clearPendingPlan(queued.sourceThreadId, { inCurrentTransaction: true });
+        else this.db.prepare("DELETE FROM thread_pending_plans WHERE thread_id = ?").run(queued.sourceThreadId);
+        this.updateThread(queued.sourceThreadId, { status: "idle", message: "" });
+      }
+      this.db.exec("COMMIT");
+    } catch (error) {
+      rollbackConversationTransaction(this.db);
+      throw error;
+    }
+    return clearSource ? queued.sourceThreadId : undefined;
+  }
+
+  settlePlanExecution(threadId: string, attemptId: string, message?: string): void {
+    const attempt = this.listRunAttempts(threadId).find(item => item.attemptId === attemptId);
+    if (!attempt || attempt.status === "running") return;
+    if (attempt.status !== "completed" && this.planExecutions.queuedForThread(threadId)) {
+      this.planExecutions.failQueued(threadId, message ?? "执行未能启动，来源计划仍待审批。");
+      return;
+    }
+    this.planExecutions.settleAttempt(threadId, attemptId, attempt.status, message ?? this.getThread(threadId)?.message ?? "");
+  }
+
+  failQueuedPlanExecution(threadId: string, message: string): void {
+    this.planExecutions.failQueued(threadId, message);
+  }
+
+  recoverPlanExecutions(): void {
+    // Persisted attempt outcomes take precedence over a crash between settlement and UI notification.
+    for (const row of this.db.prepare("SELECT execution_thread_id AS threadId, attempt_id AS attemptId FROM plan_execution_links WHERE status = 'running'").all()) {
+      if (typeof row.attemptId === "string") this.settlePlanExecution(String(row.threadId), row.attemptId);
+    }
+    this.planExecutions.recoverInterrupted();
+  }
+
+  listPlanExecutions(threadId: string): PlanExecutionLink[] {
+    return this.planExecutions.links(threadId);
   }
 
   getThreadClaudePlanFilePath(threadId: string): string | undefined {

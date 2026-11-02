@@ -235,6 +235,7 @@ export function isEventCenterInvokeParams(value: unknown): value is EventCenterI
 const THREAD_PLAN_LIVE_EVENT_TYPES = new Set([
   "thread.awaiting_plan",
   "thread.plan_cleared",
+  "thread.plan_execution_updated",
   "plan_approval.requested",
   "plan_approval.approved",
   "plan_approval.denied",

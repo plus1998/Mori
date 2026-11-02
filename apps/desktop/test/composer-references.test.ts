@@ -13,6 +13,14 @@ const reference = {
   label: "订单 @ work {预览}",
   detail: "https://example.com/?q=中文&x=1",
 };
+test("plan versions and explicit execution intent round-trip through drafts and atomic chips", () => {
+  const reference = { kind: "plan" as const, id: "plan_thr_123_hash", label: "计划 v2", detail: "来源会话", intent: "execute" as const };
+  const token = composerReferenceToken(reference);
+  expect(composerReferences(token)).toEqual([reference]);
+  expect(parsePromptSegments(token)).toEqual([{ type: "reference", reference }]);
+  expect(composerReferences(composerReferenceToken({ ...reference, kind: "conversation" }))[0]?.intent).toBeUndefined();
+  expect(parseMentionQuery("@计划:重构", 6)).toEqual({ start: 0, query: "重构", kind: "plan" });
+});
 test("reference tokens survive copy, draft storage, and mixed file/skill parsing", () => {
   const token = composerReferenceToken(reference);
   expect(composerReferences(`请看 ${token} 和 @file{/tmp/a.ts} $pdf`)).toEqual([reference]);

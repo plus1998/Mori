@@ -12,6 +12,8 @@ function setup(overrides: Partial<ComposerReferenceDeps> = {}) {
   const deps: ComposerReferenceDeps = {
     todos: { references: () => [], resolveReference: () => { throw new Error("No test todos"); }, invoke: () => { throw new Error("No test todos"); }, disposeThread() {} },
     listThreads: () => threads,
+    listPlans: () => [],
+    readPlan: () => { throw new Error("No test plans"); },
     getThread: (id) => threads.find((item) => item.id === id),
     listSsh: () => [
       {
@@ -43,6 +45,21 @@ test("picker searches conversations across projects and bounds each category", (
   ]);
   expect(service.search({ query: "订单", limit: 1 }).hasMore).toBe(true);
   expect(() => service.search({ query: "", limit: -1 })).toThrow();
+});
+test("plan references resolve the authoritative immutable version with Unicode-safe pagination", async () => {
+  const snapshot = { id: "plan_1", sourceThreadId: "a", version: 2, title: "计划标题", workspacePath: "/project/a",
+    userPrompt: "implement", analysis: "reason", plan: "一😀二😀三", createdAt: "2026-11-02" };
+  const service = setup({ readPlan: () => snapshot, listPlans: () => [{ kind: "plan", id: snapshot.id, label: snapshot.title, detail: "v2" }] });
+  expect(service.search({ query: "计划", kind: "plan" }).items).toHaveLength(1);
+  const resolved = await service.resolvePrompt("b", composerReferenceToken({ kind: "plan", id: "plan_1", label: "old", detail: "old", intent: "execute" }));
+  expect(resolved).toContain('"version":2');
+  expect(resolved).toContain('"intent":"execute"');
+  expect(resolved).toContain(snapshot.plan);
+  const first = service.readPlan({ planId: "plan_1", limit: 2 });
+  const second = service.readPlan({ planId: "plan_1", offset: first.nextOffset, limit: 3 });
+  expect(first.plan + second.plan).toBe(snapshot.plan);
+  expect(second.hasMore).toBe(false);
+  expect(() => service.readPlan({ planId: "plan_1", offset: -1 })).toThrow();
 });
 test("prompt resolution uses current authoritative SSH metadata without stored credentials", async () => {
   const prompt = await setup().resolvePrompt(

@@ -9,6 +9,7 @@ export function buildThreadPendingPlanView(
     return undefined;
   }
   return {
+    ...(pending.referenceId ? { referenceId: pending.referenceId, version: pending.version } : {}),
     threadId: pending.threadId,
     userPrompt: pending.userPrompt,
     analysis: pending.analysis,

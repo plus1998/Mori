@@ -752,6 +752,8 @@ import {
   resolveNonRewindRetryUserMessage,
 } from "./conversation-nonrewind-retry-command";
 import { executePlanResolutionCommand, recoverInterruptedPlanCommands } from "./conversation-plan-command";
+import { resolvePlanExecutionId } from "./plan-execution-store";
+import { PLAN_EXECUTION_CHANGED } from "../shared/plan-execution";
 import { executeConversationRewriteCommand } from "./conversation-rewrite-command";
 import {
   executeRuntimeConfigMutationCommand,
@@ -2018,7 +2020,7 @@ threadRuntimeCoordinator.register({
 threadRuntimeCoordinator.register({
   kind: "acp",
   start: (input) =>
-    void startAcpThreadRun(
+    startAcpThreadRun(
       toAcpThreadStartRunInput({
         thread: input.thread,
         workspace: input.workspace,
@@ -4003,6 +4005,8 @@ app
       selections: browserSelectionService,
       listThreads: (query, limit) => conversationStore.searchThreadReferences(query, limit),
       getThread: (id) => conversationStore.getThread(id),
+      listPlans: (query, limit) => conversationStore.searchPlanReferences(query, limit),
+      readPlan: (id) => conversationStore.getPlanReference(id),
       listSsh: () => sshBookmarkStore.list(),
       listBrowsers: () => requireBrowserHost().getState().allInstances,
       listCapabilities: resolveComposerCapabilitiesForThread,
@@ -5173,6 +5177,7 @@ async function approveThreadPlan(payload: unknown) {
   const request = parseThreadApprovePlanPayload(payload);
   const { threadId } = request;
   requireConversationV2Thread(threadId);
+  conversationStore.assertPlanApprovalNotHandedOff(threadId);
   return executePlanResolutionCommand(
     {
       principalId: request.principalId,
@@ -10233,6 +10238,11 @@ function registerIpcHandlers(): void {
   });
 
   registerDesktopCommand(IPC_CHANNELS.threadApprovePlan, approveThreadPlan);
+  registerDesktopCommand(IPC_CHANNELS.threadPlanExecutions, (threadId: unknown) => {
+    if (typeof threadId !== "string" || !threadId.trim()) throw new Error("会话 ID 不能为空。");
+    requireConversationV2Thread(threadId);
+    return conversationStore.listPlanExecutions(threadId);
+  });
 
   registerDesktopCommand(IPC_CHANNELS.threadDismissPlan, async (payload: unknown) => {
     const request = parseThreadDismissPlanPayload(payload);
@@ -11050,10 +11060,24 @@ function runThreadRequestOnce(
   retryIndex = 0,
   runtimeDispatch?: PreparedHistoryRuntimeDispatch,
 ): Promise<RequestAttemptResult> {
+  let planAttemptId: string | undefined;
   return runThreadRequestWithLifecycle({
     threadId,
     phase,
-    runOnce,
+    runOnce: (context) => {
+      planAttemptId = context.runAttemptId;
+      const sourceThreadId = conversationStore.startPlanExecution(threadId, context.runAttemptId);
+      if (sourceThreadId) {
+        // End the parked planner RPC without approving execution in the source conversation.
+        activeRunRuntimeState.abortRun(sourceThreadId, "plan handed off to another conversation");
+        cancelPlanApprovalsForThreadKeepPending(sourceThreadId, "plan handed off to another conversation");
+        emitThreadEvent(sourceThreadId, "thread.plan_cleared", "计划已交给新会话执行。", "system");
+        updateThread(sourceThreadId, { status: "idle", message: "" });
+        void retryDeferredRunCleanupIfNeeded(sourceThreadId);
+      }
+      publishPlanExecutionChanges(threadId);
+      return runOnce(context);
+    },
     lifecycle: agentLifecycle,
     settlements: usageLedgerCoordinator,
     retryIndex,
@@ -11067,6 +11091,14 @@ function runThreadRequestOnce(
         }
       : {}),
     ...(signal && { signal }),
+  }).then((outcome) => {
+    if (planAttemptId) conversationStore.settlePlanExecution(threadId, planAttemptId, outcome.ok ? "" : outcome.reason);
+    publishPlanExecutionChanges(threadId);
+    return outcome;
+  }, (error: unknown) => {
+    if (planAttemptId) conversationStore.settlePlanExecution(threadId, planAttemptId, errorMessage(error));
+    publishPlanExecutionChanges(threadId);
+    throw error;
   }).finally(() => {
     // finishRunAttempt writes the authoritative V2 attempt state. The durable
     // writer publishes the corresponding sync effect; there is no legacy Feed
@@ -11075,10 +11107,18 @@ function runThreadRequestOnce(
   });
 }
 
-/**
- * Cancel in-memory plan-approval bridges only.
- * Never clear persisted pending plans — users must be able to approve after quit/restart.
- */
+function publishPlanExecutionChanges(threadId: string): void {
+  const related = new Set<string>();
+  for (const link of conversationStore.listPlanExecutions(threadId)) {
+    if (!link.sourceDeleted) related.add(link.sourceThreadId);
+    if (!link.executionDeleted) related.add(link.executionThreadId);
+  }
+  for (const id of related) {
+    desktopEventCenter.publishThreadLiveEvent({ threadId: id, type: PLAN_EXECUTION_CHANGED, message: "", role: "system", stream: false });
+  }
+}
+
+/** Cancel in-memory bridges while retaining plans for approval after restart. */
 function cancelPlanApprovalsForThreadKeepPending(threadId: string, reason: string): void {
   cancelPlanApprovalsForThread(threadId, reason);
 }
@@ -14347,6 +14387,7 @@ async function startNewThread(
 ): Promise<ThreadStartResult> {
   const attachments = parsePromptImageAttachments(payload.attachments);
   const prompt = resolveThreadMessagePrompt(payload.prompt);
+  const planExecutionId = resolvePlanExecutionId(prompt, payload.planExecutionId);
   if (!prompt && attachments.length === 0) {
     throw new Error("Task prompt is required.");
   }
@@ -14379,12 +14420,17 @@ async function startNewThread(
     coreKind === "acp" || options.scheduled
       ? normalizeThreadRuntimeConfig(parsedRuntimeConfig)
       : materializeThreadRuntimeConfig(settings, parsedRuntimeConfig);
+  if (planExecutionId) {
+    if (threadRuntime.sessionMode !== "agent") throw new Error("执行引用计划需要使用执行模式。");
+    conversationStore.validatePlanExecution(planExecutionId, workspace.path);
+  }
   const roleRoutes = coreKind === "acp" ? [] : roleRoutesForThreadConfig(settings, threadRuntime);
   const resolvedRuntimeConfig =
     coreKind === "acp"
       ? { ok: true as const, routes: [] as RuntimeRoute[] }
       : resolveRuntimeConfigForThreadConfig(settings, threadRuntime, roleRoutes);
   if (options.scheduled && !resolvedRuntimeConfig.ok) throw new Error(resolvedRuntimeConfig.reason);
+  if (planExecutionId && !resolvedRuntimeConfig.ok) throw new Error(resolvedRuntimeConfig.reason);
   const status: ThreadSummary["status"] = resolvedRuntimeConfig.ok ? "running" : "blocked";
   const now = new Date().toISOString();
   const acpAgentId = coreKind === "acp" ? ("cursor" as const) : undefined;
@@ -14407,56 +14453,68 @@ async function startNewThread(
     runtimeConfig: threadRuntime,
   };
 
-  conversationStore.saveThread(thread);
-  const scheduledAccepted = options.occurrenceId
-    ? conversationStore.conversationV2().sendMessage({
-        principalId: "eco-scheduler",
-        conversationId: thread.id,
-        clientCommandId: options.occurrenceId,
-        messageId: `message_${options.occurrenceId}`,
-        text: prompt,
-      })
-    : undefined;
-  const recorded = await recordUserPrompt(
-    thread.id,
-    prompt,
-    attachmentsForHandOff,
-    scheduledAccepted ? [scheduledAccepted.messageId] : undefined,
-  );
-  const attachmentsForRuntime = await loadPromptAttachmentsForRuntime(
-    recorded.storedAttachments ?? attachmentsForHandOff,
-  );
-  emitThreadEvent(thread.id, status === "blocked" ? "thread.blocked" : "thread.started", thread.message);
-
-  // Landing browsers opened before the first message must move onto this thread
-  // before the renderer setUiScope effect runs (otherwise pages look "left behind").
+  conversationStore.saveThread(thread, () => {
+    if (planExecutionId) conversationStore.reservePlanExecution(planExecutionId, thread.id);
+  });
   try {
-    if (!options.scheduled) await requireBrowserHost().adoptPersonalScopeToThread(thread.id);
-  } catch (error) {
-    console.warn(
-      `[eco-browser] adoptPersonalScopeToThread failed: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
+    const scheduledAccepted = options.occurrenceId
+      ? conversationStore.conversationV2().sendMessage({
+          principalId: "eco-scheduler",
+          conversationId: thread.id,
+          clientCommandId: options.occurrenceId,
+          messageId: `message_${options.occurrenceId}`,
+          text: prompt,
+        })
+      : undefined;
+    const recorded = await recordUserPrompt(
+      thread.id,
+      prompt,
+      attachmentsForHandOff,
+      scheduledAccepted ? [scheduledAccepted.messageId] : undefined,
     );
-  }
+    const attachmentsForRuntime = await loadPromptAttachmentsForRuntime(
+      recorded.storedAttachments ?? attachmentsForHandOff,
+    );
+    emitThreadEvent(thread.id, status === "blocked" ? "thread.blocked" : "thread.started", thread.message);
 
-  if (resolvedRuntimeConfig.ok) {
-    if (coreKind !== "acp" && !options.scheduled) {
-      scheduleThreadTitleSummary(thread.id);
+    // Landing browsers opened before the first message must move onto this thread
+    // before the renderer setUiScope effect runs (otherwise pages look "left behind").
+    try {
+      if (!options.scheduled) await requireBrowserHost().adoptPersonalScopeToThread(thread.id);
+    } catch (error) {
+      console.warn(
+        `[eco-browser] adoptPersonalScopeToThread failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
     }
-    void threadRuntimeCoordinator
-      .start(coreKind, {
-        thread,
-        workspace,
-        runtimeConfig: { routes: resolvedRuntimeConfig.routes },
-        prompt,
-        ...(attachmentsForRuntime?.length ? { attachments: attachmentsForRuntime } : {}),
-        roleRoutes,
-      })
-      .catch((error) => updateThread(thread.id, { status: "failed", message: errorMessage(error) }));
-  }
 
-  return { thread };
+    if (resolvedRuntimeConfig.ok) {
+      if (coreKind !== "acp" && !options.scheduled) {
+        scheduleThreadTitleSummary(thread.id);
+      }
+      void threadRuntimeCoordinator
+        .start(coreKind, {
+          thread,
+          workspace,
+          runtimeConfig: { routes: resolvedRuntimeConfig.routes },
+          prompt,
+          ...(attachmentsForRuntime?.length ? { attachments: attachmentsForRuntime } : {}),
+          roleRoutes,
+        })
+        .catch((error) => updateThread(thread.id, { status: "failed", message: errorMessage(error) }));
+    }
+
+    if (planExecutionId) {
+      publishPlanExecutionChanges(thread.id);
+    }
+    return { thread };
+  } catch (error) {
+    conversationStore.failQueuedPlanExecution(thread.id, errorMessage(error));
+    updateThread(thread.id, { status: "failed", message: errorMessage(error) });
+    publishPlanExecutionChanges(thread.id);
+    throw error;
+  }
 }
 
 interface StartThreadContinuationInput {
@@ -15497,6 +15555,7 @@ function healOrphanedThreadBeforeContinuation(threadId: string): void {
 
 /** After a crash, SQLite may still say running while no runtime run is active. */
 function recoverOrphanedRunningThreads(logStartupStage?: (stage: string) => void): void {
+  conversationStore.recoverPlanExecutions();
   getConversationForkCommands().recover();
   logStartupStage?.("recovery-gate.start");
   const threads = conversationStore.listThreads();
@@ -17490,6 +17549,12 @@ async function buildThreadApprovedPlanView(threadId: string): Promise<ThreadPend
   }
 
   const worktreePath = createSessionPlan(thread.workspacePath, id).worktreePath;
+  const execution = conversationStore.listPlanExecutions(id).find(link => link.attemptId);
+  if (execution) {
+    const snapshot = conversationStore.getPlanReference(execution.planId);
+    return { threadId: id, userPrompt: snapshot.userPrompt, analysis: snapshot.analysis, plan: snapshot.plan,
+      workspacePath: thread.workspacePath, worktreePath, referenceId: snapshot.id, version: snapshot.version };
+  }
   const planFilePath = conversationStore.getThreadClaudePlanFilePath(id);
   if (planFilePath) {
     const planText = await readClaudePlanFile(thread.workspacePath, planFilePath);
@@ -19496,6 +19561,10 @@ function updateThread(threadId: string, patch: Pick<ThreadSummary, "message" | "
 
   const message = normalizeThreadMessage(patch.status, patch.message);
   conversationStore.updateThread(threadId, { ...patch, message });
+  if (patch.status === "failed" || patch.status === "blocked" || patch.status === "idle") {
+    conversationStore.failQueuedPlanExecution(threadId, message || "执行在启动前停止，来源计划仍待审批。");
+    publishPlanExecutionChanges(threadId);
+  }
   const followUpQueuePaused = autoPauseFollowUpQueueForErrorStatus(threadId, patch.status);
   const pendingPlan =
     patch.status === "awaiting_plan" ? conversationStore.getPendingPlan(threadId) : undefined;
@@ -19536,6 +19605,10 @@ function patchThreadSummary(threadId: string, patch: Pick<ThreadSummary, "messag
 
   const message = normalizeThreadMessage(patch.status, patch.message);
   conversationStore.updateThread(threadId, { ...patch, message });
+  if (patch.status === "failed" || patch.status === "blocked" || patch.status === "idle") {
+    conversationStore.failQueuedPlanExecution(threadId, message || "执行在启动前停止，来源计划仍待审批。");
+    publishPlanExecutionChanges(threadId);
+  }
   autoPauseFollowUpQueueForErrorStatus(threadId, patch.status);
   // Status can leave running/queued here (e.g. markThreadInterrupted → blocked)
   // without going through updateThread; keep the sleep blocker in sync.
