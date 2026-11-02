@@ -42,7 +42,7 @@ export interface OpenAIAccountQuota {
     secondaryWindow: OpenAIAccountQuotaWindow | null;
   };
   resetCreditsAvailable: number;
-  /** Time of the last successful quota refresh, in Unix milliseconds. */
+  /** Time of the last successful full quota read, in Unix milliseconds; native partial updates preserve it. */
   fetchedAt: number;
 }
 

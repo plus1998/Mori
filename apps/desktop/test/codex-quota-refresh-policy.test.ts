@@ -1,9 +1,7 @@
 import { expect, test } from "bun:test";
 import { CodexQuotaRefreshPolicy, readQuotaRetryAt } from "../src/main/codex-quota-refresh-policy";
 import {
-  CODEX_QUOTA_REFRESH_MS,
   hasUnrefreshedCodexQuotaReset,
-  nextCodexQuotaResetCheckAt,
   nextImageQuotaResetCheckAt,
 } from "../src/shared/codex-quota-refresh";
 import type { OpenAIAccountQuota } from "../src/shared/openai-account";
@@ -29,21 +27,22 @@ function quota(fetchedAt = start): OpenAIAccountQuota {
   };
 }
 
-test("all automatic entry points share a five-minute freshness limit; manual refresh bypasses it", () => {
+test("opening a view uses a one-minute cooldown; manual requests read immediately", () => {
   let now = start;
   const policy = new CodexQuotaRefreshPolicy(() => now);
   const cached = quota();
   policy.begin("a", "auth");
   policy.succeed("a", "auth");
-  for (const reason of ["usage", "switch"] as const)
-    expect(policy.check("a", "auth", cached, reason)).toBe("cached");
-  now += 60_000;
-  expect(policy.check("a", "auth", cached, "reset")).toBe("skip");
   expect(policy.check("a", "auth", cached, "manual")).toBe("query");
-  now = start + CODEX_QUOTA_REFRESH_MS;
-  for (const reason of ["usage", "switch", "reset"] as const)
+  now = start + 59_999;
+  for (const reason of ["view", "switch"] as const)
+    expect(policy.check("a", "auth", cached, reason)).toBe("cached");
+  expect(policy.check("a", "auth", undefined, "view")).toBe("skip");
+  now = start + 60_000;
+  for (const reason of ["view", "switch", "reset"] as const)
     expect(policy.check("a", "auth", cached, reason)).toBe("query");
-  expect(policy.check("b", "auth", undefined, "usage")).toBe("query");
+  expect(policy.check("a", "auth", undefined, "view")).toBe("query");
+  expect(policy.check("b", "auth", undefined, "view")).toBe("query");
 });
 
 test("automatic failures back off for 5, 15, then 30 minutes, while explicit requests can retry", () => {
@@ -53,10 +52,10 @@ test("automatic failures back off for 5, 15, then 30 minutes, while explicit req
     policy.begin("a", "auth");
     policy.fail("a", "auth", new Error("503 offline"));
     expect(policy.state("a", "auth")?.retryAt).toBe(now + delay * 60_000);
-    expect(() => policy.check("a", "auth", undefined, "usage")).toThrow("503 offline");
+    expect(() => policy.check("a", "auth", undefined, "view")).toThrow("503 offline");
     expect(policy.check("a", "auth", undefined, "manual")).toBe("query");
     now += delay * 60_000;
-    expect(policy.check("a", "auth", undefined, "usage")).toBe("query");
+    expect(policy.check("a", "auth", undefined, "view")).toBe("query");
   }
   policy.succeed("a", "auth");
   expect(policy.state("a", "auth")?.error).toBeUndefined();
@@ -67,9 +66,9 @@ test("authentication failure stops automatic requests until credentials change o
   const policy = new CodexQuotaRefreshPolicy(() => now);
   policy.fail("a", "old", new Error("invalid_grant: refresh token revoked"));
   now += 24 * 60 * 60_000;
-  expect(() => policy.check("a", "old", undefined, "usage")).toThrow("invalid_grant");
+  expect(() => policy.check("a", "old", undefined, "view")).toThrow("invalid_grant");
   expect(policy.check("a", "old", undefined, "manual")).toBe("query");
-  expect(policy.check("a", "new", undefined, "usage")).toBe("query");
+  expect(policy.check("a", "new", undefined, "view")).toBe("query");
   expect(policy.state("a", "new")).toBeUndefined();
 });
 
@@ -100,16 +99,6 @@ test("reset checks never invent resets, and a post-reset snapshot covers that wi
   expect(policy.check("a", "auth", undefined, "reset")).toBe("skip");
 });
 
-test("visible reset watchers wait for cooldown/backoff and stop once reset is confirmed", () => {
-  const cached = quota();
-  expect(nextCodexQuotaResetCheckAt(cached)).toBe(start + CODEX_QUOTA_REFRESH_MS);
-  expect(
-    nextCodexQuotaResetCheckAt(cached, { attemptedAt: start + 60_000, retryAt: start + 15 * 60_000 }),
-  ).toBe(start + 15 * 60_000);
-  expect(nextCodexQuotaResetCheckAt(cached, { attemptedAt: start, authRequired: true })).toBeUndefined();
-  expect(nextCodexQuotaResetCheckAt(quota(start + 60_000))).toBeUndefined();
-});
-
 test("image quota checks use only valid resets newer than the snapshot", () => {
   const image = { source: "chatgpt_image_gen" as const, status: "available" as const, fetchedAt: start, resetAt: new Date(start + 60_000).toISOString() };
   expect(nextImageQuotaResetCheckAt(image)).toBe(start + 60_000);
@@ -125,5 +114,5 @@ test("an ordinary 401 remains retryable rather than permanently requiring login"
   policy.fail("a", "auth", new Error("401 unauthorized"));
   expect(policy.state("a", "auth")?.authRequired).toBeUndefined();
   now += 5 * 60_000;
-  expect(policy.check("a", "auth", undefined, "usage")).toBe("query");
+  expect(policy.check("a", "auth", undefined, "view")).toBe("query");
 });

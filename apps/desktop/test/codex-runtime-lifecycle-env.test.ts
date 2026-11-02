@@ -21,6 +21,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
  const msg=JSON.parse(line);
  if(!msg.method){send({id:pending,result:msg.result});return;}
  if(msg.method==='initialized')return;
+ if(msg.method==='test/quota'){send({method:'account/rateLimits/updated',params:{rateLimits:{limitId:'codex',primary:{usedPercent:42}}}});send({id:msg.id,result:{}});return;}
  if(msg.method==='test/refresh'){pending=msg.id;send({id:'refresh',method:'account/chatgptAuthTokens/refresh',params:{previousAccountId:'chatgpt-a'}});return;}
  if(msg.method==='account/login/start' && (msg.params.type!=='chatgptAuthTokens'||Object.keys(msg.params).some(key=>key.includes('refresh')))){send({id:msg.id,error:{code:-1,message:'invalid credentials'}});return;}
  send({id:msg.id,result:{}});
@@ -31,11 +32,18 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
       return { accountId: "a", accessToken: previous ? "new-access" : "old-access", chatgptAccountId: "chatgpt-a" };
     });
     setCodexAccountProxyConfigGetter(() => ({ mode: "direct" }));
-    const lifecycle = new CodexRuntimeLifecycle({ ecoDataDir, codexExecutable: executable, accountId: "a" });
+    const updates: unknown[] = [];
+    const lifecycle = new CodexRuntimeLifecycle({ ecoDataDir, codexExecutable: executable, accountId: "a",
+      onAccountRateLimitsUpdated: (accountId, chatgptAccountId, params) => updates.push({ accountId, chatgptAccountId, params }),
+    });
     try {
       const client = await lifecycle.start();
       expect(await client.request("test/refresh")).toEqual({ accessToken: "new-access", chatgptAccountId: "chatgpt-a" });
       expect(requests).toEqual([{ accountId: "a" }, { accountId: "a", previous: "old-access" }]);
+      await client.request("test/quota");
+      expect(updates).toEqual([{ accountId: "a", chatgptAccountId: "chatgpt-a",
+        params: { rateLimits: { limitId: "codex", primary: { usedPercent: 42 } } },
+      }]);
     } finally {
       await lifecycle.stop();
       setCodexExternalAuthProvider(undefined);

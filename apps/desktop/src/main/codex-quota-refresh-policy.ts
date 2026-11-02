@@ -2,7 +2,7 @@ import { CODEX_QUOTA_REFRESH_MS, hasUnrefreshedCodexQuotaReset } from "../shared
 import type { OpenAIAccountQuota, OpenAIAccountQuotaRefreshState } from "../shared/openai-account";
 import { isCodexReauthenticationRequired } from "./codex-reauthentication";
 
-export type QuotaRefreshReason = "manual" | "usage" | "switch" | "reset";
+export type QuotaRefreshReason = "manual" | "view" | "switch" | "reset";
 interface RefreshState extends OpenAIAccountQuotaRefreshState {
   failures: number;
   credentials: string;

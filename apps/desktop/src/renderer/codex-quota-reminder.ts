@@ -2,7 +2,6 @@ import { canUseOpenAIAccountCredentials } from "../shared/openai-account";
 import { isCodexAuthThread } from "../shared/codex-auth-thread";
 import type { ThreadSummary } from "../shared/ipc";
 import type { OpenAIAccountQuota, OpenAIAccountQuotaWindow, OpenAIAccountQuotaRefreshState } from "../shared/openai-account";
-import { CODEX_QUOTA_REFRESH_MS, nextCodexQuotaResetCheckAt } from "../shared/codex-quota-refresh";
 
 export { CODEX_QUOTA_REFRESH_MS } from "../shared/codex-quota-refresh";
 
@@ -81,16 +80,14 @@ type QuotaBridge = Pick<
   "openAIAccountsList" | "openAIAccountsQueryQuota"
 >;
 
-/** Cache reads on UI events; upstream reads only on manual refresh or a due reset. */
+/** Cache-only change notifications; opening details requests a read with the view cooldown. */
 export class CodexQuotaMonitor {
   private inFlight: Promise<void> | undefined;
-  private manualInFlight = false;
-  private queuedManual: Promise<void> | undefined;
+  private queryInFlight: "manual" | "view" | undefined;
+  private readonly queuedQueries = new Map<"manual" | "view", Promise<void>>();
   private generation = 0;
   private refreshAgain = false;
   private disposed = false;
-  private resetTimer: ReturnType<typeof setTimeout> | undefined;
-  private readonly resetChecks = new Map<string, { at: number; error?: string }>();
 
   constructor(
     private readonly eco: QuotaBridge,
@@ -118,54 +115,22 @@ export class CodexQuotaMonitor {
   dispose(): void {
     this.disposed = true;
     this.generation++;
-    if (this.resetTimer) clearTimeout(this.resetTimer);
   }
 
-  private scheduleReset(snapshot: CodexQuotaReminderSnapshot): void {
-    if (this.resetTimer) clearTimeout(this.resetTimer);
-    this.resetTimer = undefined;
-    if ((typeof document !== "undefined" && document.hidden)) return;
-    const resetAt = nextCodexQuotaResetCheckAt(snapshot.quota, snapshot.refreshState);
-    if (resetAt === undefined) return;
-    const dueAt = Math.max(resetAt, (this.resetChecks.get(snapshot.accountId)?.at ?? 0) + CODEX_QUOTA_REFRESH_MS);
-    // Re-evaluate distant resets before the platform timeout limit (about 24 days).
-    const delay = Math.min(2_147_483_647, Math.max(0, dueAt - Date.now()));
-    this.resetTimer = setTimeout(() => {
-      this.resetTimer = undefined;
-      if (this.disposed || !this.options.enabled() || (typeof document !== "undefined" && document.hidden)) return;
-      void (async () => {
-        try {
-          if (this.options.accountId() !== snapshot.accountId) return;
-          const account = (await this.eco.openAIAccountsList()).find((entry) => entry.id === snapshot.accountId);
-          if (!account || !canUseOpenAIAccountCredentials(account) || this.options.accountId() !== snapshot.accountId) return;
-          if (Date.now() >= dueAt) {
-            this.resetChecks.set(snapshot.accountId, { at: Date.now() });
-            await this.eco.openAIAccountsQueryQuota(snapshot.accountId, "reset");
-          }
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          this.resetChecks.set(snapshot.accountId, { at: Date.now(), error: message });
-          if (!this.disposed) this.options.onError(message);
-        } finally {
-          if (!this.disposed) await this.refresh();
-        }
-      })();
-    }, delay);
-    this.resetTimer.unref?.();
-  }
-
-  refresh(manual = false): Promise<void> {
+  refresh(mode: boolean | "view" = false): Promise<void> {
     if (this.disposed) return Promise.resolve();
+    const reason = mode === "view" ? "view" : mode ? "manual" : undefined;
     if (this.inFlight) {
-      // A user request waits for a cache read, then still performs its explicit refresh.
-      if (!manual || this.manualInFlight) return this.inFlight;
-      if (!this.queuedManual) {
-        this.queuedManual = this.inFlight.then(() => this.refresh(true)).finally(() => { this.queuedManual = undefined; });
+      if (!reason || this.queryInFlight === "manual" || (reason === "view" && this.queryInFlight === "view"))
+        return this.inFlight;
+      // Opening during a cache read must still check freshness afterwards.
+      let queued = this.queuedQueries.get(reason);
+      if (!queued) {
+        queued = this.inFlight.then(() => this.refresh(mode)).finally(() => { this.queuedQueries.delete(reason); });
+        this.queuedQueries.set(reason, queued);
       }
-      return this.queuedManual;
+      return queued;
     }
-    if (this.resetTimer) clearTimeout(this.resetTimer);
-    this.resetTimer = undefined;
     const generation = this.generation;
     const current = () => !this.disposed && generation === this.generation;
     const request = (async () => {
@@ -176,7 +141,7 @@ export class CodexQuotaMonitor {
         }
         const accountId = this.options.accountId();
         if (!accountId) { this.options.onChange(undefined); return; }
-        if (manual) await this.eco.openAIAccountsQueryQuota(accountId, "manual");
+        if (reason) await this.eco.openAIAccountsQueryQuota(accountId, reason);
         const accounts = await this.eco.openAIAccountsList();
         if (!current()) return;
         if (!this.options.enabled() || this.options.accountId() !== accountId) {
@@ -194,21 +159,18 @@ export class CodexQuotaMonitor {
             ...(account.quotaRefresh ? { refreshState: account.quotaRefresh } : {}),
           };
           this.options.onChange(snapshot);
-          this.scheduleReset(snapshot);
         } else this.options.onChange(undefined);
-        const resetCheck = this.resetChecks.get(accountId);
-        if (quota && resetCheck && quota.fetchedAt >= resetCheck.at) this.resetChecks.delete(accountId);
-        const error = account.quotaRefresh?.error ?? this.resetChecks.get(accountId)?.error;
+        const error = account.quotaRefresh?.error;
         if (error) this.options.onError(error);
       } catch (error) {
         if (current()) this.options.onError(error instanceof Error ? error.message : String(error));
       }
     })();
     this.inFlight = request;
-    this.manualInFlight = manual;
+    this.queryInFlight = reason;
     void request.finally(() => {
       this.inFlight = undefined;
-      this.manualInFlight = false;
+      this.queryInFlight = undefined;
       if (this.refreshAgain && !this.disposed) {
         this.refreshAgain = false;
         void this.refresh();

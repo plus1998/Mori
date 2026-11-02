@@ -262,9 +262,6 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
       options.custom
         ? []
         : [{ id: "a", name: "Test", authState: "configured", isLoggedIn: true, proxyMode: "direct" }],
-    setQuotaUsage: () => {
-      accountCalls.push("quota");
-    },
     getAccountProxyConfig: async () => {
       accountCalls.push("proxy");
       return { mode: "direct" };

@@ -295,12 +295,12 @@ export function CodexQuotaReminder({
       setResetting(false);
     }
   }
-  async function refreshQuota() {
+  async function refreshQuota(mode: true | "view" = true) {
     if (!monitor.current || refreshingRef.current || resettingRef.current) return;
     refreshingRef.current = true;
     setRefreshing(true);
     try {
-      await monitor.current.refresh(true);
+      await monitor.current.refresh(mode);
     } finally {
       refreshingRef.current = false;
       setRefreshing(false);
@@ -340,6 +340,7 @@ export function CodexQuotaReminder({
         width={320}
         minHeight={snapshot ? 280 : 140}
         openOn="click"
+        onOpen={() => void refreshQuota("view")}
         align="end"
       >
         {(closePanel) => (

@@ -287,6 +287,24 @@ test("repeated explicit refreshes share one in-flight request", async () => {
   monitor.dispose();
 });
 
+test("opening details during a cache read still sends one view request and change events stay cache-only", async () => {
+  const api = bridge();
+  const queried: unknown[] = [];
+  let finish!: (accounts: OpenAIAccount[]) => void;
+  api.openAIAccountsList = () => new Promise((resolve) => { finish = resolve; });
+  api.openAIAccountsQueryQuota = async (...args: unknown[]) => { queried.push(args); return quota; };
+  const monitor = new CodexQuotaMonitor(api, { accountId: () => api.selected, enabled: () => true, onChange() {}, onError() {} });
+  const cache = monitor.refresh();
+  const opened = monitor.refresh("view");
+  const repeated = monitor.refresh("view");
+  api.openAIAccountsList = async () => [{ ...account, quota }];
+  finish([{ ...account, quota }]);
+  await Promise.all([cache, opened, repeated]);
+  await monitor.accountsChanged();
+  expect(queried).toEqual([["A", "view"]]);
+  monitor.dispose();
+});
+
 test("reminder shows conversation quota and disables reset without credits or during another operation", () => {
   const props = { snapshot, onReset() {}, onChangeModel() {}, onDismiss() {} };
   const html = renderLocalized(createElement(CodexQuotaReminderCard, props), "zh-CN");

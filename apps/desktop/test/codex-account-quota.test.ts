@@ -296,7 +296,7 @@ test("an expired active account refreshes through the shared client and writes S
   expect((await service.listAccounts())[0]?.quota).toEqual(quota);
 });
 
-test("startup keeps reset-due cache without querying; actual usage refreshes it", async () => {
+test("startup keeps reset-due cache without querying; opening details refreshes it", async () => {
   const root = await serviceRoot();
   const setup = new OpenAIAccountService(root, "unused", undefined, undefined, undefined, async (input, operation) => { accountHome = input.codexHomeDir; return operation(await (async () => quotaClient((method) =>
     method === "account/read" ? accountResponse : rateLimits))()); });
@@ -318,11 +318,7 @@ test("startup keeps reset-due cache without querying; actual usage refreshes it"
     db.close();
   }
   let reads = 0;
-  let published!: () => void;
-  const refreshed = new Promise<void>((resolve) => { published = resolve; });
-  const service = new OpenAIAccountService(root, "unused", () => {
-    if (reads > 0) published();
-  }, undefined, undefined, async (input, operation) => { accountHome = input.codexHomeDir; return operation(await (async () => quotaClient((method) => {
+  const service = new OpenAIAccountService(root, "unused", undefined, undefined, undefined, async (input, operation) => { accountHome = input.codexHomeDir; return operation(await (async () => quotaClient((method) => {
     if (method === "account/read") return accountResponse;
     reads++;
     return rateLimits;
@@ -331,12 +327,75 @@ test("startup keeps reset-due cache without querying; actual usage refreshes it"
   await service.initialize();
   expect(reads).toBe(0);
   expect((await service.listAccounts())[0]?.quota).toEqual(cached);
-  service.setQuotaUsage("task", true, account.id);
-  await refreshed;
+  await service.queryQuota(account.id, "view");
   expect(reads).toBe(1);
   const updated = (await service.listAccounts()).find((entry) => entry.id === account.id)?.quota;
   expect(updated?.fetchedAt).toBeGreaterThan(cached.fetchedAt);
   expect(updated?.rateLimit.primaryWindow?.usedPercent).toBe(25);
+});
+
+test("opening details shares a one-minute cooldown without starting polling", async () => {
+  const clock = spyOn(Date, "now").mockReturnValue(Date.now());
+  cleanups.push(async () => { clock.mockRestore(); });
+  const root = await serviceRoot();
+  let reads = 0;
+  const client = quotaClient((method) => {
+    if (method === "account/read") return accountResponse;
+    reads++;
+    return rateLimits;
+  });
+  const service = new OpenAIAccountService(root, "unused", undefined, undefined, undefined,
+    async (_input, operation) => operation(client));
+  await service.initialize({ startBackground: false });
+  cleanups.push(() => service.dispose());
+  const account = await service.createAccount("Events");
+  await service.setAuthJson(account.id, freshAuth);
+  const cached = await service.queryQuota(account.id);
+  const interval = spyOn(globalThis, "setInterval");
+  cleanups.push(async () => { interval.mockRestore(); });
+  await service.queryQuota(account.id, "view");
+  expect(reads).toBe(1);
+  expect(interval).not.toHaveBeenCalled();
+  clock.mockReturnValue(cached.fetchedAt + 59_999);
+  await service.queryQuota(account.id, "view");
+  expect(reads).toBe(1);
+  clock.mockReturnValue(cached.fetchedAt + 60_000);
+  await Promise.all([service.queryQuota(account.id, "view"), service.queryQuota(account.id, "view")]);
+  expect(reads).toBe(2);
+});
+
+test("native quota updates merge only into the bound account without RPCs or invented full-read freshness", async () => {
+  const root = await serviceRoot();
+  let reads = 0;
+  let changes = 0;
+  const client = quotaClient((method) => {
+    if (method === "account/read") return accountResponse;
+    reads++;
+    return rateLimits;
+  });
+  const service = new OpenAIAccountService(root, "unused", () => { changes++; }, undefined, undefined,
+    async (_input, operation) => operation(client));
+  await service.initialize({ startBackground: false });
+  cleanups.push(() => service.dispose());
+  const account = await service.createAccount("Native quota");
+  await service.setAuthJson(account.id, freshAuth);
+  const cached = await service.queryQuota(account.id);
+  const update = { rateLimits: { limitId: "codex", primary: { usedPercent: 42, windowDurationMins: 300, resetsAt: 2_000_000_000 } } };
+  service.observeQuotaUpdate(account.id, "acct-other", update);
+  service.observeQuotaUpdate(account.id, "acct-quota", { ...update, accountId: "acct-other" });
+  service.observeQuotaUpdate(account.id, "acct-quota", { rateLimits: { ...update.rateLimits, limitId: "premium" } });
+  expect((await service.listAccounts())[0]?.quota).toEqual(cached);
+  service.observeQuotaUpdate(account.id, "acct-quota", update);
+  const updated = (await service.listAccounts())[0]?.quota;
+  expect(updated?.rateLimit.primaryWindow?.usedPercent).toBe(42);
+  expect(updated?.rateLimit.secondaryWindow).toEqual(cached.rateLimit.secondaryWindow);
+  expect(updated?.rateLimit.limitReached).toBe(true); // weekly window is still exhausted
+  expect(updated?.resetCreditsAvailable).toBe(2);
+  expect(updated?.fetchedAt).toBe(cached.fetchedAt);
+  const published = changes;
+  service.observeQuotaUpdate(account.id, "acct-quota", update);
+  expect(changes).toBe(published);
+  expect(reads).toBe(1);
 });
 
 test.skipIf(process.platform === "win32")("inactive wake uses its own credentials and proxy home, refreshes quota and preserves the running account", async () => {

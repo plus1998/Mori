@@ -173,6 +173,7 @@ export interface CodexRuntimeRunDeps {
   ecoDataDir: string;
   /** Refresh managed ChatGPT credentials before a native OpenAI turn. */
   ensureAccountReady?: (accountId?: string) => Promise<void>;
+  onAccountRateLimitsUpdated?: (accountId: string, chatgptAccountId: string, params: unknown) => void;
   listProviders: () => readonly EcoProviderForCodexCatalog[];
   getGlobalContextWindowLimit?: () => number;
   listAccountModels?: () => Promise<readonly CodexAccountModelContext[]>;
@@ -1800,6 +1801,7 @@ async function startSharedCodexRuntimeLifecycle(
   const client = await start({
     ecoDataDir: runtimeDeps.ecoDataDir,
     codexExecutable,
+    ...(runtimeDeps.onAccountRateLimitsUpdated ? { onAccountRateLimitsUpdated: runtimeDeps.onAccountRateLimitsUpdated } : {}),
     clientOptions: {
       onServerRequest: (method, params) => approvalBridge?.handleServerRequest(method, params),
     },

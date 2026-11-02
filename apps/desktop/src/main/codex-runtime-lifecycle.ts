@@ -25,6 +25,7 @@ export interface CodexRuntimeLifecycleOptions {
   codexExecutable?: string;
   clientOptions?: Omit<CodexAppServerClientOptions, "onNotification">;
   onNotification?: CodexAppServerNotificationHandler;
+  onAccountRateLimitsUpdated?: (accountId: string, chatgptAccountId: string, params: unknown) => void;
   onStderr?: (chunk: string) => void;
 }
 
@@ -236,7 +237,12 @@ export class CodexRuntimeLifecycle {
         return this.options.clientOptions?.onServerRequest?.(method, params);
       } } : {}),
       diagnosticGeneration: nextDiagnosticGeneration++,
-      ...(this.options.onNotification ? { onNotification: this.options.onNotification } : {}),
+      onNotification: (method: string, params: unknown) => {
+        if (method === "account/rateLimits/updated" && boundAuth) {
+          this.options.onAccountRateLimitsUpdated?.(boundAuth.accountId, boundAuth.chatgptAccountId, params);
+        }
+        this.options.onNotification?.(method, params);
+      },
     };
     const client = CodexAppServerClient.attachToProcess(child, clientOptions);
     const spawnFailure = new Promise<never>((_resolve, reject) => {

@@ -17,7 +17,6 @@ import type {
   OpenAIAccountUpdateInput,
   OpenAIAccountWakeResult,
 } from "../shared/openai-account";
-import { CODEX_QUOTA_REFRESH_MS } from "../shared/codex-quota-refresh";
 import { OpenAIAccountStore } from "./openai-account-store";
 import { startCodexBrowserLogin, type CodexBrowserLogin } from "./codex-browser-login";
 import {
@@ -26,6 +25,7 @@ import {
   type CodexQuotaClient,
 } from "./codex-account-quota";
 import { CodexQuotaRefreshPolicy, type QuotaRefreshReason } from "./codex-quota-refresh-policy";
+import { mergeCodexQuotaUpdate } from "./codex-quota-update";
 import { wakeCodexAccount } from "./codex-account-wake";
 import { isCodexReauthenticationRequired } from "./codex-reauthentication";
 import { queryReadonlyAccountQuotas, readReadonlyQuota, ReadonlyQuotaError, redactAccountSummaryStrings } from "./readonly-account-quota";
@@ -211,7 +211,6 @@ export class OpenAIAccountService {
   private readonly mainCodexDir: string;
   private readonly databasePath: string;
   private store: OpenAIAccountStore | undefined;
-  private quotaPoll: ReturnType<typeof setInterval> | undefined;
   private readonly accountWork = new Map<string, Promise<void>>();
   private initialized = false;
   private readonly codexExecutableProvider: () => string | undefined;
@@ -221,7 +220,6 @@ export class OpenAIAccountService {
   private readonly refreshingAccounts = new Set<string>();
   private readonly wakeRequests = new Map<string, Promise<OpenAIAccountWakeResult>>();
   private readonly quotaRefreshPolicy = new CodexQuotaRefreshPolicy();
-  private readonly quotaUsage = new Map<string, string>();
   private disposing = false;
   wakeBatches!: AccountWakeBatches;
 
@@ -264,8 +262,6 @@ export class OpenAIAccountService {
       this.initialized = true;
       if (options.startBackground !== false) this.wakeBatches.start();
     } catch (error) {
-      if (this.quotaPoll) clearInterval(this.quotaPoll);
-      this.quotaPoll = undefined;
       this.initialized = false;
       this.store.close();
       this.store = undefined;
@@ -273,49 +269,26 @@ export class OpenAIAccountService {
     }
   }
 
-  /** Called by the main-process task lifecycle; queued/idle/UI state is not usage. */
-  setQuotaUsage(taskId: string, running: boolean, accountId?: string): void {
-    if (!this.store || this.disposing) return;
-    const previous = this.quotaUsage.get(taskId);
-    if (running) {
-      if (previous) return;
-      const activeId = accountId;
-      if (!activeId || !this.store.get(activeId)?.authJson) return;
-      this.quotaUsage.set(taskId, activeId);
-      this.refreshUsageQuota(activeId);
-      if (!this.quotaPoll) {
-        this.quotaPoll = setInterval(() => {
-          for (const id of new Set(this.quotaUsage.values())) this.refreshUsageQuota(id);
-        }, CODEX_QUOTA_REFRESH_MS);
-        this.quotaPoll.unref?.();
-      }
-    } else if (previous) {
-      this.quotaUsage.delete(taskId);
-      this.refreshUsageQuota(previous, true);
-      if (this.quotaUsage.size === 0 && this.quotaPoll) {
-        clearInterval(this.quotaPoll);
-        this.quotaPoll = undefined;
-      }
-    }
-  }
-
-  private refreshUsageQuota(accountId: string, finalUsage = false): void {
-    // Do not start isolated processes for accounts no longer in use.
-    if (!this.store || (!finalUsage && ![...this.quotaUsage.values()].includes(accountId))) return;
-    const account = this.store.get(accountId);
-    if (!account?.authJson) return;
-    try {
-      const decision = this.quotaRefreshPolicy.check(accountId, contentFingerprint(account.authJson), account.quota, "usage");
-      if (decision !== "query") return;
-    } catch { return; } // The recorded failure remains visible; no retry before its deadline.
-    void this.queryQuota(accountId, "usage").catch((error) =>
-      console.error(`[codex-quota] Usage refresh failed for ${accountId}:`, error),
-    );
-  }
-
   private getStore(): OpenAIAccountStore {
     if (!this.store) throw new Error("OpenAI account service is not initialized");
     return this.store;
+  }
+
+  /** The runtime supplies its bound identity; notifications never initiate another RPC. */
+  observeQuotaUpdate(accountId: string, chatgptAccountId: string, params: unknown): void {
+    if (!this.store || this.disposing) return;
+    const account = this.store.get(accountId);
+    if (!account?.authJson || !account.quota || readAuthAccountId(account.authJson) !== chatgptAccountId) return;
+    try {
+      if (params && typeof params === "object" && "accountId" in params &&
+          params.accountId != null && params.accountId !== chatgptAccountId) return;
+      const quota = mergeCodexQuotaUpdate(account.quota, params);
+      if (!quota || JSON.stringify(quota) === JSON.stringify(account.quota)) return;
+      this.store.saveQuota(accountId, chatgptAccountId, quota);
+      this.onAccountsChanged?.();
+    } catch (error) {
+      console.error(`[codex-quota] Invalid quota update for ${accountId}:`, error);
+    }
   }
 
   private runAccountWork<T>(accountId: string, operation: () => Promise<T>): Promise<T> {
@@ -344,9 +317,6 @@ export class OpenAIAccountService {
     const logins = [...this.activeLogins.values()];
     for (const login of logins) login.cancel();
     await Promise.allSettled(logins.map((login) => login.result));
-    if (this.quotaPoll) clearInterval(this.quotaPoll);
-    this.quotaPoll = undefined;
-    this.quotaUsage.clear();
     await Promise.allSettled([...this.quotaQueries.values(), ...this.credentialRefreshes.values()]);
     await Promise.allSettled([...this.accountWork.values(), ...this.wakeRequests.values()]);
     this.store?.close();

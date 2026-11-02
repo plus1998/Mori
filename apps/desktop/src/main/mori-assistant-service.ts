@@ -564,16 +564,10 @@ export class MoriAssistantService {
           if (this.stopped || this.closed) throw new Error("助手请求已停止。");
           this.activity = "正在回复";
           this.emit();
-          const accounts = selected.connection.type === "chatgpt" ? selected.connection.accounts : undefined;
-          accounts?.setQuotaUsage(threadId, true, accountId);
-          try {
-            const runtime = this.runtime;
-            if (!runtime) throw new Error("助手运行实例已断开。");
-            await runtime.send(prompt, this.settings);
-            if (this.stopped || this.closed) throw new Error("助手已停止。");
-          } finally {
-            accounts?.setQuotaUsage(threadId, false);
-          }
+          const runtime = this.runtime;
+          if (!runtime) throw new Error("助手运行实例已断开。");
+          await runtime.send(prompt, this.settings);
+          if (this.stopped || this.closed) throw new Error("助手已停止。");
           break;
         } catch (error) {
           const detail = error instanceof Error ? error.message : String(error);

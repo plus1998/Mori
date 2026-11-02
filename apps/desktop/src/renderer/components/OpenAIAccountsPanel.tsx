@@ -1,6 +1,6 @@
 import { AccountWakeBatchesPanel } from "./AccountWakeBatchesPanel";
 import { canUseOpenAIAccountCredentials } from "../../shared/openai-account";
-import { useCodexQuotaResetRefresh } from "../useCodexQuotaResetRefresh";
+import { useImageQuotaResetRefresh } from "../useImageQuotaResetRefresh";
 import { QuotaRefreshedAt } from "../QuotaRefreshedAt";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -511,10 +511,10 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
     });
   }, [menuOpenId]);
 
-  const refreshAccountQuota = useCallback(async (accountId: string) => {
+  const refreshAccountQuota = useCallback(async (accountId: string, reason: "manual" | "view" = "manual") => {
     if (!eco) return;
     try {
-      await eco.openAIAccountsQueryQuota(accountId);
+      await eco.openAIAccountsQueryQuota(accountId, reason);
       setQuotaErrors((previous) => {
         const next = { ...previous };
         delete next[accountId];
@@ -524,6 +524,26 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
       setQuotaErrors((previous) => ({ ...previous, [accountId]: { message: error instanceof Error ? error.message : String(error), attemptedAt: Date.now() } }));
     }
   }, [eco]);
+
+  useEffect(() => {
+    if (!eco) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const list = await eco.openAIAccountsList();
+        if (cancelled) return;
+        setQuotaLoading(true);
+        await Promise.all(list.filter(canUseOpenAIAccountCredentials)
+          .map((account) => refreshAccountQuota(account.id, "view")));
+        if (!cancelled) await refresh();
+      } catch (error) {
+        if (!cancelled) setLoadError(error instanceof Error ? error.message : String(error));
+      } finally {
+        if (!cancelled) setQuotaLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [eco, refreshAccountQuota, refresh]);
 
   async function handleWake(accountId: string) {
     if (!eco || wakingRef.current) return;
@@ -621,7 +641,7 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
       && (statusFilter === "all" || (statusFilter === "ready" ? canUseOpenAIAccountCredentials(a) : !canUseOpenAIAccountCredentials(a))));
   }, [orderedAccounts, searchQuery, statusFilter]);
 
-  useCodexQuotaResetRefresh(orderedAccounts, eco, refresh, onError);
+  useImageQuotaResetRefresh(orderedAccounts, eco, refresh, onError);
 
   const handleCreate = useCallback(async (saveOnly = false) => {
     const name = modalName.trim();

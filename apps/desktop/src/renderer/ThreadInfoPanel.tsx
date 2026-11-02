@@ -437,6 +437,7 @@ export function ThreadInfoFloatControl({
   fixedHeight,
   openOn = "hover",
   align = "start",
+  onOpen,
   children,
 }: {
   label: ReactNode;
@@ -448,6 +449,7 @@ export function ThreadInfoFloatControl({
   fixedHeight?: number;
   openOn?: "hover" | "click";
   align?: "start" | "end";
+  onOpen?: () => void;
   children: (closePanel: () => void) => ReactNode;
 }) {
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -621,6 +623,7 @@ export function ThreadInfoFloatControl({
               return;
             }
             updatePanelPosition();
+            if (!open) onOpen?.();
             if (clickOnly) {
               setPinned(true);
               return;
