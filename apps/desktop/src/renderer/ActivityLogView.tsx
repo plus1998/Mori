@@ -2105,6 +2105,19 @@ function ConversationV2ProjectionActivityLogViewImpl({
     () => buildThreadRunTurnFeedSections(viewModel.mainFeedEntries, projection),
     [projection, viewModel.mainFeedEntries],
   );
+  // Mid-turn segments share one disclosure, including when virtualization
+  // unmounts a segment. The attempt owns expansion, not each inserted prompt.
+  const [expandedTurns, setExpandedTurns] = useState<ReadonlySet<string>>(() => new Set());
+  const turnExpansionKey = (attemptId: string) => `${projection.thread.threadId}:${attemptId}`;
+  const setTurnExpanded = (attemptId: string, expanded: boolean) => {
+    const key = turnExpansionKey(attemptId);
+    setExpandedTurns((previous) => {
+      const next = new Set(previous);
+      if (expanded) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  };
   // Late output can sort last in the raw timeline but render inside an earlier turn.
   // Live status must follow the same order as the sections the reader actually sees.
   const orderedFeedEntries = useMemo(
@@ -2440,6 +2453,8 @@ function ConversationV2ProjectionActivityLogViewImpl({
       return (
         <ProjectionTurnFeedSection
           section={section}
+          expanded={expandedTurns.has(turnExpansionKey(section.attempt.attemptId))}
+          onExpandedChange={(expanded) => setTurnExpanded(section.attempt.attemptId, expanded)}
           {...sharedSectionProps}
           stopping={Boolean(thread?.cancelling)}
         />
@@ -2561,9 +2576,13 @@ type ProjectionFeedEntrySharedProps = {
 
 function ProjectionTurnFeedSection({
   section,
+  expanded,
+  onExpandedChange,
   ...entryProps
 }: ProjectionFeedEntrySharedProps & {
   section: Extract<ThreadRunTurnFeedSection, { kind: "turn" }>;
+  expanded: boolean;
+  onExpandedChange: (expanded: boolean) => void;
 }) {
   const requestSpansById = entryProps.requestSpansById;
   const deferReasoningStageTip = Boolean(entryProps.deferReasoningStageTip);
@@ -2590,7 +2609,12 @@ function ProjectionTurnFeedSection({
     <RunLogTurnSection
       turnKey={section.key}
       running={section.running}
-      showHeading={!section.running || !section.continuation}
+      // A mid-turn prompt splits the feed segment so the following output stays
+      // after that prompt, but it does not start a new turn. Keep one elapsed
+      // heading for the attempt after it settles as well as while it is running.
+      showHeading={!section.continuation}
+      expanded={expanded}
+      onExpandedChange={onExpandedChange}
       stopping={Boolean(entryProps.stopping) && section.running}
       status={section.attempt.status}
       startedAt={section.attempt.startedAt}
@@ -2619,6 +2643,8 @@ function RunLogTurnSection({
   turnKey,
   running,
   showHeading = true,
+  expanded: controlledExpanded,
+  onExpandedChange,
   stopping = false,
   status,
   startedAt,
@@ -2635,6 +2661,8 @@ function RunLogTurnSection({
   turnKey: string;
   running: boolean;
   showHeading?: boolean;
+  expanded?: boolean;
+  onExpandedChange?: (expanded: boolean) => void;
   stopping?: boolean;
   status?: ThreadRunProjectionAttempt["status"];
   startedAt: string;
@@ -2650,7 +2678,7 @@ function RunLogTurnSection({
 }) {
   const onLayoutChange = useActivityFeedLayoutChange();
   const [userExpanded, setExpanded] = useState(false);
-  const expanded = running || userExpanded;
+  const expanded = running || (controlledExpanded ?? userExpanded);
   const [animateExpansion, setAnimateExpansion] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | undefined>();
@@ -2697,6 +2725,7 @@ function RunLogTurnSection({
             setAnimateExpansion(true);
             const nextExpanded = !expanded;
             setExpanded(nextExpanded);
+            onExpandedChange?.(nextExpanded);
             if (nextExpanded && onLoadDetail && !detailLoading && !detailLoaded && !detailLoadedLocally) {
               setDetailError(undefined);
               setDetailLoading(true);

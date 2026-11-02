@@ -1327,7 +1327,7 @@ test("ActivityLogView keeps a running attempt process expanded without final out
   expect(html).not.toContain('class="run-log-turn-final"');
 });
 
-test("mid-turn prompts keep one running heading while every continuation remains expanded", () => {
+test("mid-turn prompts share one heading while only running turns stay expanded", () => {
   for (const status of ["running", "completed", "cancelled", "failed"] as const) {
     const timeline = [
       item({
@@ -1399,7 +1399,9 @@ test("mid-turn prompts keep one running heading while every continuation remains
       }),
     );
 
-    expect(html.match(/class="run-log-turn-toggle"/g)?.length).toBe(status === "running" ? 1 : 3);
+    // Mid-turn prompts keep the output ordered after the inserted user bubble,
+    // but all segments belong to one attempt and therefore share one heading.
+    expect(html.match(/class="run-log-turn-toggle"/g)?.length).toBe(1);
     if (status === "running") {
       expect(html.match(/run-log-turn-status">处理中/g)?.length).toBe(1);
       expect(html.match(/is-expanded is-continuation/g)?.length).toBe(2);
@@ -1409,8 +1411,16 @@ test("mid-turn prompts keep one running heading while every continuation remains
       expect(html.indexOf("补充第一条要求")).toBeLessThan(html.indexOf("继续检查第一条要求。"));
       expect(html.indexOf("补充第二条要求")).toBeLessThan(html.indexOf("继续检查第二条要求。"));
     } else {
-      expect(html).not.toContain("is-continuation");
+      if (status === "completed") {
+        expect(html.match(/run-log-turn-status">已处理/g)?.length).toBe(1);
+      } else {
+        expect(html.match(/run-log-turn-status">.*?停止/g)?.length).toBe(1);
+      }
+      expect(html.match(/is-continuation/g)?.length).toBe(2);
+      expect(html.match(/aria-label="执行过程" aria-hidden="true"/g)?.length).toBe(3);
     }
+    expect(html.indexOf("补充第一条要求")).toBeLessThan(html.indexOf("继续检查第一条要求。"));
+    expect(html.indexOf("补充第二条要求")).toBeLessThan(html.indexOf("继续检查第二条要求。"));
   }
 });
 
