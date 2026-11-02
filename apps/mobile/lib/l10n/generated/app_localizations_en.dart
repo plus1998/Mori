@@ -197,6 +197,13 @@ class AppLocalizationsEn extends AppLocalizations {
   String get settingsSessionDefaults => 'Session defaults';
 
   @override
+  String get settingsResumeSession => 'Resume last session on launch';
+
+  @override
+  String get settingsResumeSessionSubtitle =>
+      'Open your last session automatically, or turn off to show the PC list';
+
+  @override
   String get settingsRuntimeConfig => 'Runtime config';
 
   @override

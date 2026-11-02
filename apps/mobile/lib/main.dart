@@ -12,6 +12,7 @@ import 'core/locale/app_locale_preference.dart';
 import 'core/providers/activity_feed_auto_read_provider.dart';
 import 'core/providers/app_locale_provider.dart';
 import 'core/providers/app_theme_provider.dart';
+import 'core/providers/session_resume_provider.dart';
 import 'core/providers/thinking_display_provider.dart';
 import 'core/theme/app_theme_preference.dart';
 import 'core/widgets/progressive_blur.dart';
@@ -43,7 +44,8 @@ Future<void> main() async {
     prefs.getString(AppLocalePreference.storageKey),
   );
   final initialLocale = storedLocale ?? AppLocalePreference.system;
-  final initialAutoRead = prefs.getBool(activityFeedAutoReadStorageKey) ?? false;
+  final initialAutoRead =
+      prefs.getBool(activityFeedAutoReadStorageKey) ?? false;
   final initialThinkingDisplay = readStoredThinkingDisplayMode(prefs);
 
   runApp(
@@ -51,9 +53,14 @@ Future<void> main() async {
       overrides: [
         appThemeBootstrapProvider.overrideWithValue(initialTheme),
         appLocaleBootstrapProvider.overrideWithValue(initialLocale),
-        activityFeedAutoReadBootstrapProvider.overrideWithValue(initialAutoRead),
+        activityFeedAutoReadBootstrapProvider.overrideWithValue(
+          initialAutoRead,
+        ),
         thinkingDisplayBootstrapProvider.overrideWithValue(
           initialThinkingDisplay,
+        ),
+        sessionResumeBootstrapProvider.overrideWithValue(
+          SessionResumePreference.read(prefs),
         ),
       ],
       child: const EcoApp(),

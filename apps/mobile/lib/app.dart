@@ -12,6 +12,7 @@ import 'core/providers/app_locale_provider.dart';
 import 'core/providers/app_providers.dart';
 import 'core/providers/app_session.dart';
 import 'core/providers/app_theme_provider.dart';
+import 'core/providers/session_resume_provider.dart';
 import 'core/theme/eco_icons.dart';
 import 'core/theme/eco_theme.dart';
 import 'core/utils/center_server_auth.dart';
@@ -36,6 +37,7 @@ import 'features/settings/settings_thinking_content_page.dart';
 import 'features/threads/thread_providers.dart';
 import 'features/threads/thread_session_route.dart';
 import 'features/threads/thread_session_screen.dart';
+import 'features/threads/session_content_boot_loading.dart';
 import 'features/threads/threads_screen.dart';
 import 'features/todos/project_todos_screen.dart';
 import 'l10n/generated/app_localizations.dart';
@@ -61,9 +63,7 @@ class _RouterRefreshNotifier extends ChangeNotifier {
       }
     });
     _ref.listen(credentialsProvider, (previous, next) {
-      final wasLoggedIn = previous?.valueOrNull?.hasUserSession ?? false;
-      final isLoggedIn = next.valueOrNull?.hasUserSession ?? false;
-      if (wasLoggedIn != isLoggedIn) {
+      if (previous != next) {
         _scheduleRefresh();
       }
     });
@@ -105,7 +105,7 @@ final _routerRefreshProvider = Provider<_RouterRefreshNotifier>((ref) {
 final appRouterProvider = Provider<GoRouter>((ref) {
   final refresh = ref.watch(_routerRefreshProvider);
 
-  return GoRouter(
+  final router = GoRouter(
     navigatorKey: _rootNavigatorKey,
     initialLocation: '/',
     refreshListenable: refresh,
@@ -115,12 +115,20 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       final pendingRecovery = ref.read(pendingAuthRecoveryProvider);
 
       if (location == '/') {
-        return overview.setupComplete ? '/threads' : '/connect';
+        final credentials = ref.read(credentialsProvider);
+        if (credentials.isLoading && !credentials.hasValue) return null;
+        final creds = credentials.valueOrNull;
+        if (pendingRecovery != null || creds == null) return '/connect';
+        return ref
+            .read(sessionResumePreferenceProvider)
+            .launchLocation(
+              creds,
+              ref.read(selectedDesktopIdProvider) ?? creds.selectedDesktopId,
+            );
       }
 
       // Session expired or setup incomplete — leave the main shell for connect/login.
-      final mustLeaveShell =
-          pendingRecovery != null || !overview.setupComplete;
+      final mustLeaveShell = pendingRecovery != null || !overview.setupComplete;
       if (mustLeaveShell &&
           (location.startsWith('/threads') ||
               location.startsWith('/todos') ||
@@ -130,6 +138,12 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       return null;
     },
     routes: [
+      GoRoute(
+        path: '/',
+        builder: (context, state) => SessionContentBootLoading(
+          semanticLabel: context.l10n.commonLoading,
+        ),
+      ),
       GoRoute(
         path: '/connect',
         builder: (context, state) => const HomeScreen(),
@@ -158,8 +172,12 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                         ),
                         name: state.name,
                         arguments: state.extra,
-                        child: ThreadSessionScreen(threadId: rawThreadId,
-                          initialDraft: state.extra is ThreadSessionRouteExtra ? state.extra as ThreadSessionRouteExtra : null),
+                        child: ThreadSessionScreen(
+                          threadId: rawThreadId,
+                          initialDraft: state.extra is ThreadSessionRouteExtra
+                              ? state.extra as ThreadSessionRouteExtra
+                              : null,
+                        ),
                       );
                     },
                   ),
@@ -169,7 +187,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           ),
           StatefulShellBranch(
             routes: [
-              GoRoute(path: '/todos', builder: (context, state) => const ProjectTodosScreen()),
+              GoRoute(
+                path: '/todos',
+                builder: (context, state) => const ProjectTodosScreen(),
+              ),
             ],
           ),
           StatefulShellBranch(
@@ -178,8 +199,17 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                 path: '/settings',
                 builder: (context, state) => const SettingsScreen(),
                 routes: [
-                  GoRoute(path: 'read-aloud', parentNavigatorKey: _rootNavigatorKey, builder: (context, state) => const SettingsReadAloudPage()),
-                  GoRoute(path: 'desktop-display', parentNavigatorKey: _rootNavigatorKey, builder: (context, state) => const SettingsDesktopDisplayPage()),
+                  GoRoute(
+                    path: 'read-aloud',
+                    parentNavigatorKey: _rootNavigatorKey,
+                    builder: (context, state) => const SettingsReadAloudPage(),
+                  ),
+                  GoRoute(
+                    path: 'desktop-display',
+                    parentNavigatorKey: _rootNavigatorKey,
+                    builder: (context, state) =>
+                        const SettingsDesktopDisplayPage(),
+                  ),
                   GoRoute(
                     path: 'theme',
                     parentNavigatorKey: _rootNavigatorKey,
@@ -232,6 +262,56 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       ),
     ],
   );
+
+  // Observe committed navigation, including the new -> real thread handoff.
+  // Keeping this on the router avoids hidden session pages overwriting history.
+  var disposed = false;
+  void rememberSession() {
+    final segments =
+        router.routerDelegate.currentConfiguration.uri.pathSegments;
+    if (segments.length != 2 ||
+        segments.first != 'threads' ||
+        segments.last == threadSessionNewPathSegment) {
+      return;
+    }
+    final creds = ref.read(credentialsProvider).valueOrNull;
+    final desktopId =
+        ref.read(selectedDesktopIdProvider) ?? creds?.selectedDesktopId;
+    if (creds == null || !creds.isProvisioned || desktopId == null) return;
+    final session = SavedSession(
+      serverUrl: creds.supabaseUrl,
+      userId: creds.userId!,
+      desktopId: desktopId,
+      threadId: segments.last,
+    );
+    scheduleMicrotask(() {
+      if (disposed) return;
+      unawaited(
+        ref
+            .read(sessionResumePreferenceProvider.notifier)
+            .remember(session)
+            .catchError((Object error, StackTrace stack) {
+              FlutterError.reportError(
+                FlutterErrorDetails(
+                  exception: error,
+                  stack: stack,
+                  context: ErrorDescription(
+                    'while saving the last mobile session',
+                  ),
+                ),
+              );
+            }),
+      );
+    });
+  }
+
+  router.routerDelegate.addListener(rememberSession);
+  ref.onDispose(() {
+    disposed = true;
+    router.routerDelegate.removeListener(rememberSession);
+    router.dispose();
+  });
+  return router;
 });
 
 class MainShell extends ConsumerWidget {
@@ -365,10 +445,7 @@ class _ConnectionStatusNoticeState
     });
     return Stack(
       fit: StackFit.expand,
-      children: [
-        widget.child,
-        const _ConnectionBannerOverlay(),
-      ],
+      children: [widget.child, const _ConnectionBannerOverlay()],
     );
   }
 
@@ -406,8 +483,7 @@ class _ConnectionStatusNoticeState
   void _handleConnectionError(CenterServerConnectionStatus status) {
     if (!mounted) return;
     final recovery =
-        status.authRecovery ??
-        classifyCenterServerAuthError(status.lastError);
+        status.authRecovery ?? classifyCenterServerAuthError(status.lastError);
     if (shouldStopCenterServerReconnect(recovery)) {
       _clearUnreachableWatch();
       unawaited(_startCredentialRecovery(recovery));
@@ -461,9 +537,7 @@ class _ConnectionStatusNoticeState
       if (messenger == null || !messenger.mounted) return;
       messenger
         ..hideCurrentSnackBar()
-        ..showSnackBar(
-          SnackBar(content: Text(message), duration: duration),
-        );
+        ..showSnackBar(SnackBar(content: Text(message), duration: duration));
     });
   }
 }

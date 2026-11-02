@@ -11,10 +11,12 @@ import '../../core/models/thread_models.dart';
 import '../../core/providers/app_locale_provider.dart';
 import '../../core/providers/app_providers.dart';
 import '../../core/providers/app_theme_provider.dart';
+import '../../core/providers/session_resume_provider.dart';
 import '../../core/theme/app_theme_preference.dart';
 import '../../core/theme/eco_icons.dart';
 import '../../core/theme/eco_theme.dart';
 import '../../core/utils/model_id.dart';
+import '../../core/locale/app_error_localizations.dart';
 import '../../core/widgets/adaptive_nav_bar.dart';
 import '../../core/widgets/eco_grouped_list.dart';
 import '../../core/widgets/shell_toolbar_actions.dart';
@@ -36,6 +38,9 @@ class SettingsScreen extends ConsumerWidget {
     final themePreference = ref.watch(appThemePreferenceProvider);
     final localePreference = ref.watch(appLocalePreferenceProvider);
     final thinkingDisplayMode = ref.watch(thinkingDisplayModeProvider);
+    final resumeSession = ref.watch(
+      sessionResumePreferenceProvider.select((value) => value.enabled),
+    );
     final workflowAsync = ref.watch(workflowSettingsProvider);
     final modelSettingsAsync = ref.watch(modelSettingsProvider);
     final workflow = workflowAsync.valueOrNull;
@@ -138,7 +143,8 @@ class SettingsScreen extends ConsumerWidget {
                       EcoGroupedSection(
                         child: SettingsDisclosureRow(
                           title: l10n.desktopDisplayTitle,
-                          onTap: () => context.push('/settings/desktop-display'),
+                          onTap: () =>
+                              context.push('/settings/desktop-display'),
                         ),
                       ),
                       EcoGroupedSection(
@@ -189,12 +195,38 @@ class SettingsScreen extends ConsumerWidget {
                         topSpacing: 28,
                         child: Column(
                           children: [
+                            SettingsSwitchRow(
+                              title: l10n.settingsResumeSession,
+                              subtitle: l10n.settingsResumeSessionSubtitle,
+                              value: resumeSession,
+                              enabled: true,
+                              onChanged: (value) async {
+                                try {
+                                  await ref
+                                      .read(
+                                        sessionResumePreferenceProvider
+                                            .notifier,
+                                      )
+                                      .setEnabled(value);
+                                } catch (error) {
+                                  if (context.mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text(
+                                          localizedAppError(error, l10n),
+                                        ),
+                                      ),
+                                    );
+                                  }
+                                }
+                              },
+                            ),
+                            const EcoGroupedDivider(),
                             SettingsDisclosureRow(
                               title: l10n.settingsDefaultBashReviewMode,
                               value: bashReviewValue,
-                              onTap: () => context.push(
-                                '/settings/default-bash-review',
-                              ),
+                              onTap: () =>
+                                  context.push('/settings/default-bash-review'),
                             ),
                             const EcoGroupedDivider(),
                             SettingsDisclosureRow(
@@ -277,9 +309,8 @@ class SettingsScreen extends ConsumerWidget {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   ),
                 ),
-                error: (error, _) => SafeArea(
-                  child: Center(child: Text(error.toString())),
-                ),
+                error: (error, _) =>
+                    SafeArea(child: Center(child: Text(error.toString()))),
               ),
               SessionTopFrostOverlay(canvasColor: frostCanvas),
             ],
@@ -316,10 +347,14 @@ class _AccountHeader extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final eco = ecoColors(context);
     final connectionStatus = ref.watch(connectionStatusProvider).valueOrNull;
-    final realtimeState = connectionStatus?.state ??
-        EcoConnectionState.disconnected;
+    final realtimeState =
+        connectionStatus?.state ?? EcoConnectionState.disconnected;
 
-    final realtimeStatusConfig = _realtimeStatusConfig(realtimeState, context.l10n, eco);
+    final realtimeStatusConfig = _realtimeStatusConfig(
+      realtimeState,
+      context.l10n,
+      eco,
+    );
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
       child: Row(
@@ -408,10 +443,19 @@ class _AccountHeader extends ConsumerWidget {
     EcoColors eco,
   ) {
     return switch (state) {
-      EcoConnectionState.connected => (eco.online, l10n.settingsRealtimeConnected),
-      EcoConnectionState.connecting => (eco.warnAccent, l10n.settingsRealtimeConnecting),
+      EcoConnectionState.connected => (
+        eco.online,
+        l10n.settingsRealtimeConnected,
+      ),
+      EcoConnectionState.connecting => (
+        eco.warnAccent,
+        l10n.settingsRealtimeConnecting,
+      ),
       EcoConnectionState.error => (eco.danger, l10n.settingsRealtimeError),
-      EcoConnectionState.disconnected => (eco.textMuted, l10n.settingsRealtimeDisconnected),
+      EcoConnectionState.disconnected => (
+        eco.textMuted,
+        l10n.settingsRealtimeDisconnected,
+      ),
     };
   }
 }

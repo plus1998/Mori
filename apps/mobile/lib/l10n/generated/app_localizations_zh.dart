@@ -187,6 +187,12 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsSessionDefaults => '会话默认';
 
   @override
+  String get settingsResumeSession => '启动时回到上次会话';
+
+  @override
+  String get settingsResumeSessionSubtitle => '开启后自动进入上次会话；关闭后显示电脑列表';
+
+  @override
   String get settingsRuntimeConfig => '运行配置';
 
   @override

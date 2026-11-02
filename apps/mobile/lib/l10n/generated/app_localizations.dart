@@ -440,6 +440,18 @@ abstract class AppLocalizations {
   /// **'Session defaults'**
   String get settingsSessionDefaults;
 
+  /// No description provided for @settingsResumeSession.
+  ///
+  /// In en, this message translates to:
+  /// **'Resume last session on launch'**
+  String get settingsResumeSession;
+
+  /// No description provided for @settingsResumeSessionSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Open your last session automatically, or turn off to show the PC list'**
+  String get settingsResumeSessionSubtitle;
+
   /// No description provided for @settingsRuntimeConfig.
   ///
   /// In en, this message translates to:

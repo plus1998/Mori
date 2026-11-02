@@ -67,6 +67,8 @@
     }
   },
   "settingsSessionDefaults": "Session defaults",
+  "settingsResumeSession": "Resume last session on launch",
+  "settingsResumeSessionSubtitle": "Open your last session automatically, or turn off to show the PC list",
   "settingsRuntimeConfig": "Runtime config",
   "settingsModels": "More models",
   "settingsModelsCaption": "Default auxiliary, approval, and vision models for new threads",
