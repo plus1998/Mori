@@ -43205,32 +43205,120 @@ body.is-resizing-browser-split::before {
 }
 
 
-.thread-worktree-control {
-  margin: 0 8px 8px;
-  padding: 10px 12px;
-  border: 1px solid var(--border-color, rgba(128, 128, 128, .2));
-  border-radius: 10px;
-  color: var(--text-secondary, inherit);
+/* The local environment belongs to the composer; details stay in its popover. */
+.thread-worktree-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex: 1;
+  min-width: 30px;
+  gap: 8px;
+  margin-left: auto;
+  color: var(--text-secondary);
   font-size: 12px;
-  line-height: 1.5;
-  overflow-wrap: anywhere;
 }
-.thread-worktree-new { border: 0; padding: 0 4px; }
-.thread-worktree-control p { margin: 6px 0; }
-.thread-worktree-control code { user-select: text; font-size: 11px; }
-.thread-worktree-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.thread-worktree-control button, .thread-worktree-control select {
-  border: 1px solid var(--border-color, rgba(128, 128, 128, .25));
-  border-radius: 6px;
-  padding: 3px 8px;
-  background: var(--bg-secondary, transparent);
+.thread-worktree-location { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.thread-worktree-location > span:first-of-type { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.thread-worktree-bar svg { flex-shrink: 0; }
+.thread-worktree-settings,
+.thread-worktree-refresh {
+  border: 0;
+  background: transparent;
   color: inherit;
   font: inherit;
+  cursor: pointer;
 }
-.thread-worktree-control button:disabled { opacity: .45; cursor: default; }
-.thread-worktree-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-.thread-worktree-actions > p, .thread-worktree-actions > fieldset { width: 100%; }
-.thread-worktree-actions > fieldset { min-width: 0; margin: 0; padding: 8px; border: 1px solid var(--border-color); border-radius: 6px; }
-.thread-worktree-control [role="alert"] { color: var(--color-danger, #d55); }
-.thread-worktree-control details { margin-top: 5px; }
-.thread-worktree-control ul { padding-left: 18px; margin: 6px 0; max-height: 96px; overflow: auto; }
+.thread-worktree-settings {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 50%;
+}
+.thread-worktree-settings:hover,
+.thread-worktree-settings.is-active,
+.thread-worktree-refresh:hover {
+  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
+  color: var(--text-primary);
+}
+.thread-worktree-location.needs-attention { color: var(--color-danger, #d55); }
+.thread-worktree-attention-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
+.composer-above-panel.thread-worktree-popover {
+  padding: 10px;
+  border-radius: 18px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  overflow-y: auto;
+}
+.thread-worktree-popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 28px;
+  padding: 0 10px 5px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.thread-worktree-refresh { display: grid; place-items: center; width: 26px; height: 26px; padding: 0; border-radius: 7px; }
+.thread-worktree-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 7px 10px;
+}
+.thread-worktree-row > svg { flex-shrink: 0; color: var(--text-secondary); }
+.thread-worktree-value { margin-left: auto; min-width: 0; max-width: 65%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); }
+.thread-worktree-status-row { font-size: 12px; }
+.thread-worktree-toggle {
+  width: 100%;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.thread-worktree-toggle:hover:not(:disabled) { background: color-mix(in srgb, var(--text-primary) 5%, transparent); }
+.thread-worktree-switch { display: flex; align-items: center; width: 30px; height: 18px; padding: 2px; margin-left: auto; border-radius: 20px; background: color-mix(in srgb, var(--text-primary) 20%, transparent); }
+.thread-worktree-switch > span { width: 14px; height: 14px; border-radius: 50%; background: var(--bg-main); box-shadow: 0 1px 3px #0002; transition: transform 140ms ease; }
+.thread-worktree-switch.is-on { background: var(--text-primary); }
+.thread-worktree-switch.is-on > span { transform: translateX(12px); }
+.thread-worktree-hint { margin: 0 10px 8px 38px; color: var(--text-secondary); font-size: 11px; line-height: 1.6; }
+.thread-worktree-details { margin: 4px 10px; color: var(--text-secondary); font-size: 12px; }
+.thread-worktree-details summary { width: fit-content; padding: 6px 0; cursor: pointer; }
+.thread-worktree-details dl { margin: 4px 0 10px; }
+.thread-worktree-details dt { margin-top: 10px; font-size: 11px; }
+.thread-worktree-details dd { margin: 3px 0 0; color: var(--text-primary); }
+.thread-worktree-popover code { font-size: 11px; overflow-wrap: anywhere; user-select: text; }
+.thread-worktree-details ul { margin: 3px 0 8px; padding-left: 16px; }
+.thread-worktree-details li + li { margin-top: 4px; }
+.thread-worktree-error { margin: 8px 10px; color: var(--color-danger, #d55); font-size: 12px; overflow-wrap: anywhere; }
+.thread-worktree-actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 4px 0; padding: 10px 6px 4px; border-top: 1px solid var(--border-color); }
+.thread-worktree-actions > p { width: 100%; margin: 0 0 4px; color: var(--text-secondary); font-size: 12px; }
+.thread-worktree-actions button { padding: 6px 9px; border: 0; border-radius: 7px; background: color-mix(in srgb, var(--text-primary) 6%, transparent); color: var(--text-primary); font: inherit; font-size: 12px; cursor: pointer; }
+.thread-worktree-actions button:hover:not(:disabled) { background: color-mix(in srgb, var(--text-primary) 10%, transparent); }
+.thread-worktree-actions .thread-worktree-cleanup:not(:disabled) { color: var(--color-danger, #d55); }
+.thread-worktree-popover button:disabled { opacity: .45; cursor: default; }
+.thread-worktree-actions fieldset { min-width: 0; width: 100%; margin: 4px 0 0; padding: 10px; border: 1px solid var(--border-color); border-radius: 9px; }
+.thread-worktree-actions fieldset p { margin: 0 0 8px; font-size: 12px; overflow-wrap: anywhere; }
+.thread-worktree-actions fieldset button + button { margin-left: 6px; }
+.thread-worktree-bar button:focus-visible,
+.thread-worktree-popover button:focus-visible,
+.thread-worktree-details summary:focus-visible { outline: 2px solid var(--text-secondary); outline-offset: 2px; }
+@media (max-width: 600px) {
+  .thread-worktree-bar { gap: 6px; }
+  .thread-worktree-location { font-size: 11px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .thread-worktree-switch > span { transition: none; }
+}
+
+.thread-worktree-progress { display: flex; align-items: center; gap: 10px; padding: 10px; color: var(--text-secondary); font-size: 12px; }
+.thread-worktree-spinner { animation: thread-worktree-spin 1s linear infinite; }
+@keyframes thread-worktree-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .thread-worktree-spinner { animation: none; } }
