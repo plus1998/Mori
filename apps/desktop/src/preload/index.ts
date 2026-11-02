@@ -1646,6 +1646,21 @@ const api = {
   getWorktreeStatus(threadId: string): Promise<WorktreeStatusResult> {
     return ipcRenderer.invoke(IPC_CHANNELS.worktreeGetStatus, threadId);
   },
+  getWorktreeSettings(): Promise<import("../shared/thread-worktree").WorktreeSettingsSnapshot> {
+    return ipcRenderer.invoke(IPC_CHANNELS.worktreeSettingsGet);
+  },
+  saveWorktreeSettings(settings: import("../shared/thread-worktree").WorktreeSettings): Promise<import("../shared/thread-worktree").WorktreeSettingsSnapshot> {
+    return ipcRenderer.invoke(IPC_CHANNELS.worktreeSettingsSave, settings);
+  },
+  listManagedWorktrees(): Promise<import("../shared/thread-worktree").ManagedWorktree[]> {
+    return ipcRenderer.invoke(IPC_CHANNELS.worktreeManagedList);
+  },
+  cleanupManagedWorktree(request: import("../shared/thread-worktree").ThreadWorktreeActionRequest): Promise<WorktreeStatusResult> {
+    return ipcRenderer.invoke(IPC_CHANNELS.worktreeManagedCleanup, request);
+  },
+  confirmManagedWorktreeMerged(request: import("../shared/thread-worktree").ThreadWorktreeActionRequest): Promise<WorktreeStatusResult> {
+    return ipcRenderer.invoke(IPC_CHANNELS.worktreeManagedConfirmMerged, request);
+  },
   applyWorktree(threadId: string): Promise<WorktreeApplyResult> {
     return ipcRenderer.invoke(IPC_CHANNELS.worktreeApply, threadId);
   },

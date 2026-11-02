@@ -13,6 +13,8 @@ export interface ThreadWorktreeRecord {
   state: ThreadWorktreeLifecycle;
   createdAt: string;
   updatedAt: string;
+  threadTitle?: string;
+  repositoryRoot?: string;
   error?: string;
   /** User acknowledgement applies only to this exact branch tip and target history. */
   confirmedCommit?: string;
@@ -54,4 +56,21 @@ export interface ThreadWorkLocationRequest {
   threadId: string;
   choice: "project" | "new_worktree" | "reattach";
   worktreeId?: string;
+}
+
+export interface WorktreeSettings {
+  /** Empty selects the platform-specific Mori data directory. */
+  rootPath: string;
+}
+
+export interface WorktreeSettingsSnapshot extends WorktreeSettings {
+  defaultRootPath: string;
+}
+
+export interface ManagedWorktree extends ThreadWorktreeStatus {
+  record: ThreadWorktreeRecord;
+  threadTitle: string;
+  threadExists: boolean;
+  attached: boolean;
+  busy: boolean;
 }

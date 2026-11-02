@@ -3098,6 +3098,23 @@ export class ConversationStore {
       .all(threadId) as Array<{ record_json: string }>).map(row => JSON.parse(row.record_json) as ThreadWorktreeRecord);
   }
 
+  getWorktree(id: string): ThreadWorktreeRecord | undefined {
+    const row = this.db.prepare(`SELECT record_json FROM thread_worktrees WHERE id = ?`).get(id) as
+      { record_json: string } | undefined;
+    return row ? JSON.parse(row.record_json) as ThreadWorktreeRecord : undefined;
+  }
+
+  listWorktrees(): ThreadWorktreeRecord[] {
+    return (this.db.prepare(`SELECT record_json FROM thread_worktrees ORDER BY rowid DESC`).all() as
+      Array<{ record_json: string }>).map(row => JSON.parse(row.record_json) as ThreadWorktreeRecord);
+  }
+
+  saveWorktree(record: ThreadWorktreeRecord): void {
+    const result = this.db.prepare(`UPDATE thread_worktrees SET record_json = ? WHERE id = ? AND thread_id = ?`)
+      .run(JSON.stringify(record), record.id, record.threadId);
+    if (Number(result.changes) !== 1) throw new Error("工作树记录不存在或所属对话不匹配。");
+  }
+
   /** Change the runtime binding without deleting any saved conversation history. */
   resetThreadRuntimeForWorkLocation(threadId: string): void {
     this.db.exec("BEGIN IMMEDIATE");
@@ -3456,6 +3473,7 @@ export class ConversationStore {
 
     this.db.exec("BEGIN IMMEDIATE");
     try {
+      this.preserveWorktreeThreadTitle(id);
       this.deleteComposerDraft(`thread:${id}`);
       const ownedTables = this.isV2OnlyStorage()
         ? threadOwnedTables.filter((table) => !legacyConversationSourceTableSet.has(table))
@@ -3475,6 +3493,14 @@ export class ConversationStore {
       rollbackConversationTransaction(this.db);
       throw error;
     }
+  }
+
+  private preserveWorktreeThreadTitle(threadId: string): void {
+    const thread = this.getThread(threadId);
+    if (!thread) return;
+    // Worktrees outlive chats. Retain their last human-readable title in the independent registry.
+    this.db.prepare(`UPDATE thread_worktrees SET record_json = json_set(record_json, '$.threadTitle', ?)
+      WHERE thread_id = ?`).run(thread.title, threadId);
   }
 
   acceptThreadDeleteCommand(input: ThreadDeleteCommandInput): ThreadDeleteCommandReceipt {
@@ -3633,6 +3659,7 @@ export class ConversationStore {
         );
       }
       this.deleteComposerDraft(`thread:${receipt.threadId}`);
+      this.preserveWorktreeThreadTitle(receipt.threadId);
       const ownedTables = this.isV2OnlyStorage()
         ? threadOwnedTables.filter((table) => !legacyConversationSourceTableSet.has(table))
         : threadOwnedTables;

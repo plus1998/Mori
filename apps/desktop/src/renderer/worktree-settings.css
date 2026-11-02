@@ -1,0 +1,247 @@
+.worktrees-settings-panel {
+  max-width: 880px;
+}
+.worktrees-settings-panel h2 {
+  margin: 0;
+}
+.worktrees-root-card,
+.worktrees-project {
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  background: var(--bg-elevated);
+}
+.worktrees-root-card {
+  padding: 18px 20px;
+}
+.worktrees-root-card > label {
+  display: block;
+  font-size: 13px;
+  font-weight: 550;
+  margin-bottom: 10px;
+}
+.worktrees-root-input {
+  display: flex;
+  gap: 10px;
+}
+.worktrees-root-input input {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 11px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12px;
+}
+.worktrees-root-input input::placeholder {
+  color: var(--text-muted);
+}
+.worktrees-root-input input:focus-visible,
+.worktrees-settings-panel button:focus-visible,
+.worktrees-settings-panel summary:focus-visible {
+  outline: 2px solid var(--accent, #5686f5);
+  outline-offset: 3px;
+}
+.worktrees-root-card .settings-section-subtitle {
+  margin-top: 10px;
+}
+.worktrees-policy {
+  margin-bottom: 16px;
+}
+.worktrees-project {
+  margin-bottom: 12px;
+  overflow: hidden;
+}
+.worktrees-project > summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+  cursor: pointer;
+}
+.worktrees-project > summary::after {
+  content: "⌄";
+  color: var(--text-muted);
+  transform: rotate(-90deg);
+}
+.worktrees-project[open] > summary::after {
+  transform: none;
+}
+.worktrees-project > summary::-webkit-details-marker {
+  display: none;
+}
+.worktrees-project-copy {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+.worktrees-project-copy strong {
+  font-size: 14px;
+  font-weight: 600;
+}
+.worktrees-project-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.worktrees-count {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.worktrees-entry {
+  padding: 16px 20px;
+  border-top: 1px solid var(--border-subtle);
+}
+.worktrees-entry-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+.worktrees-entry-copy {
+  flex: 1;
+  min-width: 0;
+}
+.worktrees-entry-copy > strong,
+.worktrees-chat-link {
+  font-size: 13px;
+  font-weight: 550;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.worktrees-chat-link {
+  border: 0;
+  padding: 0;
+  text-align: left;
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.worktrees-chat-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.worktrees-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 12px;
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.worktrees-badges .needs-attention,
+.worktrees-error,
+.worktrees-cleanup:not(:disabled) {
+  color: var(--color-danger, #d55);
+}
+.worktrees-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.worktrees-icon-button:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: var(--bg-elevated-hover);
+}
+.worktrees-icon-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.worktrees-path {
+  display: block;
+  margin-top: 10px;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.worktrees-entry-details {
+  margin-top: 12px;
+  font-size: 12px;
+}
+.worktrees-entry-details > summary {
+  width: fit-content;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.worktrees-entry-details dl {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px 14px;
+  margin: 14px 0;
+}
+.worktrees-entry-details dt {
+  color: var(--text-muted);
+}
+.worktrees-entry-details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.worktrees-blocking-reasons {
+  padding-left: 18px;
+  color: var(--text-muted);
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+.worktrees-entry-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.worktrees-confirmation {
+  min-width: 0;
+  margin: 14px 0 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.worktrees-confirmation p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.worktrees-empty {
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  gap: 12px;
+  padding: 36px 24px;
+  border: 1px dashed var(--border-subtle);
+  border-radius: 14px;
+  color: var(--text-muted);
+  text-align: center;
+}
+.worktrees-empty strong {
+  font-size: 13px;
+  color: var(--text-primary);
+}
+.worktrees-empty p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.worktrees-notice,
+.worktrees-error {
+  font-size: 12px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.worktrees-notice {
+  color: var(--text-muted);
+}

@@ -1,5 +1,6 @@
 import { buildThreadWorkLocationPrompt } from "./thread-work-location-context";
 import { ThreadWorktreeService } from "./thread-worktree-service";
+import { createWorktreeSettingsStore, type WorktreeSettingsStore } from "./worktree-settings-store";
 import type { ThreadWorktreeActionRequest, ThreadWorkLocationRequest } from "../shared/thread-worktree";
 import { APP_MENU_COMMANDS } from "../shared/ipc";
 import { KeyboardShortcutsStore } from "./keyboard-shortcuts-store";
@@ -1653,7 +1654,11 @@ const gitWorktrees = new GitWorktreeService(gitRunner);
 const threadWorktrees = new ThreadWorktreeService({
   getThread: (id) => conversationStore.getThread(id),
   saveThreadWorkLocation: (id, location) => conversationStore.saveThreadWorkLocation(id, location),
-}, gitRunner);
+  getWorktree: (id) => conversationStore.getWorktree(id),
+  listWorktrees: () => conversationStore.listWorktrees(),
+  saveWorktree: (record) => conversationStore.saveWorktree(record),
+}, gitRunner, { rootPath: () => worktreeSettingsStore.resolvedRootPath() });
+let worktreeSettingsStore: WorktreeSettingsStore;
 let currentWorkspace: WorkspaceInfo | undefined;
 let providerStore: ProviderStore;
 let chatgptSubscriptionService: ChatGptSubscriptionService | undefined;
@@ -2929,6 +2934,7 @@ app
     startupScriptService = new StartupScriptService(startupScriptStore, backgroundTerminalTaskRegistry);
     app.once("will-quit", () => startupScriptStore.close());
     gitSettingsStore = await createGitSettingsStore(dbPath);
+    worktreeSettingsStore = await createWorktreeSettingsStore(dbPath, path.join(app.getPath("userData"), "worktrees"));
     personalizationSettingsStore = await createPersonalizationSettingsStore(dbPath);
     browserSettingsStore = await createBrowserSettingsStore(dbPath);
     computerUseSettingsStore = await createComputerUseSettingsStore(dbPath);
@@ -9888,6 +9894,34 @@ function registerIpcHandlers(): void {
     return getWorkspaceChangeStatus(threadId);
   });
 
+  registerDesktopCommand(IPC_CHANNELS.worktreeSettingsGet, async () => worktreeSettingsStore.get());
+  registerDesktopCommand(IPC_CHANNELS.worktreeSettingsSave, async (payload: unknown) => worktreeSettingsStore.save(payload));
+  registerDesktopCommand(IPC_CHANNELS.worktreeManagedList, async () => {
+    const items = await threadWorktrees.listManaged();
+    return items.map(item => ({ ...item, busy: item.busy || activeRunRuntimeState.hasRun(item.record.threadId) ||
+      threadRunPreparations.has(item.record.threadId) || threadWorkLocationMutations.has(item.record.threadId) ||
+      contextMonitor.isCompactInFlight(item.record.threadId) }));
+  });
+  for (const [channel, action] of [
+    [IPC_CHANNELS.worktreeManagedCleanup, "cleanup"],
+    [IPC_CHANNELS.worktreeManagedConfirmMerged, "confirm"],
+  ] as const) {
+    registerDesktopCommand(channel, async (payload: unknown) => {
+      const request = parseWorktreeActionRequest(payload);
+      return withThreadWorkLocationMutation(request.threadId, async () => {
+        assertThreadWorkLocationIdle(request.threadId, true);
+        try {
+          return action === "cleanup" ? await threadWorktrees.cleanupManaged(request)
+            : await threadWorktrees.confirmManagedMerged(request);
+        } finally {
+          const location = conversationStore.getThread(request.threadId)?.workLocation;
+          if (action === "cleanup" && location?.mode === "needs_choice")
+            await resetThreadRuntimeForWorkLocation(request.threadId);
+        }
+      });
+    });
+  }
+
   registerDesktopCommand(IPC_CHANNELS.worktreeApply, async () => {
     throw new Error("Mori 不代替 Agent 合并工作树。请让 Agent 提交并合并，再核验状态或确认已并入。");
   });
@@ -10867,11 +10901,11 @@ function parseWorktreeActionRequest(payload: unknown): ThreadWorktreeActionReque
     ...(typeof payload.expectedTargetCommit === "string" ? { expectedTargetCommit: payload.expectedTargetCommit } : {}),
   };
 }
-function assertThreadWorkLocationIdle(threadId: string): void {
+function assertThreadWorkLocationIdle(threadId: string, allowDeleted = false): void {
   const thread = conversationStore.getThread(threadId);
-  if (!thread) throw new Error("找不到该对话。");
+  if (!thread && !allowDeleted) throw new Error("找不到该对话。");
   if (activeRunRuntimeState.hasRun(threadId) || threadRunPreparations.has(threadId) ||
-    ["running", "queued", "awaiting_plan"].includes(thread.status) || contextMonitor.isCompactInFlight(threadId)) {
+    (thread && ["running", "queued", "awaiting_plan"].includes(thread.status)) || contextMonitor.isCompactInFlight(threadId)) {
     throw new Error("请先结束当前运行或待批准的计划，再操作工作树。");
   }
 }

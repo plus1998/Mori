@@ -416,6 +416,7 @@ import {
   LazyProjectTodoPanel,
   LazySkillsSettingsPanel,
   LazyStorageSettingsPanel,
+  LazyWorktreeSettingsPanel,
   LazyUsageSettingsPanel,
   LazySubagentTaskDrawer,
   LazyTerminalPanel,
@@ -703,6 +704,7 @@ type SettingsSectionId =
   | "keyboardShortcuts"
   | "personalization"
   | "storage"
+  | "worktrees"
   | "browser"
   | "computerUse"
   | "imageGeneration"
@@ -1473,6 +1475,12 @@ function App() {
               "retention",
               "old chats",
             ],
+          },
+          {
+            id: "worktrees",
+            label: t("worktrees.title"),
+            icon: GitBranch,
+            keywords: ["worktree", "工作树", "隔离开发", "branch", "分支", "清理"],
           },
           { id: "centerServer", label: t("settings.connection"), icon: Cloud },
           {
@@ -13619,6 +13627,15 @@ function App() {
                 )}
 
                 {settingsSection === "storage" && <LazyStorageSettingsPanel />}
+                {settingsSection === "worktrees" && <LazyWorktreeSettingsPanel
+                  onLocationChange={updateThreadWorkLocation}
+                  onOpenThread={threadId => {
+                    const thread = threads.find(item => item.id === threadId);
+                    if (!thread) { setError("该对话已删除，请刷新工作树列表。"); return; }
+                    selectSearchThread(thread);
+                    setSettingsOpen(false);
+                  }}
+                />}
                 {settingsSection === "usage" && <LazyUsageSettingsPanel />}
 
                 {settingsSection === "browser" && (

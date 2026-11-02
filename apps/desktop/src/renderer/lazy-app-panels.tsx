@@ -1,6 +1,7 @@
 import { type ReactNode, Suspense, lazy } from "react";
 
 export const LazyUsageSettingsPanel = lazy(() => import("./UsageSettingsPanel").then(m => ({ default: m.UsageSettingsPanel })));
+export const LazyWorktreeSettingsPanel = lazy(() => import("./WorktreeSettingsPanel").then(m => ({ default: m.WorktreeSettingsPanel })));
 
 /**
  * Heavy App surfaces — loaded on first open so the main renderer chunk stays lean.

@@ -2,6 +2,7 @@ import { accountWakeTranslations } from "./account-wake-i18n";
 import type { AppLocale } from "./locale";
 import { accountUsageTranslations } from "./account-usage-i18n";
 import { usageOverviewTranslations } from "./usage-overview-i18n";
+import { worktreeTranslations } from "./worktree-i18n";
 
 export const i18nCatalogs = {
   "zh-CN": {
@@ -151,6 +152,7 @@ export const i18nCatalogs = {
       ...accountUsageTranslations["zh-CN"],
       ...accountWakeTranslations["zh-CN"],
       ...usageOverviewTranslations["zh-CN"],
+      ...worktreeTranslations["zh-CN"],
       "app.running.displayCount_one": "已检测到 {{count}} 块显示器",
       "app.running.displayCount_other": "已检测到 {{count}} 块显示器",
       "app.running.displayDetails": "说明与显示器详情",
@@ -3805,6 +3807,7 @@ export const i18nCatalogs = {
       ...accountUsageTranslations["en-US"],
       ...accountWakeTranslations["en-US"],
       ...usageOverviewTranslations["en-US"],
+      ...worktreeTranslations["en-US"],
       "app.running.displayCount_one": "{{count}} display detected",
       "app.running.displayCount_other": "{{count}} displays detected",
       "app.running.displayDetails": "Help and display details",

@@ -9,11 +9,15 @@ import type {
   ThreadWorktreeActionRequest,
   ThreadWorktreeRecord,
   ThreadWorktreeStatus,
+  ManagedWorktree,
 } from "../shared/thread-worktree";
 
 interface WorktreeStore {
   getThread(id: string): ThreadSummary | undefined;
   saveThreadWorkLocation(id: string, location: ThreadWorkLocation): void;
+  getWorktree(id: string): ThreadWorktreeRecord | undefined;
+  listWorktrees(): ThreadWorktreeRecord[];
+  saveWorktree(record: ThreadWorktreeRecord): void;
 }
 interface Registration {
   path: string;
@@ -27,6 +31,7 @@ export class ThreadWorktreeService {
   constructor(
     private readonly store: WorktreeStore,
     private readonly runner: CommandRunner,
+    private readonly options: { rootPath: () => string },
   ) {}
 
   private async exclusive<T>(id: string, task: () => Promise<T>): Promise<T> {
@@ -134,10 +139,10 @@ export class ThreadWorktreeService {
       id,
       threadId,
       workspacePath: thread.workspacePath,
+      threadTitle: thread.title,
       repositoryPath: "",
       worktreePath: path.join(
-        path.dirname(thread.workspacePath),
-        ".mori-worktrees",
+        this.options.rootPath(),
         createHash("sha256").update(thread.workspacePath).digest("hex").slice(0, 16),
         id,
       ),
@@ -156,6 +161,7 @@ export class ThreadWorktreeService {
     this.save(threadId, location);
     try {
       const repositoryRoot = await this.repositoryRoot(thread.workspacePath);
+      record.repositoryRoot = repositoryRoot;
       record.repositoryPath = await this.repository(thread.workspacePath);
       record.baseCommit = await this.git(thread.workspacePath, ["rev-parse", "--verify", "HEAD^{commit}"]);
       const branch = await this.runner.run(
@@ -166,9 +172,8 @@ export class ThreadWorktreeService {
       record.targetBranch = branch.stdout.trim();
       if (!record.targetBranch) throw new Error("隔离开发需要当前分支，不能从 detached HEAD 创建。");
       record.worktreePath = path.join(
-        path.dirname(repositoryRoot),
-        ".mori-worktrees",
-        createHash("sha256").update(repositoryRoot).digest("hex").slice(0, 16),
+        this.options.rootPath(),
+        createHash("sha256").update(record.repositoryPath).digest("hex").slice(0, 16),
         id,
       );
       await fs.mkdir(path.dirname(record.worktreePath), { recursive: true });
@@ -205,12 +210,25 @@ export class ThreadWorktreeService {
   private async statusInner(threadId: string): Promise<ThreadWorktreeStatus> {
     const thread = this.thread(threadId);
     const location = thread.workLocation ?? { mode: "direct" as const };
+    if (location.worktree) {
+      const record = this.store.getWorktree(location.worktree.id);
+      if (!record || record.threadId !== threadId) throw new Error("工作树管理记录缺失或所属对话不匹配。");
+      location.worktree = record;
+    }
+    return this.inspect(location, thread.workspacePath, next => this.save(threadId, next));
+  }
+
+  private async inspect(
+    location: ThreadWorkLocation,
+    workspacePath: string,
+    persist: (location: ThreadWorkLocation) => void,
+  ): Promise<ThreadWorktreeStatus> {
     const record = location.worktree;
     const reasons: string[] = [];
     const status: ThreadWorktreeStatus = {
       exists: false,
-      workspacePath: thread.workspacePath,
-      worktreePath: location.mode === "direct" ? thread.workspacePath : (record?.worktreePath ?? ""),
+      workspacePath,
+      worktreePath: location.mode === "direct" ? workspacePath : (record?.worktreePath ?? ""),
       changedFiles: [],
       location,
       blockingReasons: reasons,
@@ -219,13 +237,14 @@ export class ThreadWorktreeService {
     const before = JSON.stringify(location);
     try {
       status.exists = await this.present(record.worktreePath);
-      if (!record.repositoryPath || (await this.repository(thread.workspacePath)) !== record.repositoryPath) {
+      if (!record.repositoryPath || (await this.repository(workspacePath)) !== record.repositoryPath) {
         throw new Error(record.error || "项目仓库与创建记录不匹配。");
       }
-      const entries = await this.registrations(thread.workspacePath);
+      if (!record.repositoryRoot) record.repositoryRoot = await this.repositoryRoot(workspacePath);
+      const entries = await this.registrations(workspacePath);
       const entry = entries.find((e) => e.path === path.resolve(record.worktreePath));
-      const branchCommit = await this.commit(thread.workspacePath, `refs/heads/${record.branchName}`);
-      const targetCommit = await this.commit(thread.workspacePath, `refs/heads/${record.targetBranch}`);
+      const branchCommit = await this.commit(workspacePath, `refs/heads/${record.branchName}`);
+      const targetCommit = await this.commit(workspacePath, `refs/heads/${record.targetBranch}`);
       status.branchExists = Boolean(branchCommit);
       if (branchCommit) status.branchCommit = branchCommit;
       if (targetCommit) status.targetCommit = targetCommit;
@@ -271,11 +290,11 @@ export class ThreadWorktreeService {
       }
       status.merged = "unmerged";
       if (branchCommit && targetCommit) {
-        if (await this.ancestor(thread.workspacePath, branchCommit, targetCommit)) status.merged = "git";
+        if (await this.ancestor(workspacePath, branchCommit, targetCommit)) status.merged = "git";
         else if (
           record.confirmedCommit === branchCommit &&
           record.confirmedTargetCommit &&
-          (await this.ancestor(thread.workspacePath, record.confirmedTargetCommit, targetCommit))
+          (await this.ancestor(workspacePath, record.confirmedTargetCommit, targetCommit))
         )
           status.merged = "confirmed";
       }
@@ -304,25 +323,77 @@ export class ThreadWorktreeService {
     }
     if (JSON.stringify(location) !== before) {
       record.updatedAt = new Date().toISOString();
-      this.save(threadId, location);
+      persist(location);
     }
     return status;
   }
 
+  private persistManaged(location: ThreadWorkLocation): void {
+    const record = location.worktree;
+    if (!record) throw new Error("工作树缺少管理记录。");
+    this.store.saveWorktree(record);
+    const thread = this.store.getThread(record.threadId);
+    if (thread?.workLocation?.worktree?.id === record.id) {
+      this.save(record.threadId, thread.workLocation.mode === "direct"
+        ? { ...thread.workLocation, worktree: record }
+        : location);
+    }
+  }
+
+  private async managedStatusInner(worktreeId: string): Promise<ManagedWorktree> {
+    const record = this.store.getWorktree(worktreeId);
+    if (!record) throw new Error("找不到工作树管理记录。");
+    const thread = this.store.getThread(record.threadId);
+    const attached = thread?.workLocation?.worktree?.id === record.id && thread.workLocation.mode !== "direct";
+    const location: ThreadWorkLocation = attached && thread?.workLocation
+      ? { ...thread.workLocation, worktree: record } : { mode: "isolated", worktree: record };
+    const status = await this.inspect(location, record.workspacePath, next => this.persistManaged(next));
+    return {
+      ...status,
+      record: status.location?.worktree ?? record,
+      threadTitle: thread?.title ?? record.threadTitle ?? record.threadId,
+      threadExists: Boolean(thread),
+      attached,
+      busy: Boolean(thread && ["running", "queued", "awaiting_plan"].includes(thread.status)),
+    };
+  }
+
+  async listManaged(): Promise<ManagedWorktree[]> {
+    const records = this.store.listWorktrees().filter(record => record.state !== "removed");
+    return Promise.all(records.map(record =>
+      this.exclusive(record.threadId, () => this.managedStatusInner(record.id))));
+  }
+
   private async checked(
     request: ThreadWorktreeActionRequest,
+    managed = false,
   ): Promise<ThreadWorktreeStatus & { location: ThreadWorkLocation & { worktree: ThreadWorktreeRecord } }> {
-    const status = await this.statusInner(request.threadId);
-    if (!status.location?.worktree || status.location.worktree.id !== request.worktreeId)
+    if (managed) {
+      const record = this.store.getWorktree(request.worktreeId);
+      if (!record || record.threadId !== request.threadId)
+        throw new Error("工作树记录已变化，请刷新后重试。");
+    }
+    const status = managed ? await this.managedStatusInner(request.worktreeId) : await this.statusInner(request.threadId);
+    if (!status.location?.worktree || status.location.worktree.id !== request.worktreeId ||
+      status.location.worktree.threadId !== request.threadId)
       throw new Error("工作树记录已变化，请刷新后重试。");
+    const thread = this.store.getThread(request.threadId);
+    if (managed && thread && ["running", "queued", "awaiting_plan"].includes(thread.status))
+      throw new Error("请先结束当前运行或待批准的计划，再操作工作树。");
     if (status.error) throw new Error(status.error);
     return status as ThreadWorktreeStatus & {
       location: ThreadWorkLocation & { worktree: ThreadWorktreeRecord };
     };
   }
   confirmMerged(request: ThreadWorktreeActionRequest): Promise<ThreadWorktreeStatus> {
+    return this.confirm(request, false);
+  }
+  confirmManagedMerged(request: ThreadWorktreeActionRequest): Promise<ThreadWorktreeStatus> {
+    return this.confirm(request, true);
+  }
+  private confirm(request: ThreadWorktreeActionRequest, managed: boolean): Promise<ThreadWorktreeStatus> {
     return this.exclusive(request.threadId, async () => {
-      const status = await this.checked(request);
+      const status = await this.checked(request, managed);
       if (!status.branchCommit || !status.targetCommit)
         throw new Error("缺少可核验的分支提交，不能确认已并入。");
       if (
@@ -334,16 +405,26 @@ export class ThreadWorktreeService {
       status.location.worktree.confirmedCommit = status.branchCommit;
       status.location.worktree.confirmedTargetCommit = status.targetCommit;
       status.location.worktree.updatedAt = new Date().toISOString();
-      this.save(request.threadId, status.location);
-      return this.statusInner(request.threadId);
+      if (managed) this.persistManaged(status.location);
+      else this.save(request.threadId, status.location);
+      return managed ? this.managedStatusInner(request.worktreeId) : this.statusInner(request.threadId);
     });
   }
   cleanup(request: ThreadWorktreeActionRequest): Promise<ThreadWorktreeStatus> {
+    return this.remove(request, false);
+  }
+  cleanupManaged(request: ThreadWorktreeActionRequest): Promise<ThreadWorktreeStatus> {
+    return this.remove(request, true);
+  }
+  private remove(request: ThreadWorktreeActionRequest, managed: boolean): Promise<ThreadWorktreeStatus> {
     return this.exclusive(request.threadId, async () => {
-      const status = await this.checked(request);
+      const status = await this.checked(request, managed);
       const { location } = status;
       const record = location.worktree;
       try {
+        if ((request.expectedBranchCommit !== undefined && request.expectedBranchCommit !== status.branchCommit) ||
+          (request.expectedTargetCommit !== undefined && request.expectedTargetCommit !== status.targetCommit))
+          throw new Error("分支提交已变化，请刷新状态后重新确认清理。");
         if (!status.canClean) throw new Error(status.blockingReasons?.join("\n") || "不能清理该工作树。");
         const entries = await this.registrations(record.workspacePath);
         if (entries.some((e) => e.path === path.resolve(record.worktreePath))) {
@@ -363,14 +444,16 @@ export class ThreadWorktreeService {
         location.mode = "needs_choice";
         location.contextResetPending = true;
         record.updatedAt = new Date().toISOString();
-        this.save(request.threadId, location);
+        if (managed) this.persistManaged(location);
+        else this.save(request.threadId, location);
       } catch (error) {
         record.error = error instanceof Error ? error.message : String(error);
         record.updatedAt = new Date().toISOString();
-        this.save(request.threadId, location);
+        if (managed) this.persistManaged(location);
+        else this.save(request.threadId, location);
         throw error;
       }
-      return this.statusInner(request.threadId);
+      return managed ? this.managedStatusInner(request.worktreeId) : this.statusInner(request.threadId);
     });
   }
   selectLocation(request: ThreadWorkLocationRequest): Promise<ThreadWorktreeStatus> {
