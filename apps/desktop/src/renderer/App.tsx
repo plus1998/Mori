@@ -12137,7 +12137,7 @@ function App() {
       />
     );
 
-  const showComposerContextOverlays = showLanding && !asrSession.active;
+  const showComposerContextOverlays = !asrSession.active && (showLanding || Boolean(activeThread?.workLocation?.worktree));
   const showComposerInputOverlays = queuedFollowUps.length > 0 || showComposerContextOverlays;
   // Reported by the Feed, which owns the clock: the run is live, its waiting line is not up,
   // and nothing visible has changed for half a second — the gap while the agent writes its
@@ -12167,10 +12167,7 @@ function App() {
         } as CSSProperties
       }
     >
-      <ThreadWorktreeControl key={activeThread?.id ?? `new:${currentProjectPath}`}
-        {...(activeThread ? { thread: activeThread } : {})}
-        mode={newThreadDevelopmentMode} busy={isStarting}
-        onModeChange={setNewThreadDevelopmentMode} onLocationChange={updateThreadWorkLocation} />
+
       {composerImageNotice && <p className="composer-image-notice">{composerImageNotice}</p>}
       <div className="composer-feed-notices">
         {!activeThread ? <PlanReferenceNotice prompt={prompt} onChange={setPrompt} disabled={isStarting} /> : null}
@@ -12212,10 +12209,22 @@ function App() {
             ) : null}
             {showComposerContextOverlays ? (
               <div className="composer-context-bar">
-                {composerNeedsOrchestration ? renderComposerAgentModelsControl() : null}
-                {renderComposerMcpControl()}
-                {renderComposerIntegrationsControl()}
-                {renderComposerSkillsControl()}
+                {showLanding ? <>
+                  {composerNeedsOrchestration ? renderComposerAgentModelsControl() : null}
+                  {renderComposerMcpControl()}
+                  {renderComposerIntegrationsControl()}
+                  {renderComposerSkillsControl()}
+                </> : null}
+                <ThreadWorktreeControl
+                  key={activeThread?.id ?? `new:${currentProjectPath}`}
+                  {...(activeThread ? { thread: activeThread } : {})}
+                  workspacePath={currentProjectPath}
+                  branch={gitStatus?.branch}
+                  mode={newThreadDevelopmentMode}
+                  busy={isStarting}
+                  onModeChange={setNewThreadDevelopmentMode}
+                  onLocationChange={updateThreadWorkLocation}
+                />
               </div>
             ) : null}
           </div>

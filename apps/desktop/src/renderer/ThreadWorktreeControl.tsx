@@ -1,16 +1,50 @@
-import { useEffect, useRef, useState } from "react";
+import { GitBranch, Laptop, LoaderCircle, RefreshCw, Settings } from "lucide-react";
+import { useEffect, useId, useRef, useState } from "react";
+import { ComposerAbovePanel } from "./ComposerAbovePanel";
 import type { ThreadSummary, WorktreeStatusResult } from "../shared/ipc";
 import type { ThreadDevelopmentMode, ThreadWorkLocation } from "../shared/thread-worktree";
 
 interface Props {
   thread?: ThreadSummary;
+  workspacePath?: string | undefined;
+  branch?: string | undefined;
   mode: ThreadDevelopmentMode;
   busy: boolean;
   onModeChange: (mode: ThreadDevelopmentMode) => void;
   onLocationChange: (threadId: string, location: ThreadWorkLocation) => void;
 }
 
-export function ThreadWorktreeControl({ thread, mode, busy, onModeChange, onLocationChange }: Props) {
+// The worktree mark uses an outgoing path and a second arrow, distinct from a Git branch.
+function WorktreeIcon({ size = 18 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.75}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M3 12h5a3 3 0 0 0 2.12-.88L21 2M15 2h6v6M15 16l6 6M15 22h6v-6" />
+    </svg>
+  );
+}
+
+export function ThreadWorktreeControl({
+  thread,
+  workspacePath,
+  branch,
+  mode,
+  busy,
+  onModeChange,
+  onLocationChange,
+}: Props) {
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelId = useId();
   const [status, setStatus] = useState<WorktreeStatusResult>();
   const [error, setError] = useState<string>();
   const [pending, setPending] = useState(false);
@@ -95,139 +129,256 @@ export function ThreadWorktreeControl({ thread, mode, busy, onModeChange, onLoca
     }
   }
 
-  if (!thread)
-    return (
-      <div className="thread-worktree-control thread-worktree-new">
-        <label>
-          工作位置{" "}
-          <select
-            aria-label="开发方式"
-            value={mode}
-            disabled={busy}
-            onChange={(event) => onModeChange(event.target.value as ThreadDevelopmentMode)}
-          >
-            <option value="direct">直接开发</option>
-            <option value="isolated">隔离开发</option>
-          </select>
-        </label>
-        {mode === "isolated" ? (
-          <p>从当前分支 HEAD 创建独立工作树与分支。项目中未提交的改动不会带入；依赖由 Agent 按需安装。</p>
-        ) : null}
-      </div>
-    );
-
-  const location = status?.location ?? thread.workLocation;
+  const location = status?.location ?? thread?.workLocation;
   const record = location?.worktree;
-  if (!record) return null;
-  const choosing = location.mode === "needs_choice";
-  const locked = pending || busy || ["running", "queued", "awaiting_plan"].includes(thread.status);
-  const label =
-    location.mode === "direct"
-      ? "直接开发 · 在项目目录继续"
-      : record.state === "removed"
+  const choosing = location?.mode === "needs_choice";
+  const isolated = thread ? location?.mode === "isolated" : mode === "isolated";
+  const locked =
+    pending || busy || Boolean(thread && ["running", "queued", "awaiting_plan"].includes(thread.status));
+  const path = thread?.workspacePath ?? workspacePath;
+  const workingPath = record && location?.mode !== "direct" ? record.worktreePath : path;
+  const branchName = isolated && record ? record.branchName : branch;
+  const failure = error || status?.error || record?.error;
+  const needsAttention = Boolean(
+    choosing || failure || record?.state === "missing" || record?.state === "error",
+  );
+  const creating = record?.state === "creating" || (!thread && isolated && busy);
+  const label = choosing
+    ? "选择工作位置"
+    : location?.mode === "direct"
+      ? "项目目录"
+      : record?.state === "removed"
         ? "工作树已清理"
-        : record.state === "missing"
+        : record?.state === "missing"
           ? "工作树已丢失"
-          : record.state === "error"
+          : record?.state === "error"
             ? "工作树创建失败"
-            : status?.error
-              ? "工作树核验失败"
-              : status?.merged === "git"
-                ? "已并入 · Git 核验"
-                : status?.merged === "confirmed"
-                  ? "已并入 · 用户确认"
-                  : "隔离开发 · 未并入";
+            : failure
+              ? "工作树需检查"
+              : creating
+                ? "正在创建工作树"
+                : isolated
+                  ? record
+                    ? "已创建工作树"
+                    : "新建工作树"
+                  : "项目目录";
+  const mergedLabel =
+    status?.merged === "git"
+      ? "已并入 · Git 核验"
+      : status?.merged === "confirmed"
+        ? "已并入 · 用户确认"
+        : "尚未并入";
+
+  if (!path && !record) return null;
+
   return (
-    <section className="thread-worktree-control" aria-label="对话工作树">
-      <div className="thread-worktree-heading">
-        <strong>{label}</strong>
-        <button type="button" disabled={pending} onClick={() => void act("refresh")}>
-          刷新状态
-        </button>
-      </div>
-      <p>
-        <code>{location.mode === "direct" ? thread.workspacePath : record.worktreePath}</code>
-      </p>
-      <details>
-        <summary>
-          <code>{record.branchName}</code>
-          <span> → {record.targetBranch || "待核验"}</span>
-        </summary>
-        <p>
-          创建时提交：<code>{record.baseCommit || "尚未创建"}</code>
-        </p>
-        {location.mode === "direct" ? (
-          <p>
-            当前目录：<code>{thread.workspacePath}</code>
-          </p>
-        ) : null}
-      </details>
-      {status?.blockingReasons?.length && record.state !== "removed" && location.mode !== "direct" ? (
-        <ul>
-          {status.blockingReasons.map((reason) => (
-            <li key={reason}>{reason}</li>
-          ))}
-        </ul>
+    <div className="thread-worktree-bar" aria-label="工作位置">
+      {(record && location?.mode !== "direct") || creating || failure ? (
+        <span className={`thread-worktree-location${needsAttention ? " needs-attention" : ""}`} role="status">
+          <WorktreeIcon size={14} />
+          <span>{label}</span>
+          {needsAttention ? <span className="thread-worktree-attention-dot" aria-label="需要处理" /> : null}
+        </span>
       ) : null}
-      {record.error && !status?.blockingReasons?.includes(record.error) ? (
-        <p role="status">上次操作失败：{record.error}</p>
-      ) : null}
-      {error ? <p role="alert">{error}</p> : null}
-      {choosing ? (
-        <div className="thread-worktree-actions">
-          <p>聊天记录已保留。发送前请选择后续工作位置。</p>
-          <button type="button" disabled={locked || status?.exists} onClick={() => void act("project")}>
-            在项目目录继续
-          </button>
-          <button type="button" disabled={locked || status?.exists} onClick={() => void act("new_worktree")}>
-            新建隔离工作树
-          </button>
-          {status?.canReattach ? (
-            <button type="button" disabled={locked} onClick={() => void act("reattach")}>
-              从旧分支重新挂载
-            </button>
-          ) : null}
-        </div>
-      ) : null}
-      {location.mode !== "direct" && record.state !== "removed" ? (
-        <div className="thread-worktree-actions">
-          {status?.merged === "unmerged" && status.branchExists ? (
-            <button
-              type="button"
-              disabled={locked || !status.branchCommit || !status.targetCommit}
-              onClick={() =>
-                setConfirming((value) =>
-                  value || !status.branchCommit || !status.targetCommit
-                    ? undefined
-                    : { branchCommit: status.branchCommit, targetCommit: status.targetCommit },
-                )
-              }
-            >
-              确认已并入…
-            </button>
-          ) : null}
-          <button type="button" disabled={locked || !status?.canClean} onClick={() => void act("cleanup")}>
-            清理工作树与分支
-          </button>
-          {confirming ? (
-            <fieldset aria-label="确认合并结果">
-              <p>
-                请先确认 Agent 已把当前分支的全部提交并入 {record.targetBranch}
-                （例如压缩合并）。新增提交后需要重新核验。
-              </p>
-              <p>
-                确认提交：<code>{confirming.branchCommit}</code>
-              </p>
-              <button type="button" disabled={locked} onClick={() => void act("confirm")}>
-                我确认当前提交已并入
+      <button
+        ref={triggerRef}
+        type="button"
+        className={`thread-worktree-settings${open ? " is-active" : ""}`}
+        title="配置本地环境"
+        aria-label="配置本地环境"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-controls={open ? panelId : undefined}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <Settings size={18} strokeWidth={1.75} aria-hidden />
+      </button>
+      {open ? (
+        <ComposerAbovePanel
+          anchorRef={triggerRef}
+          triggerRef={triggerRef}
+          id={panelId}
+          width={360}
+          minHeight={160}
+          label="配置本地环境"
+          className="thread-worktree-popover"
+          onClose={() => {
+            if (document.activeElement?.closest(".thread-worktree-popover")) {
+              triggerRef.current?.focus();
+            }
+            setOpen(false);
+            setConfirming(undefined);
+          }}
+        >
+          <header className="thread-worktree-popover-header">
+            <span>配置本地环境</span>
+            {record ? (
+              <button
+                type="button"
+                className="thread-worktree-refresh"
+                title="刷新状态"
+                aria-label="刷新状态"
+                disabled={pending}
+                onClick={() => void act("refresh")}
+              >
+                <RefreshCw size={14} aria-hidden />
               </button>
-              <button type="button" onClick={() => setConfirming(undefined)}>
-                取消
-              </button>
-            </fieldset>
+            ) : null}
+          </header>
+          {creating ? (
+            <div className="thread-worktree-progress" role="status">
+              <LoaderCircle size={16} className="thread-worktree-spinner" aria-hidden />
+              <span>{record?.baseCommit ? "正在检出文件" : "正在准备工作空间"}</span>
+            </div>
           ) : null}
-        </div>
+          {!thread ? (
+            <>
+              <button
+                type="button"
+                className="thread-worktree-row thread-worktree-toggle"
+                role="switch"
+                aria-label="新建工作树"
+                aria-checked={isolated}
+                aria-describedby={isolated ? `${panelId}-hint` : undefined}
+                disabled={busy}
+                onClick={() => onModeChange(isolated ? "direct" : "isolated")}
+              >
+                <WorktreeIcon size={18} />
+                <span>新建工作树</span>
+                <span className={`thread-worktree-switch${isolated ? " is-on" : ""}`} aria-hidden>
+                  <span />
+                </span>
+              </button>
+              {isolated ? (
+                <p id={`${panelId}-hint`} className="thread-worktree-hint">
+                  从当前分支创建独立目录，未提交的改动不会带入。
+                </p>
+              ) : null}
+            </>
+          ) : (
+            <div className="thread-worktree-row">
+              {isolated ? <WorktreeIcon size={18} /> : <Laptop size={18} aria-hidden />}
+              <span>工作位置</span>
+              <span className="thread-worktree-value">{label}</span>
+            </div>
+          )}
+          {branchName ? (
+            <div className="thread-worktree-row">
+              <GitBranch size={18} aria-hidden />
+              <span>分支</span>
+              <span className="thread-worktree-value" title={branchName}>
+                {branchName}
+              </span>
+            </div>
+          ) : null}
+          {record && isolated && status?.merged ? (
+            <div className="thread-worktree-row thread-worktree-status-row">
+              <span>合并状态</span>
+              <span className="thread-worktree-value">{mergedLabel}</span>
+            </div>
+          ) : null}
+          <details className="thread-worktree-details">
+            <summary>位置与详情</summary>
+            <dl>
+              <dt>工作目录</dt>
+              <dd>
+                <code>{workingPath}</code>
+              </dd>
+              {record ? (
+                <>
+                  <dt>目标分支</dt>
+                  <dd>
+                    <code>{record.targetBranch || "待核验"}</code>
+                  </dd>
+                  <dt>创建时提交</dt>
+                  <dd>
+                    <code>{record.baseCommit || "尚未创建"}</code>
+                  </dd>
+                </>
+              ) : null}
+            </dl>
+          </details>
+          {status?.blockingReasons?.length && record?.state !== "removed" && location?.mode !== "direct" ? (
+            <details className="thread-worktree-details">
+              <summary>暂不能清理 · {status.blockingReasons.length} 项原因</summary>
+              <ul>
+                {status.blockingReasons.map((reason) => (
+                  <li key={reason}>{reason}</li>
+                ))}
+              </ul>
+            </details>
+          ) : null}
+          {failure ? (
+            <p className="thread-worktree-error" role="alert">
+              {failure}
+            </p>
+          ) : null}
+          {choosing ? (
+            <div className="thread-worktree-actions">
+              <p>聊天记录已保留，请选择后续工作位置。</p>
+              <button type="button" disabled={locked || status?.exists} onClick={() => void act("project")}>
+                在项目目录继续
+              </button>
+              <button
+                type="button"
+                disabled={locked || status?.exists}
+                onClick={() => void act("new_worktree")}
+              >
+                新建隔离工作树
+              </button>
+              {status?.canReattach ? (
+                <button type="button" disabled={locked} onClick={() => void act("reattach")}>
+                  从旧分支重新挂载
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+          {record && location?.mode !== "direct" && record.state !== "removed" ? (
+            <div className="thread-worktree-actions">
+              {status?.merged === "unmerged" && status.branchExists ? (
+                <button
+                  type="button"
+                  disabled={locked || !status.branchCommit || !status.targetCommit}
+                  onClick={() =>
+                    setConfirming((value) =>
+                      value || !status.branchCommit || !status.targetCommit
+                        ? undefined
+                        : { branchCommit: status.branchCommit, targetCommit: status.targetCommit },
+                    )
+                  }
+                >
+                  确认已并入…
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className="thread-worktree-cleanup"
+                disabled={locked || !status?.canClean}
+                onClick={() => void act("cleanup")}
+              >
+                清理工作树与分支
+              </button>
+              {confirming ? (
+                <fieldset aria-label="确认合并结果">
+                  <p>
+                    请确认 Agent 已把当前分支的全部提交并入 {record.targetBranch}
+                    （例如压缩合并）。新增提交后需要重新核验。
+                  </p>
+                  <p>
+                    确认提交：<code>{confirming.branchCommit}</code>
+                  </p>
+                  <button type="button" disabled={locked} onClick={() => void act("confirm")}>
+                    我确认当前提交已并入
+                  </button>
+                  <button type="button" onClick={() => setConfirming(undefined)}>
+                    取消
+                  </button>
+                </fieldset>
+              ) : null}
+            </div>
+          ) : null}
+        </ComposerAbovePanel>
       ) : null}
-    </section>
+    </div>
   );
 }
