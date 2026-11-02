@@ -11,15 +11,26 @@ const cached: OpenAIAccountQuota = {
   },
 };
 
-test("sparse updates preserve omitted/null windows and metadata and can exhaust a window", () => {
+test("sparse updates refresh the timestamp while preserving omitted windows and account metadata", () => {
+  const now = cached.fetchedAt + 30_000;
   const merged = mergeCodexQuotaUpdate(cached, { rateLimits: {
     limitId: "codex", primary: { usedPercent: 100 }, secondary: null,
-  } }, cached.fetchedAt);
+  } }, now);
   expect(merged?.rateLimit.primaryWindow?.usedPercent).toBe(100);
   expect(merged?.rateLimit.secondaryWindow).toEqual(cached.rateLimit.secondaryWindow);
   expect(merged?.rateLimit).toMatchObject({ allowed: false, limitReached: true });
-  expect(merged?.fetchedAt).toBe(cached.fetchedAt);
+  expect(merged?.fetchedAt).toBe(now);
   expect(merged?.resetCreditsAvailable).toBe(2);
+});
+
+test("a valid notification refreshes the timestamp even when the quota values are unchanged", () => {
+  const now = cached.fetchedAt + 30_000;
+  const merged = mergeCodexQuotaUpdate(cached, { rateLimits: {
+    primary: { usedPercent: 20 }, secondary: { usedPercent: 30 },
+  } }, now);
+  expect(merged?.fetchedAt).toBe(now);
+  expect(merged?.rateLimit).toEqual(cached.rateLimit);
+  expect(cached.fetchedAt).toBe(1_800_000_000_000);
 });
 
 test("unrelated buckets and empty notifications cannot erase ordinary quota", () => {

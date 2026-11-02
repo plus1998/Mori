@@ -511,10 +511,10 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
     });
   }, [menuOpenId]);
 
-  const refreshAccountQuota = useCallback(async (accountId: string, reason: "manual" | "view" = "manual") => {
+  const refreshAccountQuota = useCallback(async (accountId: string) => {
     if (!eco) return;
     try {
-      await eco.openAIAccountsQueryQuota(accountId, reason);
+      await eco.openAIAccountsQueryQuota(accountId);
       setQuotaErrors((previous) => {
         const next = { ...previous };
         delete next[accountId];
@@ -524,26 +524,6 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
       setQuotaErrors((previous) => ({ ...previous, [accountId]: { message: error instanceof Error ? error.message : String(error), attemptedAt: Date.now() } }));
     }
   }, [eco]);
-
-  useEffect(() => {
-    if (!eco) return;
-    let cancelled = false;
-    void (async () => {
-      try {
-        const list = await eco.openAIAccountsList();
-        if (cancelled) return;
-        setQuotaLoading(true);
-        await Promise.all(list.filter(canUseOpenAIAccountCredentials)
-          .map((account) => refreshAccountQuota(account.id, "view")));
-        if (!cancelled) await refresh();
-      } catch (error) {
-        if (!cancelled) setLoadError(error instanceof Error ? error.message : String(error));
-      } finally {
-        if (!cancelled) setQuotaLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [eco, refreshAccountQuota, refresh]);
 
   async function handleWake(accountId: string) {
     if (!eco || wakingRef.current) return;

@@ -3981,6 +3981,11 @@ app
         },
       },
       emitLiveContext: (threadId) => contextScheduler.emitLiveFromMonitor(threadId),
+      onCompactionCompleted: (threadId) => {
+        void drainQueuedThreadFollowUpsAfterRun(threadId).catch((error) => {
+          process.stderr.write(`[eco] failed to drain follow-ups after compaction (${threadId}): ${errorMessage(error)}\n`);
+        });
+      },
       applySdkContextUsageBreakdown: (threadId, payload) => {
         contextScheduler.applySdkContextUsageBreakdown(threadId, payload);
       },
@@ -10375,9 +10380,6 @@ function enqueueThreadFollowUpCommand(
         if (!threadAcceptsLiveFollowUp(thread.id, thread.status)) {
           throw new Error("Thread is not accepting queued follow-up messages.");
         }
-        if (contextMonitor.isCompactInFlight(thread.id)) {
-          throw new Error("上下文正在压缩中，请稍候。");
-        }
         const followUpPendingActivityLineId = `follow-up:${randomUUID()}`;
         const persistedAttachments = request.attachments?.length
           ? await promptImageFileStore.persistMessageAttachments(
@@ -10410,6 +10412,7 @@ function enqueueThreadFollowUpCommand(
         // Ordinary messages wait for Resume; submitted question answers use their own delivery lane.
         const preferEscalate =
           !queuePaused &&
+          !contextMonitor.isCompactInFlight(thread.id) &&
           (request.priority === "escalated" ||
             (coreUsesInterruptForSteer(thread.coreKind) && deliveryMode === "steer"));
         const followUp = conversationStore.enqueueThreadFollowUp({
@@ -10427,8 +10430,8 @@ function enqueueThreadFollowUpCommand(
           ...metadata,
         });
 
-        if ((queuePaused && !isAsyncAnswer) || deliveryMode === "queue") {
-          // Keep queued while paused or when the user chose queue delivery.
+        if (contextMonitor.isCompactInFlight(thread.id) || (queuePaused && !isAsyncAnswer) || deliveryMode === "queue") {
+          // Compaction accepts messages, but delivery waits for a safe boundary.
           emitThreadFollowUpEvent(followUp, "thread.follow_up.queued", formatFollowUpQueuedMessage(followUp));
           return buildThreadFollowUpMutationResult(
             conversationStore.getThreadFollowUp(thread.id, followUp.id) ?? followUp,
@@ -10483,9 +10486,6 @@ function registerRemainingDesktopCommands(): void {
           }
           if (!threadAcceptsLiveFollowUp(thread.id, thread.status)) {
             throw new Error("Thread is not accepting queued follow-up messages.");
-          }
-          if (contextMonitor.isCompactInFlight(thread.id)) {
-            throw new Error("上下文正在压缩中，请稍候。");
           }
           const base = request.followUpId
             ? conversationStore.escalateThreadFollowUp(thread.id, request.followUpId)
@@ -10725,9 +10725,6 @@ function registerRemainingDesktopCommands(): void {
           const thread = conversationStore.getThread(request.threadId);
           if (!thread) {
             throw new Error("Thread was not found.");
-          }
-          if (contextMonitor.isCompactInFlight(thread.id)) {
-            throw new Error("上下文正在压缩中，请稍候。");
           }
           const persistedAttachments = request.attachments?.length
             ? await promptImageFileStore.persistMessageAttachments(
@@ -11271,6 +11268,10 @@ async function deliverEscalatedThreadFollowUp(
   if (coreSupportsMidTurnFollowUp(thread.coreKind)) {
     pendingMidTurnFollowUpGuides.set(thread.id, followUp.id);
   }
+  if (contextMonitor.isCompactInFlight(thread.id)) {
+    if (coreUsesInterruptForSteer(thread.coreKind)) pendingEscalatedFollowUpDrain.add(thread.id);
+    return conversationStore.getThreadFollowUp(thread.id, followUp.id) ?? followUp;
+  }
   const current = await deliverThreadFollowUpGuide(thread.coreKind, followUp, {
     push: () => tryDeliverFollowUpViaMidTurn(thread, followUp),
     current: () => conversationStore.getThreadFollowUp(thread.id, followUp.id) ?? followUp,
@@ -11356,6 +11357,7 @@ async function requestEscalatedFollowUpInterrupt(
 
 async function drainQueuedThreadFollowUpsAfterRun(threadId: string): Promise<void> {
   await threadFollowUpDrainScheduler.drain(threadId, async () => {
+    if (contextMonitor.isCompactInFlight(threadId)) return;
     const guideId = pendingMidTurnFollowUpGuides.get(threadId);
     if (guideId) {
       const guide = conversationStore.getThreadFollowUp(threadId, guideId);
@@ -11410,6 +11412,7 @@ async function drainPreparedNextQueuedThreadFollowUp(
     // An explicit Guide owns one delivery while the other queued rows remain paused.
     if (
       shouldBlockThreadFollowUpDrain({
+        contextCompactionInFlight: contextMonitor.isCompactInFlight(threadId),
         hasPendingBridgeApproval: Boolean(getPendingPlanApprovalForThread(threadId)),
         // Non-blocking questions must not stall the queue: the run finished, and the user
         // may answer the question much later (or never).
@@ -14126,6 +14129,7 @@ async function scheduleAcceptedConversationMessage(
   }
 
   const queueIt =
+    contextMonitor.isCompactInFlight(thread.id) ||
     thread.status === "running" ||
     thread.status === "queued" ||
     thread.status === "awaiting_plan" ||
@@ -15103,6 +15107,7 @@ function threadAcceptsLiveFollowUp(
 ): boolean {
   return threadAcceptsQueuedFollowUp({
     status,
+    contextCompactionInFlight: contextMonitor.isCompactInFlight(threadId),
     isAsyncClarificationAnswer,
     hasEditingFollowUp: editingThreadFollowUpByThread.has(threadId),
     followUpQueuePaused: Boolean(conversationStore.getThread(threadId)?.followUpQueuePaused),
@@ -15155,6 +15160,7 @@ async function tryDeliverFollowUpViaMidTurn(
     }
     if (
       shouldBlockThreadFollowUpDrain({
+        contextCompactionInFlight: contextMonitor.isCompactInFlight(thread.id),
         hasPendingBridgeApproval: Boolean(getPendingPlanApprovalForThread(thread.id)),
         // An async question must not block mid-turn delivery of an unrelated follow-up.
         hasPendingClarification: hasPendingBlockingClarificationForThread(thread.id),
@@ -15190,6 +15196,7 @@ async function tryDeliverFollowUpViaMidTurn(
     const resolved = await resolveThreadFollowUpMidTurnPrompt(currentFollowUp, resolvePromptImagesForMainContext);
     if (resolved === undefined) return undefined;
     runtimePrompt = resolved;
+    if (contextMonitor.isCompactInFlight(thread.id)) return undefined;
     // Stop or a newer Guide can revoke this selection while references are resolving.
     if (explicitlyGuided && pendingMidTurnFollowUpGuides.get(thread.id) !== currentFollowUp.id) return undefined;
     return conversationStore.claimThreadFollowUpStreamingPush(thread.id, followUp.id, {

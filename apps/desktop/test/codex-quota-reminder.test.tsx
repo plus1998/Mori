@@ -91,7 +91,6 @@ test("a fresh composer renders the account quota control without thread usage", 
     accountQuota: createElement(CodexQuotaReminder, {
       variant: "composer",
       threads: [],
-      onChangeModel: () => undefined,
       eco: {
         ...bridge(),
         openAIAccountsResetQuota: async () => ({ outcome: "nothingToReset" as const }),
@@ -433,7 +432,7 @@ test("billing card shows every quota window even when no quota is low", () => {
       },
       variant: "billing",
       onReset() {},
-      onChangeModel() {},
+      onRefresh() {},
     }),
     "zh-CN",
   );
@@ -444,10 +443,11 @@ test("billing card shows every quota window even when no quota is low", () => {
     "7 天",
     "75%",
     "50%",
-    "更换模型",
+    "刷新额度",
     "使用重置",
   ])
     expect(html).toContain(text);
+  expect(html).not.toContain("更换模型");
   expect(html).not.toContain('aria-label="关闭"');
 });
 

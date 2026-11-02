@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { CodexQuotaRefreshPolicy, readQuotaRetryAt } from "../src/main/codex-quota-refresh-policy";
+import { mergeCodexQuotaUpdate } from "../src/main/codex-quota-update";
 import {
   hasUnrefreshedCodexQuotaReset,
   nextImageQuotaResetCheckAt,
@@ -43,6 +44,23 @@ test("opening a view uses a one-minute cooldown; manual requests read immediatel
     expect(policy.check("a", "auth", cached, reason)).toBe("query");
   expect(policy.check("a", "auth", undefined, "view")).toBe("query");
   expect(policy.check("b", "auth", undefined, "view")).toBe("query");
+});
+
+test("native quota updates restart the same one-minute view cooldown", () => {
+  let now = start + 120_000;
+  const policy = new CodexQuotaRefreshPolicy(() => now);
+  const cached = quota();
+  expect(policy.check("a", "auth", cached, "view")).toBe("query");
+  const updated = mergeCodexQuotaUpdate(cached, { rateLimits: {
+    primary: { usedPercent: 50 },
+  } }, now)!;
+  expect(updated.fetchedAt).toBe(now);
+  expect(policy.check("a", "auth", updated, "view")).toBe("cached");
+  expect(policy.check("a", "auth", updated, "manual")).toBe("query");
+  now += 59_999;
+  expect(policy.check("a", "auth", updated, "view")).toBe("cached");
+  now += 1;
+  expect(policy.check("a", "auth", updated, "view")).toBe("query");
 });
 
 test("automatic failures back off for 5, 15, then 30 minutes, while explicit requests can retry", () => {

@@ -76,6 +76,16 @@ test("shouldComposerUseFollowUpQueue while live, editing, or paused", () => {
   ).toBe(true);
 });
 
+test("compaction routes idle and completed Composer messages into the queue", () => {
+  for (const status of ["idle", "completed", "running"] as const) {
+    expect(shouldComposerUseFollowUpQueue({ status, contextCompactionInFlight: true })).toBe(true);
+  }
+  expect(shouldComposerUseFollowUpQueue({ status: "idle", contextCompactionInFlight: false })).toBe(false);
+  expect(shouldComposerUseFollowUpQueue({
+    status: "completed", contextCompactionInFlight: true, editingFollowUpId: "fu_1",
+  })).toBe(true);
+});
+
 test("queuedThreadFollowUps hides non-queued records and preserves stable priority order", () => {
   const normal = followUp("normal", { createdAt: "2024-01-01T00:00:01.000Z" });
   const cancelled = followUp("cancelled", { status: "cancelled" });

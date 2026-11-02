@@ -74,12 +74,13 @@ export function CodexQuotaReminderCard({
   error?: string | undefined;
   busy?: boolean;
   refreshing?: boolean;
-  onChangeModel: () => void;
   onReset: () => void;
   onDismiss?: () => void;
   onRefresh?: () => void;
-  variant?: "reminder" | "billing";
-}) {
+} & (
+  | { variant?: "reminder"; onChangeModel: () => void }
+  | { variant: "billing"; onChangeModel?: never }
+)) {
   const { t, i18n } = useTranslation();
   const windows = variant === "reminder" ? lowCodexQuotaWindows(snapshot.quota) : quotaWindows(snapshot);
   // The reminder variant is driven by `lowCodexQuotaWindows`; when nothing is low it renders
@@ -171,10 +172,12 @@ export function CodexQuotaReminderCard({
             {t(refreshing ? "settings.openaiAccounts.refreshing" : "settings.openaiAccounts.refreshQuota")}
           </button>
         ) : null}
-        <button type="button" onClick={onChangeModel} disabled={busy || refreshing}
-          title={t("codexQuota.changeModelHint")}>
-          {t("codexQuota.changeModel")}
-        </button>
+        {variant === "reminder" ? (
+          <button type="button" onClick={onChangeModel} disabled={busy || refreshing}
+            title={t("codexQuota.changeModelHint")}>
+            {t("codexQuota.changeModel")}
+          </button>
+        ) : null}
         <button
           type="button"
           onClick={onReset}
@@ -193,26 +196,27 @@ export function CodexQuotaReminderCard({
   );
 }
 
-export function CodexQuotaReminder({
-  threads,
-  onChangeModel,
-  eco = window.eco,
-  variant = "reminder",
-  activeThreadId,
-  accountId,
-}: {
+/**
+ * reminder: 侧边栏提醒，仅当当前会话使用 Codex 账号且某个窗口剩余不足 10% 时出现。
+ * composer: 输入框上的迷你额度入口与独立弹层。
+ */
+export function CodexQuotaReminder(props: {
   threads: readonly ThreadSummary[];
   accountId?: string | undefined;
-  onChangeModel: () => void;
   eco?: QuotaReminderBridge | undefined;
   /** The conversation on screen; the sidebar reminder only shows while it uses the Codex account. */
   activeThreadId?: string | undefined;
-  /**
-   * reminder: 侧边栏提醒，仅当当前会话使用 Codex 账号且某个窗口剩余不足 10% 时出现。
-   * composer: 输入框上的迷你额度入口与独立弹层。
-   */
-  variant?: "reminder" | "composer";
-}) {
+} & (
+  | { variant?: "reminder"; onChangeModel: () => void }
+  | { variant: "composer"; onChangeModel?: never }
+)) {
+  const {
+    threads,
+    eco = window.eco,
+    variant = "reminder",
+    activeThreadId,
+    accountId,
+  } = props;
   const { t } = useTranslation();
   const threadsRef = useRef(threads);
   threadsRef.current = threads;
@@ -308,7 +312,7 @@ export function CodexQuotaReminder({
   }
   const reminderKey = snapshot ? codexQuotaReminderKey(snapshot) : undefined;
 
-  if (variant === "composer") {
+  if (props.variant === "composer") {
     if (!recentlyUsed) return null;
     const windows = quotaWindows(snapshot);
     const displayWindow = codexQuotaDisplayWindow(windows);
@@ -352,10 +356,6 @@ export function CodexQuotaReminder({
                 busy={resetting}
                 refreshing={refreshing}
                 variant="billing"
-                onChangeModel={() => {
-                  closePanel();
-                  onChangeModel();
-                }}
                 onReset={() => void reset()}
                 onRefresh={() => void refreshQuota()}
                 onDismiss={closePanel}
@@ -411,7 +411,7 @@ export function CodexQuotaReminder({
       error={error}
       busy={resetting}
       refreshing={refreshing}
-      onChangeModel={onChangeModel}
+      onChangeModel={props.onChangeModel}
       onReset={() => void reset()}
       onRefresh={() => void refreshQuota()}
       onDismiss={() => setDismissed(reminderKey)}

@@ -10,6 +10,7 @@ export function shouldDrainThreadFollowUps(status: ThreadStatus): boolean {
 
 /** Independent deliveries bypass ordinary pause only; user gates still block every drain. */
 export function shouldBlockThreadFollowUpDrain(input: {
+  contextCompactionInFlight?: boolean;
   hasPendingBridgeApproval: boolean;
   hasPendingClarification: boolean;
   hasPendingBashApproval?: boolean;
@@ -24,6 +25,7 @@ export function shouldBlockThreadFollowUpDrain(input: {
   hasStoredPendingPlan: boolean;
 }): boolean {
   if (
+    input.contextCompactionInFlight ||
     input.hasPendingBridgeApproval ||
     input.hasPendingClarification ||
     input.hasPendingBashApproval ||
@@ -78,6 +80,7 @@ export function selectThreadFollowUpDrainTarget(input: {
  */
 export function threadAcceptsQueuedFollowUp(input: {
   status: ThreadStatus;
+  contextCompactionInFlight?: boolean;
   followUpQueuePaused?: boolean;
   isAsyncClarificationAnswer?: boolean;
   hasPendingBridgeApproval?: boolean;
@@ -90,7 +93,7 @@ export function threadAcceptsQueuedFollowUp(input: {
     return true;
   }
   if (
-    (input.followUpQueuePaused || input.isAsyncClarificationAnswer) &&
+    (input.followUpQueuePaused || input.isAsyncClarificationAnswer || input.contextCompactionInFlight) &&
     shouldDrainThreadFollowUps(input.status)
   ) {
     return true;

@@ -31,6 +31,25 @@ function followUp(id: string, patch: Partial<ThreadPendingFollowUp> = {}): Threa
   };
 }
 
+test("compaction accepts queued messages while blocking every delivery lane until completion", () => {
+  const statuses: ThreadStatus[] = ["running", "queued", "idle", "completed", "failed", "blocked", "awaiting_plan"];
+  for (const status of statuses) {
+    expect(threadAcceptsQueuedFollowUp({ status, contextCompactionInFlight: true })).toBe(true);
+    for (const independentDelivery of [{}, { isAsyncClarificationAnswer: true }, { isScheduledMessage: true }]) {
+      const gates = {
+        hasPendingBridgeApproval: false,
+        hasPendingClarification: false,
+        hasStoredPendingPlan: false,
+        threadStatus: status,
+        ...independentDelivery,
+      };
+      expect(shouldBlockThreadFollowUpDrain({ ...gates, contextCompactionInFlight: true })).toBe(true);
+      expect(shouldBlockThreadFollowUpDrain({ ...gates, contextCompactionInFlight: false })).toBe(false);
+    }
+  }
+  expect(threadAcceptsQueuedFollowUp({ status: "idle", contextCompactionInFlight: false })).toBe(false);
+});
+
 test("all 224 status/pause/edit/approval/question/plan combinations obey queue gates", () => {
   const statuses: ThreadStatus[] = ["queued", "running", "idle", "completed", "failed", "blocked", "awaiting_plan"];
   for (const status of statuses) {

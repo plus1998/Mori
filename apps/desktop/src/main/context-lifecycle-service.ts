@@ -11,6 +11,7 @@ export interface ContextLifecycleServiceInput {
   emitLiveContext(threadId: string): void;
   applySdkContextUsageBreakdown(threadId: string, payload: unknown): void;
   recordCompactionBoundary(threadId: string, payload: Record<string, unknown>, sourceEventId?: string): void;
+  onCompactionCompleted?(threadId: string): void;
 }
 
 export interface ContextLifecycleService {
@@ -41,6 +42,7 @@ export function createContextLifecycleService(input: ContextLifecycleServiceInpu
         const postTokens = extractCompactPostTokens(payload);
         input.monitor.markCompactCompleted(event.threadId, postTokens);
         input.emitLiveContext(event.threadId);
+        input.onCompactionCompleted?.(event.threadId);
         return false;
       }
       if (payload.type === "system" && payload.subtype === "status" && payload.status === "compacting") {

@@ -42,7 +42,6 @@ export function mergeCodexQuotaUpdate(
   return {
     ...cached,
     rateLimit: { allowed: !limitReached, limitReached, primaryWindow, secondaryWindow },
-    // Do not advance fetchedAt: a notification can re-emit an old snapshot and is
-    // not proof of a fresh full account read (including reset credits).
+    fetchedAt: now,
   };
 }

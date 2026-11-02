@@ -5446,16 +5446,6 @@ function App() {
   const composerShowsRoute = composerShowsRouteConfig(composerCoreKind);
   const composerRoutesReady = !composerNeedsOrchestration || routesReady;
   const threadAcceptsInput = !activeThread || isContinuableThreadStatus(activeThread.status);
-  const composerFollowUpMode = Boolean(
-    activeThread &&
-      shouldComposerUseFollowUpQueue({
-        status: activeThread.status,
-        ...(editingFollowUpId !== undefined ? { editingFollowUpId } : {}),
-        ...(activeThread.followUpQueuePaused !== undefined
-          ? { followUpQueuePaused: activeThread.followUpQueuePaused }
-          : {}),
-      }),
-  );
   const showBashApproval = Boolean(pendingBashApproval);
   const composerHasContent = Boolean(prompt.trim() || composerAttachments.length > 0);
   const activeConversationV2 = activeThread ? conversationV2ByThread[activeThread.id] : undefined;
@@ -5503,6 +5493,17 @@ function App() {
   runProjectionRef.current = runProjection;
   const displayProjection = runProjection;
   const contextCompactionInFlight = isThreadContextCompactionInFlight(runProjection);
+  const composerFollowUpMode = Boolean(
+    activeThread &&
+      shouldComposerUseFollowUpQueue({
+        status: activeThread.status,
+        contextCompactionInFlight,
+        ...(editingFollowUpId !== undefined ? { editingFollowUpId } : {}),
+        ...(activeThread.followUpQueuePaused !== undefined
+          ? { followUpQueuePaused: activeThread.followUpQueuePaused }
+          : {}),
+      }),
+  );
   const autoCompactSuspended = isThreadAutoCompactSuspended(runProjection);
   const promptCacheInvalidated =
     promptCacheTipPreferences.enabled && isThreadPromptCacheInvalidated(runProjection);
@@ -5637,8 +5638,7 @@ function App() {
       composerHasContent &&
       !followUpBusy &&
       !isStarting &&
-      !planActionBusy &&
-      !contextCompactionInFlight,
+      !planActionBusy,
   );
   const canSendThreadMessage = Boolean(
     currentProjectPath &&
@@ -8552,7 +8552,7 @@ function App() {
       return;
     }
     const canSendWithPrompt = composerFollowUpMode
-      ? Boolean(activeThread && !followUpBusy && !isStarting && !planActionBusy && !contextCompactionInFlight)
+      ? Boolean(activeThread && !followUpBusy && !isStarting && !planActionBusy)
       : Boolean(
           composerRoutesReady &&
             !isStarting &&
@@ -8582,7 +8582,7 @@ function App() {
     if (isStarting || followUpBusy) {
       return;
     }
-    if (contextCompactionInFlight) {
+    if (contextCompactionInFlight && !composerFollowUpMode) {
       setError(t("app.contextCompacting"));
       return;
     }
@@ -12486,7 +12486,6 @@ function App() {
                               variant="composer"
                               accountId={composerPickerModel?.providerId === "openai" ? composerPickerModel.accountId : undefined}
                               threads={activeThread ? [activeThread] : []}
-                              onChangeModel={openConversationModelPicker}
                             />
                           ) : null
                         }
@@ -12811,12 +12810,6 @@ function App() {
           </div>
 
           <div className="sidebar-settings-footer">
-            <CodexQuotaReminder
-              threads={threads}
-              activeThreadId={selectedThreadId}
-              accountId={activeThread ? codexAccountIdForThread(activeThread) : undefined}
-              onChangeModel={openConversationModelPicker}
-            />
             <div className="sidebar-settings">
               <button
                 type="button"

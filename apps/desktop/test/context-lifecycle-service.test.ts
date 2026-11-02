@@ -120,3 +120,37 @@ test("service exposes compaction observed marker", () => {
 
   expect(calls.compacting).toEqual(["thr_compact"]);
 });
+
+test("compaction completion retries queued delivery after clearing the monitor and publishing context", () => {
+  let compacting = true;
+  const order: string[] = [];
+  const { monitor } = createMonitor();
+  const service = createContextLifecycleService({
+    monitor: {
+      ...monitor,
+      markCompactCompleted(threadId, postTokens) {
+        compacting = false;
+        order.push("completed");
+        return monitor.markCompactCompleted(threadId, postTokens);
+      },
+    },
+    emitLiveContext: () => { order.push("published"); },
+    applySdkContextUsageBreakdown: () => undefined,
+    recordCompactionBoundary: () => { order.push("boundary"); },
+    onCompactionCompleted: (threadId) => {
+      expect(threadId).toBe("thr_compact");
+      expect(compacting).toBe(false);
+      order.push("retry");
+    },
+  });
+
+  service.handleSdkContextEvent({
+    threadId: "thr_compact", eventId: "evt_start",
+    payload: { type: "system", subtype: "status", status: "compacting" },
+  });
+  expect(order).toEqual([]);
+  service.handleSdkContextEvent({
+    threadId: "thr_compact", eventId: "evt_boundary", payload: { subtype: "compact_boundary" },
+  });
+  expect(order).toEqual(["boundary", "completed", "published", "retry"]);
+});
