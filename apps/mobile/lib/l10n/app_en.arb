@@ -67,8 +67,8 @@
     }
   },
   "settingsSessionDefaults": "Session defaults",
-  "settingsResumeSession": "Resume last session on launch",
-  "settingsResumeSessionSubtitle": "Open your last session automatically, or turn off to show the PC list",
+  "settingsAutoConnectDesktop": "Auto-connect to last PC on launch",
+  "settingsAutoConnectDesktopSubtitle": "Connect to your last PC and show the session list, or turn off to show the PC list",
   "settingsRuntimeConfig": "Runtime config",
   "settingsModels": "More models",
   "settingsModelsCaption": "Default auxiliary, approval, and vision models for new threads",

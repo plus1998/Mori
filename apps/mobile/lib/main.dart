@@ -12,7 +12,7 @@ import 'core/locale/app_locale_preference.dart';
 import 'core/providers/activity_feed_auto_read_provider.dart';
 import 'core/providers/app_locale_provider.dart';
 import 'core/providers/app_theme_provider.dart';
-import 'core/providers/session_resume_provider.dart';
+import 'core/providers/desktop_auto_connect_provider.dart';
 import 'core/providers/thinking_display_provider.dart';
 import 'core/theme/app_theme_preference.dart';
 import 'core/widgets/progressive_blur.dart';
@@ -59,8 +59,8 @@ Future<void> main() async {
         thinkingDisplayBootstrapProvider.overrideWithValue(
           initialThinkingDisplay,
         ),
-        sessionResumeBootstrapProvider.overrideWithValue(
-          SessionResumePreference.read(prefs),
+        desktopAutoConnectBootstrapProvider.overrideWithValue(
+          DesktopAutoConnectPreference.read(prefs),
         ),
       ],
       child: const EcoApp(),

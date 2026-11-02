@@ -12,7 +12,7 @@ import 'core/providers/app_locale_provider.dart';
 import 'core/providers/app_providers.dart';
 import 'core/providers/app_session.dart';
 import 'core/providers/app_theme_provider.dart';
-import 'core/providers/session_resume_provider.dart';
+import 'core/providers/desktop_auto_connect_provider.dart';
 import 'core/theme/eco_icons.dart';
 import 'core/theme/eco_theme.dart';
 import 'core/utils/center_server_auth.dart';
@@ -120,7 +120,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         final creds = credentials.valueOrNull;
         if (pendingRecovery != null || creds == null) return '/connect';
         return ref
-            .read(sessionResumePreferenceProvider)
+            .read(desktopAutoConnectPreferenceProvider)
             .launchLocation(
               creds,
               ref.read(selectedDesktopIdProvider) ?? creds.selectedDesktopId,
@@ -263,54 +263,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
     ],
   );
 
-  // Observe committed navigation, including the new -> real thread handoff.
-  // Keeping this on the router avoids hidden session pages overwriting history.
-  var disposed = false;
-  void rememberSession() {
-    final segments =
-        router.routerDelegate.currentConfiguration.uri.pathSegments;
-    if (segments.length != 2 ||
-        segments.first != 'threads' ||
-        segments.last == threadSessionNewPathSegment) {
-      return;
-    }
-    final creds = ref.read(credentialsProvider).valueOrNull;
-    final desktopId =
-        ref.read(selectedDesktopIdProvider) ?? creds?.selectedDesktopId;
-    if (creds == null || !creds.isProvisioned || desktopId == null) return;
-    final session = SavedSession(
-      serverUrl: creds.supabaseUrl,
-      userId: creds.userId!,
-      desktopId: desktopId,
-      threadId: segments.last,
-    );
-    scheduleMicrotask(() {
-      if (disposed) return;
-      unawaited(
-        ref
-            .read(sessionResumePreferenceProvider.notifier)
-            .remember(session)
-            .catchError((Object error, StackTrace stack) {
-              FlutterError.reportError(
-                FlutterErrorDetails(
-                  exception: error,
-                  stack: stack,
-                  context: ErrorDescription(
-                    'while saving the last mobile session',
-                  ),
-                ),
-              );
-            }),
-      );
-    });
-  }
-
-  router.routerDelegate.addListener(rememberSession);
-  ref.onDispose(() {
-    disposed = true;
-    router.routerDelegate.removeListener(rememberSession);
-    router.dispose();
-  });
+  ref.onDispose(router.dispose);
   return router;
 });
 

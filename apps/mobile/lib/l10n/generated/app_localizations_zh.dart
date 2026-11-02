@@ -187,10 +187,11 @@ class AppLocalizationsZh extends AppLocalizations {
   String get settingsSessionDefaults => '会话默认';
 
   @override
-  String get settingsResumeSession => '启动时回到上次会话';
+  String get settingsAutoConnectDesktop => '启动时自动连接上次电脑';
 
   @override
-  String get settingsResumeSessionSubtitle => '开启后自动进入上次会话；关闭后显示电脑列表';
+  String get settingsAutoConnectDesktopSubtitle =>
+      '开启后自动连接上次使用的电脑并显示会话列表；关闭后显示电脑列表';
 
   @override
   String get settingsRuntimeConfig => '运行配置';

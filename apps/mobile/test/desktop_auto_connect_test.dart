@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:eco_mobile/app.dart';
 import 'package:eco_mobile/core/providers/app_providers.dart';
-import 'package:eco_mobile/core/providers/session_resume_provider.dart';
+import 'package:eco_mobile/core/providers/desktop_auto_connect_provider.dart';
 import 'package:eco_mobile/core/storage/credential_store.dart';
 import 'package:eco_mobile/core/utils/center_server_auth.dart';
 import 'package:eco_mobile/features/home/setup_status.dart';
@@ -22,14 +22,7 @@ const _credentials = AppCredentials(
   selectedDesktopId: 'desktop_a',
 );
 
-const _session = SavedSession(
-  serverUrl: 'https://center.example.com',
-  userId: 'user_a',
-  desktopId: 'desktop_a',
-  threadId: 'thr_123',
-);
-
-const _enabled = SessionResumePreference(enabled: true, lastSession: _session);
+const _enabled = DesktopAutoConnectPreference(enabled: true);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -38,57 +31,49 @@ void main() {
 
   test('default launch shows PC picker even with a saved desktop', () async {
     final prefs = await SharedPreferences.getInstance();
-    final preference = SessionResumePreference.read(prefs);
+    final preference = DesktopAutoConnectPreference.read(prefs);
     expect(preference.enabled, isFalse);
     expect(preference.launchLocation(_credentials, 'desktop_a'), '/connect');
   });
 
   test(
-    'last session and switch survive restart; disabling restores picker',
+    'auto-connect switch survives restart; disabling restores picker',
     () async {
       final container = ProviderContainer();
       addTearDown(container.dispose);
-      final notifier = container.read(sessionResumePreferenceProvider.notifier);
-      await notifier.remember(_session);
+      final notifier = container.read(
+        desktopAutoConnectPreferenceProvider.notifier,
+      );
       await notifier.setEnabled(true);
 
       final prefs = await SharedPreferences.getInstance();
-      final restored = SessionResumePreference.read(prefs);
-      expect(
-        restored.launchLocation(_credentials, 'desktop_a'),
-        '/threads/thr_123',
-      );
+      final restored = DesktopAutoConnectPreference.read(prefs);
+      expect(restored.launchLocation(_credentials, 'desktop_a'), '/threads');
 
       final restarted = ProviderContainer(
-        overrides: [sessionResumeBootstrapProvider.overrideWithValue(restored)],
+        overrides: [
+          desktopAutoConnectBootstrapProvider.overrideWithValue(restored),
+        ],
       );
       addTearDown(restarted.dispose);
       await restarted
-          .read(sessionResumePreferenceProvider.notifier)
+          .read(desktopAutoConnectPreferenceProvider.notifier)
           .setEnabled(false);
-      final disabled = SessionResumePreference.read(prefs);
+      final disabled = DesktopAutoConnectPreference.read(prefs);
       expect(disabled.launchLocation(_credentials, 'desktop_a'), '/connect');
-      expect(disabled.lastSession?.threadId, 'thr_123');
     },
   );
 
-  test('never restores a session across accounts, servers, or desktops', () {
-    expect(
-      _enabled.launchLocation(
-        _credentials.copyWith(userId: 'user_b'),
-        'desktop_a',
-      ),
-      '/connect',
-    );
-    expect(
-      _enabled.launchLocation(
-        _credentials.copyWith(supabaseUrl: 'https://other.example.com'),
-        'desktop_a',
-      ),
-      '/connect',
-    );
-    expect(_enabled.launchLocation(_credentials, 'desktop_b'), '/connect');
+  test('incomplete credentials or missing desktop show the picker', () {
+    expect(_enabled.launchLocation(_credentials, ''), '/connect');
     expect(_enabled.launchLocation(_credentials, null), '/connect');
+    expect(
+      _enabled.launchLocation(
+        _credentials.copyWith(supabaseUrl: ''),
+        'desktop_a',
+      ),
+      '/connect',
+    );
     expect(
       _enabled.launchLocation(
         _credentials.copyWith(clearUserSession: true),
@@ -105,25 +90,47 @@ void main() {
     );
   });
 
-  test('enabled without a previous conversation enters the session list', () {
-    expect(
-      const SessionResumePreference(
-        enabled: true,
-      ).launchLocation(_credentials, 'desktop_a'),
-      '/threads',
-    );
-  });
+  test(
+    'auto-connect uses the selected desktop without a previous conversation',
+    () {
+      expect(
+        const DesktopAutoConnectPreference(
+          enabled: true,
+        ).launchLocation(_credentials, 'desktop_a'),
+        '/threads',
+      );
+    },
+  );
+
+  test(
+    'upgrade preserves the switch and ignores the old conversation',
+    () async {
+      SharedPreferences.setMockInitialValues({
+        'eco.mobile.resume-session': true,
+        'eco.mobile.last-session': [
+          'https://center.example.com',
+          'user_a',
+          'desktop_old',
+          'thr_old',
+        ],
+      });
+      final prefs = await SharedPreferences.getInstance();
+      final preference = DesktopAutoConnectPreference.read(prefs);
+      expect(preference.enabled, isTrue);
+      expect(preference.launchLocation(_credentials, 'desktop_a'), '/threads');
+    },
+  );
 
   testWidgets(
-    'launch waits for credentials, restores once, and allows returning to picker',
+    'launch waits for credentials, opens only the list, and allows the picker',
     (tester) async {
       final credentials = Completer<AppCredentials>();
       final container = ProviderContainer(
         overrides: [
           credentialsProvider.overrideWith((ref) => credentials.future),
           setupOverviewProvider.overrideWithValue(_overview),
-          selectedDesktopIdProvider.overrideWith((ref) => 'desktop_a'),
-          sessionResumeBootstrapProvider.overrideWithValue(_enabled),
+          selectedDesktopIdProvider.overrideWith((ref) => null),
+          desktopAutoConnectBootstrapProvider.overrideWithValue(_enabled),
         ],
       );
       addTearDown(container.dispose);
@@ -151,45 +158,24 @@ void main() {
       expect(await redirect('/'), isNull);
       credentials.complete(_credentials);
       await tester.pump();
-      expect(await redirect('/'), '/threads/thr_123');
+      expect(await redirect('/'), '/threads');
       expect(await redirect('/threads'), isNull);
       expect(await redirect('/connect'), isNull);
+      container.read(selectedDesktopIdProvider.notifier).state = 'desktop_b';
+      expect(await redirect('/'), '/threads');
 
-      // Restored sessions retain the session list underneath for normal back.
-      final restored = router.configuration.findMatch(
-        Uri.parse('/threads/thr_123'),
-      );
-      expect(restored.matches.length, 2);
-
-      // Committed navigation also remembers composer -> real conversation handoff.
-      await router.routerDelegate.setNewRoutePath(
-        router.configuration.findMatch(Uri.parse('/threads/new')),
-      );
-      await tester.pump();
-      expect(
-        container.read(sessionResumePreferenceProvider).lastSession?.threadId,
-        'thr_123',
-      );
+      // Opening a conversation must not persist it as a launch destination.
       await router.routerDelegate.setNewRoutePath(
         router.configuration.findMatch(Uri.parse('/threads/thr_new')),
       );
       await tester.pump();
-      expect(
-        container.read(sessionResumePreferenceProvider).lastSession?.threadId,
-        'thr_new',
-      );
-      await router.routerDelegate.setNewRoutePath(
-        router.configuration.findMatch(Uri.parse('/connect')),
-      );
-      await tester.pump();
-      expect(
-        container.read(sessionResumePreferenceProvider).lastSession?.threadId,
-        'thr_new',
-      );
-      expect(await redirect('/connect'), isNull);
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.containsKey('eco.mobile.last-session'), isFalse);
+      expect(await redirect('/'), '/threads');
+      expect(await redirect('/threads/thr_new'), isNull);
 
       await container
-          .read(sessionResumePreferenceProvider.notifier)
+          .read(desktopAutoConnectPreferenceProvider.notifier)
           .setEnabled(false);
       expect(await redirect('/'), '/connect');
       // Changing the setting does not interrupt the current page.
@@ -197,13 +183,15 @@ void main() {
     },
   );
 
-  testWidgets('credential recovery prevents automatic resume', (tester) async {
+  testWidgets('credential recovery prevents automatic desktop connection', (
+    tester,
+  ) async {
     final container = ProviderContainer(
       overrides: [
         credentialsProvider.overrideWith((ref) async => _credentials),
         setupOverviewProvider.overrideWithValue(_overview),
         selectedDesktopIdProvider.overrideWith((ref) => 'desktop_a'),
-        sessionResumeBootstrapProvider.overrideWithValue(_enabled),
+        desktopAutoConnectBootstrapProvider.overrideWithValue(_enabled),
       ],
     );
     addTearDown(container.dispose);

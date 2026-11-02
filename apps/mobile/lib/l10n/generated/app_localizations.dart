@@ -440,17 +440,17 @@ abstract class AppLocalizations {
   /// **'Session defaults'**
   String get settingsSessionDefaults;
 
-  /// No description provided for @settingsResumeSession.
+  /// No description provided for @settingsAutoConnectDesktop.
   ///
   /// In en, this message translates to:
-  /// **'Resume last session on launch'**
-  String get settingsResumeSession;
+  /// **'Auto-connect to last PC on launch'**
+  String get settingsAutoConnectDesktop;
 
-  /// No description provided for @settingsResumeSessionSubtitle.
+  /// No description provided for @settingsAutoConnectDesktopSubtitle.
   ///
   /// In en, this message translates to:
-  /// **'Open your last session automatically, or turn off to show the PC list'**
-  String get settingsResumeSessionSubtitle;
+  /// **'Connect to your last PC and show the session list, or turn off to show the PC list'**
+  String get settingsAutoConnectDesktopSubtitle;
 
   /// No description provided for @settingsRuntimeConfig.
   ///

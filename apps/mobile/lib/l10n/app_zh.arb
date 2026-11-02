@@ -67,8 +67,8 @@
     }
   },
   "settingsSessionDefaults": "会话默认",
-  "settingsResumeSession": "启动时回到上次会话",
-  "settingsResumeSessionSubtitle": "开启后自动进入上次会话；关闭后显示电脑列表",
+  "settingsAutoConnectDesktop": "启动时自动连接上次电脑",
+  "settingsAutoConnectDesktopSubtitle": "开启后自动连接上次使用的电脑并显示会话列表；关闭后显示电脑列表",
   "settingsRuntimeConfig": "运行配置",
   "settingsModels": "更多模型",
   "settingsModelsCaption": "新建对话的默认辅助模型、审批模型与视觉模型",

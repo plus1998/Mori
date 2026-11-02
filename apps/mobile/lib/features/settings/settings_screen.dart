@@ -11,7 +11,7 @@ import '../../core/models/thread_models.dart';
 import '../../core/providers/app_locale_provider.dart';
 import '../../core/providers/app_providers.dart';
 import '../../core/providers/app_theme_provider.dart';
-import '../../core/providers/session_resume_provider.dart';
+import '../../core/providers/desktop_auto_connect_provider.dart';
 import '../../core/theme/app_theme_preference.dart';
 import '../../core/theme/eco_icons.dart';
 import '../../core/theme/eco_theme.dart';
@@ -38,8 +38,8 @@ class SettingsScreen extends ConsumerWidget {
     final themePreference = ref.watch(appThemePreferenceProvider);
     final localePreference = ref.watch(appLocalePreferenceProvider);
     final thinkingDisplayMode = ref.watch(thinkingDisplayModeProvider);
-    final resumeSession = ref.watch(
-      sessionResumePreferenceProvider.select((value) => value.enabled),
+    final autoConnectDesktop = ref.watch(
+      desktopAutoConnectPreferenceProvider.select((value) => value.enabled),
     );
     final workflowAsync = ref.watch(workflowSettingsProvider);
     final modelSettingsAsync = ref.watch(modelSettingsProvider);
@@ -196,15 +196,15 @@ class SettingsScreen extends ConsumerWidget {
                         child: Column(
                           children: [
                             SettingsSwitchRow(
-                              title: l10n.settingsResumeSession,
-                              subtitle: l10n.settingsResumeSessionSubtitle,
-                              value: resumeSession,
+                              title: l10n.settingsAutoConnectDesktop,
+                              subtitle: l10n.settingsAutoConnectDesktopSubtitle,
+                              value: autoConnectDesktop,
                               enabled: true,
                               onChanged: (value) async {
                                 try {
                                   await ref
                                       .read(
-                                        sessionResumePreferenceProvider
+                                        desktopAutoConnectPreferenceProvider
                                             .notifier,
                                       )
                                       .setEnabled(value);
