@@ -12,6 +12,7 @@ import type {
 } from "../shared/ipc";
 import type { AgentOrchestrationStore } from "./agent-orchestration-store";
 import type { AsrSettingsStore } from "./asr-settings-store";
+import type { CursorApiKeyStore } from "./cursor-api-key-store";
 import { type GitSettingsStore, normalizeGitSettingsSnapshot } from "./git-settings-store";
 import type { ImageGenerationStore } from "./image-generation-store";
 import type { IntegratedWebSearchSettingsStore } from "./integrated-web-search-settings-store";
@@ -28,6 +29,7 @@ import type { SshBookmarkStore } from "./ssh-bookmark-store";
 import { sshBookmarkSecretKeyKey, sshBookmarkSecretPasswordKey } from "./ssh-bookmark-store";
 import {
   type DomainSettingsSyncHooks,
+  ECO_CURSOR_API_KEYS_SECRET,
   ECO_INTEGRATED_WEB_SEARCH_API_KEY_SECRET,
   ECO_PROXY_URL_SECRET,
   ECO_WORKFLOW_CURSOR_API_KEY_SECRET,
@@ -44,6 +46,7 @@ import type { WorkflowSettingsStore } from "./workflow-settings-store";
 
 export function createDesktopSettingsSyncHooks(input: {
   providerStore: ProviderStore;
+  cursorApiKeyStore?: CursorApiKeyStore;
   asrSettingsStore: AsrSettingsStore;
   imageGenerationStore: ImageGenerationStore;
   workflowSettingsStore: WorkflowSettingsStore;
@@ -411,6 +414,7 @@ function applyProxyBridgeSettingsPayload(
 
 function collectSecrets(input: {
   providerStore: ProviderStore;
+  cursorApiKeyStore?: CursorApiKeyStore;
   asrSettingsStore: AsrSettingsStore;
   imageGenerationStore: ImageGenerationStore;
   workflowSettingsStore: WorkflowSettingsStore;
@@ -419,6 +423,9 @@ function collectSecrets(input: {
   sshBookmarkStore: SshBookmarkStore;
 }): EcoPlainSecret[] {
   const secrets: EcoPlainSecret[] = [];
+  if (input.cursorApiKeyStore) {
+    secrets.push({ kind: "workflow", key: ECO_CURSOR_API_KEYS_SECRET, value: JSON.stringify(input.cursorApiKeyStore.listWithSecrets()) });
+  }
 
   for (const provider of input.providerStore.listProvidersWithSecrets()) {
     if (provider.apiKey.trim()) {
@@ -492,6 +499,7 @@ function collectSecrets(input: {
 function applySecrets(
   input: {
     providerStore: ProviderStore;
+    cursorApiKeyStore?: CursorApiKeyStore;
     asrSettingsStore: AsrSettingsStore;
     imageGenerationStore: ImageGenerationStore;
     workflowSettingsStore: WorkflowSettingsStore;
@@ -512,6 +520,7 @@ function applySecrets(
 function applyDomainSecrets(
   input: {
     providerStore: ProviderStore;
+    cursorApiKeyStore?: CursorApiKeyStore;
     asrSettingsStore: AsrSettingsStore;
     imageGenerationStore: ImageGenerationStore;
     workflowSettingsStore: WorkflowSettingsStore;
@@ -526,6 +535,8 @@ function applyDomainSecrets(
   const secretIds = new Set(domainSecrets.map((secret) => `${secret.kind}:${secret.key}`));
 
   if (domain === "providers") {
+    const cursorKeys = domainSecrets.find((secret) => secret.kind === "workflow" && secret.key === ECO_CURSOR_API_KEYS_SECRET);
+    if (cursorKeys && input.cursorApiKeyStore) input.cursorApiKeyStore.applySyncedKeys(cursorKeys.value);
     for (const provider of input.providerStore.listProvidersWithSecrets()) {
       if (provider.apiKey && !secretIds.has(`provider:${provider.id}`)) {
         input.providerStore.clearProviderApiKey(provider.id);
@@ -648,6 +659,16 @@ function applyDomainSecrets(
         continue;
       }
       if (secret.key === ECO_WORKFLOW_CURSOR_API_KEY_SECRET) {
+        if (input.cursorApiKeyStore) {
+          // A current key-list snapshot supersedes the old single-key secret.
+          // Otherwise a full pull would restore a key the user already deleted.
+          if (!secrets.some((entry) => entry.kind === "workflow" && entry.key === ECO_CURSOR_API_KEYS_SECRET)) {
+            input.cursorApiKeyStore.migrateLegacy(secret.value);
+          }
+          const { acpCursorApiKey: _removed, ...workflow } = input.workflowSettingsStore.get();
+          input.workflowSettingsStore.save(workflow);
+          continue;
+        }
         const current = input.workflowSettingsStore.get();
         input.workflowSettingsStore.save({
           ...current,

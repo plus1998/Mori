@@ -94,13 +94,14 @@ function terminalEvent(
 
 /** Fake ACP driver: replays the given terminals per run; records dispose calls. */
 function makeFakeDriver(terminals: FakeTerminalPayload[]): AcpAgentDriver {
-  const state = { runs: 0, disposed: 0, prompts: [] as string[], userPromptsForPlan: [] as string[] };
+  const state = { runs: 0, disposed: 0, prompts: [] as string[], userPromptsForPlan: [] as string[], envs: [] as Array<NodeJS.ProcessEnv | undefined> };
   const fake = {
-    run(input: { threadId: string; signal?: AbortSignal; prompt: string; userPromptForPlan: string }): AsyncGenerator<SdkRunEventLike, void, unknown> {
+    run(input: { threadId: string; signal?: AbortSignal; prompt: string; userPromptForPlan: string; env?: NodeJS.ProcessEnv }): AsyncGenerator<SdkRunEventLike, void, unknown> {
       const index = state.runs;
       state.runs += 1;
       state.prompts.push(input.prompt);
       state.userPromptsForPlan.push(input.userPromptForPlan);
+      state.envs.push(input.env);
       const payload: SdkRunEventLike["payload"] = input.signal?.aborted
         ? { status: "cancelled", reason: "cancelled by user" }
         : (terminals[Math.min(index, terminals.length - 1)] ?? { status: "completed" });
@@ -195,6 +196,22 @@ function makeInput(overrides: Partial<AcpThreadStartRunInput> = {}): AcpThreadSt
     ...overrides,
   };
 }
+
+test("ACP passes the conversation's Cursor key as ENV on initial run and retry", async () => {
+  const driver = makeFakeDriver([
+    { status: "failed", error: KEEPALIVE_ERROR, unstarted: true },
+    { status: "completed" },
+  ]);
+  const calls: Calls = { runOnce: 0, retryIndices: [], notify: [], markInterrupted: [], discard: undefined, decision: undefined };
+  const deps = makeDeps(calls, driver);
+  deps.resolveAcpCursorEnv = (threadId) => {
+    expect(threadId).toBe("t1");
+    return { CURSOR_API_KEY: "conversation-key" };
+  };
+  await startAcpThreadRunWithDriver(makeInput(), deps, driver);
+  const state = (driver as unknown as { state: { envs: NodeJS.ProcessEnv[] } }).state;
+  expect(state.envs).toEqual([{ CURSOR_API_KEY: "conversation-key" }, { CURSOR_API_KEY: "conversation-key" }]);
+});
 
 test("ACP receives the prepared MCP directory before the resolved user prompt", async () => {
   const driver = makeFakeDriver([{ status: "completed" }]);

@@ -2,9 +2,7 @@ import type { CoreKind } from "@eco/runtime/core-runtime";
 import { Check } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { CenterServerSyncDomain, CenterServerSyncDomainResult } from "../shared/center-server";
 import type { CursorModelOption } from "../shared/ipc";
-import { AcpApiKeySettingsDialog } from "./AcpApiKeySettingsDialog";
 import { AcpModelSettingsDialog } from "./AcpModelSettingsDialog";
 
 interface DefaultAgentSettingsPanelProps {
@@ -17,25 +15,17 @@ interface DefaultAgentSettingsPanelProps {
   cursorUnavailableReason?: string;
   cursorProbeLoading?: boolean;
   acpCursorModelId?: string | undefined;
-  acpCursorApiKey?: string | undefined;
+  acpCursorApiKeyConfigured?: boolean;
   cursorModels?: CursorModelOption[];
   cursorModelsLoading?: boolean;
   cursorModelsError?: string;
   onAcpCursorModelChange?: (modelId: string | undefined) => void;
-  onAcpCursorApiKeyChange?: (apiKey: string | undefined) => void;
+  onManageCursorApiKeys?: () => void;
   onRefreshCursorModels?: () => void;
   busy?: boolean;
   onChange: (coreKind: CoreKind) => void;
   /** Test-only: start with the model settings dialog open. */
   initialModelSettingsOpen?: boolean;
-  /** Test-only: start with the API key settings dialog open. */
-  initialApiKeySettingsOpen?: boolean;
-  centerServerSyncVisible?: boolean;
-  onSyncDomain?: (
-    domain: CenterServerSyncDomain,
-    mode: "pull" | "push",
-  ) => Promise<CenterServerSyncDomainResult>;
-  onVaultRefresh?: (() => void) | undefined;
 }
 
 function AcpCoreTag({ label }: { label: string }) {
@@ -56,24 +46,19 @@ export function DefaultAgentSettingsPanel({
   cursorUnavailableReason,
   cursorProbeLoading = false,
   acpCursorModelId,
-  acpCursorApiKey,
+  acpCursorApiKeyConfigured = false,
   cursorModels = [],
   cursorModelsLoading = false,
   cursorModelsError,
   onAcpCursorModelChange,
-  onAcpCursorApiKeyChange,
+  onManageCursorApiKeys,
   onRefreshCursorModels,
   busy,
   onChange,
   initialModelSettingsOpen = false,
-  initialApiKeySettingsOpen = false,
-  centerServerSyncVisible = false,
-  onSyncDomain,
-  onVaultRefresh,
 }: DefaultAgentSettingsPanelProps) {
   const { t } = useTranslation();
   const [modelSettingsOpen, setModelSettingsOpen] = useState(initialModelSettingsOpen);
-  const [apiKeySettingsOpen, setApiKeySettingsOpen] = useState(initialApiKeySettingsOpen);
   const runtimeOptions = [
     {
       kind: "claude" as const,
@@ -226,16 +211,16 @@ export function DefaultAgentSettingsPanel({
             <button
               type="button"
               className="default-agent-model-entry"
-              onClick={() => setApiKeySettingsOpen(true)}
+              onClick={onManageCursorApiKeys}
             >
               {t("settings.defaultAgent.cursorApiKey")}
               {" · "}
               <span
                 className={
-                  acpCursorApiKey ? "default-agent-acp-key-state is-set" : "default-agent-acp-key-state"
+                  acpCursorApiKeyConfigured ? "default-agent-acp-key-state is-set" : "default-agent-acp-key-state"
                 }
               >
-                {acpCursorApiKey
+                {acpCursorApiKeyConfigured
                   ? t("settings.defaultAgent.cursorApiKeyConfigured")
                   : t("settings.defaultAgent.cursorApiKeyNotSet")}
               </span>
@@ -257,17 +242,6 @@ export function DefaultAgentSettingsPanel({
         />
       ) : null}
 
-      {apiKeySettingsOpen ? (
-        <AcpApiKeySettingsDialog
-          {...(acpCursorApiKey ? { currentKey: acpCursorApiKey } : {})}
-          {...(busy ? { busy } : {})}
-          centerServerSyncVisible={centerServerSyncVisible}
-          {...(onSyncDomain ? { onSyncDomain } : {})}
-          {...(onVaultRefresh ? { onVaultRefresh } : {})}
-          onSave={(apiKey) => onAcpCursorApiKeyChange?.(apiKey)}
-          onClose={() => setApiKeySettingsOpen(false)}
-        />
-      ) : null}
     </>
   );
 }

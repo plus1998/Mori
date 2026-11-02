@@ -48,7 +48,7 @@ test("panel shows API key entry with configured / not-set state", () => {
     createElement(DefaultAgentSettingsPanel, {
       defaultCoreKind: "acp",
       codexAvailable: true,
-      acpCursorApiKey: "ck-test-123",
+      acpCursorApiKeyConfigured: true,
       onChange: () => undefined,
     }),
     "zh-CN",
@@ -85,18 +85,19 @@ test("API key dialog shows cloud sync control when connected", () => {
   expect(markup).toContain("settings-sync-trigger");
 });
 
-test("panel opens the API key dialog on demand", () => {
+test("panel routes key management to provider settings without the legacy single-key dialog", () => {
   const markup = renderLocalized(
     createElement(DefaultAgentSettingsPanel, {
       defaultCoreKind: "acp",
       codexAvailable: true,
-      acpCursorApiKey: "ck-test-123",
-      initialApiKeySettingsOpen: true,
+      acpCursorApiKeyConfigured: true,
+      onManageCursorApiKeys: () => undefined,
       onChange: () => undefined,
     }),
     "zh-CN",
   );
 
-  expect(markup).toContain("acp-api-key-settings-modal");
-  expect(markup).toContain('value="ck-test-123"');
+  expect(markup).toContain("Cursor API Key");
+  expect(markup).toContain("已配置");
+  expect(markup).not.toContain("acp-api-key-settings-modal");
 });

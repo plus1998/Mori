@@ -123,6 +123,9 @@ import {
   type ConversationV2ProjectionExtras,
   type CoreAvailabilitySnapshot,
   type CursorAgentsListResult,
+  type CursorApiKeyImportResult,
+  type CursorApiKeyInput,
+  type CursorApiKeyView,
   type CursorModelOption,
   type GitCheckoutBranchRequest,
   type GitCommitRequest,
@@ -461,6 +464,21 @@ const api = {
   },
   listCursorModels(): Promise<CursorModelOption[]> {
     return ipcRenderer.invoke(IPC_CHANNELS.cursorModelsList);
+  },
+  listCursorApiKeys(): Promise<CursorApiKeyView[]> {
+    return ipcRenderer.invoke(IPC_CHANNELS.cursorApiKeysList);
+  },
+  saveCursorApiKey(input: CursorApiKeyInput): Promise<CursorApiKeyView> {
+    return ipcRenderer.invoke(IPC_CHANNELS.cursorApiKeySave, input);
+  },
+  deleteCursorApiKey(id: string): Promise<{ ok: true }> {
+    return ipcRenderer.invoke(IPC_CHANNELS.cursorApiKeyDelete, id);
+  },
+  setCursorApiKeyEnabled(id: string, enabled: boolean): Promise<CursorApiKeyView> {
+    return ipcRenderer.invoke(IPC_CHANNELS.cursorApiKeySetEnabled, { id, enabled });
+  },
+  importCursorApiKeys(text: string): Promise<CursorApiKeyImportResult> {
+    return ipcRenderer.invoke(IPC_CHANNELS.cursorApiKeysImport, text);
   },
   openWorkspace(): Promise<WorkspaceOpenResult> {
     return ipcRenderer.invoke(IPC_CHANNELS.workspaceOpen);

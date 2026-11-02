@@ -2,6 +2,7 @@ import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { LazyOpenAIAccountsPanel } from "./lazy-app-panels";
 import { MainModelControl } from "./ComposerRoutePopover";
 import { ChatGPTSubscriptionAccountsPanel } from "./ChatGPTSubscriptionAccountsPanel";
+import { CursorApiKeysPanel } from "./CursorApiKeysPanel";
 import {
   ChevronDown,
   ChevronRight,
@@ -81,7 +82,8 @@ export type ModelsSettingsTab =
   | "providers"
   | "compositionParts"
   | "openaiAccounts"
-  | "chatgptAccounts";
+  | "chatgptAccounts"
+  | "cursorApiKeys";
 
 type RuntimeConfigTab = "defaults" | "prompt" | "orchestration";
 
@@ -239,6 +241,11 @@ export function ModelsSettingsPanel({
       label: t("settings.models.tab.chatgptAccounts"),
       icon: "./provider-icons/openai.svg",
     },
+    {
+      id: "cursorApiKeys",
+      label: t("settings.models.tab.cursorApiKeys"),
+      icon: "./agent-icons/cursor.ico",
+    },
   ];
   const runtimeConfigTabItems: Array<{ id: RuntimeConfigTab; label: string }> = [
     { id: "defaults", label: t("settings.models.runtimeConfigTab.defaults") },
@@ -246,8 +253,11 @@ export function ModelsSettingsPanel({
     { id: "orchestration", label: t("settings.models.runtimeConfigTab.subagent") },
   ];
   const resolvedInitialTab =
-    mode === "providerSettings" ? "providers" : initialTab === "providers" ? "subagents" : initialTab;
+    mode === "providerSettings"
+      ? providerSettingsTabItems.some((tab) => tab.id === initialTab) ? initialTab : "providers"
+      : initialTab === "providers" ? "subagents" : initialTab;
   const [activeTab, setActiveTab] = useState<ModelsSettingsTab>(resolvedInitialTab);
+  const [cursorKeysRevision, setCursorKeysRevision] = useState(0);
   const [runtimeConfigTab, setRuntimeConfigTab] = useState<RuntimeConfigTab>("defaults");
   const [providerModalOpen, setProviderModalOpen] = useState(false);
   const [providerForm, setProviderForm] = useState<ProviderConfigInput>(() => providerToForm());
@@ -270,7 +280,11 @@ export function ModelsSettingsPanel({
         domain={syncDomain}
         visible={centerServerSyncVisible}
         disabled={busy === true}
-        onSync={onSyncDomain}
+        onSync={async (domain, syncMode) => {
+          const result = await onSyncDomain(domain, syncMode);
+          if (syncMode === "pull") setCursorKeysRevision((value) => value + 1);
+          return result;
+        }}
       />
     ) : null;
   const [defaultOrchestrationDraft, setDefaultOrchestrationDraft] = useState<OrchestrationSelection>(
@@ -915,6 +929,7 @@ export function ModelsSettingsPanel({
           {...(onInitialChatGptAccountHandled && { onInitialAccountHandled: onInitialChatGptAccountHandled })}
         />
       )}
+      {activeTab === "cursorApiKeys" && <CursorApiKeysPanel busy={busy} revision={cursorKeysRevision} />}
 
 
       {activeTab === "compositionParts" && (

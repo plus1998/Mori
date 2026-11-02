@@ -27648,6 +27648,65 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .settings-nav {
   text-decoration: underline;
 }
 
+.cursor-api-key-card {
+  padding: 16px 20px;
+}
+
+.cursor-api-key-card.is-disabled .codex-account-avatar,
+.cursor-api-key-card.is-disabled .codex-account-identity {
+  opacity: 0.6;
+}
+
+.cursor-api-key-preview {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.cursor-api-key-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.cursor-api-key-modal {
+  background: var(--bg-elevated);
+}
+
+.cursor-api-key-modal .settings-modal-title {
+  font-size: 17px;
+}
+
+.cursor-api-key-import-hint {
+  margin: 0 0 14px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.cursor-api-key-import-textarea {
+  width: 100%;
+  min-height: 180px;
+  font-family: var(--font-mono);
+  resize: vertical;
+}
+
+.cursor-api-key-modal .cursor-api-key-dialog-error {
+  margin: 0 20px 16px;
+}
+
+.cursor-api-key-delete-button {
+  border-color: color-mix(in srgb, var(--danger) 30%, var(--border-subtle));
+  background: color-mix(in srgb, var(--danger) 10%, var(--bg-elevated));
+  color: var(--danger);
+}
+
+@container (max-width: 500px) {
+  .cursor-api-key-card .codex-account-card-main {
+    grid-template-columns: 36px minmax(0, 1fr) auto;
+  }
+  .cursor-api-key-card .codex-status-badge { display: none; }
+}
+
 .api-compat-toggle-wrap {
   position: relative;
   display: inline-flex;

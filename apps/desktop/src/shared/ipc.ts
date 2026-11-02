@@ -105,6 +105,11 @@ export const IPC_CHANNELS = {
   modelProviderDelete: "model-provider:delete",
   modelProviderListModels: "model-provider:list-models",
   modelProviderTest: "model-provider:test",
+  cursorApiKeysList: "cursor-api-keys:list",
+  cursorApiKeySave: "cursor-api-keys:save",
+  cursorApiKeyDelete: "cursor-api-keys:delete",
+  cursorApiKeySetEnabled: "cursor-api-keys:set-enabled",
+  cursorApiKeysImport: "cursor-api-keys:import",
   chatGptSubscriptionAccountsList: "chatgpt-subscription:accounts-list",
   chatGptSubscriptionAccountModelsList: "chatgpt-subscription:account-models-list",
   accountUsageHistory: "account-usage:history",
@@ -1525,6 +1530,29 @@ export type { ProjectTerminalSettingsSnapshot } from "./project-terminal-setting
 export type { ProjectIntegrationsSettingsSnapshot } from "./integrations";
 export type { ProjectOrchestrationSettingsSnapshot } from "./project-orchestration-settings";
 export type { ProviderTokenCountMode, UpstreamApiCompat };
+
+export interface CursorApiKeyView {
+  id: string;
+  name: string;
+  enabled: boolean;
+  apiKeyPreview: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CursorApiKeyInput {
+  id?: string;
+  name: string;
+  apiKey?: string;
+  enabled?: boolean;
+}
+
+export interface CursorApiKeyImportResult {
+  added: number;
+  updated: number;
+  skipped: number;
+  accounts: CursorApiKeyView[];
+}
 
 export interface ProviderConfigInput {
   id?: string;

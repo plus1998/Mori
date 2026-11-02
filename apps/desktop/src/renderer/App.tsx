@@ -144,6 +144,7 @@ import {
   type CodexBackgroundTerminal,
   type CoreAvailabilitySnapshot,
   type CursorAgentsListResult,
+  type CursorApiKeyView,
   type CursorModelOption,
   deriveMcpServersEnabled,
   deriveSubagentEnabledFromSnapshot,
@@ -2193,6 +2194,7 @@ function App() {
   const [cursorModels, setCursorModels] = useState<CursorModelOption[]>([]);
   const [cursorModelsLoading, setCursorModelsLoading] = useState(false);
   const [cursorModelsError, setCursorModelsError] = useState<string>();
+  const [cursorApiKeys, setCursorApiKeys] = useState<CursorApiKeyView[]>([]);
   const [gitStatusByWorkspace, setGitStatusByWorkspace] = useState<WorkspaceGitStatusCache>({});
   const gitStatusByWorkspaceRef = useRef<WorkspaceGitStatusCache>({});
   const [gitStatusBusy, setGitStatusBusy] = useState(false);
@@ -2401,6 +2403,18 @@ function App() {
   useEffect(() => {
     void refreshCoreAvailability();
   }, [refreshCoreAvailability]);
+
+  useEffect(() => {
+    if (!settingsOpen || settingsSection !== "defaultAgent") return;
+    if (!window.eco?.listCursorApiKeys) return;
+    let cancelled = false;
+    void window.eco.listCursorApiKeys().then((keys) => {
+      if (!cancelled) setCursorApiKeys(keys);
+    }).catch((caught) => {
+      if (!cancelled) setError(errorMessage(caught));
+    });
+    return () => { cancelled = true; };
+  }, [settingsOpen, settingsSection]);
 
   const refreshCursorModels = useCallback(() => {
     if (!window.eco?.listCursorModels) return;
@@ -9261,7 +9275,8 @@ function App() {
     setSettingsOpen(true);
   }
 
-  function openProviderSettings() {
+  function openProviderSettings(tab: ModelsSettingsTab = "providers") {
+    setModelsSettingsTab(tab);
     setSettingsSection("providers");
     setSettingsOpen(true);
   }
@@ -10377,23 +10392,6 @@ function App() {
       const saved = await window.eco.saveWorkflowSettings({
         ...workflowSettings,
         acpCursorModelId: acpCursorModelId ?? "",
-      });
-      setWorkflowSettings(saved);
-    } catch (caught) {
-      setError(errorMessage(caught));
-    } finally {
-      setIsSavingSettings(false);
-    }
-  }
-
-  async function saveAcpCursorApiKey(acpCursorApiKey: string | undefined) {
-    if (!window.eco?.saveWorkflowSettings) return;
-    setIsSavingSettings(true);
-    setError(undefined);
-    try {
-      const saved = await window.eco.saveWorkflowSettings({
-        ...workflowSettings,
-        acpCursorApiKey: acpCursorApiKey ?? "",
       });
       setWorkflowSettings(saved);
     } catch (caught) {
@@ -12560,7 +12558,7 @@ function App() {
                       {composerModelAvailability === "no-provider" ? (
                         <>
                           {t("composer.hint.noProviderPrefix")}{" "}
-                          <button type="button" className="link-button" onClick={openProviderSettings}>
+                          <button type="button" className="link-button" onClick={() => openProviderSettings()}>
                             {t("settings.providers")}
                           </button>{" "}
                           {t("composer.hint.noProviderSuffix")}
@@ -13713,15 +13711,13 @@ function App() {
                       void saveDefaultCoreKind(coreKind);
                     }}
                     acpCursorModelId={workflowSettings.acpCursorModelId}
-                    acpCursorApiKey={workflowSettings.acpCursorApiKey}
+                    acpCursorApiKeyConfigured={cursorApiKeys.some((key) => key.enabled)}
                     cursorModels={cursorModels}
                     cursorModelsLoading={cursorModelsLoading}
                     {...(cursorModelsError && { cursorModelsError })}
                     onAcpCursorModelChange={(modelId) => void saveAcpCursorModelId(modelId)}
-                    onAcpCursorApiKeyChange={(apiKey) => void saveAcpCursorApiKey(apiKey)}
+                    onManageCursorApiKeys={() => openProviderSettings("cursorApiKeys")}
                     onRefreshCursorModels={refreshCursorModels}
-                    centerServerSyncVisible={centerServerSyncVisible}
-                    onSyncDomain={syncCenterServerConfigDomain}
                   />
                 )}
 
@@ -13805,6 +13801,7 @@ function App() {
                     settings={settings}
                     defaultCoreKind={workflowSettings.defaultCoreKind}
                     mode="providerSettings"
+                    initialTab={modelsSettingsTab}
                     busy={isSavingSettings}
                     onSettingsChange={setSettings}
                     onSavingChange={setIsSavingSettings}

@@ -32,6 +32,7 @@ export const ECO_SYNCED_SETTINGS_VERSION = 1 as const;
 export type EcoSecretKind = "provider" | "provider-proxy" | "asr" | "image" | "workflow" | "proxy" | "ssh";
 
 export const ECO_WORKFLOW_CURSOR_API_KEY_SECRET = "acp_cursor_api_key";
+export const ECO_CURSOR_API_KEYS_SECRET = "cursor_api_keys";
 export const ECO_PROXY_URL_SECRET = "upstream_proxy_url";
 export const ECO_INTEGRATED_WEB_SEARCH_API_KEY_SECRET = "integrated_web_search_api_key";
 
@@ -879,7 +880,7 @@ export interface EcoDomainSyncStatusEntry {
 export function secretKindsForDomain(domain: EcoSettingsSyncDomain): readonly EcoSecretKind[] {
   switch (domain) {
     case "providers":
-      return ["provider", "provider-proxy"];
+      return ["provider", "provider-proxy", "workflow"];
     case "asr":
       return ["asr"];
     case "imageGeneration":
@@ -908,7 +909,12 @@ export function filterSecretsForDomain(
   domain: EcoSettingsSyncDomain,
 ): EcoPlainSecret[] {
   const kinds = new Set(secretKindsForDomain(domain));
-  return secrets.filter((secret) => kinds.has(secret.kind));
+  return secrets.filter((secret) => {
+    if (secret.kind === "workflow") {
+      return secret.key === ECO_CURSOR_API_KEYS_SECRET ? domain === "providers" : domain === "defaultAgent";
+    }
+    return kinds.has(secret.kind);
+  });
 }
 
 export function mergeDomainSecrets(
@@ -916,8 +922,8 @@ export function mergeDomainSecrets(
   localSecrets: readonly EcoPlainSecret[],
   domain: EcoSettingsSyncDomain,
 ): EcoPlainSecret[] {
-  const kinds = new Set(secretKindsForDomain(domain));
-  const retained = cloudSecrets.filter((secret) => !kinds.has(secret.kind));
+  const replaced = new Set(filterSecretsForDomain(cloudSecrets, domain).map((secret) => `${secret.kind}:${secret.key}`));
+  const retained = cloudSecrets.filter((secret) => !replaced.has(`${secret.kind}:${secret.key}`));
   const domainLocal = filterSecretsForDomain(localSecrets, domain);
   return [...retained, ...domainLocal];
 }

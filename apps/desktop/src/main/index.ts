@@ -10,7 +10,7 @@ import { APP_LINK_SCHEMES, isAppDeepLink } from "../shared/center-server";
 import { resolveGenerationToolContext } from "./generation-tool-context";
 import type { ImageGenerationToolInput } from "../shared/image-generation";
 import type { TtsToolInput } from "../shared/tts";
-import { isCodexAuthThread, codexAccountIdForThread } from "../shared/codex-auth-thread";
+import { codexAccountIdForThread } from "../shared/codex-auth-thread";
 import { createAccountUsagePricingLookup } from "./account-usage-pricing";
 import { ChatGptModelCatalogService, resolveChatGptModelCatalogCachePath } from "./chatgpt-model-catalog";
 import { ProjectTodoStore } from "./project-todo-store";
@@ -1122,6 +1122,7 @@ import {
   roleRoutesFromRuntime,
 } from "./thread-runtime-routes";
 import { createThreadSdkTaskRuntime } from "./thread-sdk-task-runtime";
+import { createCursorApiKeyStore, type CursorApiKeyStore } from "./cursor-api-key-store";
 import { buildThreadSessionBootstrap } from "./thread-session-bootstrap";
 import {
   canRegenerateThreadTitle,
@@ -1723,6 +1724,7 @@ function getConversationForkCommands(): ConversationForkCommands {
 let executeThreadDeleteCommand: ReturnType<typeof createThreadDeleteCommandCoordinator>;
 let codexThreadMap: CodexThreadMap;
 let workflowSettingsStore: WorkflowSettingsStore;
+let cursorApiKeyStore: CursorApiKeyStore;
 let projectMcpSettingsStore: ProjectMcpSettingsStore;
 let projectIntegrationsSettingsStore: ProjectIntegrationsSettingsStore;
 let projectOrchestrationSettingsStore: ProjectOrchestrationSettingsStore;
@@ -2906,6 +2908,17 @@ app
       },
     });
     workflowSettingsStore = await createWorkflowSettingsStore(dbPath);
+    cursorApiKeyStore = await createCursorApiKeyStore(dbPath);
+    const migratedCursorProvider = providerStore.getProviderWithSecret("cursor");
+    if (migratedCursorProvider?.baseUrl === "https://api.cursor.com") {
+      cursorApiKeyStore.migrateLegacy(migratedCursorProvider.apiKey);
+      providerStore.deleteProvider("cursor");
+    }
+    const legacyCursorApiKey = workflowSettingsStore.get().acpCursorApiKey?.trim();
+    if (legacyCursorApiKey) {
+      cursorApiKeyStore.migrateLegacy(legacyCursorApiKey);
+      workflowSettingsStore.save({ ...workflowSettingsStore.get(), acpCursorApiKey: "" });
+    }
     logStartupStage("initial-settings.loaded");
     projectMcpSettingsStore = await createProjectMcpSettingsStore(dbPath);
     projectIntegrationsSettingsStore = await createProjectIntegrationsSettingsStore(dbPath);
@@ -3141,6 +3154,7 @@ app
     centerServerClient.setSettingsSyncHooks(
       createDesktopSettingsSyncHooks({
         providerStore,
+        cursorApiKeyStore,
         asrSettingsStore,
         imageGenerationStore,
         workflowSettingsStore,
@@ -4964,7 +4978,7 @@ function mainText(
  * process.env so HOME/PATH-based executable resolution still works.
  */
 function acpCursorSpawnEnv(): NodeJS.ProcessEnv | undefined {
-  const apiKey = workflowSettingsStore.get().acpCursorApiKey?.trim();
+  const apiKey = cursorApiKeyStore.firstApiKey();
   if (!apiKey) return undefined;
   return { ...process.env, CURSOR_API_KEY: apiKey };
 }
@@ -5895,8 +5909,38 @@ function registerIpcHandlers(): void {
   });
 
   registerDesktopCommand(IPC_CHANNELS.cursorModelsList, async () => {
-    const apiKey = workflowSettingsStore.get().acpCursorApiKey?.trim();
+    const apiKey = cursorApiKeyStore.firstApiKey();
     return listCursorAgentModels(apiKey ? { env: { CURSOR_API_KEY: apiKey } } : {});
+  });
+  registerDesktopCommand(IPC_CHANNELS.cursorApiKeysList, () => cursorApiKeyStore.list());
+  registerDesktopCommand(IPC_CHANNELS.cursorApiKeySave, (payload: unknown) => {
+    if (!isRecord(payload) || typeof payload.name !== "string"
+      || (payload.id !== undefined && (typeof payload.id !== "string" || !payload.id.trim()))
+      || (payload.apiKey !== undefined && typeof payload.apiKey !== "string")
+      || (payload.enabled !== undefined && typeof payload.enabled !== "boolean")) {
+      throw new Error("Cursor API Key 参数无效。");
+    }
+    return cursorApiKeyStore.save({
+      ...(typeof payload.id === "string" ? { id: payload.id } : {}),
+      name: payload.name,
+      ...(typeof payload.apiKey === "string" ? { apiKey: payload.apiKey } : {}),
+      ...(typeof payload.enabled === "boolean" ? { enabled: payload.enabled } : {}),
+    });
+  });
+  registerDesktopCommand(IPC_CHANNELS.cursorApiKeyDelete, (payload: unknown) => {
+    if (typeof payload !== "string" || !payload.trim()) throw new Error("Cursor API Key ID 无效。");
+    cursorApiKeyStore.remove(payload);
+    return { ok: true as const };
+  });
+  registerDesktopCommand(IPC_CHANNELS.cursorApiKeySetEnabled, (payload: unknown) => {
+    if (!isRecord(payload) || typeof payload.id !== "string" || typeof payload.enabled !== "boolean") {
+      throw new Error("Cursor API Key 状态参数无效。");
+    }
+    return cursorApiKeyStore.setEnabled(payload.id, payload.enabled);
+  });
+  registerDesktopCommand(IPC_CHANNELS.cursorApiKeysImport, (payload: unknown) => {
+    if (typeof payload !== "string") throw new Error("Cursor API Key 导入内容无效。");
+    return cursorApiKeyStore.importText(payload);
   });
 
   registerDesktopCommand(IPC_CHANNELS.coreAvailabilityGet, async () => {
@@ -11973,8 +12017,8 @@ function acpRuntimeOrchestrationDeps(): import("./acp-runtime-run").AcpRuntimeOr
     },
     captureSession,
     getThreadCoreSession: (threadId) => conversationStore.getThreadCoreSession(threadId),
-    resolveAcpCursorEnv: () => {
-      const apiKey = workflowSettingsStore.get().acpCursorApiKey?.trim();
+    resolveAcpCursorEnv: (threadId) => {
+      const apiKey = cursorApiKeyStore.apiKeyForThread(threadId);
       return apiKey ? { CURSOR_API_KEY: apiKey } : {};
     },
     resolveAcpMcpServers: async ({ threadId, workspacePath }) => {
@@ -19421,12 +19465,6 @@ function updateThread(threadId: string, patch: Pick<ThreadSummary, "message" | "
 
   const message = normalizeThreadMessage(patch.status, patch.message);
   conversationStore.updateThread(threadId, { ...patch, message });
-  const quotaThread = conversationStore.getThread(threadId);
-  openaiAccountService?.setQuotaUsage(
-    threadId,
-    patch.status === "running" && !!quotaThread && isCodexAuthThread(quotaThread),
-    quotaThread ? codexAccountIdForThread(quotaThread) : undefined,
-  );
   if (patch.status === "failed" || patch.status === "blocked" || patch.status === "idle") {
     conversationStore.failQueuedPlanExecution(threadId, message || "执行在启动前停止，来源计划仍待审批。");
     publishPlanExecutionChanges(threadId);
@@ -19471,12 +19509,6 @@ function patchThreadSummary(threadId: string, patch: Pick<ThreadSummary, "messag
 
   const message = normalizeThreadMessage(patch.status, patch.message);
   conversationStore.updateThread(threadId, { ...patch, message });
-  const quotaThread = conversationStore.getThread(threadId);
-  openaiAccountService?.setQuotaUsage(
-    threadId,
-    patch.status === "running" && !!quotaThread && isCodexAuthThread(quotaThread),
-    quotaThread ? codexAccountIdForThread(quotaThread) : undefined,
-  );
   if (patch.status === "failed" || patch.status === "blocked" || patch.status === "idle") {
     conversationStore.failQueuedPlanExecution(threadId, message || "执行在启动前停止，来源计划仍待审批。");
     publishPlanExecutionChanges(threadId);

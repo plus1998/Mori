@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { createAgentOrchestrationStore } from "../src/main/agent-orchestration-store";
 import { createAsrSettingsStore } from "../src/main/asr-settings-store";
+import { createCursorApiKeyStore } from "../src/main/cursor-api-key-store";
 import { createGitSettingsStore } from "../src/main/git-settings-store";
 import { createImageGenerationStore } from "../src/main/image-generation-store";
 import { createIntegratedWebSearchSettingsStore } from "../src/main/integrated-web-search-settings-store";
@@ -15,6 +16,7 @@ import { createProxyBridgeSettingsStore } from "../src/main/proxy-bridge-setting
 import { createSshBookmarkStore } from "../src/main/ssh-bookmark-store";
 import {
   filterSecretsForDomain,
+  ECO_CURSOR_API_KEYS_SECRET,
   mergeDomainSecrets,
   secretKindsForDomain,
 } from "../src/main/supabase-settings-sync";
@@ -31,7 +33,7 @@ const sqliteAvailable = await (async () => {
 })();
 
 test("providers domain covers both provider and provider-proxy secret kinds", () => {
-  expect(secretKindsForDomain("providers")).toEqual(["provider", "provider-proxy"]);
+  expect(secretKindsForDomain("providers")).toEqual(["provider", "provider-proxy", "workflow"]);
   expect(
     filterSecretsForDomain(
       [
@@ -59,13 +61,16 @@ test("providers domain covers both provider and provider-proxy secret kinds", ()
   ).toEqual(["p1"]);
 });
 
-test.skipIf(!sqliteAvailable)("desktop sync hooks collect and apply per-provider proxy secrets", async () => {
+test.skipIf(!sqliteAvailable)("desktop sync hooks sync provider proxies and independent Cursor key lists", async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "eco-provider-proxy-sync-"));
   const dbPath = path.join(dir, "eco-coding.sqlite");
   const codec = createLocalSecretCodec();
   const providerStore = await createProviderStore(dbPath);
+  const cursorApiKeyStore = await createCursorApiKeyStore(dbPath);
+  const cursorKey = cursorApiKeyStore.save({ name: "Work", apiKey: "cursor-key", enabled: false });
   const hooks = createDesktopSettingsSyncHooks({
     providerStore,
+    cursorApiKeyStore,
     asrSettingsStore: await createAsrSettingsStore(dbPath),
     imageGenerationStore: await createImageGenerationStore(dbPath),
     workflowSettingsStore: await createWorkflowSettingsStore(dbPath),
@@ -89,6 +94,22 @@ test.skipIf(!sqliteAvailable)("desktop sync hooks collect and apply per-provider
 
   // Collect: provider key + provider-proxy secret.
   const secrets = hooks.collectPlainSecrets();
+  const cursorSecret = secrets.find((secret) => secret.key === ECO_CURSOR_API_KEYS_SECRET)!;
+  expect(cursorSecret.kind).toBe("workflow");
+  expect(JSON.parse(cursorSecret.value)[0]).toMatchObject({ id: cursorKey.id, name: "Work", apiKey: "cursor-key", enabled: false });
+  expect(JSON.stringify(hooks.collectSettingsPayload())).not.toContain("cursor-key");
+  cursorApiKeyStore.remove(cursorKey.id);
+  hooks.applyDomainPlainSecrets(secrets, "providers");
+  expect(cursorApiKeyStore.listWithSecrets()[0]).toMatchObject({ id: cursorKey.id, apiKey: "cursor-key", enabled: false });
+  hooks.applyDomainPlainSecrets([], "providers");
+  expect(cursorApiKeyStore.list()).toHaveLength(1);
+  hooks.applyDomainPlainSecrets([{ kind: "workflow", key: "acp_cursor_api_key", value: "legacy-cursor-key" }], "defaultAgent");
+  expect(cursorApiKeyStore.listWithSecrets().some((key) => key.apiKey === "legacy-cursor-key")).toBe(true);
+  const fullSnapshot = [...secrets, { kind: "workflow" as const, key: "acp_cursor_api_key", value: "legacy-cursor-key" }];
+  hooks.applyPlainSecrets(fullSnapshot);
+  expect(cursorApiKeyStore.listWithSecrets().map((key) => key.apiKey)).toEqual(["cursor-key"]);
+  hooks.applyPlainSecrets(fullSnapshot.map((secret) => secret.key === ECO_CURSOR_API_KEYS_SECRET ? { ...secret, value: "[]" } : secret));
+  expect(cursorApiKeyStore.list()).toEqual([]);
   expect(secrets).toContainEqual({
     kind: "provider",
     key: provider.id,
@@ -122,6 +143,15 @@ test.skipIf(!sqliteAvailable)("desktop sync hooks collect and apply per-provider
       "providers",
     ),
   ).toThrow("Cloud provider proxy secret references missing provider: missing");
+});
+
+test("provider and default-agent sync preserve each other's Cursor secrets", () => {
+  const legacy = { kind: "workflow" as const, key: "acp_cursor_api_key", value: "legacy-key" };
+  const keys = { kind: "workflow" as const, key: ECO_CURSOR_API_KEYS_SECRET, value: "[]" };
+  expect(filterSecretsForDomain([legacy, keys], "providers")).toEqual([keys]);
+  expect(filterSecretsForDomain([legacy, keys], "defaultAgent")).toEqual([legacy]);
+  expect(mergeDomainSecrets([legacy, keys], [], "providers")).toEqual([legacy]);
+  expect(mergeDomainSecrets([legacy, keys], [], "defaultAgent")).toEqual([keys]);
 });
 
 test.skipIf(!sqliteAvailable)("desktop sync hooks carry package script args and prefixes", async () => {
