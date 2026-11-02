@@ -99,6 +99,10 @@
           document.documentElement.dataset.theme = systemTheme();
         }
         document.documentElement.dataset.platform = resolvePlatform();
+        var moriSurface = new URLSearchParams(window.location.search).get("mori");
+        if (moriSurface === "ball" || moriSurface === "notice" || moriSurface === "panel") {
+          document.documentElement.dataset.moriSurface = moriSurface;
+        }
       })();
     </script>
   </head>

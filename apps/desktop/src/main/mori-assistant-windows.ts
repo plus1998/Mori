@@ -119,6 +119,7 @@ export class MoriAssistantWindows {
       height: mode === "ball" ? ballSize : mode === "notice" ? 96 : 640,
       frame: false,
       transparent: mode !== "panel",
+      ...(mode !== "panel" ? { backgroundColor: "#00000000" } : {}),
       hasShadow: mode === "panel",
       alwaysOnTop: true,
       skipTaskbar: true,

@@ -998,18 +998,19 @@ html[data-mori-surface="panel"] #root {
   overflow: hidden;
   background: var(--bg-main);
 }
-html[data-mori-surface="ball"],
-html[data-mori-surface="ball"] body,
-html[data-mori-surface="ball"] #root {
+/* Outrank platform/theme root backgrounds, regardless of stylesheet order. */
+:root[data-mori-surface="ball"][data-theme],
+:root[data-mori-surface="ball"][data-theme] body,
+:root[data-mori-surface="ball"] #root {
   background: transparent;
   width: 100%;
   height: 100%;
   margin: 0;
   overflow: hidden;
 }
-html[data-mori-surface="notice"],
-html[data-mori-surface="notice"] body,
-html[data-mori-surface="notice"] #root {
+:root[data-mori-surface="notice"][data-theme],
+:root[data-mori-surface="notice"][data-theme] body,
+:root[data-mori-surface="notice"] #root {
   width: 280px;
   height: 96px;
   margin: 0;

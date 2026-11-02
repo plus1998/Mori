@@ -2301,7 +2301,8 @@ function resolveWindowChromeTheme(): keyof typeof WINDOW_CHROME_BY_THEME {
 }
 
 function applyWindowControlsOverlay(window: BrowserWindow): void {
-  if (!usesWindowControlsOverlay() || window.isDestroyed()) {
+  // Frameless assistant windows must keep their own backgrounds instead of the main window's color/Mica.
+  if (!usesWindowControlsOverlay() || window.isDestroyed() || isMoriAssistantWindow(window)) {
     return;
   }
   const chrome = WINDOW_CHROME_BY_THEME[resolveWindowChromeTheme()];
