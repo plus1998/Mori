@@ -1631,6 +1631,15 @@ const api = {
   applyWorktree(threadId: string): Promise<WorktreeApplyResult> {
     return ipcRenderer.invoke(IPC_CHANNELS.worktreeApply, threadId);
   },
+  confirmWorktreeMerged(request: import("../shared/thread-worktree").ThreadWorktreeActionRequest): Promise<WorktreeStatusResult> {
+    return ipcRenderer.invoke(IPC_CHANNELS.worktreeConfirmMerged, request);
+  },
+  cleanupWorktree(request: import("../shared/thread-worktree").ThreadWorktreeActionRequest): Promise<WorktreeStatusResult> {
+    return ipcRenderer.invoke(IPC_CHANNELS.worktreeCleanup, request);
+  },
+  selectThreadWorkLocation(request: import("../shared/thread-worktree").ThreadWorkLocationRequest): Promise<WorktreeStatusResult> {
+    return ipcRenderer.invoke(IPC_CHANNELS.worktreeSelectLocation, request);
+  },
   searchComposerReferences(request: import("../shared/composer-references").ComposerReferenceSearchRequest): Promise<import("../shared/composer-references").ComposerReferenceSearchResult> {
     return ipcRenderer.invoke(IPC_CHANNELS.composerReferencesSearch, request);
   },

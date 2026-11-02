@@ -138,7 +138,10 @@ function makeDeps(calls: Calls, driver: AcpAgentDriver): AcpRuntimeOrchestration
     requireThreadCore: () => {},
     resolveSessionMode: () => "agent",
     startActiveRun: () => {},
-    createSessionPlan: () => ({}) as WorktreePlan,
+    resolveThreadWorktree: async (workspace) => ({
+      cwd: workspace.path,
+      worktreePlan: { workspacePath: workspace.path, worktreePath: workspace.path, branchName: "" } as WorktreePlan,
+    }),
     runThreadRequestOnce: async (_threadId, _phase, _signal, run, retryIndex = 0) => {
       calls.runOnce += 1;
       calls.retryIndices.push(retryIndex);
@@ -379,4 +382,31 @@ test("aborted run (steer landed in the gap) is never retried", async () => {
   expect(calls.discard).toBeUndefined();
   expect(calls.markInterrupted).toEqual([]);
   expect(calls.decision).toEqual({ kind: "cancelled", reason: "cancelled by user" });
+});
+
+test("ACP starts and captures events in selected worktree, then rebuilds after location change", async () => {
+  for (const continuation of [false, true]) {
+    const driver = makeFakeDriver([{ status: "completed" }]);
+    const calls: Calls = { runOnce: 0, retryIndices: [], notify: [], markInterrupted: [], discard: undefined, decision: undefined };
+    const deps = makeDeps(calls, driver);
+    const cwd = "/tmp/isolated-selected";
+    const previousRun = driver.run.bind(driver);
+    let called = false;
+    driver.run = input => {
+      expect(input.workspacePath).toBe(cwd);
+      expect(input.resumeSessionId).toBeUndefined();
+      called = true;
+      return previousRun(input);
+    };
+    deps.resolveThreadWorktree = async () => ({ cwd, worktreePlan: { workspacePath: "/tmp/ws", worktreePath: cwd, branchName: "mori/test" } });
+    deps.getThreadCoreSession = () => ({ coreKind: "acp", externalSessionId: "old-session", cwd: "/tmp/deleted" });
+    deps.threadHasPriorAgentOutput = () => true;
+    const consume = deps.consumeEvents;
+    deps.consumeEvents = input => { expect(input.worktreePath).toBe(cwd); return consume(input); };
+    await startAcpThreadRunWithDriver(makeInput({ continuation,
+      thread: { id: "t1", coreKind: "acp", workLocation: { mode: "direct", contextResetPending: true } } as AcpThreadStartRunInput["thread"],
+    }), deps, driver);
+    expect(called).toBe(true);
+    expect(calls.markInterrupted).toEqual([]);
+  }
 });

@@ -1,3 +1,4 @@
+import type { ThreadWorkLocation, ThreadWorktreeRecord } from "../shared/thread-worktree";
 import { PlanExecutionStore, planReferenceId } from "./plan-execution-store";
 import type { PlanExecutionLink, PlanReferenceSnapshot } from "../shared/plan-execution";
 import crypto from "node:crypto";
@@ -154,6 +155,7 @@ interface ThreadRow {
   external_session_id: string | null;
   follow_up_queue_paused: number | null;
   has_composer_draft?: number;
+  work_location_json?: string | null;
 }
 
 export interface ThreadListCursor {
@@ -1559,12 +1561,19 @@ export class ConversationStore {
       ["acp_agent_id", "TEXT"],
       ["claude_plan_file_path", "TEXT"],
       ["follow_up_queue_paused", "INTEGER NOT NULL DEFAULT 0"],
+      ["work_location_json", "TEXT"],
     ] as const;
     for (const [name, definition] of threadMigrations) {
       if (!threadColumns.has(name)) {
         this.db.exec(`ALTER TABLE threads ADD COLUMN ${name} ${definition}`);
       }
     }
+
+    this.db.exec(`CREATE TABLE IF NOT EXISTS thread_worktrees (
+      id TEXT PRIMARY KEY,
+      thread_id TEXT NOT NULL,
+      record_json TEXT NOT NULL
+    ); CREATE INDEX IF NOT EXISTS thread_worktrees_thread ON thread_worktrees(thread_id)`);
 
     const composerDraftColumns = new Set(
       (this.db.prepare(`PRAGMA table_info(composer_drafts)`).all() as Array<{ name?: string }>).map(
@@ -3065,6 +3074,45 @@ export class ConversationStore {
     }
   }
 
+  saveThreadWorkLocation(threadId: string, location: ThreadWorkLocation): void {
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const result = this.db.prepare(`UPDATE threads SET work_location_json = ? WHERE id = ?`)
+        .run(JSON.stringify(location), threadId);
+      if (Number(result.changes) !== 1) throw new Error(`Thread not found: ${threadId}`);
+      if (location.worktree) {
+        if (location.worktree.threadId !== threadId) throw new Error("Worktree thread does not match.");
+        this.db.prepare(`INSERT INTO thread_worktrees (id, thread_id, record_json) VALUES (?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET record_json = excluded.record_json WHERE thread_id = excluded.thread_id`)
+          .run(location.worktree.id, threadId, JSON.stringify(location.worktree));
+      }
+      this.db.exec("COMMIT");
+    } catch (error) {
+      rollbackConversationTransaction(this.db);
+      throw error;
+    }
+  }
+
+  listThreadWorktrees(threadId: string): ThreadWorktreeRecord[] {
+    return (this.db.prepare(`SELECT record_json FROM thread_worktrees WHERE thread_id = ? ORDER BY rowid`)
+      .all(threadId) as Array<{ record_json: string }>).map(row => JSON.parse(row.record_json) as ThreadWorktreeRecord);
+  }
+
+  /** Change the runtime binding without deleting any saved conversation history. */
+  resetThreadRuntimeForWorkLocation(threadId: string): void {
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      this.db.prepare(`UPDATE threads SET sdk_session_id = NULL, sdk_cwd = NULL WHERE id = ?`).run(threadId);
+      this.db.prepare(`DELETE FROM thread_core_sessions WHERE thread_id = ?`).run(threadId);
+      this.db.prepare(`DELETE FROM thread_compact_handoff WHERE thread_id = ?`).run(threadId);
+      this.db.exec("COMMIT");
+    } catch (error) {
+      rollbackConversationTransaction(this.db);
+      throw error;
+    }
+    this.clearSubagentSessions(threadId);
+  }
+
   /** Commit the independent child, its references, draft and command receipt together. */
   commitForkConversation(input: {
     source: ThreadSummary;
@@ -4314,6 +4362,11 @@ export class ConversationStore {
         updatedAt,
         updatedAt,
       );
+    this.db.prepare(`UPDATE threads SET work_location_json = json_remove(work_location_json, '$.contextResetPending')
+      WHERE id = ? AND json_extract(work_location_json, '$.contextResetPending') = 1
+      AND ((json_extract(work_location_json, '$.mode') = 'direct' AND workspace_path = ?)
+        OR (json_extract(work_location_json, '$.mode') = 'isolated' AND json_extract(work_location_json, '$.worktree.worktreePath') = ?))`)
+      .run(input.threadId, input.cwd, input.cwd);
   }
 
   saveSdkSession(threadId: string, sessionId: string, cwd: string): void {
@@ -11014,6 +11067,7 @@ const THREAD_SUMMARY_SELECT = `SELECT threads.id AS id,
                 threads.sdk_session_id AS sdk_session_id,
                 threads.sdk_cwd AS sdk_cwd,
                 threads.runtime_config_json AS runtime_config_json,
+                threads.work_location_json AS work_location_json,
                 threads.follow_up_queue_paused AS follow_up_queue_paused,
                 sessions.external_session_id AS external_session_id,
                 EXISTS (
@@ -11059,6 +11113,7 @@ function rowToThread(row: ThreadRow): ThreadSummary {
     ...(row.sdk_session_id && row.sdk_cwd ? { sdkSessionId: row.sdk_session_id, sdkCwd: row.sdk_cwd } : {}),
     ...(row.external_session_id?.trim() ? { externalSessionId: row.external_session_id.trim() } : {}),
     ...(runtimeConfig ? { runtimeConfig } : {}),
+    ...(row.work_location_json ? { workLocation: JSON.parse(row.work_location_json) as ThreadWorkLocation } : {}),
     ...(row.follow_up_queue_paused ? { followUpQueuePaused: true } : {}),
     ...(row.has_composer_draft ? { hasComposerDraft: true } : {}),
   };

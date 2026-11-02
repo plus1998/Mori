@@ -1,3 +1,5 @@
+import { ThreadWorktreeControl } from "./ThreadWorktreeControl";
+import type { ThreadDevelopmentMode, ThreadWorkLocation } from "../shared/thread-worktree";
 import { formatAccelerator } from "../shared/keyboard-shortcuts";
 import { useKeyboardShortcuts, shortcutMatches } from "./keyboard-shortcuts";
 import { MoriIcon } from "./MoriIcon";
@@ -2184,6 +2186,7 @@ function App() {
   const [cancelBusy, setCancelBusy] = useState(false);
   const [composerRuntimeConfig, setComposerRuntimeConfig] = useState<ThreadRuntimeConfig | null>(null);
   const [newThreadCoreKind, setNewThreadCoreKind] = useState<CoreKind>("claude");
+  const [newThreadDevelopmentMode, setNewThreadDevelopmentMode] = useState<ThreadDevelopmentMode>("direct");
   const [coreAvailability, setCoreAvailability] = useState<CoreAvailabilitySnapshot>();
   const [cursorProbeLoading, setCursorProbeLoading] = useState(false);
   const [acpEnableInFlight, setAcpEnableInFlight] = useState(false);
@@ -3746,20 +3749,27 @@ function App() {
     const project = projects.find((item) => item.path === currentProjectPath);
     return project?.name ?? pathToName(currentProjectPath);
   }, [currentProjectPath, projects, t]);
-  const gitStatus = currentProjectPath ? gitStatusByWorkspace[currentProjectPath]?.status : undefined;
-  const gitStatusLoading = currentProjectPath
-    ? gitStatusLoadingByWorkspace[currentProjectPath] === true
-    : false;
-  const currentTerminalState = useMemo(() => {
-    if (!currentProjectPath) {
-      return undefined;
-    }
-    return getProjectTerminalState(terminalByProject, currentProjectPath);
-  }, [currentProjectPath, terminalByProject]);
   const activeThread = useMemo(
     () => (feedThreadId ? threads.find((thread) => thread.id === feedThreadId) : undefined),
     [feedThreadId, threads],
   );
+  const activeWorkspacePath = useMemo(() => {
+    const worktree = activeThread?.workLocation;
+    if (worktree?.mode === "isolated" && worktree.worktree?.worktreePath) {
+      return worktree.worktree.worktreePath;
+    }
+    return currentProjectPath;
+  }, [activeThread?.workLocation, currentProjectPath]);
+  const gitStatus = activeWorkspacePath ? gitStatusByWorkspace[activeWorkspacePath]?.status : undefined;
+  const gitStatusLoading = activeWorkspacePath
+    ? gitStatusLoadingByWorkspace[activeWorkspacePath] === true
+    : false;
+  const currentTerminalState = useMemo(() => {
+    if (!activeWorkspacePath) {
+      return undefined;
+    }
+    return getProjectTerminalState(terminalByProject, activeWorkspacePath);
+  }, [activeWorkspacePath, terminalByProject]);
   const browserScopeId = activeThread?.id ?? browserPersonalScopeId(currentProjectPath);
   const browserScopeIdRef = useRef(browserScopeId);
   browserScopeIdRef.current = browserScopeId;
@@ -3989,11 +3999,11 @@ function App() {
   useEffect(() => {
     reviewDiffRequestRef.current += 1;
     reviewDiffManualRefreshRef.current = false;
-    setReviewDiff(currentProjectPath ? readWorkspaceReviewSummary(currentProjectPath) : undefined);
+    setReviewDiff(activeWorkspacePath ? readWorkspaceReviewSummary(activeWorkspacePath) : undefined);
     setReviewDiffLoading(false);
     setReviewDiffError(undefined);
     setReviewSelectedPath(undefined);
-  }, [currentProjectPath]);
+  }, [activeWorkspacePath]);
   const updateProjectTerminal = useCallback((workspacePath: string, next: ProjectTerminalState) => {
     setTerminalByProject((current) => ({
       ...current,
@@ -4278,7 +4288,7 @@ function App() {
 
   const refreshGitStatus = useCallback(
     async (workspacePath?: string, options: { force?: boolean } = {}) => {
-      const path = workspacePath ?? currentProjectPath;
+      const path = workspacePath ?? activeWorkspacePath;
       if (!path || !window.eco) {
         return;
       }
@@ -4302,28 +4312,28 @@ function App() {
         }
       }
     },
-    [currentProjectPath, storeGitStatus],
+    [activeWorkspacePath, storeGitStatus],
   );
 
   useEffect(() => {
     void refreshGitStatus();
-  }, [currentProjectPath, activeThread?.id, refreshGitStatus]);
+  }, [activeWorkspacePath, activeThread?.id, refreshGitStatus]);
 
   const refreshPackageScripts = useCallback(async () => {
-    if (!currentProjectPath || !window.eco) {
+    if (!activeWorkspacePath || !window.eco) {
       setPackageScripts(undefined);
       return;
     }
     setScriptsBusy(true);
     try {
-      const result = await window.eco.listPackageScripts(currentProjectPath);
+      const result = await window.eco.listPackageScripts(activeWorkspacePath);
       setPackageScripts(result);
     } catch {
       setPackageScripts(undefined);
     } finally {
       setScriptsBusy(false);
     }
-  }, [currentProjectPath]);
+  }, [activeWorkspacePath]);
 
   useEffect(() => {
     setPackageScripts(undefined);
@@ -4331,19 +4341,19 @@ function App() {
   }, [refreshPackageScripts]);
 
   useEffect(() => {
-    if (!currentProjectPath || !window.eco?.watchPackageJson) {
+    if (!activeWorkspacePath || !window.eco?.watchPackageJson) {
       return undefined;
     }
-    void window.eco.watchPackageJson(currentProjectPath);
+    void window.eco.watchPackageJson(activeWorkspacePath);
     if (!window.eco.onPackageJsonChanged) {
       return undefined;
     }
     return window.eco.onPackageJsonChanged((workspacePath) => {
-      if (workspacePath === currentProjectPath) {
+      if (workspacePath === activeWorkspacePath) {
         void refreshPackageScripts();
       }
     });
-  }, [currentProjectPath, refreshPackageScripts]);
+  }, [activeWorkspacePath, refreshPackageScripts]);
 
   useEffect(() => {
     const onFocus = () => {
@@ -4354,7 +4364,7 @@ function App() {
   }, [refreshPackageScripts]);
 
   useEffect(() => {
-    if (!currentProjectPath) {
+    if (!activeWorkspacePath) {
       return;
     }
     let shouldRefresh = false;
@@ -4374,26 +4384,26 @@ function App() {
     }
     if (shouldRefresh) {
       void refreshPackageScripts();
-      void refreshGitStatus(currentProjectPath, { force: true });
+      void refreshGitStatus(activeWorkspacePath, { force: true });
     }
-  }, [threads, currentProjectPath, refreshGitStatus, refreshPackageScripts]);
+  }, [threads, currentProjectPath, activeWorkspacePath, refreshGitStatus, refreshPackageScripts]);
 
   const showPackageScriptsEntry = Boolean(
     packageScripts?.hasPackageJson && packageScripts.scripts.length > 0,
   );
 
   const refreshBackgroundTerminalTasks = useCallback(async () => {
-    if (!currentProjectPath || !window.eco?.listBackgroundTerminalTasks) {
+    if (!activeWorkspacePath || !window.eco?.listBackgroundTerminalTasks) {
       setBackgroundTerminalTasks([]);
       return;
     }
     try {
-      const tasks = await window.eco.listBackgroundTerminalTasks({ workspacePath: currentProjectPath });
+      const tasks = await window.eco.listBackgroundTerminalTasks({ workspacePath: activeWorkspacePath });
       setBackgroundTerminalTasks(tasks);
     } catch {
       setBackgroundTerminalTasks([]);
     }
-  }, [currentProjectPath]);
+  }, [activeWorkspacePath]);
 
   useEffect(() => {
     void refreshBackgroundTerminalTasks();
@@ -4712,16 +4722,16 @@ function App() {
         projectName,
       };
       trackPackageScriptTerminalSession(payload.sessionId, scriptMeta, payload.taskId);
-      if (!currentProjectPath || payload.workspacePath !== currentProjectPath) {
+      if (!activeWorkspacePath || payload.workspacePath !== activeWorkspacePath) {
         return;
       }
       void presentPackageScriptTerminal(payload.workspacePath, payload.sessionId, scriptMeta, payload.taskId);
     });
-  }, [currentProjectPath, presentPackageScriptTerminal, projects, trackPackageScriptTerminalSession]);
+  }, [activeWorkspacePath, presentPackageScriptTerminal, projects, trackPackageScriptTerminalSession]);
 
   const startPackageScript = useCallback(
     async (scriptName: string, args?: string, prefix?: string) => {
-      if (!currentProjectPath || !window.eco) {
+      if (!activeWorkspacePath || !window.eco) {
         return;
       }
       const trimmedArgs = args?.trim();
@@ -4731,7 +4741,7 @@ function App() {
       setScriptsBusy(true);
       try {
         const result = await window.eco.startPackageScript({
-          workspacePath: currentProjectPath,
+          workspacePath: activeWorkspacePath,
           script: scriptName,
           ...(trimmedArgs && { args: trimmedArgs }),
           ...(trimmedPrefix && { prefix: trimmedPrefix }),
@@ -4744,7 +4754,7 @@ function App() {
         trackPackageScriptTerminalSession(result.sessionId, scriptMeta, result.taskId);
         void refreshBackgroundTerminalTasks();
         await waitForOverlayDismiss(dismissStartedAt);
-        openTerminalSessionTab(currentProjectPath, result.sessionId);
+        openTerminalSessionTab(activeWorkspacePath, result.sessionId);
         void syncPackageScriptTerminalPresentation(result.sessionId, result.taskId);
       } catch (error) {
         console.error(error);
@@ -4754,8 +4764,8 @@ function App() {
     },
     [
       activeThread?.id,
+      activeWorkspacePath,
       currentProjectName,
-      currentProjectPath,
       dismissPackageScriptRunOverlays,
       openTerminalSessionTab,
       refreshBackgroundTerminalTasks,
@@ -5629,7 +5639,7 @@ function App() {
       !contextCompactionInFlight &&
       threadAcceptsInput,
   );
-  const canSend = composerFollowUpMode ? canSendFollowUp : canSendThreadMessage;
+  const canSend = activeThread?.workLocation?.mode !== "needs_choice" && (composerFollowUpMode ? canSendFollowUp : canSendThreadMessage);
   // Forced delegation retains the plan for retry until the child finishes.
   // That retained record must not keep the approval dock open during execution.
   const showPlanApproval = Boolean(
@@ -8509,6 +8519,11 @@ function App() {
     };
   }, []);
 
+  const updateThreadWorkLocation = useCallback((threadId: string, location: ThreadWorkLocation) => {
+    setThreads(current => current.map(thread => thread.id === threadId &&
+      JSON.stringify(thread.workLocation) !== JSON.stringify(location) ? { ...thread, workLocation: location } : thread));
+  }, []);
+
   async function sendComposerMessage(
     promptOverride?: string,
     options?: { followUpDeliveryMode?: FollowUpDeliveryMode },
@@ -8535,7 +8550,21 @@ function App() {
             !contextCompactionInFlight &&
             threadAcceptsInput,
         );
+    if (activeThread?.workLocation?.mode === "needs_choice") {
+      setError("请先选择后续工作位置，再发送消息。");
+      return;
+    }
     if (!canSendWithPrompt) return;
+    if (activeThread?.workLocation?.mode === "isolated") {
+      try {
+        const worktree = await window.eco.getWorktreeStatus(activeThread.id);
+        if (worktree.location) updateThreadWorkLocation(activeThread.id, worktree.location);
+        if (!worktree.exists || worktree.error || worktree.location?.mode !== "isolated") {
+          setError(worktree.error || "隔离工作树不可用，请先选择后续工作位置。");
+          return;
+        }
+      } catch (caught) { setError(errorMessage(caught)); return; }
+    }
     if (isStarting || followUpBusy) {
       return;
     }
@@ -8673,6 +8702,7 @@ function App() {
           workspacePath: currentProjectPath,
           prompt: messagePrompt,
           coreKind: newThreadCoreKind,
+          developmentMode: newThreadDevelopmentMode,
           runtimeConfig: runtimeConfigForSend,
           ...(executionPlans[0] ? { planExecutionId: executionPlans[0] } : {}),
           ...(attachments && { attachments }),
@@ -9456,17 +9486,17 @@ function App() {
   }
 
   async function handleGitCheckoutBranch(branch: string) {
-    if (!currentProjectPath || !window.eco) {
+    if (!activeWorkspacePath || !window.eco) {
       return;
     }
     setGitStatusBusy(true);
     try {
       const status = await window.eco.checkoutGitBranch({
-        workspacePath: currentProjectPath,
+        workspacePath: activeWorkspacePath,
         branch,
       });
-      storeGitStatus(currentProjectPath, status);
-      const workspace = await window.eco.inspectWorkspace(currentProjectPath);
+      storeGitStatus(activeWorkspacePath, status);
+      const workspace = await window.eco.inspectWorkspace(activeWorkspacePath);
       setProjectWorkspace(workspace);
     } catch (caught) {
       setError(errorMessage(caught));
@@ -9476,17 +9506,17 @@ function App() {
   }
 
   async function handleGitCreateBranch(branch: string) {
-    if (!currentProjectPath || !window.eco) {
+    if (!activeWorkspacePath || !window.eco) {
       return;
     }
     setGitStatusBusy(true);
     try {
       const status = await window.eco.createGitBranch({
-        workspacePath: currentProjectPath,
+        workspacePath: activeWorkspacePath,
         branch,
       });
-      storeGitStatus(currentProjectPath, status);
-      const workspace = await window.eco.inspectWorkspace(currentProjectPath);
+      storeGitStatus(activeWorkspacePath, status);
+      const workspace = await window.eco.inspectWorkspace(activeWorkspacePath);
       setProjectWorkspace(workspace);
     } finally {
       setGitStatusBusy(false);
@@ -9494,11 +9524,11 @@ function App() {
   }
 
   async function handleGitCommitSuccess() {
-    if (!currentProjectPath || !window.eco) {
+    if (!activeWorkspacePath || !window.eco) {
       return;
     }
     await refreshGitStatus(undefined, { force: true });
-    const workspace = await window.eco.inspectWorkspace(currentProjectPath);
+    const workspace = await window.eco.inspectWorkspace(activeWorkspacePath);
     setProjectWorkspace(workspace);
   }
 
@@ -9516,12 +9546,12 @@ function App() {
       setReviewSelectedPath((current) =>
         current && diff.files.some((file) => file.path === current) ? current : diff.files[0]?.path,
       );
-      if (!currentProjectPath || !window.eco) {
+      if (!activeWorkspacePath || !window.eco) {
         return;
       }
-      const current = gitStatusByWorkspaceRef.current[currentProjectPath]?.status;
+      const current = gitStatusByWorkspaceRef.current[activeWorkspacePath]?.status;
       if (current) {
-        storeGitStatus(currentProjectPath, {
+        storeGitStatus(activeWorkspacePath, {
           ...current,
           insertions: diff.totalAdditions,
           deletions: diff.totalDeletions,
@@ -9530,10 +9560,10 @@ function App() {
         });
       }
       setProjectWorkspace((current) =>
-        current?.path === currentProjectPath ? { ...current, dirtyFileCount: diff.fileCount } : current,
+        current?.path === activeWorkspacePath ? { ...current, dirtyFileCount: diff.fileCount } : current,
       );
     },
-    [currentProjectPath, storeGitStatus],
+    [activeWorkspacePath, storeGitStatus],
   );
 
   const handleChangesDiffLoadingChange = useCallback((loading: boolean) => {
@@ -9557,13 +9587,13 @@ function App() {
 
   const refreshReviewDiff = useCallback(async () => {
     const eco = window.eco;
-    if (!currentProjectPath || !eco) {
+    if (!activeWorkspacePath || !eco) {
       return;
     }
     const requestId = reviewDiffRequestRef.current + 1;
     reviewDiffRequestRef.current = requestId;
     await loadTaskPanelReviewDiff({
-      workspacePath: currentProjectPath,
+      workspacePath: activeWorkspacePath,
       getWorkspaceDiff: (workspacePath) =>
         eco.getWorkspaceDiff(workspacePath, { refresh: reviewDiffManualRefreshRef.current }),
       isCurrent: () => reviewDiffRequestRef.current === requestId,
@@ -9571,7 +9601,7 @@ function App() {
       onLoaded: handleChangesDiffLoaded,
       onError: handleChangesDiffError,
     });
-  }, [currentProjectPath, handleChangesDiffError, handleChangesDiffLoaded, handleChangesDiffLoadingChange]);
+  }, [activeWorkspacePath, handleChangesDiffError, handleChangesDiffLoaded, handleChangesDiffLoadingChange]);
   refreshReviewDiffRef.current = refreshReviewDiff;
 
   useEffect(() => {
@@ -9590,10 +9620,10 @@ function App() {
   }, [storeGitStatus]);
 
   useEffect(() => {
-    if (!currentProjectPath || !window.eco?.onGitDiffChanged) return;
+    if (!activeWorkspacePath || !window.eco?.onGitDiffChanged) return;
     const unsubscribe = window.eco.onGitDiffChanged((event) => {
-      if (event.workspacePath !== currentProjectPath) return;
-      invalidateWorkspaceReviewSummary(currentProjectPath);
+      if (event.workspacePath !== activeWorkspacePath) return;
+      invalidateWorkspaceReviewSummary(activeWorkspacePath);
       if (event.error) {
         setReviewDiffError(event.error);
         return;
@@ -9613,7 +9643,7 @@ function App() {
       unsubscribe();
       window.removeEventListener("focus", onFocus);
     };
-  }, [currentProjectPath]);
+  }, [activeWorkspacePath]);
 
   const requestReviewDiffRefresh = useCallback(() => {
     reviewDiffManualRefreshRef.current = true;
@@ -9742,6 +9772,7 @@ function App() {
         workspacePath: currentProjectPath,
         prompt,
         coreKind: newThreadCoreKind,
+        developmentMode: newThreadDevelopmentMode,
         runtimeConfig: runtimeConfigForSend,
       });
       adoptLandingTaskPanelUiRef.current = true;
@@ -10356,44 +10387,15 @@ function App() {
   }
 
   async function saveAcpCursorApiKey(acpCursorApiKey: string | undefined) {
-    if (!window.eco?.saveProvider) return;
+    if (!window.eco?.saveWorkflowSettings) return;
     setIsSavingSettings(true);
     setError(undefined);
     try {
-      const cursor = settings.providers.find((provider) => provider.id === "cursor");
-      if (!cursor) throw new Error("Cursor 供应商尚未初始化。");
-      const existingKeys = cursor.apiKeys ?? [];
-      const first = existingKeys[0];
-      await window.eco.saveProvider({
-        id: cursor.id,
-        name: cursor.name,
-        baseUrl: cursor.baseUrl,
-        requestPath: cursor.requestPath,
-        version: cursor.version,
-        apiCompat: cursor.apiCompat,
-        ...(cursor.authMethod ? { authMethod: cursor.authMethod } : {}),
-        defaultModel: cursor.defaultModel,
-        enabled: cursor.enabled,
-        apiKey: "",
-        apiKeys: acpCursorApiKey?.trim()
-          ? [
-              {
-                ...(first?.id ? { id: first.id } : {}),
-                name: first?.name ?? "默认密钥",
-                apiKey: acpCursorApiKey,
-                enabled: true,
-              },
-              ...existingKeys.slice(1).map((key) => ({ id: key.id, name: key.name, enabled: key.enabled })),
-            ]
-          : [],
+      const saved = await window.eco.saveWorkflowSettings({
+        ...workflowSettings,
+        acpCursorApiKey: acpCursorApiKey ?? "",
       });
-      const refreshed = await window.eco.getModelSettings();
-      setSettings(refreshed);
-      // Keep the legacy field empty after a provider save; it is only a migration fallback.
-      if (workflowSettings.acpCursorApiKey) {
-        const { acpCursorApiKey: _removed, ...withoutLegacyKey } = workflowSettings;
-        setWorkflowSettings(withoutLegacyKey);
-      }
+      setWorkflowSettings(saved);
     } catch (caught) {
       setError(errorMessage(caught));
     } finally {
@@ -10846,6 +10848,7 @@ function App() {
   }
 
   function switchProject(nextPath: string) {
+    setNewThreadDevelopmentMode("direct");
     setMoriOpen(false);
     const leavingThread = Boolean(selectedThreadIdRef.current);
     const sameProject = nextPath === currentProjectPath || nextPath === selectedProjectPath;
@@ -11016,6 +11019,7 @@ function App() {
   }
 
   function startNewChat() {
+    setNewThreadDevelopmentMode("direct");
     setMoriOpen(false);
     const leavingThread = Boolean(selectedThreadIdRef.current);
     const editingThreadId = editingFollowUpThreadIdRef.current;
@@ -12165,6 +12169,10 @@ function App() {
         } as CSSProperties
       }
     >
+      <ThreadWorktreeControl key={activeThread?.id ?? `new:${currentProjectPath}`}
+        {...(activeThread ? { thread: activeThread } : {})}
+        mode={newThreadDevelopmentMode} busy={isStarting}
+        onModeChange={setNewThreadDevelopmentMode} onLocationChange={updateThreadWorkLocation} />
       {composerImageNotice && <p className="composer-image-notice">{composerImageNotice}</p>}
       <div className="composer-feed-notices">
         {!activeThread ? <PlanReferenceNotice prompt={prompt} onChange={setPrompt} disabled={isStarting} /> : null}
@@ -13302,8 +13310,10 @@ function App() {
                   onOpenImageDisplayArtifact={openImageDisplayArtifact}
                   htmlHostArtifacts={activeThread ? (htmlHostArtifactsByThread[activeThread.id] ?? []) : []}
                   onOpenHtmlHostArtifact={openHtmlHostArtifact}
-                  {...(projectWorkspace && { workspace: projectWorkspace })}
-                  {...(currentProjectPath && { workspacePath: currentProjectPath })}
+                  {...(projectWorkspace && activeWorkspacePath === currentProjectPath
+                    ? { workspace: projectWorkspace }
+                    : {})}
+                  {...(activeWorkspacePath && { workspacePath: activeWorkspacePath })}
                   workspaceLabel={currentProjectName}
                   {...(gitStatus && { gitStatus })}
                   gitBusy={gitStatusBusy || gitStatusLoading}
@@ -13381,10 +13391,10 @@ function App() {
         />
       ) : null}
 
-      {scriptsDialogOpen && currentProjectPath ? (
+      {scriptsDialogOpen && activeWorkspacePath ? (
         <PackageScriptsDialog
           open={scriptsDialogOpen}
-          workspacePath={currentProjectPath}
+          workspacePath={activeWorkspacePath}
           {...(packageScripts?.packageName && { packageName: packageScripts.packageName })}
           packageManager={packageScripts?.packageManager ?? projectWorkspace?.packageManager ?? "npm"}
           scripts={packageScripts?.scripts ?? []}
@@ -13704,10 +13714,6 @@ function App() {
                     }}
                     acpCursorModelId={workflowSettings.acpCursorModelId}
                     acpCursorApiKey={workflowSettings.acpCursorApiKey}
-                    acpCursorApiKeyConfigured={
-                      Boolean(workflowSettings.acpCursorApiKey) ||
-                      Boolean(settings.providers.find((provider) => provider.id === "cursor")?.hasApiKey)
-                    }
                     cursorModels={cursorModels}
                     cursorModelsLoading={cursorModelsLoading}
                     {...(cursorModelsError && { cursorModelsError })}

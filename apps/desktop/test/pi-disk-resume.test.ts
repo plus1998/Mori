@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { resolvePiDiskResume } from "../src/main/pi-runtime-run";
 
-test("resolvePiDiskResume requires pi binding and sessionFile only", () => {
+test("resolvePiDiskResume requires pi binding, matching cwd and sessionFile", () => {
   expect(
     resolvePiDiskResume({
       binding: undefined,
@@ -33,7 +33,7 @@ test("resolvePiDiskResume requires pi binding and sessionFile only", () => {
     }),
   ).toBeUndefined();
 
-  // cwd mismatch must not block resume — fingerprints still pass through for driver rebuild.
+  // A different work location must never reopen the old runtime session.
   expect(
     resolvePiDiskResume({
       binding: {
@@ -48,11 +48,7 @@ test("resolvePiDiskResume requires pi binding and sessionFile only", () => {
       },
       cwd: "/w",
     }),
-  ).toEqual({
-    sessionFile: "/data/s.jsonl",
-    resumeIdentityFingerprint: "id1",
-    resumeMcpFingerprint: "mcp1",
-  });
+  ).toBeUndefined();
 
   // sessionFile alone is enough; missing identity still resumes.
   expect(

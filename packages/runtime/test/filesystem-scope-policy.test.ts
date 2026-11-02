@@ -10,6 +10,7 @@ import {
   resolvePolicyPath,
   resolvePolicySearchBase,
 } from "../src/filesystem-scope-policy.js";
+import { evaluateFilesystemWriteConfirmation } from "../src/tool-confirmation.js";
 
 test("expandHomeInPolicyPath expands tilde and $HOME prefixes", () => {
   const homedir = os.homedir().replace(/\\/g, "/");
@@ -38,6 +39,18 @@ test("resolvePolicySearchBase strips glob meta to static search root", () => {
 
 test("resolveFilesystemScopeRoot expands to parent cwd for subdirectory workspaces", () => {
   expect(resolveFilesystemScopeRoot("/repo/apps/desktop", "/repo")).toBe("/repo");
+});
+
+test("selected sibling worktree is the filesystem permission scope", () => {
+  const worktree = "/tmp/.mori-worktrees/repo/123";
+  const decision = evaluateFilesystemWriteConfirmation({
+    toolName: "Write",
+    toolInput: { file_path: `${worktree}/src/index.ts` },
+    cwd: worktree,
+    workspacePath: worktree,
+    confirmationMode: "always",
+  });
+  expect(decision?.action).toBe("allow");
 });
 
 test("filesystemReadScopeAskReason describes approval intent", () => {

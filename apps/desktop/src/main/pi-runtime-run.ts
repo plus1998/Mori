@@ -1,3 +1,4 @@
+import path from "node:path";
 import type { ResolvedModelRoute } from "@eco/model-router";
 import {
   type AgentEvent,
@@ -567,7 +568,7 @@ export async function removePiThreadAgentDir(ecoDataDir: string, threadId: strin
  * Resolve disk-resume fields from a stored PI core session binding.
  * Only `sessionFile` gates resume — fingerprints are passed through for the
  * driver to decide AgentSession rebuild, never to refuse opening the JSONL.
- * `cwd` is accepted for call-site symmetry but does not block resume.
+ * Work-location changes must create a fresh session in the selected directory.
  */
 export function resolvePiDiskResume(input: {
   binding:
@@ -586,9 +587,8 @@ export function resolvePiDiskResume(input: {
       resumeMcpFingerprint: string;
     }
   | undefined {
-  void input.cwd;
   const binding = input.binding;
-  if (!binding || binding.coreKind !== "pi") {
+  if (!binding || binding.coreKind !== "pi" || path.resolve(binding.cwd) !== path.resolve(input.cwd)) {
     return undefined;
   }
   const metadata = binding.metadata ?? {};

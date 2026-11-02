@@ -24,6 +24,10 @@ export class ThreadRunPreparationRegistry {
     }
   }
 
+  has(threadId: string): boolean {
+    return Boolean(this.pending.get(threadId)?.size);
+  }
+
   cancel(threadId: string): boolean {
     const controllers = this.pending.get(threadId);
     if (!controllers?.size) return false;

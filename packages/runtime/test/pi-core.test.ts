@@ -2087,3 +2087,35 @@ test("PI model receives dynamic output budget and preserves explicitly larger fi
   });
   expect(resolved.maxTokens).toBe(64_000);
 });
+
+test("Pi recreates the same chat in the user-selected directory after worktree disposal", async () => {
+  const registry = new PiSessionRegistry();
+  const directories: string[] = [];
+  const openedFiles: Array<string | undefined> = [];
+  const driver = new PiCodingAgentDriver({
+    resolveBridgeModel: async () => ({ bridgeBaseUrl: "http://127.0.0.1:18765", bridgeModelId: "alias", apiKey: "test",
+      agentDir: "/tmp/pi-worktree-test", apiCompat: "anthropic", bindingId: "binding", providerId: "test" }),
+    createSession: async input => {
+      directories.push(input.cwd);
+      openedFiles.push(input.sessionFile);
+      return {
+        sessionId: `session-${directories.length}`, cwd: input.cwd, routeFingerprint: input.routeFingerprint,
+        bindingId: input.bindingId, skillsFingerprint: "", mcpFingerprint: "",
+        abort: async () => {}, dispose: () => {}, isStreaming: () => false,
+        steer: async () => {}, rebind: async () => {}, updateSkillPaths: async () => {},
+        async *prompt() {},
+      };
+    },
+  }, registry);
+  const routes = [{ role: "main" as const, providerId: "test", modelId: "model", primary: { modelId: "model" } }];
+  for (const cwd of ["/isolated-selected", "/project"]) {
+    const events: AgentEvent[] = [];
+    for await (const event of driver.run({ threadId: "same-chat", prompt: "continue", workspacePath: "/project",
+      worktreePath: cwd, routes, signal: new AbortController().signal })) events.push(event);
+    expect(events.find(event => event.type === "session.captured")?.payload).toMatchObject({ cwd });
+    // Desktop disposes the old runtime when the user chooses the next work location.
+    await registry.deleteThread("same-chat");
+  }
+  expect(directories).toEqual(["/isolated-selected", "/project"]);
+  expect(openedFiles).toEqual([undefined, undefined]);
+});

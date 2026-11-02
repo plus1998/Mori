@@ -24,7 +24,8 @@ export class ConversationStoreCodexThreadMap implements CodexThreadMap {
       threadId: thread.id,
       coreKind: "codex",
       externalSessionId: codexThreadId,
-      cwd: thread.workspacePath,
+      cwd: thread.workLocation?.mode === "isolated" && thread.workLocation.worktree
+        ? thread.workLocation.worktree.worktreePath : thread.workspacePath,
     });
   }
 

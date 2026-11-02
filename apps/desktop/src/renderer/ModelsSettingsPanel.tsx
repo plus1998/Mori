@@ -174,7 +174,6 @@ const OFFICIAL_PROVIDER_HOSTS: Record<string, { label: string; iconSrc: string }
   "tokenhub.tencentmaas.com": { label: "Tencent Hunyuan", iconSrc: "./provider-icons/tencent-hunyuan.png" },
   "api.xiaomimimo.com": { label: "Xiaomi MiMo", iconSrc: "./provider-icons/xiaomi-mimo.ico" },
   "opencode.ai": { label: "OpenCode Zen", iconSrc: "./provider-icons/opencode-zen.ico" },
-  "api.cursor.com": { label: "Cursor", iconSrc: "./agent-icons/cursor.ico" },
 };
 
 function providerBrandPresentation(
@@ -1401,96 +1400,6 @@ function ProviderEditorModal({
                 {hasExistingApiKey && !(form.apiKey ?? "").trim() ? (
                   <span className="mcp-field-hint">{t("settings.models.provider.keepKey")}</span>
                 ) : null}
-                {form.id === "cursor" || (form.apiKeys?.length ?? 0) > 0 ? (
-                  <div className="models-provider-api-keys">
-                    <div className="models-provider-label-row">
-                      <span className="mcp-field-label">{t("settings.models.provider.apiKeys")}</span>
-                      <button
-                        type="button"
-                        className="models-provider-inline-link"
-                        disabled={busy}
-                        onClick={() =>
-                          setForm((current) => ({
-                            ...current,
-                            apiKeys: [
-                              ...(current.apiKeys ?? []),
-                              { name: `API Key ${(current.apiKeys?.length ?? 0) + 1}`, apiKey: "", enabled: true },
-                            ],
-                          }))
-                        }
-                      >
-                        <Plus size={12} />
-                        {t("settings.models.provider.addApiKey")}
-                      </button>
-                    </div>
-                    {(form.apiKeys ?? []).map((key, index) => (
-                      <div className="models-provider-api-key-row" key={key.id ?? `new-${index}`}>
-                        <input
-                          className="mcp-field-input"
-                          value={key.name ?? ""}
-                          placeholder={`API Key ${index + 1}`}
-                          disabled={busy}
-                          onChange={(event) =>
-                            setForm((current) => ({
-                              ...current,
-                              apiKeys: (current.apiKeys ?? []).map((item, itemIndex) =>
-                                itemIndex === index ? { ...item, name: event.target.value } : item,
-                              ),
-                            }))
-                          }
-                        />
-                        <input
-                          className="mcp-field-input"
-                          type="password"
-                          autoComplete="off"
-                          value={key.apiKey ?? ""}
-                          placeholder={key.apiKeyPreview ?? t("settings.models.provider.apiKeyPlaceholder")}
-                          disabled={busy}
-                          onChange={(event) =>
-                            setForm((current) => ({
-                              ...current,
-                              apiKeys: (current.apiKeys ?? []).map((item, itemIndex) =>
-                                itemIndex === index ? { ...item, apiKey: event.target.value } : item,
-                              ),
-                            }))
-                          }
-                        />
-                        <label className="mcp-toggle mcp-toggle-sm" title={key.enabled ? t("common.enabled") : t("common.disabled")}>
-                          <input
-                            type="checkbox"
-                            checked={key.enabled !== false}
-                            disabled={busy}
-                            onChange={(event) =>
-                              setForm((current) => ({
-                                ...current,
-                                apiKeys: (current.apiKeys ?? []).map((item, itemIndex) =>
-                                  itemIndex === index ? { ...item, enabled: event.target.checked } : item,
-                                ),
-                              }))
-                            }
-                          />
-                          <span className="mcp-toggle-track" aria-hidden />
-                        </label>
-                        <button
-                          type="button"
-                          className="mcp-icon-button"
-                          aria-label={t("settings.models.provider.deleteApiKey")}
-                          title={t("settings.models.provider.deleteApiKey")}
-                          disabled={busy}
-                          onClick={() =>
-                            setForm((current) => ({
-                              ...current,
-                              apiKeys: (current.apiKeys ?? []).filter((_item, itemIndex) => itemIndex !== index),
-                            }))
-                          }
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                    ))}
-                    <span className="mcp-field-hint">{t("settings.models.provider.apiKeysHint")}</span>
-                  </div>
-                ) : null}
                 </label>
               )}
             </section>
@@ -1764,14 +1673,6 @@ function providerToForm(provider?: ProviderConfigView): ProviderConfigInput {
     apiCompat: provider?.apiCompat ?? "anthropic",
     tokenCountMode: provider?.tokenCountMode ?? "provider_native",
     apiKey: "",
-    apiKeys:
-      provider?.apiKeys?.map((key) => ({
-        id: key.id,
-        name: key.name,
-        enabled: key.enabled,
-        ...(key.apiKeyPreview ? { apiKeyPreview: key.apiKeyPreview } : {}),
-        apiKey: "",
-      })) ?? [],
     ...(provider?.authMethod ? { authMethod: provider.authMethod } : {}),
     ...(provider?.credentialPoolId ? { credentialPoolId: provider.credentialPoolId } : {}),
     upstreamProxyUrl: provider?.upstreamProxyUrl ?? "",

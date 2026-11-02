@@ -27648,31 +27648,6 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .settings-nav {
   text-decoration: underline;
 }
 
-.models-provider-api-keys {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 10px;
-}
-
-.models-provider-api-key-row {
-  display: grid;
-  grid-template-columns: minmax(90px, 0.7fr) minmax(0, 1.3fr) auto auto;
-  align-items: center;
-  gap: 8px;
-}
-
-@media (max-width: 560px) {
-  .models-provider-api-key-row {
-    grid-template-columns: 1fr auto;
-  }
-
-  .models-provider-api-key-row .mcp-field-input:nth-child(2) {
-    grid-column: 1 / -1;
-    grid-row: 1;
-  }
-}
-
 .api-compat-toggle-wrap {
   position: relative;
   display: inline-flex;
@@ -43228,3 +43203,34 @@ body.is-resizing-browser-split::before {
 @media (max-width: 700px) {
   .startup-scripts-panel { padding: 16px; }
 }
+
+
+.thread-worktree-control {
+  margin: 0 8px 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color, rgba(128, 128, 128, .2));
+  border-radius: 10px;
+  color: var(--text-secondary, inherit);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.thread-worktree-new { border: 0; padding: 0 4px; }
+.thread-worktree-control p { margin: 6px 0; }
+.thread-worktree-control code { user-select: text; font-size: 11px; }
+.thread-worktree-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.thread-worktree-control button, .thread-worktree-control select {
+  border: 1px solid var(--border-color, rgba(128, 128, 128, .25));
+  border-radius: 6px;
+  padding: 3px 8px;
+  background: var(--bg-secondary, transparent);
+  color: inherit;
+  font: inherit;
+}
+.thread-worktree-control button:disabled { opacity: .45; cursor: default; }
+.thread-worktree-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.thread-worktree-actions > p, .thread-worktree-actions > fieldset { width: 100%; }
+.thread-worktree-actions > fieldset { min-width: 0; margin: 0; padding: 8px; border: 1px solid var(--border-color); border-radius: 6px; }
+.thread-worktree-control [role="alert"] { color: var(--color-danger, #d55); }
+.thread-worktree-control details { margin-top: 5px; }
+.thread-worktree-control ul { padding-left: 18px; margin: 6px 0; max-height: 96px; overflow: auto; }

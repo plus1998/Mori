@@ -190,7 +190,7 @@ test("CodexAppServerDriver runs thread/start then turn/start and observes item n
       threadId: "thr_eco_1",
       prompt: "Read README and summarize",
       workspacePath: "/repo",
-      worktreePath: "/repo",
+      worktreePath: "/isolated-selected",
       routes: [plannerRoute({ thinkingEffort: "high" })],
       signal: controller.signal,
       codexSession: {
@@ -249,6 +249,8 @@ test("CodexAppServerDriver runs thread/start then turn/start and observes item n
   const messages = readRpcMessages(stdin);
   const threadStart = messages.find((message) => message.method === "thread/start");
   const turnStart = messages.find((message) => message.method === "turn/start");
+  expect(threadStart?.params?.cwd).toBe("/isolated-selected");
+  expect(turnStart?.params?.cwd).toBe("/isolated-selected");
   expect(threadStart?.params?.modelProvider).toBe("eco_anthropic-main");
   expect(threadStart?.params?.model).toBe("eco_anthropic-main__claude-sonnet-4");
   expect(threadStart?.params?.developerInstructions).toBe(ECO_DEVELOPER_INSTRUCTIONS);

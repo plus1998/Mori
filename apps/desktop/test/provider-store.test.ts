@@ -153,44 +153,6 @@ test.skipIf(!sqliteAvailable)("provider version defaults to v1 and persists cust
   expect(emptied.version).toBe("v1");
 });
 
-test.skipIf(!sqliteAvailable)("provider stores multiple named API keys and rotates enabled keys", async () => {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "eco-provider-api-keys-"));
-  try {
-    const store = await createProviderStore(path.join(dir, "eco-coding.sqlite"));
-    const provider = store.saveProvider({
-      id: "cursor",
-      name: "Cursor",
-      baseUrl: "https://api.cursor.com",
-      apiKey: "legacy-key",
-      defaultModel: "",
-      enabled: true,
-    });
-    expect(provider.apiKeys?.map((key) => key.name)).toEqual(["默认密钥"]);
-
-    const saved = store.saveProvider({
-      id: provider.id,
-      name: provider.name,
-      baseUrl: provider.baseUrl,
-      defaultModel: provider.defaultModel,
-      enabled: true,
-      apiKeys: [
-        { id: provider.apiKeys?.[0]?.id, name: "Work", apiKey: "key-work", enabled: true },
-        { name: "Personal", apiKey: "key-personal", enabled: true },
-      ],
-    });
-    expect(saved.apiKeys?.map((key) => key.name)).toEqual(["Work", "Personal"]);
-    expect(store.nextProviderApiKey("cursor")).toBe("key-work");
-    expect(store.nextProviderApiKey("cursor")).toBe("key-personal");
-    expect(store.nextProviderApiKey("cursor")).toBe("key-work");
-    expect(store.listProvidersWithSecrets()[0]?.apiKeys.map((key) => key.apiKey)).toEqual([
-      "key-work",
-      "key-personal",
-    ]);
-  } finally {
-    await removeTempDirectory(dir);
-  }
-});
-
 test.skipIf(!sqliteAvailable)("models keep independent upstream endpoints when provider changes", async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "eco-model-endpoints-"));
   try {

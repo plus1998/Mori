@@ -41,7 +41,7 @@ export interface AcpRuntimeOrchestrationDeps {
   requireThreadCore: (thread: Pick<ThreadSummary, "id" | "coreKind">, expected: CoreKind, op: string) => void;
   resolveSessionMode: (runtimeConfig: ThreadSummary["runtimeConfig"]) => "agent" | "plan" | "ask";
   startActiveRun: (threadId: string, run: ActiveRunRuntimeStateInput) => void;
-  createSessionPlan: (workspacePath: string, threadId: string) => WorktreePlan;
+  resolveThreadWorktree: (workspace: WorkspaceInfo, threadId: string) => Promise<{ cwd: string; worktreePlan: WorktreePlan }>;
   runThreadRequestOnce: (
     threadId: string,
     phase: "execution" | "ask" | "planning" | "continuation",
@@ -266,18 +266,20 @@ export async function startAcpThreadRunWithDriver(
 ): Promise<void> {
   deps.requireThreadCore(input.thread, "acp", "start an ACP run");
   const acpAgentId = resolveAcpThreadAgentId(input.thread);
+  const selected = await deps.resolveThreadWorktree(input.workspace, input.thread.id);
+  const cwd = selected.cwd;
   const controller = new AbortController();
   deps.startActiveRun(input.thread.id, {
     controller,
-    worktreePlan: deps.createSessionPlan(input.workspace.path, input.thread.id),
+    worktreePlan: selected.worktreePlan,
   });
   const mode = deps.resolveSessionMode(input.thread.runtimeConfig);
   const previous = input.continuation ? deps.getThreadCoreSession(input.thread.id) : undefined;
   const resume = decideAcpResume(
     definedProps({
       continuation: input.continuation,
-      externalSessionId: previous?.externalSessionId,
-      hasPriorAgentOutput: input.continuation ? deps.threadHasPriorAgentOutput(input.thread.id) : false,
+      externalSessionId: previous?.cwd === cwd ? previous.externalSessionId : undefined,
+      hasPriorAgentOutput: input.continuation && !input.thread.workLocation?.contextResetPending ? deps.threadHasPriorAgentOutput(input.thread.id) : false,
     }),
   );
   const coldStartContinuation = input.continuation && resume.kind === "fresh";
@@ -304,7 +306,7 @@ export async function startAcpThreadRunWithDriver(
     const mcpServers = deps.resolveAcpMcpServers
       ? await deps.resolveAcpMcpServers({
           threadId: input.thread.id,
-          workspacePath: input.workspace.path,
+          workspacePath: cwd,
         })
       : [];
     const resolvedPrompt = deps.resolvePromptImagesForMainContext
@@ -321,23 +323,23 @@ export async function startAcpThreadRunWithDriver(
       : resolvedPrompt;
     const onCreatePlan = deps.resolveAcpCreatePlanHandler?.({
       threadId: input.thread.id,
-      workspacePath: input.workspace.path,
+      workspacePath: cwd,
       userPrompt: input.prompt,
     });
     const onAskQuestion = deps.resolveAcpAskQuestionHandler?.({
       threadId: input.thread.id,
-      workspacePath: input.workspace.path,
+      workspacePath: cwd,
     });
     const onRequestPermission = deps.resolveAcpPermissionHandler?.({
       threadId: input.thread.id,
-      workspacePath: input.workspace.path,
+      workspacePath: cwd,
     });
     const runOnce = () =>
       deps.consumeEvents({
         events: acpDriver.run({
           threadId: input.thread.id,
           prompt: promptForAgent,
-          workspacePath: input.workspace.path,
+          workspacePath: cwd,
           signal: controller.signal,
           acpAgentId,
           sessionMode: mode,
@@ -356,7 +358,7 @@ export async function startAcpThreadRunWithDriver(
           ...(onRequestPermission ? { onRequestPermission } : {}),
         } as Parameters<AcpAgentDriver["run"]>[0]),
         threadId: input.thread.id,
-        worktreePath: input.workspace.path,
+        worktreePath: cwd,
         signal: controller.signal,
       });
 

@@ -434,7 +434,7 @@ async function handleFileChangeRequestApproval(
 
   const grantRoot = readString(params, "grantRoot");
   const reason = readString(params, "reason") ?? "Codex requires your approval before applying file changes.";
-  const filesystemPath = grantRoot ?? thread.workspacePath;
+  const filesystemPath = grantRoot ?? deps.getWorktreePath(ecoThreadId) ?? thread.workspacePath;
   const command = grantRoot ? `write under ${grantRoot}` : "apply file changes";
   const plannerAgentId = deps.getPlannerAgentId(ecoThreadId) ?? `${ecoThreadId}:main`;
   let approvalRequest: BashApprovalRequest = {

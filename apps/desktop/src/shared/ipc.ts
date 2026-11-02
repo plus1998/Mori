@@ -233,6 +233,9 @@ export const IPC_CHANNELS = {
   conformanceRun: "conformance:run",
   worktreeApply: "worktree:apply",
   worktreeGetStatus: "worktree:get-status",
+  worktreeConfirmMerged: "worktree:confirm-merged",
+  worktreeCleanup: "worktree:cleanup",
+  worktreeSelectLocation: "worktree:select-location",
   terminalList: "terminal:list",
   terminalSpawn: "terminal:spawn",
   projectTerminalSettingsGet: "project-terminal-settings:get",
@@ -1523,23 +1526,6 @@ export type { ProjectIntegrationsSettingsSnapshot } from "./integrations";
 export type { ProjectOrchestrationSettingsSnapshot } from "./project-orchestration-settings";
 export type { ProviderTokenCountMode, UpstreamApiCompat };
 
-/** A named credential stored under a model provider. Secrets are write-only in renderer views. */
-export interface ProviderApiKeyInput {
-  id?: string;
-  name?: string;
-  apiKey?: string;
-  enabled?: boolean;
-  /** Renderer-only masked value used to preserve an existing secret when input is blank. */
-  apiKeyPreview?: string;
-}
-
-export interface ProviderApiKeyView {
-  id: string;
-  name: string;
-  enabled: boolean;
-  apiKeyPreview?: string;
-}
-
 export interface ProviderConfigInput {
   id?: string;
   name: string;
@@ -1562,8 +1548,6 @@ export interface ProviderConfigInput {
   /** Raw auth.json content for manual authentication. */
   authJsonContent?: string;
   apiKey?: string;
-  /** Multiple named API keys. Empty values preserve an existing key with the same id. */
-  apiKeys?: ProviderApiKeyInput[];
   /**
    * Per-provider upstream proxy (http/https/socks5). Empty/missing means this
    * provider follows the global outbound proxy setting.
@@ -1589,7 +1573,6 @@ export interface ProviderConfigView {
   enabled: boolean;
   hasApiKey: boolean;
   apiKeyPreview?: string;
-  apiKeys?: ProviderApiKeyView[];
   /** Set only when the provider has a per-provider upstream proxy. */
   upstreamProxyUrl?: string;
   createdAt: string;
@@ -1940,6 +1923,7 @@ export interface ThreadDismissPlanRequest {
 }
 
 export interface ThreadSummary {
+  workLocation?: import("./thread-worktree").ThreadWorkLocation;
   id: string;
   title: string;
   prompt: string;
@@ -2033,6 +2017,7 @@ export interface ThreadClarificationNotificationResult {
 export interface ThreadStartRequest {
   /** Explicit execution intent from a plan reference; validated again by the host. */
   planExecutionId?: string;
+  developmentMode?: import("./thread-worktree").ThreadDevelopmentMode;
   workspacePath: string;
   prompt: string;
   coreKind?: import("@eco/runtime/core-runtime").CoreKind;
@@ -2347,12 +2332,7 @@ export interface CoderTodoItem {
   updatedAt: string;
 }
 
-export interface WorktreeStatusResult {
-  exists: boolean;
-  worktreePath: string;
-  workspacePath: string;
-  changedFiles: string[];
-}
+export type WorktreeStatusResult = import("./thread-worktree").ThreadWorktreeStatus;
 
 export interface WorktreeApplyResult {
   ok: true;
