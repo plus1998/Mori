@@ -6271,6 +6271,72 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Answer a question'**
   String get approvalClarificationTitle;
+
+  /// No description provided for @approvalPlanExecutionOptions.
+  ///
+  /// In en, this message translates to:
+  /// **'More plan execution options'**
+  String get approvalPlanExecutionOptions;
+
+  /// No description provided for @approvalPlanScheduleExecution.
+  ///
+  /// In en, this message translates to:
+  /// **'Schedule execution'**
+  String get approvalPlanScheduleExecution;
+
+  /// No description provided for @approvalPlanExecuteInNewSession.
+  ///
+  /// In en, this message translates to:
+  /// **'Execute in a new conversation'**
+  String get approvalPlanExecuteInNewSession;
+
+  /// No description provided for @approvalPlanDelegateTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Execute with a subagent'**
+  String get approvalPlanDelegateTitle;
+
+  /// No description provided for @approvalPlanDelegateReadOnly.
+  ///
+  /// In en, this message translates to:
+  /// **'Read-only subagent; cannot execute plans'**
+  String get approvalPlanDelegateReadOnly;
+
+  /// No description provided for @approvalPlanDelegateMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Additional instructions for the subagent (optional)'**
+  String get approvalPlanDelegateMessage;
+
+  /// No description provided for @approvalPlanDelegateMessageHint.
+  ///
+  /// In en, this message translates to:
+  /// **'For example: add tests first, then implement the API…'**
+  String get approvalPlanDelegateMessageHint;
+
+  /// No description provided for @approvalPlanScheduleHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Execute this plan in the current conversation at the chosen time. Edit or cancel it in scheduled messages. If the plan or conversation changes, schedule it again.'**
+  String get approvalPlanScheduleHint;
+
+  /// No description provided for @approvalPlanChanged.
+  ///
+  /// In en, this message translates to:
+  /// **'The plan changed or was already handled. Open the current plan again.'**
+  String get approvalPlanChanged;
+
+  /// No description provided for @approvalPlanWorkLocationRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose an available work location for the source conversation first.'**
+  String get approvalPlanWorkLocationRequired;
+
+  /// No description provided for @approvalPlanReferenceLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Plan v{version}'**
+  String approvalPlanReferenceLabel(int version);
 }
 
 class _AppLocalizationsDelegate

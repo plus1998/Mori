@@ -1,8 +1,10 @@
-import { FolderOpen } from "lucide-react";
+import { Download, FolderOpen } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ImageGenerationArtifact } from "../shared/image-generation";
 import { ImageLightbox } from "./image-lightbox";
+import { formatIpcInvokeError } from "./AppMessage";
+import { useImageLibraryRevision } from "./use-image-library-revision";
 import {
   createImageObjectUrlFromBase64,
   revokeImageObjectUrl,
@@ -13,15 +15,20 @@ export function ImageGenerationArtifactDetail({ artifact }: { artifact: ImageGen
   const { t } = useTranslation();
   const [previewIndex, setPreviewIndex] = useState<number>();
   const imageCount = artifact.images.length;
+  const libraryRevision = useImageLibraryRevision();
   const [images, setImages] = useState<string[]>([]);
   const [loadError, setLoadError] = useState<string>();
+  const [imageErrors, setImageErrors] = useState<Record<number, string>>({});
   const [revealError, setRevealError] = useState<string>();
+  const availableIndexes = images.flatMap((source, index) => (source ? [index] : []));
 
   useEffect(() => {
     let cancelled = false;
     const objectUrls: string[] = [];
+    setPreviewIndex(undefined);
     setImages([]);
     setLoadError(undefined);
+    setImageErrors({});
     setRevealError(undefined);
     if (!imageCount) return;
     const eco = window.eco;
@@ -29,22 +36,28 @@ export function ImageGenerationArtifactDetail({ artifact }: { artifact: ImageGen
       setLoadError(t("settings.imageGeneration.desktopOnly"));
       return;
     }
-    void Promise.all(
+    void Promise.allSettled(
       Array.from({ length: imageCount }, (_, imageIndex) =>
         eco.readImageGenerationArtifact({ artifactId: artifact.id, imageIndex }),
       ),
     )
       .then((results) => {
-        for (const result of results) {
-          const url = createImageObjectUrlFromBase64(result.mimeType, result.dataBase64);
-          if (cancelled) {
-            revokeImageObjectUrl(url);
-            continue;
+        const sources: string[] = [];
+        const errors: Record<number, string> = {};
+        results.forEach((result, index) => {
+          if (result.status === "rejected") {
+            sources.push("");
+            errors[index] = formatIpcInvokeError(result.reason);
+            return;
           }
-          objectUrls.push(url);
-        }
+          const url = createImageObjectUrlFromBase64(result.value.mimeType, result.value.dataBase64);
+          if (cancelled) revokeImageObjectUrl(url);
+          else objectUrls.push(url);
+          sources.push(url);
+        });
         if (!cancelled) {
-          setImages([...objectUrls]);
+          setImages(sources);
+          setImageErrors(errors);
         }
       })
       .catch((error) => {
@@ -54,7 +67,7 @@ export function ImageGenerationArtifactDetail({ artifact }: { artifact: ImageGen
       cancelled = true;
       revokeImageObjectUrls(objectUrls);
     };
-  }, [artifact.id, imageCount, t]);
+  }, [artifact.id, imageCount, libraryRevision, t]);
 
   async function handleRevealImage(imageIndex: number) {
     if (!window.eco?.revealImageGenerationArtifact) {
@@ -103,18 +116,49 @@ export function ImageGenerationArtifactDetail({ artifact }: { artifact: ImageGen
         <div className="image-artifact-gallery">
           {images.map((source, index) => (
             <figure key={artifact.images[index]?.relativePath ?? index}>
-              <button
-                type="button"
-                className="image-artifact-preview-button"
-                onClick={() => setPreviewIndex(index)}
-                aria-label={`${t("task.image.generated")} ${index + 1}`}
-              >
-                <img src={source} alt={`${t("task.image.generated")} ${index + 1}`} />
-              </button>
-              <figcaption className="image-artifact-caption">
-                <span>{artifact.images[index]?.relativePath}</span>
+              {source ? (
                 <button
                   type="button"
+                  className="image-artifact-preview-button"
+                  onClick={() => setPreviewIndex(index)}
+                  aria-label={`${t("task.image.generated")} ${index + 1}`}
+                >
+                  <img src={source} alt={`${t("task.image.generated")} ${index + 1}`} />
+                </button>
+              ) : (
+                <p className="image-artifact-error" role="status">
+                  {imageErrors[index]}
+                </p>
+              )}
+              <figcaption className="image-artifact-caption">
+                <span>
+                  {artifact.images[index]?.libraryImageId
+                    ? artifact.images[index]?.absolutePath.split(/[\\/]/).pop()
+                    : artifact.images[index]?.relativePath}
+                </span>
+                {artifact.images[index]?.libraryImageId && source ? (
+                  <button
+                    type="button"
+                    className="image-artifact-location-button"
+                    onClick={() => {
+                      const id = artifact.images[index]?.libraryImageId;
+                      if (!id || !window.eco) return;
+                      void window.eco
+                        .exportImageLibraryImages([id])
+                        .then((result) => {
+                          if (result.errors.length)
+                            setRevealError(result.errors.map((error) => error.message).join("\n"));
+                        })
+                        .catch((error) => setRevealError(String(error)));
+                    }}
+                  >
+                    <Download size={13} aria-hidden />
+                    <span>{t("imageLibrary.export")}</span>
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  disabled={!source}
                   className="image-artifact-location-button"
                   onClick={() => void handleRevealImage(index)}
                   title={t("task.image.openLocation")}
@@ -137,10 +181,19 @@ export function ImageGenerationArtifactDetail({ artifact }: { artifact: ImageGen
           onClose={() => setPreviewIndex(undefined)}
           onOpenFolder={() => void handleRevealImage(previewIndex)}
           navigation={{
-            index: previewIndex,
-            count: images.length,
-            onPrevious: () => setPreviewIndex((previewIndex + images.length - 1) % images.length),
-            onNext: () => setPreviewIndex((previewIndex + 1) % images.length),
+            index: availableIndexes.indexOf(previewIndex),
+            count: availableIndexes.length,
+            onPrevious: () =>
+              setPreviewIndex(
+                availableIndexes[
+                  (availableIndexes.indexOf(previewIndex) + availableIndexes.length - 1) %
+                    availableIndexes.length
+                ],
+              ),
+            onNext: () =>
+              setPreviewIndex(
+                availableIndexes[(availableIndexes.indexOf(previewIndex) + 1) % availableIndexes.length],
+              ),
           }}
         />
       ) : null}

@@ -23,6 +23,7 @@ import '../models/skill_models.dart';
 import '../models/thread_models.dart';
 import '../models/scheduling_models.dart';
 import '../models/project_todo_models.dart';
+import '../models/plan_execution.dart';
 import '../network/eco_center_client.dart';
 import '../storage/conversation_v2_cache.dart';
 import '../utils/conversation_v2_hash.dart';
@@ -1336,6 +1337,9 @@ class DesktopRpc implements ReadAloudRemote {
     required ThreadRuntimeConfigInput runtimeConfig,
     String? coreKind,
     List<PromptImageAttachment>? attachments,
+    String? planExecutionId,
+    String? developmentMode,
+    String? managedWorktreeId,
   }) async {
     final result = await _client.invoke<Map<String, dynamic>>(
       desktopDeviceId,
@@ -1345,6 +1349,9 @@ class DesktopRpc implements ReadAloudRemote {
           'workspacePath': workspacePath,
           'prompt': prompt,
           'coreKind': ?coreKind,
+          'planExecutionId': ?planExecutionId,
+          'developmentMode': ?developmentMode,
+          'managedWorktreeId': ?managedWorktreeId,
           if (attachments != null && attachments.isNotEmpty)
             'attachments': attachments.map((a) => a.toWireJson()).toList(),
           'runtimeConfig': runtimeConfig.toJson(),
@@ -1570,6 +1577,7 @@ class DesktopRpc implements ReadAloudRemote {
     required String clientCommandId,
     required String threadId,
     required int expectedHistoryRevision,
+    PlanExecutionTarget? executionTarget,
   }) async {
     await _client.invoke(desktopDeviceId, 'thread:approve-plan', [
       {
@@ -1577,6 +1585,8 @@ class DesktopRpc implements ReadAloudRemote {
         'clientCommandId': clientCommandId,
         'threadId': threadId,
         'expectedHistoryRevision': expectedHistoryRevision,
+        if (executionTarget != null)
+          'executionTarget': executionTarget.toJson(),
       },
     ]);
   }

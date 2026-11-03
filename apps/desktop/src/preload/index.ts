@@ -1,3 +1,4 @@
+import type { ImageLibraryQuery, ImageLibraryPage, LibraryImage, ImageLibraryReadResult, ImageLibraryBatchResult } from "../shared/image-library";
 import type { KeyboardShortcutsSnapshot, ShortcutBindings } from "../shared/keyboard-shortcuts";
 import type { AccountUsageHistory, AccountUsageQuery, UsageOverview, UsageOverviewQuery } from "../shared/account-usage";
 import { MORI_ASSISTANT_CHANNELS as MORI } from "../shared/mori-assistant";
@@ -1108,6 +1109,26 @@ const api = {
   },
   pickImageGenerationInputs(): Promise<string[]> {
     return ipcRenderer.invoke(IPC_CHANNELS.imageGenerationPickInputs);
+  },
+  listImageLibrary(query: ImageLibraryQuery): Promise<ImageLibraryPage> {
+    return ipcRenderer.invoke(IPC_CHANNELS.imageLibraryList, query);
+  },
+  getImageLibraryImage(id: string): Promise<LibraryImage> {
+    return ipcRenderer.invoke(IPC_CHANNELS.imageLibraryGet, { id });
+  },
+  readImageLibraryImage(id: string, thumbnail = false): Promise<ImageLibraryReadResult> {
+    return ipcRenderer.invoke(IPC_CHANNELS.imageLibraryRead, { id, thumbnail });
+  },
+  changeImageLibraryState(ids: string[], action: "trash" | "restore" | "purge"): Promise<ImageLibraryBatchResult> {
+    return ipcRenderer.invoke(IPC_CHANNELS.imageLibraryChangeState, { ids, action });
+  },
+  exportImageLibraryImages(ids: string[]): Promise<ImageLibraryBatchResult> {
+    return ipcRenderer.invoke(IPC_CHANNELS.imageLibraryExport, { ids });
+  },
+  onImageLibraryChanged(callback: () => void): () => void {
+    const listener = () => callback();
+    ipcRenderer.on(IPC_CHANNELS.imageLibraryChanged, listener);
+    return () => ipcRenderer.off(IPC_CHANNELS.imageLibraryChanged, listener);
   },
   listImageGenerationArtifacts(threadId: string): Promise<ImageGenerationArtifact[]> {
     return ipcRenderer.invoke(IPC_CHANNELS.imageGenerationArtifactsList, { threadId });

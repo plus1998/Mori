@@ -3375,4 +3375,40 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get approvalClarificationTitle => '回答问题';
+
+  @override
+  String get approvalPlanExecutionOptions => '更多计划执行选项';
+
+  @override
+  String get approvalPlanScheduleExecution => '指定时间执行';
+
+  @override
+  String get approvalPlanExecuteInNewSession => '在新会话中执行';
+
+  @override
+  String get approvalPlanDelegateTitle => '指定子 Agent 执行';
+
+  @override
+  String get approvalPlanDelegateReadOnly => '只读子 Agent，无法执行计划';
+
+  @override
+  String get approvalPlanDelegateMessage => '给子 Agent 的补充说明（可选）';
+
+  @override
+  String get approvalPlanDelegateMessageHint => '例如：先补充测试，再实现接口……';
+
+  @override
+  String get approvalPlanScheduleHint =>
+      '到点后在当前会话中执行这份计划。可在定时消息中修改时间或取消；若计划或会话内容变更，需要重新设置。';
+
+  @override
+  String get approvalPlanChanged => '计划已更新或已处理，请重新打开当前计划。';
+
+  @override
+  String get approvalPlanWorkLocationRequired => '来源会话的工作位置尚未就绪，请先选择可用的工作位置。';
+
+  @override
+  String approvalPlanReferenceLabel(int version) {
+    return '计划 v$version';
+  }
 }

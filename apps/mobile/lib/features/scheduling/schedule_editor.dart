@@ -26,6 +26,7 @@ Future<bool?> showScheduleEditor(
   String initialPrompt = '',
   List<PromptImageAttachment> initialAttachments = const [],
   ScheduledMessageNewThread? newThread,
+  ScheduledPlanApproval? planApproval,
 }) => Navigator.of(context, rootNavigator: true).push<bool>(
   MaterialPageRoute(
     fullscreenDialog: true,
@@ -35,6 +36,7 @@ Future<bool?> showScheduleEditor(
       initialPrompt: initialPrompt,
       initialAttachments: initialAttachments,
       newThread: newThread,
+      planApproval: planApproval,
     ),
   ),
 );
@@ -47,12 +49,14 @@ class ScheduleEditor extends ConsumerStatefulWidget {
     this.initialPrompt = '',
     this.initialAttachments = const [],
     this.newThread,
+    this.planApproval,
   });
   final ScheduleDefinition? definition;
   final String? threadId;
   final String initialPrompt;
   final List<PromptImageAttachment> initialAttachments;
   final ScheduledMessageNewThread? newThread;
+  final ScheduledPlanApproval? planApproval;
   @override
   ConsumerState<ScheduleEditor> createState() => _ScheduleEditorState();
 }
@@ -78,6 +82,9 @@ class _ScheduleEditorState extends ConsumerState<ScheduleEditor> {
   final _attachments = <PromptImageAttachment>[];
   bool get _isMessage =>
       widget.definition?.isMessage ?? widget.threadId != null;
+  ScheduledPlanApproval? get _planApproval =>
+      widget.definition?.planApproval ?? widget.planApproval;
+  bool get _isPlan => _planApproval != null;
 
   @override
   void initState() {
@@ -215,7 +222,7 @@ class _ScheduleEditorState extends ConsumerState<ScheduleEditor> {
 
   Future<void> _save() => _run(() async {
     final l = context.l10n;
-    final prompt = _prompt.prompt.trim();
+    final prompt = _isPlan ? _prompt.prompt : _prompt.prompt.trim();
     final name = _name.text.trim().isNotEmpty
         ? _name.text.trim()
         : (_isMessage && prompt.isNotEmpty
@@ -252,8 +259,8 @@ class _ScheduleEditorState extends ConsumerState<ScheduleEditor> {
     }
     final fields = <String, dynamic>{
       'name': name,
-      'prompt': prompt,
-      if (_isMessage)
+      if (!_isPlan || widget.definition == null) 'prompt': prompt,
+      if (_isMessage && !_isPlan)
         'attachments': [
           for (final a in _attachments)
             {
@@ -298,6 +305,7 @@ class _ScheduleEditorState extends ConsumerState<ScheduleEditor> {
           'kind': _isMessage ? 'session_message' : 'scheduled_task',
           ...fields,
           if (_isMessage) 'threadId': widget.threadId,
+          if (_isPlan) 'planApproval': _planApproval!.toJson(),
           if (widget.newThread != null) 'newThread': widget.newThread!.toJson(),
         },
         _trigger,
@@ -344,11 +352,13 @@ class _ScheduleEditorState extends ConsumerState<ScheduleEditor> {
     bool numeric = false,
     int lines = 1,
     bool timing = false,
+    bool readOnly = false,
   }) => Padding(
     padding: const EdgeInsets.only(bottom: 16),
     child: TextField(
       controller: c,
       enabled: !_busy,
+      readOnly: readOnly,
       minLines: lines,
       maxLines: lines == 1 ? 1 : 10,
       keyboardType: numeric
@@ -400,7 +410,9 @@ class _ScheduleEditorState extends ConsumerState<ScheduleEditor> {
         backgroundColor: ecoColors(context).bgMain,
         appBar: AppBar(
           title: Text(
-            widget.definition != null
+            _isPlan
+                ? l.approvalPlanScheduleExecution
+                : widget.definition != null
                 ? l.schedulingEdit
                 : _isMessage
                 ? l.schedulingNewMessage
@@ -440,14 +452,25 @@ class _ScheduleEditorState extends ConsumerState<ScheduleEditor> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          _field(_prompt, l.schedulingPrompt, lines: 4),
+                          if (_isPlan) ...[
+                            Text(l.approvalPlanScheduleHint),
+                            const SizedBox(height: 12),
+                          ],
+                          _field(
+                            _prompt,
+                            _isPlan
+                                ? l.approvalImplementPlan
+                                : l.schedulingPrompt,
+                            lines: 4,
+                            readOnly: _isPlan,
+                          ),
                           _field(
                             _name,
                             _isMessage
                                 ? l.schedulingOptionalName
                                 : l.schedulingName,
                           ),
-                          if (_isMessage) ...[
+                          if (_isMessage && !_isPlan) ...[
                             if (_attachments.isNotEmpty)
                               ScheduleImages(
                                 attachments: _attachments,
@@ -588,7 +611,9 @@ class _ScheduleEditorState extends ConsumerState<ScheduleEditor> {
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           Text(
-                            _isMessage
+                            _isPlan
+                                ? l.approvalPlanScheduleHint
+                                : _isMessage
                                 ? l.schedulingMessageHint
                                 : l.schedulingTaskHint,
                             style: TextStyle(
@@ -606,14 +631,16 @@ class _ScheduleEditorState extends ConsumerState<ScheduleEditor> {
                                 value: 'at',
                                 child: Text(l.schedulingOnce),
                               ),
-                              DropdownMenuItem(
-                                value: 'interval',
-                                child: Text(l.schedulingInterval),
-                              ),
-                              DropdownMenuItem(
-                                value: 'cron',
-                                child: Text(l.schedulingCron),
-                              ),
+                              if (!_isPlan)
+                                DropdownMenuItem(
+                                  value: 'interval',
+                                  child: Text(l.schedulingInterval),
+                                ),
+                              if (!_isPlan)
+                                DropdownMenuItem(
+                                  value: 'cron',
+                                  child: Text(l.schedulingCron),
+                                ),
                             ],
                             onChanged: _busy
                                 ? null

@@ -28,6 +28,21 @@ class ScheduledMessageNewThread {
   };
 }
 
+class ScheduledPlanApproval {
+  const ScheduledPlanApproval({required this.expectedHistoryRevision});
+
+  factory ScheduledPlanApproval.fromJson(Map<String, dynamic> json) =>
+      ScheduledPlanApproval(
+        expectedHistoryRevision: json['expectedHistoryRevision'] as int,
+      );
+
+  final int expectedHistoryRevision;
+
+  Map<String, dynamic> toJson() => {
+    'expectedHistoryRevision': expectedHistoryRevision,
+  };
+}
+
 class ScheduleDefinition {
   ScheduleDefinition.fromJson(Map<String, dynamic> json)
     : id = json['id'] as String,
@@ -50,6 +65,11 @@ class ScheduleDefinition {
       executionProfile = json['executionProfile'] == null
           ? null
           : Map<String, dynamic>.from(json['executionProfile'] as Map),
+      planApproval = json['planApproval'] is Map
+          ? ScheduledPlanApproval.fromJson(
+              Map<String, dynamic>.from(json['planApproval'] as Map),
+            )
+          : null,
       nextRunAt = json['nextRunAt'] as String?,
       error = json['error'] as String?;
 
@@ -60,6 +80,7 @@ class ScheduleDefinition {
   final int revision, maxLatenessSeconds;
   final String? threadId, workspacePath, nextRunAt, error;
   final Map<String, dynamic>? executionProfile;
+  final ScheduledPlanApproval? planApproval;
   bool get isMessage => kind == 'session_message';
   bool get isExpiredOneShot =>
       trigger['type'] == 'at' &&

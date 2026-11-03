@@ -16,7 +16,8 @@ import {
 import type { McpSdkConfig } from "../shared/mcp";
 import { BrowserMcpAuthRegistry, createBrowserMcpControlSecret } from "./browser-mcp-auth";
 import { BrowserMcpToolClaimRouter } from "./browser-mcp-router";
-import { generateImagesToWorkspace, normalizeImageGenerationToolInput } from "./image-generation-client";
+import { generateImagesToWorkspace, normalizeImageGenerationToolInput, type ImagePayload } from "./image-generation-client";
+import type { ImageLibraryStore } from "./image-library-store";
 import type { ImageGenerationStore } from "./image-generation-store";
 import { buildEcoHttpCodexServer, buildEcoHttpInjection } from "./mcp-http-descriptor";
 import { handleMcpStreamableHttpRequest, type McpToolDefinition } from "./mcp-streamable-http";
@@ -35,6 +36,7 @@ export interface ImageGenerationMcpInjection {
 export interface ImageGenerationGatewayDeps {
   generateCodex?: Parameters<typeof generateImagesToWorkspace>[0]["generateCodex"];
   store: ImageGenerationStore;
+  library?: ImageLibraryStore;
   resolveWorkspacePath(threadId: string): string | undefined;
   resolveGenerationRoot(threadId: string): string | undefined;
   onArtifactChanged(artifact: ImageGenerationArtifact): void;
@@ -183,7 +185,7 @@ export class ImageGenerationMcpGateway {
         {
           serverName: ECO_IMAGE_GENERATION_MCP_SERVER,
           instructions:
-            "Mori Creative Drawing. Create or edit images into the conversation work directory; every call requires user approval.",
+            "Mori Creative Drawing. Create or edit images, save originals to Mori’s image library and return temporary working copies; every call requires user approval.",
           listTools: async () => ({ tools: [imageGenerationToolDefinition()] }),
           callTool: async ({ name, arguments: args, authToken, signal }) =>
             this.executeToolCall(name, args, authToken, signal),
@@ -324,12 +326,17 @@ export class ImageGenerationMcpGateway {
     });
     this.deps.onArtifactChanged(artifact);
     try {
+      const library = this.deps.library;
       const images = await generateImagesToWorkspace({
         config,
         toolInput: normalized,
         generationRoot,
         threadDirectory: threadDirectoryName(threadId),
         workspacePath,
+        ...(library ? {
+          persistImage: (payload: ImagePayload, index: number, name: string) =>
+            library.saveGeneratedImage(artifact, payload, index, name),
+        } : {}),
         ...(this.deps.generateCodex ? { generateCodex: this.deps.generateCodex } : {}),
         ...(signal ? { signal } : {}),
       });
@@ -364,7 +371,7 @@ function imageGenerationToolDefinition(): McpToolDefinition {
   return {
     name: ECO_IMAGE_GENERATION_TOOL,
     description:
-      "Create or edit images with Mori's active Creative Drawing provider and save them into the current conversation work directory. Pass input_images for image-to-image edits when the active profile supports it. Every call requires user approval.",
+      "Create or edit images with Mori's active Creative Drawing provider and save originals automatically to Mori’s image library. Returned paths are independent temporary working copies. Pass input_images for image-to-image edits when the active profile supports it. Every call requires user approval.",
     inputSchema: {
       type: "object",
       additionalProperties: false,

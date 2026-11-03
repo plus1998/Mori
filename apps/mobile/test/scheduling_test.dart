@@ -134,6 +134,83 @@ class SelectedProjectPathNotifierForTest extends SelectedProjectPathNotifier {
 }
 
 void main() {
+  testWidgets(
+    'scheduled plan is immutable, one-shot, and retries the approval envelope',
+    (tester) async {
+      final client = Client()..failCreate = true;
+      const plan = '\n## Approved plan\n\n- Keep the full body.\n';
+      await tester.pumpWidget(
+        app(
+          client,
+          const ScheduleEditor(
+            threadId: 'thread_1',
+            initialPrompt: plan,
+            planApproval: ScheduledPlanApproval(expectedHistoryRevision: 17),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final prompt = tester.widgetList<TextField>(find.byType(TextField)).first;
+      expect(prompt.readOnly, isTrue);
+      expect(prompt.controller!.text, plan);
+      final trigger = tester.widget<DropdownButtonFormField<String>>(
+        find.byType(DropdownButtonFormField<String>),
+      );
+      // Opening the trigger selector must offer only a single execution.
+      await tester.ensureVisible(find.byWidget(trigger));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byWidget(trigger));
+      await tester.pumpAndSettle();
+      expect(find.text('Once'), findsNWidgets(2));
+      expect(find.text('Fixed interval'), findsNothing);
+      expect(find.text('Cron'), findsNothing);
+      await tester.tapAt(const Offset(5, 5));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+      final payload = client.calls.last.args.single as Map;
+      expect(payload['kind'], 'session_message');
+      expect(payload['threadId'], 'thread_1');
+      expect(payload['prompt'], plan);
+      expect(payload['planApproval'], {'expectedHistoryRevision': 17});
+      expect(payload['trigger']['type'], 'at');
+      expect(payload.containsKey('attachments'), isFalse);
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+      expect(client.calls.last.args.single, payload);
+    },
+  );
+
+  testWidgets(
+    'editing a scheduled plan preserves its approval and updates only editable fields',
+    (tester) async {
+      final client = Client();
+      final d = ScheduleDefinition.fromJson({
+        ...definition(),
+        'planApproval': {'expectedHistoryRevision': 17},
+      });
+      await tester.pumpWidget(app(client, ScheduleEditor(definition: d)));
+      await tester.pumpAndSettle();
+      expect(
+        tester.widgetList<TextField>(find.byType(TextField)).first.readOnly,
+        isTrue,
+      );
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+      final update =
+          client.calls
+                  .firstWhere((c) => c.channel == 'scheduling:update')
+                  .args
+                  .single
+              as Map;
+      expect(update['id'], 'sch_1');
+      expect(update['expectedRevision'], 3);
+      expect(update.containsKey('prompt'), isFalse);
+      expect(update.containsKey('attachments'), isFalse);
+      expect(update.containsKey('planApproval'), isFalse);
+    },
+  );
+
   test(
     'wire schedule timestamps preserve the instant with UTC millisecond precision',
     () {

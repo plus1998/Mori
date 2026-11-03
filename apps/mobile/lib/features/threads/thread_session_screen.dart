@@ -12,6 +12,8 @@ import '../../core/models/conversation_v2_models.dart';
 import '../../core/models/git_models.dart';
 import '../../core/models/image_view_models.dart';
 import '../../core/models/project_models.dart';
+import '../../core/models/plan_execution.dart';
+import '../../core/models/scheduling_models.dart';
 import '../../core/models/project_orchestration_settings.dart';
 import '../../core/models/thread_runtime_config.dart';
 import '../../core/models/thread_models.dart';
@@ -24,6 +26,7 @@ import '../../core/widgets/composer_prompt_editing_controller.dart';
 import '../../core/theme/eco_icons.dart';
 import '../../core/theme/eco_theme.dart';
 import '../../core/utils/conversation_v2_hash.dart';
+import '../../core/utils/composer_references.dart';
 import '../../core/utils/prompt_image_attachment.dart';
 import '../../core/utils/prompt_image_upload.dart';
 import '../../core/utils/thread_follow_up_ui.dart';
@@ -41,6 +44,7 @@ import '../composer/follow_up_queue_bar.dart';
 import '../composer/session_composer.dart';
 import '../composer/workspace_changes_pill.dart';
 import '../projects/project_providers.dart';
+import '../scheduling/schedule_editor.dart';
 import 'activity_feed.dart';
 import 'activity_feed_scroll_coordinator.dart';
 import 'conversation_v2_activity_feed.dart';
@@ -734,26 +738,39 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
                             plan: pendingPlan,
                             busy: _planActionBusy,
                             failureMessage: planFailureMessage,
-                            onApprove: () async {
-                              setState(() => _planActionBusy = true);
-                              try {
-                                await _handlePlanApproval(approve: true);
-                              } finally {
-                                if (mounted) {
-                                  setState(() => _planActionBusy = false);
-                                }
-                              }
-                            },
-                            onDismiss: () async {
-                              setState(() => _planActionBusy = true);
-                              try {
-                                await _handlePlanApproval(approve: false);
-                              } finally {
-                                if (mounted) {
-                                  setState(() => _planActionBusy = false);
-                                }
-                              }
-                            },
+                            delegationAgents:
+                                const [
+                                  'claude',
+                                  'codex',
+                                  'pi',
+                                ].contains(thread?.coreKind)
+                                ? listPlanDelegationAgents(
+                                    thread
+                                        ?.runtimeConfig
+                                        ?.resolvedOrchestrationSnapshot,
+                                  )
+                                : const [],
+                            onApproveWithSubagent: (target) => _runPlanAction(
+                              () => _handlePlanApproval(
+                                approve: true,
+                                executionTarget: target,
+                              ),
+                            ),
+                            onScheduleExecution: () => _runPlanAction(
+                              () => _schedulePlanExecution(pendingPlan),
+                            ),
+                            onStartNewSession: () => _runPlanAction(
+                              () => _startPlanExecution(
+                                pendingPlan,
+                                runtimeConfig,
+                              ),
+                            ),
+                            onApprove: () => _runPlanAction(
+                              () => _handlePlanApproval(approve: true),
+                            ),
+                            onDismiss: () => _runPlanAction(
+                              () => _handlePlanApproval(approve: false),
+                            ),
                           )
                         : showClarification
                         ? ClarificationDockPanel(
@@ -1731,33 +1748,117 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
     }
   }
 
-  Future<void> _handlePlanApproval({required bool approve}) async {
+  Future<void> _runPlanAction(Future<void> Function() action) async {
+    if (_planActionBusy) return;
+    setState(() => _planActionBusy = true);
     try {
-      final v2 = ref.read(conversationV2SessionProvider(widget.threadId));
-      if (v2.syncState != ConversationV2SyncState.uninitialized) {
-        final notifier = ref.read(
-          conversationV2SessionProvider(widget.threadId).notifier,
-        );
-        if (approve) {
-          await notifier.approvePlan();
-        } else {
-          await notifier.dismissPlan();
-        }
-      } else {
-        final notifier = ref.read(
-          threadSessionProvider(widget.threadId).notifier,
-        );
-        if (approve) {
-          await notifier.approvePlan();
-        } else {
-          await notifier.dismissPlan();
-        }
-      }
+      await action();
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(error.toString())));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(localizedAppError(error, context.l10n))),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _planActionBusy = false);
+    }
+  }
+
+  Future<void> _schedulePlanExecution(ThreadPendingPlan plan) async {
+    final rpc = ref.read(desktopRpcProvider);
+    if (rpc == null) throw StateError('Desktop is not connected.');
+    final head = await rpc.conversationV2Head(plan.threadId);
+    final current = await rpc.getPendingPlan(plan.threadId);
+    if (current == null ||
+        current.referenceId != plan.referenceId ||
+        current.plan != plan.plan ||
+        current.analysis != plan.analysis ||
+        current.userPrompt != plan.userPrompt) {
+      if (mounted) throw StateError(context.l10n.approvalPlanChanged);
+      return;
+    }
+    if (!mounted) return;
+    await showScheduleEditor(
+      context,
+      threadId: plan.threadId,
+      initialPrompt: plan.plan,
+      planApproval: ScheduledPlanApproval(
+        expectedHistoryRevision: head.historyRevision,
+      ),
+    );
+  }
+
+  Future<void> _startPlanExecution(
+    ThreadPendingPlan plan,
+    ThreadRuntimeConfig runtimeConfig,
+  ) async {
+    final rpc = ref.read(desktopRpcProvider);
+    if (rpc == null) throw StateError('Desktop is not connected.');
+    final current = await rpc.getPendingPlan(plan.threadId);
+    final source = await rpc.getThread(plan.threadId);
+    if (!mounted) return;
+    if (current?.referenceId == null ||
+        current!.version == null ||
+        current.referenceId != plan.referenceId ||
+        current.plan != plan.plan ||
+        current.analysis != plan.analysis ||
+        current.userPrompt != plan.userPrompt ||
+        source == null) {
+      throw StateError(context.l10n.approvalPlanChanged);
+    }
+    final location = source.workLocation;
+    if (location?.mode == 'needs_choice' ||
+        (location?.mode == 'isolated' && location?.worktreeId == null)) {
+      throw StateError(context.l10n.approvalPlanWorkLocationRequired);
+    }
+    final execution = await rpc.startThread(
+      workspacePath: current.workspacePath,
+      prompt: composerReferenceToken(
+        kind: 'plan',
+        id: current.referenceId!,
+        label: context.l10n.approvalPlanReferenceLabel(current.version!),
+        detail: source.title,
+      ),
+      coreKind: source.coreKind ?? 'claude',
+      runtimeConfig: runtimeConfig.copyWith(sessionMode: 'agent'),
+      planExecutionId: current.referenceId,
+      developmentMode: 'direct',
+      managedWorktreeId: location?.mode == 'isolated'
+          ? location?.worktreeId
+          : null,
+    );
+    ref.read(threadListProvider.notifier).upsertThread(execution);
+    if (execution.status == 'blocked') throw StateError(execution.message);
+    if (!mounted) return;
+    ref.read(threadSessionSeedProvider.notifier).state = execution;
+    context.go(
+      '/threads/${execution.id}',
+      extra: const ThreadSessionRouteExtra(handoff: true),
+    );
+  }
+
+  Future<void> _handlePlanApproval({
+    required bool approve,
+    PlanExecutionTarget? executionTarget,
+  }) async {
+    final v2 = ref.read(conversationV2SessionProvider(widget.threadId));
+    if (v2.syncState != ConversationV2SyncState.uninitialized) {
+      final notifier = ref.read(
+        conversationV2SessionProvider(widget.threadId).notifier,
+      );
+      if (approve) {
+        await notifier.approvePlan(executionTarget: executionTarget);
+      } else {
+        await notifier.dismissPlan();
+      }
+    } else {
+      final notifier = ref.read(
+        threadSessionProvider(widget.threadId).notifier,
+      );
+      if (approve) {
+        await notifier.approvePlan(executionTarget: executionTarget);
+      } else {
+        await notifier.dismissPlan();
       }
     }
   }

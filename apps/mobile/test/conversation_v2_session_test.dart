@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:eco_mobile/core/models/conversation_v2_models.dart';
 import 'package:eco_mobile/core/models/thread_models.dart';
+import 'package:eco_mobile/core/models/plan_execution.dart';
 import 'package:eco_mobile/core/storage/conversation_v2_cache.dart';
 import 'package:eco_mobile/core/sync/conversation_v2_session.dart';
 import 'package:eco_mobile/core/sync/conversation_v2_sync_engine.dart';
@@ -29,6 +30,7 @@ void main() {
   var pending = const ConversationV2PendingInteractions();
   Future<ConversationV2PendingInteractions> Function()? reply;
   Object? actionError;
+  PlanExecutionTarget? approvedTarget;
   setUp(() async {
     final directory = await Directory.systemTemp.createTemp('eco-v2-session-');
     cache = ConversationV2Cache(
@@ -41,6 +43,7 @@ void main() {
     pending = const ConversationV2PendingInteractions();
     reply = null;
     actionError = null;
+    approvedTarget = null;
     controller = ConversationV2SessionController(
       conversationId: 'thread',
       cache: cache,
@@ -51,7 +54,10 @@ void main() {
           pending = const ConversationV2PendingInteractions();
           if (actionError != null) throw actionError!;
         },
-        approvePlan: () async {},
+        approvePlan: ({executionTarget}) async {
+          approvedTarget = executionTarget;
+          pending = const ConversationV2PendingInteractions();
+        },
         dismissPlan: () async {},
         submitClarification: (id, selections, {customInputIndices}) async {},
         dismissClarification: (id) async {},
@@ -63,6 +69,30 @@ void main() {
       await directory.delete(recursive: true);
     });
   });
+
+  test(
+    'plan approval carries the explicit target through V2 and refreshes pending requests',
+    () async {
+      pending = const ConversationV2PendingInteractions(
+        plan: ThreadPendingPlan(
+          threadId: 'thread',
+          userPrompt: 'Do it',
+          analysis: '',
+          plan: 'Full plan',
+          workspacePath: '/repo',
+          worktreePath: '/repo',
+        ),
+      );
+      await controller.start();
+      const target = PlanExecutionTarget.subagent(
+        'coder',
+        additionalMessage: 'Keep the scope',
+      );
+      await controller.approvePlan(executionTarget: target);
+      expect(approvedTarget, same(target));
+      expect(controller.state.pendingPlan, isNull);
+    },
+  );
 
   test(
     'loads complete live MCP requests independently of run detail pages',

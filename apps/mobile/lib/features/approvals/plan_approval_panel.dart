@@ -4,10 +4,12 @@ import 'package:flutter/material.dart';
 
 import '../../core/locale/app_localizations_ext.dart';
 import '../../core/models/thread_models.dart';
+import '../../core/models/plan_execution.dart';
 import '../../core/theme/eco_icons.dart';
 import '../../core/theme/eco_theme.dart';
 import '../../core/widgets/eco_markdown.dart';
 import '../composer/composer_dock_shell.dart';
+import 'plan_execution_options.dart';
 
 const planApprovalCollapsedMarkdownMaxHeight = 220.0;
 const planApprovalExpandedHeightFactor = 0.85;
@@ -47,6 +49,10 @@ class PlanApprovalPanel extends StatefulWidget {
     required this.onApprove,
     required this.onDismiss,
     this.failureMessage,
+    this.onScheduleExecution,
+    this.onApproveWithSubagent,
+    this.onStartNewSession,
+    this.delegationAgents = const [],
   });
 
   final ThreadPendingPlan plan;
@@ -54,6 +60,11 @@ class PlanApprovalPanel extends StatefulWidget {
   final Future<void> Function() onApprove;
   final Future<void> Function() onDismiss;
   final String? failureMessage;
+  final Future<void> Function()? onScheduleExecution;
+  final Future<void> Function(PlanExecutionTarget target)?
+  onApproveWithSubagent;
+  final Future<void> Function()? onStartNewSession;
+  final List<PlanDelegationAgentOption> delegationAgents;
 
   @override
   State<PlanApprovalPanel> createState() => _PlanApprovalPanelState();
@@ -61,6 +72,42 @@ class PlanApprovalPanel extends StatefulWidget {
 
 class _PlanApprovalPanelState extends State<PlanApprovalPanel> {
   var _expanded = false;
+  var _executeMenuOpen = false;
+
+  Future<void> _showExecutionOptions() async {
+    if (_executeMenuOpen || widget.busy) return;
+    final plan = widget.plan;
+    _executeMenuOpen = true;
+    try {
+      final selection = await showPlanExecutionOptions(
+        context,
+        agents: widget.onApproveWithSubagent == null
+            ? const []
+            : widget.delegationAgents,
+        canSchedule: widget.onScheduleExecution != null,
+        canStartNewSession: widget.onStartNewSession != null,
+      );
+      if (!mounted ||
+          widget.busy ||
+          widget.failureMessage != null ||
+          widget.plan.referenceId != plan.referenceId ||
+          widget.plan.plan != plan.plan) {
+        return;
+      }
+      switch (selection?.action) {
+        case PlanExecutionAction.schedule:
+          await widget.onScheduleExecution?.call();
+        case PlanExecutionAction.subagent:
+          await widget.onApproveWithSubagent?.call(selection!.target!);
+        case PlanExecutionAction.newSession:
+          await widget.onStartNewSession?.call();
+        case null:
+          break;
+      }
+    } finally {
+      _executeMenuOpen = false;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -236,9 +283,23 @@ class _PlanApprovalPanelState extends State<PlanApprovalPanel> {
                               child: Align(
                                 alignment: Alignment.centerRight,
                                 child: FilledButton(
+                                  key: const Key('plan-approval-execute'),
                                   onPressed: widget.busy
                                       ? null
                                       : () => widget.onApprove(),
+                                  onLongPress:
+                                      widget.busy ||
+                                          (widget.onScheduleExecution == null &&
+                                              widget.onStartNewSession ==
+                                                  null &&
+                                              !(widget.onApproveWithSubagent !=
+                                                      null &&
+                                                  widget.delegationAgents.any(
+                                                    (agent) =>
+                                                        agent.canExecutePlan,
+                                                  )))
+                                      ? null
+                                      : _showExecutionOptions,
                                   style: FilledButton.styleFrom(
                                     backgroundColor: isDark
                                         ? colors.composerSendBg

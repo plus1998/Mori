@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:eco_mobile/core/models/image_view_models.dart';
 import 'package:eco_mobile/core/models/project_orchestration_settings.dart';
 import 'package:eco_mobile/core/models/thread_models.dart';
+import 'package:eco_mobile/core/models/plan_execution.dart';
 import 'package:eco_mobile/core/network/desktop_rpc.dart';
 import 'package:eco_mobile/core/network/eco_center_client.dart';
 import 'package:eco_mobile/core/storage/credential_store.dart';
@@ -379,7 +380,62 @@ void main() {
         'expectedHistoryRevision': 12,
       },
     ]);
+
+    await rpc.approvePlan(
+      principalId: 'user_1',
+      clientCommandId: 'plan_subagent_1',
+      threadId: 'thread_1',
+      expectedHistoryRevision: 12,
+      executionTarget: const PlanExecutionTarget.subagent(
+        'coder',
+        additionalMessage: '  Keep all plan constraints.  ',
+      ),
+    );
+    expect(client.channel, 'thread:approve-plan');
+    expect(client.args!.single, {
+      'principalId': 'user_1',
+      'clientCommandId': 'plan_subagent_1',
+      'threadId': 'thread_1',
+      'expectedHistoryRevision': 12,
+      'executionTarget': {
+        'kind': 'subagent',
+        'agentKey': 'coder',
+        'additionalMessage': 'Keep all plan constraints.',
+      },
+    });
   });
+
+  test(
+    'linked plan execution forwards the immutable plan and inherited worktree',
+    () async {
+      final client = _RecordingEcoCenterClient();
+      final rpc = DesktopRpc(client, 'desktop_1');
+      const config = ThreadRuntimeConfig(
+        subagentEnabled: {},
+        sessionMode: 'agent',
+        bashReviewMode: 'always',
+      );
+      await rpc.startThread(
+        workspacePath: '/repo',
+        prompt: '@plan{reference}',
+        runtimeConfig: config,
+        coreKind: 'codex',
+        planExecutionId: 'plan_v2',
+        developmentMode: 'direct',
+        managedWorktreeId: 'worktree_original',
+      );
+      expect(client.channel, 'thread:start');
+      expect(client.args!.single, {
+        'workspacePath': '/repo',
+        'prompt': '@plan{reference}',
+        'runtimeConfig': config.toJson(),
+        'coreKind': 'codex',
+        'planExecutionId': 'plan_v2',
+        'developmentMode': 'direct',
+        'managedWorktreeId': 'worktree_original',
+      });
+    },
+  );
 
   test('startThread forwards the ACP Harness', () async {
     final client = _RecordingEcoCenterClient();

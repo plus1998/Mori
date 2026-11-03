@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/conversation_v2_models.dart';
 import '../models/thread_models.dart';
+import '../models/plan_execution.dart';
 import '../storage/conversation_v2_cache.dart';
 import 'conversation_v2_sync_engine.dart';
 
@@ -38,7 +39,8 @@ class ConversationV2InteractionActions {
     String? feedback,
   })
   resolveBash;
-  final Future<void> Function() approvePlan;
+  final Future<void> Function({PlanExecutionTarget? executionTarget})
+  approvePlan;
   final Future<void> Function() dismissPlan;
   final Future<void> Function(
     String toolUseId,
@@ -395,13 +397,13 @@ class ConversationV2SessionController
     }
   }
 
-  Future<void> approvePlan() async {
+  Future<void> approvePlan({PlanExecutionTarget? executionTarget}) async {
     final handler = actions?.approvePlan;
     if (handler == null) {
       throw StateError('Conversation actions are unavailable.');
     }
     try {
-      await handler();
+      await handler(executionTarget: executionTarget);
     } finally {
       await _refreshAfterInteraction();
     }

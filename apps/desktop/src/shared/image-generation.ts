@@ -75,6 +75,8 @@ export interface ImageGenerationToolInput {
 export type ImageGenerationArtifactStatus = "running" | "completed" | "failed";
 
 export interface GeneratedImageFile {
+  /** Durable original owned by Mori. Paths below refer only to an independent working copy. */
+  libraryImageId?: string;
   absolutePath: string;
   relativePath: string;
   mimeType: string;
@@ -173,6 +175,7 @@ export function buildImageGenerationPromptAppend(input: {
     `Active profile: ${input.profileName}; provider=${input.provider}; model=${input.model}.`,
     providerParameters,
     imageToImage,
+    "Generated originals are saved automatically in Mori’s image library. Returned file paths are independent temporary working copies; you may edit or move them without changing the saved originals. Do not modify or clean Mori’s internal image-library storage; users manage originals through the library.",
     "Mori handles approval for every drawing call. After an error, changes to provider, model, size, quality, count or aspect ratio require the user's decision.",
   ].join("\n");
 }

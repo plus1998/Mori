@@ -2,6 +2,7 @@ import { motion, useReducedMotion } from "framer-motion";
 import { ChevronLeft, ChevronRight, LoaderCircle, Maximize2, X, XCircle } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useImageLibraryRevision } from "./use-image-library-revision";
 import type { ImageGalleryQueueItem } from "./image-gallery-float-state";
 import { ImageLightbox } from "./image-lightbox";
 import { MediaArtifactPreview } from "./MediaArtifactPreview";
@@ -254,6 +255,7 @@ export function ImageGalleryFloat({
 }) {
   const { t } = useTranslation();
   const reducedMotion = useReducedMotion();
+  const libraryRevision = useImageLibraryRevision();
   const [loadedImages, setLoadedImages] = useState<Record<string, LoadedImage>>({});
   const [loadErrors, setLoadErrors] = useState<Record<string, string>>({});
   const loadedImagesRef = useRef(loadedImages);
@@ -265,6 +267,19 @@ export function ImageGalleryFloat({
     items.findIndex((item) => item.key === activeKey),
   );
   const currentItem = items[activeIndex];
+  const currentItemRef = useRef(currentItem);
+  currentItemRef.current = currentItem;
+
+  useEffect(() => {
+    const retained: Record<string, LoadedImage> = {};
+    for (const [key, image] of Object.entries(loadedImagesRef.current)) {
+      if (key.startsWith("generation:")) revokeImageObjectUrl(image.src);
+      else retained[key] = image;
+    }
+    setLoadedImages(retained);
+    setLoadErrors(current => Object.fromEntries(Object.entries(current).filter(([key]) => !key.startsWith("generation:"))));
+    if (currentItemRef.current?.kind === "generation") setPreviewOpen(false);
+  }, [libraryRevision]);
 
   useEffect(() => {
     if (focusKey) setActiveKey(focusKey);

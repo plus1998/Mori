@@ -1159,5 +1159,23 @@
   "desktopDisplayRestorePending": "有屏幕等待恢复亮度，请连接屏幕后关闭最低亮度重试",
   "desktopDisplayUnsupported": "不支持亮度控制",
   "desktopDisplayUpgrade": "当前电脑版本不支持屏幕控制，请升级 Mori。",
-  "approvalClarificationTitle": "回答问题"
+  "approvalClarificationTitle": "回答问题",
+  "approvalPlanExecutionOptions": "更多计划执行选项",
+  "approvalPlanScheduleExecution": "指定时间执行",
+  "approvalPlanExecuteInNewSession": "在新会话中执行",
+  "approvalPlanDelegateTitle": "指定子 Agent 执行",
+  "approvalPlanDelegateReadOnly": "只读子 Agent，无法执行计划",
+  "approvalPlanDelegateMessage": "给子 Agent 的补充说明（可选）",
+  "approvalPlanDelegateMessageHint": "例如：先补充测试，再实现接口……",
+  "approvalPlanScheduleHint": "到点后在当前会话中执行这份计划。可在定时消息中修改时间或取消；若计划或会话内容变更，需要重新设置。",
+  "approvalPlanChanged": "计划已更新或已处理，请重新打开当前计划。",
+  "approvalPlanWorkLocationRequired": "来源会话的工作位置尚未就绪，请先选择可用的工作位置。",
+  "approvalPlanReferenceLabel": "计划 v{version}",
+  "@approvalPlanReferenceLabel": {
+    "placeholders": {
+      "version": {
+        "type": "int"
+      }
+    }
+  }
 }

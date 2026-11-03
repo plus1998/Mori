@@ -27,6 +27,12 @@ import type {
 } from "./tts";
 
 export const IPC_CHANNELS = {
+  imageLibraryList: "image-library:list",
+  imageLibraryGet: "image-library:get",
+  imageLibraryRead: "image-library:read",
+  imageLibraryChangeState: "image-library:change-state",
+  imageLibraryExport: "image-library:export",
+  imageLibraryChanged: "image-library:changed",
   schedulingList: "scheduling:list",
   schedulingCreate: "scheduling:create",
   schedulingUpdate: "scheduling:update",

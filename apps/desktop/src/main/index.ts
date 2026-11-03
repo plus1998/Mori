@@ -853,6 +853,8 @@ import { HtmlHostMcpGateway } from "./html-host-mcp-gateway";
 import { HtmlHostStore } from "./html-host-store";
 import { ImageDisplayMcpGateway } from "./image-display-mcp-gateway";
 import { createImageDisplayStore, ImageDisplayError, type ImageDisplayStore } from "./image-display-store";
+import { createImageLibraryStore, type ImageLibraryStore } from "./image-library-store";
+import { registerImageLibraryCommands, notifyImageLibraryChanged } from "./image-library-ipc";
 import { imageGenerationAvailability } from "./image-generation-availability";
 import { ImageGenerationMcpGateway } from "./image-generation-mcp-gateway";
 import {
@@ -1765,6 +1767,7 @@ let ttsStore: TtsStore;
 let ttsGateway: TtsMcpGateway;
 let ttsReadAloud: TtsReadAloudService;
 let imageGenerationStore: ImageGenerationStore;
+let imageLibraryStore: ImageLibraryStore;
 let imageGenerationGateway: ImageGenerationMcpGateway;
 let codexImages: CodexImageService;
 let imageViewGateway: ImageViewMcpGateway;
@@ -3036,8 +3039,15 @@ app
       },
     };
     imageGenerationStore = await createImageGenerationStore(dbPath, imageSecretCodec);
+    imageLibraryStore = await createImageLibraryStore(dbPath, path.join(app.getPath("userData"), "image-library"), bytes => {
+      const image = nativeImage.createFromBuffer(bytes);
+      if (image.isEmpty()) throw new Error("无法解码生成图片。");
+      return image.getSize();
+    });
+    app.once("will-quit", () => imageLibraryStore.close());
     imageGenerationGateway = new ImageGenerationMcpGateway({
       store: imageGenerationStore,
+      library: imageLibraryStore,
       generateCodex: (input, images, signal, route) => codexImages.generate(input, images, signal, route),
       resolveWorkspacePath: (threadId) => conversationStore.getThread(threadId)?.workspacePath,
       resolveGenerationRoot: (threadId) =>
@@ -3045,6 +3055,7 @@ app
         conversationStore.getThread(threadId)?.sdkCwd ??
         conversationStore.getThread(threadId)?.workspacePath,
       onArtifactChanged: (artifact) => {
+        if (artifact.images.some(image => image.libraryImageId)) notifyImageLibraryChanged();
         BrowserWindow.getAllWindows().forEach((window) => {
           if (!window.isDestroyed())
             window.webContents.send(IPC_CHANNELS.imageGenerationArtifactChanged, artifact);
@@ -4983,6 +4994,7 @@ function resolveImageGenerationArtifactImage(payload: unknown): {
   const artifact = imageGenerationStore.getArtifact(payload.artifactId);
   const image = artifact.images[payload.imageIndex as number];
   if (!image) throw new Error("图片产物索引不存在。");
+  if (image.libraryImageId) return { image, resolvedPath: imageLibraryStore.resolveOriginal(image.libraryImageId) };
   const candidates = [image.absolutePath, path.resolve(artifact.workspacePath, image.relativePath)];
   const resolvedPath = candidates.find((candidate) => existsSync(candidate));
   if (!resolvedPath) throw new Error("图片文件已不存在。");
@@ -9034,6 +9046,7 @@ function registerIpcHandlers(): void {
     });
     return result.canceled ? [] : result.filePaths;
   });
+  registerImageLibraryCommands(registerDesktopCommand, imageLibraryStore, id => conversationStore.getThread(id));
   registerDesktopCommand(IPC_CHANNELS.imageGenerationArtifactsList, async (payload: unknown) => {
     if (!isRecord(payload) || typeof payload.threadId !== "string") throw new Error("threadId 无效。");
     return imageGenerationStore.listArtifacts(payload.threadId);

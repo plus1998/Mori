@@ -821,6 +821,19 @@ bool _isSupportedPromptImageMediaType(String value) =>
 
 typedef ThreadStatus = String;
 
+class ThreadWorkLocation {
+  const ThreadWorkLocation({required this.mode, this.worktreeId});
+
+  factory ThreadWorkLocation.fromJson(Map<String, dynamic> json) =>
+      ThreadWorkLocation(
+        mode: json['mode'] as String,
+        worktreeId: (json['worktree'] as Map?)?['id'] as String?,
+      );
+
+  final String mode;
+  final String? worktreeId;
+}
+
 class ThreadSummary {
   const ThreadSummary({
     required this.id,
@@ -833,6 +846,7 @@ class ThreadSummary {
     required this.message,
     this.coreKind,
     this.runtimeConfig,
+    this.workLocation,
     this.hostUiFeatures = AcpHostUiFeatures.showAll,
     this.cancelling = false,
     this.titleGenerating = false,
@@ -854,6 +868,11 @@ class ThreadSummary {
             json['runtimeConfig'] as Map<String, dynamic>,
           )
         : null,
+    workLocation: json['workLocation'] is Map
+        ? ThreadWorkLocation.fromJson(
+            Map<String, dynamic>.from(json['workLocation'] as Map),
+          )
+        : null,
     hostUiFeatures: AcpHostUiFeatures.fromJson(json['hostUiFeatures']),
     cancelling: json['cancelling'] == true,
     titleGenerating: json['titleGenerating'] == true,
@@ -870,6 +889,7 @@ class ThreadSummary {
     String? message,
     String? coreKind,
     ThreadRuntimeConfig? runtimeConfig,
+    ThreadWorkLocation? workLocation,
     AcpHostUiFeatures? hostUiFeatures,
     bool? cancelling,
     bool? titleGenerating,
@@ -886,6 +906,7 @@ class ThreadSummary {
       message: message ?? this.message,
       coreKind: coreKind ?? this.coreKind,
       runtimeConfig: runtimeConfig ?? this.runtimeConfig,
+      workLocation: workLocation ?? this.workLocation,
       hostUiFeatures: hostUiFeatures ?? this.hostUiFeatures,
       cancelling: cancelling ?? this.cancelling,
       titleGenerating: titleGenerating ?? this.titleGenerating,
@@ -903,6 +924,7 @@ class ThreadSummary {
   final String message;
   final String? coreKind;
   final ThreadRuntimeConfig? runtimeConfig;
+  final ThreadWorkLocation? workLocation;
   final AcpHostUiFeatures hostUiFeatures;
   final bool cancelling;
 
@@ -1041,6 +1063,7 @@ ThreadSummary mergeThreadSummaryFromRemoteList({
     message: listed.message,
     coreKind: listed.coreKind ?? current.coreKind,
     runtimeConfig: listed.runtimeConfig ?? current.runtimeConfig,
+    workLocation: listed.workLocation ?? current.workLocation,
     hostUiFeatures: listed.hostUiFeatures,
     cancelling: listed.cancelling,
     followUpQueuePaused: listed.followUpQueuePaused,
@@ -1244,6 +1267,8 @@ class ThreadPendingPlan {
     required this.workspacePath,
     required this.worktreePath,
     this.planFilePath,
+    this.referenceId,
+    this.version,
   });
 
   factory ThreadPendingPlan.fromJson(Map<String, dynamic> json) =>
@@ -1255,6 +1280,8 @@ class ThreadPendingPlan {
         workspacePath: json['workspacePath'] as String? ?? '',
         worktreePath: json['worktreePath'] as String? ?? '',
         planFilePath: json['planFilePath'] as String?,
+        referenceId: json['referenceId'] as String?,
+        version: (json['version'] as num?)?.toInt(),
       );
 
   final String threadId;
@@ -1264,6 +1291,8 @@ class ThreadPendingPlan {
   final String workspacePath;
   final String worktreePath;
   final String? planFilePath;
+  final String? referenceId;
+  final int? version;
 }
 
 class ClarificationQuestionOption {

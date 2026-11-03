@@ -48,6 +48,7 @@ import {
   Globe,
   Globe2,
   HardDrive,
+  Images,
   Keyboard,
   KeyRound,
   LoaderCircle,
@@ -410,6 +411,7 @@ import {
   LazyProxySettingsPanel,
   LazyScheduledMessageDialog,
   LazySchedulingPanel,
+  LazyImageLibraryPanel,
   LazyProjectTodoPanel,
   LazySkillsSettingsPanel,
   LazyStorageSettingsPanel,
@@ -1277,6 +1279,7 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [modelPickerOpenRequest, setModelPickerOpenRequest] = useState(0);
   const [schedulingOpen, setSchedulingOpen] = useState(false);
+  const [imageLibraryOpen, setImageLibraryOpen] = useState(false);
   const [projectTodosOpen, setProjectTodosOpen] = useState(false);
   const [todoMessageReveal, setTodoMessageReveal] = useState<{ threadId: string; messageId: string }>();
   const todoMessageRevealRef = useRef(todoMessageReveal);
@@ -12906,6 +12909,10 @@ function App() {
                 {t("scheduling.title")}
                 {renderSidebarShortcut("open-scheduling")}
               </button>
+              <button type="button" className="sidebar-action muted" onClick={() => setImageLibraryOpen(true)}>
+                <Images size={ICON_SIZE.md} strokeWidth={ICON_STROKE} />
+                {t("imageLibrary.title")}
+              </button>
               <button type="button" className="sidebar-action muted" onClick={openProjectTodos}>
                 <ClipboardList size={ICON_SIZE.md} strokeWidth={ICON_STROKE} />
                 {t("todos.title")}
@@ -13556,6 +13563,16 @@ function App() {
         />
       ) : null}
 
+      {imageLibraryOpen && window.eco && (
+        <SuspensePanel>
+          <LazyImageLibraryPanel onClose={() => setImageLibraryOpen(false)} onOpenThread={async id => {
+            const thread = await window.eco!.getThread(id);
+            if (!thread) throw new Error(t("imageLibrary.deletedSource"));
+            selectThread(thread);
+            setImageLibraryOpen(false);
+          }} />
+        </SuspensePanel>
+      )}
       {projectTodosOpen && window.eco && (
         <SuspensePanel>
           <LazyProjectTodoPanel projects={projects} currentProjectPath={currentProjectPath} threads={threads}

@@ -11,6 +11,7 @@ import '../../core/models/integration_models.dart';
 import '../../core/models/mcp_models.dart';
 import '../../core/models/project_orchestration_settings.dart';
 import '../../core/models/project_models.dart';
+import '../../core/models/plan_execution.dart';
 import '../../core/models/app_error.dart';
 import '../../core/models/skill_models.dart';
 import '../../core/models/thread_runtime_config.dart';
@@ -108,9 +109,9 @@ final conversationV2SessionProvider = StateNotifierProvider.autoDispose
                 resolveBash: (toolUseId, decision, {feedback}) => ref
                     .read(threadSessionProvider(conversationId).notifier)
                     .resolveBash(toolUseId, decision, feedback: feedback),
-                approvePlan: () => ref
+                approvePlan: ({executionTarget}) => ref
                     .read(threadSessionProvider(conversationId).notifier)
-                    .approvePlan(),
+                    .approvePlan(executionTarget: executionTarget),
                 dismissPlan: () => ref
                     .read(threadSessionProvider(conversationId).notifier)
                     .dismissPlan(),
@@ -2133,9 +2134,9 @@ class ThreadSessionNotifier extends StateNotifier<ThreadSessionState> {
     );
   }
 
-  Future<void> approvePlan() async {
+  Future<void> approvePlan({PlanExecutionTarget? executionTarget}) async {
     final rpc = ref.read(desktopRpcProvider);
-    if (rpc == null) return;
+    if (rpc == null) throw StateError('Desktop is not connected.');
     final principalId = ref
         .read(credentialsProvider)
         .valueOrNull
@@ -2150,9 +2151,10 @@ class ThreadSessionNotifier extends StateNotifier<ThreadSessionState> {
     await rpc.approvePlan(
       principalId: principalId,
       clientCommandId:
-          'plan_resolve_${conversationV2StableHash({'threadId': threadId, 'resolution': 'approve', 'expectedHistoryRevision': expectedHistoryRevision})}',
+          'plan_resolve_${conversationV2StableHash({'threadId': threadId, 'resolution': 'approve', if (executionTarget != null) 'executionTarget': executionTarget.toJson(), 'previousRunId': ref.read(conversationV2SessionProvider(threadId)).runs.lastOrNull?.runId, 'expectedHistoryRevision': expectedHistoryRevision})}',
       threadId: threadId,
       expectedHistoryRevision: expectedHistoryRevision,
+      executionTarget: executionTarget,
     );
     state = state.copyWith(clearPlan: true);
   }

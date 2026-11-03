@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:eco_mobile/core/models/eco_types.dart';
 import 'package:eco_mobile/core/models/conversation_v2_models.dart';
 import 'package:eco_mobile/core/models/thread_models.dart';
+import 'package:eco_mobile/core/models/plan_execution.dart';
 import 'package:eco_mobile/core/network/desktop_rpc.dart';
 import 'package:eco_mobile/core/network/eco_center_client.dart';
 import 'package:eco_mobile/core/providers/app_providers.dart';
@@ -486,6 +487,7 @@ class _TrackingDesktopRpc extends DesktopRpc {
     required String clientCommandId,
     required String threadId,
     required int expectedHistoryRevision,
+    PlanExecutionTarget? executionTarget,
   }) async {
     resolutionRevisions.add(expectedHistoryRevision);
   }

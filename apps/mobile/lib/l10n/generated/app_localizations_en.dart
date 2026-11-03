@@ -3574,4 +3574,45 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get approvalClarificationTitle => 'Answer a question';
+
+  @override
+  String get approvalPlanExecutionOptions => 'More plan execution options';
+
+  @override
+  String get approvalPlanScheduleExecution => 'Schedule execution';
+
+  @override
+  String get approvalPlanExecuteInNewSession => 'Execute in a new conversation';
+
+  @override
+  String get approvalPlanDelegateTitle => 'Execute with a subagent';
+
+  @override
+  String get approvalPlanDelegateReadOnly =>
+      'Read-only subagent; cannot execute plans';
+
+  @override
+  String get approvalPlanDelegateMessage =>
+      'Additional instructions for the subagent (optional)';
+
+  @override
+  String get approvalPlanDelegateMessageHint =>
+      'For example: add tests first, then implement the API…';
+
+  @override
+  String get approvalPlanScheduleHint =>
+      'Execute this plan in the current conversation at the chosen time. Edit or cancel it in scheduled messages. If the plan or conversation changes, schedule it again.';
+
+  @override
+  String get approvalPlanChanged =>
+      'The plan changed or was already handled. Open the current plan again.';
+
+  @override
+  String get approvalPlanWorkLocationRequired =>
+      'Choose an available work location for the source conversation first.';
+
+  @override
+  String approvalPlanReferenceLabel(int version) {
+    return 'Plan v$version';
+  }
 }

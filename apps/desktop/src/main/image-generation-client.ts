@@ -51,6 +51,7 @@ export async function generateImagesToWorkspace(input: {
   threadDirectory: string;
   workspacePath: string;
   signal?: AbortSignal;
+  persistImage?: (payload: ImagePayload, imageIndex: number, fileName: string) => Promise<GeneratedImageFile>;
   generateCodex?: (
     input: ImageGenerationToolInput,
     images: LoadedInputImage[],
@@ -78,6 +79,7 @@ export async function generateImagesToWorkspace(input: {
   } catch (error) {
     if (error instanceof CodexImageBatchError) {
       const partial = await writeImages(error.payloads, {
+        ...(input.persistImage ? { persistImage: input.persistImage } : {}),
         generationRoot: input.generationRoot,
         threadDirectory: input.threadDirectory,
         ...(args.output_name ? { outputName: args.output_name } : {}),
@@ -96,6 +98,7 @@ export async function generateImagesToWorkspace(input: {
     throw new ImageGenerationError("empty_response", "供应商未返回任何图片。");
   }
   return writeImages(payloads, {
+    ...(input.persistImage ? { persistImage: input.persistImage } : {}),
     generationRoot: input.generationRoot,
     threadDirectory: input.threadDirectory,
     ...(args.output_name ? { outputName: args.output_name } : {}),
@@ -499,14 +502,23 @@ function validateImagePayload(bytes: Buffer, declaredMime?: string): ImagePayloa
 
 async function writeImages(
   payloads: ImagePayload[],
-  input: { generationRoot: string; threadDirectory: string; outputName?: string },
+  input: {
+    generationRoot: string;
+    threadDirectory: string;
+    outputName?: string;
+    persistImage?: (
+      payload: ImagePayload,
+      imageIndex: number,
+      fileName: string,
+    ) => Promise<GeneratedImageFile>;
+  },
 ): Promise<GeneratedImageFile[]> {
   const outputDir = path.resolve(input.generationRoot, ".eco", "generated-images", input.threadDirectory);
   const allowedRoot = path.resolve(input.generationRoot, ".eco", "generated-images");
   if (outputDir !== allowedRoot && !outputDir.startsWith(`${allowedRoot}${path.sep}`)) {
     throw new ImageGenerationError("invalid_output_path", "图片输出路径逃逸了工作目录。");
   }
-  await fs.mkdir(outputDir, { recursive: true });
+  if (!input.persistImage) await fs.mkdir(outputDir, { recursive: true });
   const written: GeneratedImageFile[] = [];
   try {
     for (const [index, payload] of payloads.entries()) {
@@ -514,6 +526,10 @@ async function writeImages(
         payload.mimeType === "image/png" ? "png" : payload.mimeType === "image/jpeg" ? "jpg" : "webp";
       const prefix = input.outputName ?? `image-${Date.now()}`;
       const name = `${prefix}-${index + 1}-${randomUUID().slice(0, 8)}.${ext}`;
+      if (input.persistImage) {
+        written.push(await input.persistImage(payload, index, name));
+        continue;
+      }
       const absolutePath = path.join(outputDir, name);
       const tempPath = `${absolutePath}.${process.pid}.tmp`;
       await fs.writeFile(tempPath, payload.bytes, { flag: "wx" });
@@ -528,11 +544,11 @@ async function writeImages(
     return written;
   } catch (error) {
     throw new ImageGenerationError(
-      "write_failed",
+      error instanceof ImageGenerationError ? error.code : "write_failed",
       `保存图片失败：${error instanceof Error ? error.message : String(error)}`,
-      undefined,
-      undefined,
-      written,
+      error instanceof ImageGenerationError ? error.providerStatus : undefined,
+      error instanceof ImageGenerationError ? error.requestId : undefined,
+      [...written, ...(error instanceof ImageGenerationError ? error.partialImages : [])],
     );
   }
 }
