@@ -11133,9 +11133,10 @@ button.integrated-web-search-clear-key:disabled {
 
 .mcp-field-label {
   color: var(--text-muted);
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 20px;
 }
 
 .mcp-field-hint {
@@ -11883,18 +11884,20 @@ button.integrated-web-search-clear-key:disabled {
 }
 
 .settings-danger-button {
-  padding: 8px 16px;
+  padding: 5px 12px;
   border: 1px solid color-mix(in srgb, var(--danger, #f87171) 40%, transparent);
-  border-radius: 9px;
+  border-radius: var(--radius-control);
   background: transparent;
   color: var(--danger, #f87171);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 500;
-  letter-spacing: -0.01em;
+  letter-spacing: 0;
   cursor: pointer;
   transition:
     background-color 0.14s cubic-bezier(0.32, 0.72, 0, 1),
     transform 0.1s ease-out;
+  min-height: 32px;
+  line-height: 20px;
 }
 
 .settings-danger-button:hover:not(:disabled) {
@@ -11902,7 +11905,7 @@ button.integrated-web-search-clear-key:disabled {
 }
 
 .settings-danger-button:active:not(:disabled) {
-  transform: scale(0.97);
+  transform: none;
 }
 
 .settings-danger-button:disabled {
@@ -11946,7 +11949,7 @@ button.integrated-web-search-clear-key:disabled {
   width: 32px;
   height: 32px;
   border: 1px solid var(--border-subtle);
-  border-radius: 9px;
+  border-radius: var(--radius-control);
   background: var(--bg-elevated);
   color: var(--text-secondary);
   cursor: pointer;
@@ -11964,7 +11967,7 @@ button.integrated-web-search-clear-key:disabled {
 }
 
 .settings-icon-button:active:not(:disabled) {
-  transform: scale(0.94);
+  transform: none;
 }
 
 .settings-icon-button:disabled {
@@ -13113,15 +13116,17 @@ button.default-agent-option:focus-visible {
   list-style: none;
   margin: 0;
   padding: 0;
-  display: flex;
+  display: grid;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
   min-height: 0;
   max-height: calc(100dvh - var(--content-top-inset) - 220px);
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
+  grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr));
+  align-content: start;
 }
 
 .skills-list-section {
@@ -13133,38 +13138,28 @@ button.default-agent-option:focus-visible {
 }
 
 .skill-card {
-  display: flex;
+  display: block;
   gap: 12px;
-  padding: 16px;
+  padding: 0;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-card);
-  background: var(--bg-elevated);
+  background: transparent;
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  transition: background-color 140ms ease, border-color 140ms ease;
 }
 
 .skill-card-icon {
   display: flex;
   align-items: flex-start;
   padding-top: 2px;
-  color: var(--accent-text);
+  color: var(--text-muted);
 }
 
 .skill-card-body {
   min-width: 0;
   flex: 1;
-}
-
-.skill-card-title-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.skill-card-title-row strong {
-  font-size: 14px;
-  font-weight: 400;
-  letter-spacing: 0;
-  line-height: 20px;
 }
 
 .skill-source-badge {
@@ -13200,18 +13195,16 @@ button.default-agent-option:focus-visible {
 }
 
 .skill-card-description {
-  margin: 6px 0 8px;
+  margin: 8px 0 0;
   color: var(--text-secondary);
   font-size: 13px;
-  line-height: 1.45;
-}
-
-.skill-card-path {
-  display: block;
-  color: var(--text-muted);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  word-break: break-all;
+  line-height: 20px;
+  display: -webkit-box;
+  min-height: 40px;
+  letter-spacing: 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 /* —�?Run log (Claude Code style) —�?*/
@@ -22950,7 +22943,7 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .settings-nav {
 .settings-nav-item.active {
   background: var(--nav-active);
   color: var(--text-primary);
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .settings-nav-item.active:active {
@@ -23024,9 +23017,10 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .settings-nav {
   padding: 0 10px 5px;
   color: var(--sidebar-empty-text, var(--text-muted));
   font-size: max(10px, calc(var(--ui-font-size) - 3px));
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  line-height: 18px;
 }
 
 .settings-main {
@@ -23234,10 +23228,10 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .settings-nav {
 
 .settings-page-header h1 {
   margin: 0 0 8px;
-  font-size: 28px;
-  font-weight: 600;
-  line-height: 1.15;
-  letter-spacing: -0.025em;
+  font-size: 26px;
+  font-weight: 500;
+  line-height: 32px;
+  letter-spacing: -0.02em;
   color: var(--text-primary);
 }
 
@@ -23264,9 +23258,10 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .settings-nav {
 
 .settings-section-label {
   color: var(--text-primary);
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: -0.015em;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0;
+  line-height: 20px;
 }
 
 .settings-section-subtitle {
@@ -23330,7 +23325,7 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .settings-nav {
 .settings-text-button {
   padding: 5px 9px;
   border: none;
-  border-radius: 7px;
+  border-radius: var(--radius-control);
   background: transparent;
   color: var(--text-secondary);
   font: inherit;
@@ -23349,7 +23344,7 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .settings-nav {
 }
 
 .settings-text-button:active:not(:disabled) {
-  transform: scale(0.97);
+  transform: none;
 }
 
 .settings-rows {
@@ -23596,8 +23591,9 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .settings-nav {
 .settings-editor-title {
   margin: 0 0 16px;
   font-size: 15px;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--text-primary);
+  line-height: 20px;
 }
 
 .settings-form {
@@ -23617,7 +23613,8 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .settings-nav {
 .settings-form-label {
   color: var(--text-secondary);
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 400;
+  line-height: 20px;
 }
 
 .settings-form-input,
@@ -24479,20 +24476,21 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .settings-nav {
   align-items: center;
   gap: 8px;
   min-height: 32px;
-  padding: 0 14px;
+  padding: 5px 12px;
   border: 1px solid var(--border-subtle);
-  border-radius: 9px;
+  border-radius: var(--radius-control);
   background: var(--bg-elevated);
   color: var(--text-primary);
   font: inherit;
   font-size: 13px;
   font-weight: 500;
-  letter-spacing: -0.01em;
+  letter-spacing: 0;
   cursor: pointer;
   transition:
     background-color 0.14s cubic-bezier(0.32, 0.72, 0, 1),
     border-color 0.14s ease,
     transform 0.1s ease-out;
+  line-height: 20px;
 }
 
 .settings-secondary-button:hover:not(:disabled) {
@@ -24500,7 +24498,7 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .settings-nav {
 }
 
 .settings-secondary-button:active:not(:disabled) {
-  transform: scale(0.97);
+  transform: none;
 }
 
 .settings-secondary-button:disabled {
@@ -25093,19 +25091,20 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .settings-nav {
   align-items: center;
   gap: 8px;
   min-height: 32px;
-  padding: 0 14px;
+  padding: 5px 12px;
   border: none;
-  border-radius: 9px;
+  border-radius: var(--radius-control);
   background: var(--accent);
   color: #fff;
   font: inherit;
   font-size: 13px;
   font-weight: 500;
-  letter-spacing: -0.01em;
+  letter-spacing: 0;
   cursor: pointer;
   transition:
     background-color 0.14s cubic-bezier(0.32, 0.72, 0, 1),
     transform 0.1s ease-out;
+  line-height: 20px;
 }
 
 .settings-primary-button:hover:not(:disabled) {
@@ -25113,7 +25112,7 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .settings-nav {
 }
 
 .settings-primary-button:active:not(:disabled) {
-  transform: scale(0.97);
+  transform: none;
 }
 
 .settings-primary-button:disabled {
@@ -28570,9 +28569,10 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .settings-nav {
 .provider-form-section-title {
   margin: 0 0 2px;
   font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.09em;
+  font-weight: 500;
+  letter-spacing: 0;
   color: var(--text-muted);
+  line-height: 18px;
 }
 
 .provider-form-grid {
@@ -28597,9 +28597,10 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .settings-nav {
 .provider-modal-form-main .mcp-field-label,
 .candidate-editor-body .mcp-field-label {
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 400;
   letter-spacing: 0;
   color: var(--text-secondary);
+  line-height: 20px;
 }
 
 .provider-modal-form-main .mcp-field-hint,
@@ -30058,7 +30059,7 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .settings-nav {
 }
 
 .settings-modal-cancel:active:not(:disabled) {
-  transform: scale(0.97);
+  transform: none;
 }
 
 .settings-modal-cancel:disabled {
@@ -30088,7 +30089,7 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .settings-nav {
 }
 
 .settings-modal-confirm:active:not(:disabled) {
-  transform: scale(0.97);
+  transform: none;
 }
 
 .settings-modal-confirm:disabled {
@@ -34322,20 +34323,21 @@ html[data-platform="darwin"] .git-commit-dialog-backdrop .git-commit-popover {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 8px 14px;
+  padding: 5px 12px;
   border: 1px solid color-mix(in srgb, var(--text-primary) 14%, transparent);
-  border-radius: 9px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--text-primary) 8%, transparent);
   color: var(--text-primary);
   font-size: 13px;
   font-weight: 500;
-  letter-spacing: -0.01em;
-  line-height: 1;
+  letter-spacing: 0;
+  line-height: 20px;
   cursor: pointer;
   transition:
     background 0.14s cubic-bezier(0.32, 0.72, 0, 1),
     border-color 0.14s ease,
     transform 0.1s ease-out;
+  min-height: 32px;
 }
 
 .cs-btn:hover:not(:disabled) {
@@ -34344,7 +34346,7 @@ html[data-platform="darwin"] .git-commit-dialog-backdrop .git-commit-popover {
 }
 
 .cs-btn:active:not(:disabled) {
-  transform: scale(0.97);
+  transform: none;
 }
 
 .cs-btn--ghost {
@@ -43613,6 +43615,147 @@ body.is-resizing-browser-split::before {
 
 /* Common controls share a visible keyboard focus without changing selection. */
 :is(.settings-row, .mcp-server-row, .models-settings-tab, .cs-tab, .candidate-picker-tab, .settings-modal-cancel, .settings-modal-confirm, .subagent-task-panel-tab, .terminal-panel-tab-button):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* Skill summaries show the reading content; paths live in the detail dialog. */
+.skill-card-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+  min-height: 112px;
+  padding: 16px;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.skill-card-title {
+  display: block;
+  padding-right: 24px;
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.skill-card:hover,
+.skill-card:focus-within {
+  border-color: var(--border-strong);
+  background: var(--nav-hover);
+}
+
+.skill-card-uninstall {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 140ms ease, background-color 140ms ease, color 140ms ease;
+}
+
+.skill-card:hover .skill-card-uninstall,
+.skill-card:focus-within .skill-card-uninstall {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.skill-card-uninstall:hover:not(:disabled) {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.skill-card-uninstall:disabled {
+  cursor: not-allowed;
+}
+
+.skill-card:hover .skill-card-uninstall:disabled,
+.skill-card:focus-within .skill-card-uninstall:disabled {
+  opacity: 0.35;
+}
+
+@media (hover: none), (pointer: coarse) {
+  .skill-card-uninstall { opacity: 1; pointer-events: auto; }
+  .skill-card-uninstall:disabled { opacity: 0.35; }
+}
+
+.skill-details-modal {
+  position: fixed;
+  inset: 0;
+  width: min(520px, calc(100vw - 32px));
+  height: fit-content;
+  margin: auto;
+  padding: 0;
+}
+
+.skill-details-modal::backdrop {
+  background: rgb(0 0 0 / 32%);
+}
+
+.skill-details-modal .settings-modal-title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.skill-details-modal .settings-modal-header > button { flex-shrink: 0; }
+
+.skill-details-description {
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 22px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.skill-details-meta {
+  display: grid;
+  gap: 16px;
+  margin: 24px 0 0;
+}
+
+.skill-details-meta dt {
+  margin-bottom: 4px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.skill-details-meta dd {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+}
+
+.skill-details-meta code { font-family: var(--font-mono); font-size: 12px; }
+
+.settings-modal-footer :is(.settings-primary-button, .settings-secondary-button, .settings-danger-button) {
+  min-height: 36px;
+  font-size: 14px;
+}
+
+:is(.skill-card-main, .skill-card-uninstall, .settings-primary-button, .settings-secondary-button, .settings-danger-button, .settings-icon-button, .settings-text-button, .cs-btn):focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
 }

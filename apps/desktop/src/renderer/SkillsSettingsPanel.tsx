@@ -1,5 +1,5 @@
 import { AppWindow, Check, Download, RefreshCw, Search, Sparkles, Trash2, X } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { AppLocale } from "../shared/locale";
 import type {
@@ -40,6 +40,7 @@ export function SkillsSettingsPanel({
   const { t, i18n } = useTranslation();
   const locale = (i18n.resolvedLanguage ?? i18n.language) as AppLocale;
   const [activeLayout, setActiveLayout] = useState<SkillLayout>("agents");
+  const [selectedSkill, setSelectedSkill] = useState<SkillInfo>();
   const [pendingUninstall, setPendingUninstall] = useState<SkillInfo>();
   const [uninstalling, setUninstalling] = useState(false);
   const [uninstallError, setUninstallError] = useState<string>();
@@ -284,41 +285,48 @@ export function SkillsSettingsPanel({
             <ul className="skill-list">
               {visibleSkills.map((skill) => (
                 <li key={skill.skillFilePath} className="skill-card">
-                  <div className="skill-card-icon" aria-hidden>
-                    <Sparkles size={16} />
-                  </div>
-                  <div className="skill-card-body">
-                    <div className="skill-card-title-row">
-                      <strong>{skill.name}</strong>
-                      <button
-                        type="button"
-                        className="skill-card-uninstall"
-                        aria-label={t("settings.skills.uninstallAria", { name: skill.name })}
-                        title={
-                          isSystemCodexSkill(skill)
-                            ? t("settings.skills.systemCannotUninstall")
-                            : t("settings.skills.uninstall")
-                        }
-                        disabled={isSystemCodexSkill(skill)}
-                        onClick={() => {
-                          setUninstallError(undefined);
-                          setPendingUninstall(skill);
-                        }}
-                      >
-                        <Trash2 size={15} />
-                      </button>
-                    </div>
-                    <p className="skill-card-description">{skill.description}</p>
-                    <code className="skill-card-path" title={skill.skillFilePath}>
-                      {skill.skillFilePath}
-                    </code>
-                  </div>
+                  <button
+                    type="button"
+                    className="skill-card-main"
+                    aria-label={t("settings.skills.detailsAria", { name: skill.name })}
+                    aria-haspopup="dialog"
+                    onClick={() => setSelectedSkill(skill)}
+                  >
+                    <span className="skill-card-icon" aria-hidden>
+                      <Sparkles size={16} />
+                    </span>
+                    <span className="skill-card-body">
+                      <span className="skill-card-title" title={skill.name}>{skill.name}</span>
+                      <span className="skill-card-description">{skill.description}</span>
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className="skill-card-uninstall"
+                    aria-label={t("settings.skills.uninstallAria", { name: skill.name })}
+                    title={
+                      isSystemCodexSkill(skill)
+                        ? t("settings.skills.systemCannotUninstall")
+                        : t("settings.skills.uninstall")
+                    }
+                    disabled={isSystemCodexSkill(skill)}
+                    onClick={() => {
+                      setUninstallError(undefined);
+                      setPendingUninstall(skill);
+                    }}
+                  >
+                    <Trash2 size={15} />
+                  </button>
                 </li>
               ))}
             </ul>
           )}
         </div>
       </section>
+
+      {selectedSkill ? (
+        <SkillDetailsDialog skill={selectedSkill} onClose={() => setSelectedSkill(undefined)} />
+      ) : null}
 
       {pendingUninstall ? (
         <SkillUninstallConfirmDialog
@@ -344,6 +352,62 @@ export function SkillsSettingsPanel({
         />
       ) : null}
     </>
+  );
+}
+
+function SkillDetailsDialog({ skill, onClose }: { skill: SkillInfo; onClose: () => void }) {
+  const { t } = useTranslation();
+  const titleId = useId();
+  const dialogRef = useRef<HTMLDialogElement>(null);
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    const previousFocus = document.activeElement;
+    dialog?.showModal();
+    return () => {
+      dialog?.close();
+      if (previousFocus instanceof HTMLElement && previousFocus.isConnected) previousFocus.focus();
+    };
+  }, []);
+
+  return (
+    <dialog
+      ref={dialogRef}
+      className="settings-modal skill-details-modal"
+      aria-labelledby={titleId}
+      onCancel={(event) => {
+        event.preventDefault();
+        onClose();
+      }}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <header className="settings-modal-header">
+        <h2 id={titleId} className="settings-modal-title">{skill.name}</h2>
+        <button type="button" className="mcp-icon-button" onClick={onClose} aria-label={t("common.close")}>
+          <X size={18} />
+        </button>
+      </header>
+      <div className="settings-modal-body">
+        <p className="skill-details-description">{skill.description}</p>
+        <dl className="skill-details-meta">
+          <div>
+            <dt>{t("settings.skills.sources")}</dt>
+            <dd>{skillLayoutLabel(skill.layout)}</dd>
+          </div>
+          <div>
+            <dt>{t("settings.skills.filePath")}</dt>
+            <dd><code>{skill.skillFilePath}</code></dd>
+          </div>
+        </dl>
+      </div>
+      <footer className="settings-modal-footer">
+        <button type="button" className="settings-modal-cancel" onClick={onClose}>
+          {t("common.close")}
+        </button>
+      </footer>
+    </dialog>
   );
 }
 

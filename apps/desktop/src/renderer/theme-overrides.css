@@ -546,8 +546,7 @@
 .settings-page .composition-resources-block .mcp-server-list,
 .settings-page .providers-list-section .mcp-server-list,
 .settings-page .settings-list-scroll-section .mcp-server-list,
-.settings-page .models-agent-library .models-agent-template-list,
-.settings-page .skill-list {
+.settings-page .models-agent-library .models-agent-template-list {
   max-height: calc(100dvh - var(--content-top-inset) - 220px);
   overflow-x: hidden;
   overflow-y: auto;
@@ -583,98 +582,6 @@
 .settings-page .composer-skill-pill.is-pending {
   background: var(--status-warn-bg);
   color: var(--status-warn-text);
-}
-
-.settings-page .skill-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr));
-  gap: 10px;
-  max-height: calc(100dvh - var(--content-top-inset) - 220px);
-  overflow-x: hidden;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scrollbar-gutter: stable;
-  align-content: start;
-}
-
-.settings-page .skill-card {
-  min-height: 126px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 8px;
-  background: var(--bg-elevated);
-  padding: 12px;
-  transition:
-    background-color 0.14s cubic-bezier(0.32, 0.72, 0, 1),
-    border-color 0.14s ease;
-}
-
-.settings-page .skill-card:hover {
-  background: color-mix(in srgb, var(--text-primary) 3.5%, transparent);
-  border-color: color-mix(in srgb, var(--text-primary) 16%, var(--border-subtle));
-}
-
-.settings-page .skill-card-title-row strong {
-  min-width: 0;
-  flex: 1;
-  color: var(--text-primary);
-  letter-spacing: 0;
-}
-
-.settings-page .skill-card-uninstall {
-  width: 28px;
-  height: 28px;
-  flex: 0 0 28px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-  opacity: 0;
-  pointer-events: none;
-  transition:
-    opacity 0.14s ease,
-    background-color 0.14s ease,
-    color 0.14s ease;
-}
-
-.settings-page .skill-card:hover .skill-card-uninstall,
-.settings-page .skill-card:focus-within .skill-card-uninstall {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-.settings-page .skill-card-uninstall:hover:not(:disabled) {
-  background: var(--danger-soft);
-  color: var(--danger);
-}
-
-.settings-page .skill-card-uninstall:disabled {
-  cursor: not-allowed;
-}
-
-.settings-page .skill-card:hover .skill-card-uninstall:disabled,
-.settings-page .skill-card:focus-within .skill-card-uninstall:disabled {
-  opacity: 0.35;
-}
-
-.settings-page .skill-card-description {
-  display: -webkit-box;
-  min-height: 38px;
-  overflow: hidden;
-  color: var(--text-secondary);
-  letter-spacing: 0.01em;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-
-.settings-page .skill-card-path {
-  overflow: hidden;
-  color: var(--text-muted);
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .settings-page .skill-uninstall-modal {
@@ -1077,7 +984,7 @@
 }
 
 .settings-page .settings-modal-cancel:active:not(:disabled) {
-  transform: scale(0.97);
+  transform: none;
 }
 
 .settings-page .models-agent-resource-form-section {
