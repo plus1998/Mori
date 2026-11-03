@@ -25,7 +25,7 @@ const sqliteAvailable = await (async () => {
 
 const defaultWorkflowSettingsExpectation = {
   sessionMode: "agent",
-  defaultCoreKind: "claude",
+  defaultCoreKind: "codex",
   showBilling: true,
   contextWindowLimitTokens: 262_144,
   maxOutputLimitTokens: "dynamic",
@@ -170,10 +170,13 @@ test("normalizeWorkflowSettingsSnapshot preserves default orchestration selectio
 });
 
 test("normalizeWorkflowSettingsSnapshot preserves a valid default Core", () => {
-  expect(normalizeWorkflowSettingsSnapshot({ sessionMode: "agent", defaultCoreKind: "codex" })).toEqual({
-    ...defaultWorkflowSettingsExpectation,
-    defaultCoreKind: "codex",
-  });
+  for (const defaultCoreKind of ["claude", "codex", "pi", "acp"] as const) {
+    expect(normalizeWorkflowSettingsSnapshot({ sessionMode: "agent", defaultCoreKind })).toEqual({
+      ...defaultWorkflowSettingsExpectation,
+      defaultCoreKind,
+      ...(defaultCoreKind === "acp" ? { defaultAcpAgentId: "cursor" } : {}),
+    });
+  }
   expect(normalizeWorkflowSettingsSnapshot({ sessionMode: "agent", defaultCoreKind: "unknown" })).toEqual(
     defaultWorkflowSettingsExpectation,
   );

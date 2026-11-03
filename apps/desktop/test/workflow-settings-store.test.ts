@@ -7,6 +7,7 @@ import {
   isWorkflowSettingsSnapshot,
   normalizeWorkflowSettingsSnapshot,
   resolveAcpCursorApiKeyForSave,
+  WorkflowSettingsStore,
 } from "../src/main/workflow-settings-store";
 
 const sqliteAvailable = await (async () => {
@@ -17,6 +18,41 @@ const sqliteAvailable = await (async () => {
     return false;
   }
 })();
+
+test.skipIf(!sqliteAvailable)("fresh settings select Codex and keep it after saving other preferences", async () => {
+  const { DatabaseSync } = await import("node:sqlite");
+  const db = new DatabaseSync(":memory:");
+  try {
+    const store = new WorkflowSettingsStore(db);
+    store.initialize();
+    expect(store.get().defaultCoreKind).toBe("codex");
+    store.save({ ...store.get(), showBilling: false });
+
+    const reopened = new WorkflowSettingsStore(db);
+    reopened.initialize();
+    expect(reopened.get().defaultCoreKind).toBe("codex");
+    expect(reopened.get().showBilling).toBe(false);
+  } finally {
+    db.close();
+  }
+});
+
+test.skipIf(!sqliteAvailable)("initializing settings preserves an existing Harness selection", async () => {
+  const { DatabaseSync } = await import("node:sqlite");
+  const db = new DatabaseSync(":memory:");
+  try {
+    const store = new WorkflowSettingsStore(db);
+    store.initialize();
+    for (const defaultCoreKind of ["claude", "codex", "pi", "acp"] as const) {
+      store.save({ ...store.get(), defaultCoreKind });
+      const reopened = new WorkflowSettingsStore(db);
+      reopened.initialize();
+      expect(reopened.get().defaultCoreKind).toBe(defaultCoreKind);
+    }
+  } finally {
+    db.close();
+  }
+});
 
 test("workflow settings remember Codex Auth model and reasoning without accepting other providers", () => {
   const codexAuthModel = {

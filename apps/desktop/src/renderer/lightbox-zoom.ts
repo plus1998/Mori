@@ -155,8 +155,8 @@ export function fitSvgIntoStage(svg: SVGSVGElement, stage: HTMLElement): void {
   svg.style.height = `${sized.height}px`;
 }
 
-/** Fit raster images to the stage without upscaling past native pixels. */
-export function fitImgIntoStage(img: HTMLImageElement, stage: HTMLElement): void {
+/** Fit raster images to the stage; upscaling past native pixels is opt-in. */
+export function fitImgIntoStage(img: HTMLImageElement, stage: HTMLElement, allowUpscale = false): void {
   const nw = img.naturalWidth;
   const nh = img.naturalHeight;
   const box = { width: stage.clientWidth, height: stage.clientHeight };
@@ -167,14 +167,14 @@ export function fitImgIntoStage(img: HTMLImageElement, stage: HTMLElement): void
     img.style.height = "";
     return;
   }
-  const sized = computeContainSize({ width: nw, height: nh }, box, { allowUpscale: false });
+  const sized = computeContainSize({ width: nw, height: nh }, box, { allowUpscale });
   img.style.maxWidth = "none";
   img.style.maxHeight = "none";
   img.style.width = `${sized.width}px`;
   img.style.height = `${sized.height}px`;
 }
 
-function prepareLightboxMedia(canvas: HTMLElement, stage: HTMLElement): void {
+function prepareLightboxMedia(canvas: HTMLElement, stage: HTMLElement, allowUpscale = false): void {
   const svg = canvas.querySelector("svg");
   if (svg instanceof SVGSVGElement) {
     fitSvgIntoStage(svg, stage);
@@ -182,7 +182,7 @@ function prepareLightboxMedia(canvas: HTMLElement, stage: HTMLElement): void {
   }
   const img = canvas.querySelector("img");
   if (img instanceof HTMLImageElement) {
-    fitImgIntoStage(img, stage);
+    fitImgIntoStage(img, stage, allowUpscale);
   }
 }
 
@@ -204,6 +204,8 @@ export function attachLightboxZoom(options: {
   stage: HTMLElement;
   canvas: HTMLElement;
   onChange?: (transform: LightboxZoomTransform) => void;
+  /** Workspace previews fill the available canvas, including small source images. */
+  allowUpscale?: boolean;
 }): LightboxZoomController {
   let transform = createLightboxZoomTransform();
   let dragging = false;
@@ -214,7 +216,7 @@ export function attachLightboxZoom(options: {
     if (transform.scale !== LIGHTBOX_ZOOM_DEFAULT || transform.x !== 0 || transform.y !== 0) {
       return;
     }
-    prepareLightboxMedia(options.canvas, options.stage);
+    prepareLightboxMedia(options.canvas, options.stage, options.allowUpscale);
   };
 
   const apply = () => {
@@ -224,7 +226,7 @@ export function attachLightboxZoom(options: {
       transform.scale === LIGHTBOX_ZOOM_DEFAULT && transform.x === 0 && transform.y === 0;
     if (idle) {
       options.canvas.style.transform = "";
-      prepareLightboxMedia(options.canvas, options.stage);
+      prepareLightboxMedia(options.canvas, options.stage, options.allowUpscale);
     } else {
       options.canvas.style.transform = lightboxZoomCssTransform(transform);
     }

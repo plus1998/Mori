@@ -4,6 +4,7 @@ import {
   computeContainSize,
   createLightboxZoomTransform,
   formatLightboxZoomPercent,
+  fitImgIntoStage,
   lightboxZoomCssTransform,
   LIGHTBOX_ZOOM_MAX,
   LIGHTBOX_ZOOM_MIN,
@@ -70,4 +71,13 @@ test("computeContainSize can refuse image upscaling past native", () => {
   expect(
     computeContainSize({ width: 200, height: 100 }, { width: 1000, height: 800 }, { allowUpscale: false }),
   ).toEqual({ width: 200, height: 100 });
+});
+
+test("workspace raster fitting fills the canvas while default lightboxes retain native size", () => {
+  const img = { naturalWidth: 200, naturalHeight: 100, style: {} } as HTMLImageElement;
+  const stage = { clientWidth: 1000, clientHeight: 800 } as HTMLElement;
+  fitImgIntoStage(img, stage);
+  expect([img.style.width, img.style.height]).toEqual(["200px", "100px"]);
+  fitImgIntoStage(img, stage, true);
+  expect([img.style.width, img.style.height]).toEqual(["1000px", "500px"]);
 });

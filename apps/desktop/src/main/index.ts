@@ -674,6 +674,7 @@ import { isMoriAssistantWindow } from "./mori-assistant-windows";
 import { MORI_ASSISTANT_CHANNELS } from "../shared/mori-assistant";
 import { MoriNotificationUncertainError } from "../shared/mori-scheduled-action";
 import { buildThreadRuntimeConfigFromDefaults } from "../shared/thread-runtime-config";
+import { DEFAULT_CORE_KIND } from "../shared/default-core-kind";
 import { connectCodexImageAccount, disposeCodexImageConnections } from "./codex-image-electron-transport";
 import { CodexImageService } from "./codex-image-service";
 import { consumeCodexQuotaReset } from "./codex-quota-reset";
@@ -7947,7 +7948,7 @@ function registerIpcHandlers(): void {
     defaultRuntimeConfig: () => buildThreadRuntimeConfigFromDefaults({ settings: getModelSettingsSnapshot(), workflowDefaults: { ...workflowSettingsStore.get(), sessionMode: "agent" }, mcpServers: mcpStore.listServers() }),
     manageModels: (name, args) => modelManagementService.invoke(name, args),
     defaultScheduleProfile: () => ({
-      coreKind: workflowSettingsStore.get().defaultCoreKind ?? "claude",
+      coreKind: workflowSettingsStore.get().defaultCoreKind ?? DEFAULT_CORE_KIND,
       runtimeConfig: buildThreadRuntimeConfigFromDefaults({ settings: getModelSettingsSnapshot(), workflowDefaults: { ...workflowSettingsStore.get(), sessionMode: "agent" }, mcpServers: mcpStore.listServers() }),
     }),
     modelSettings: () => {

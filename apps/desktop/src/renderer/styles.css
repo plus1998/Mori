@@ -37417,6 +37417,14 @@ html[data-platform="win32"] .codex-main-pane.is-task-panel-open:not(.has-panel-c
   scrollbar-color: var(--workspace-panel-scrollbar-thumb) transparent;
 }
 
+/* Let embedded lists hand off scrolling to cards at their boundaries.
+   The sections container contains scrolling before it reaches the conversation. */
+.workspace-floating-cards .floating-workspace-card-body,
+.workspace-floating-cards .composer-agents-list,
+.workspace-floating-cards .thread-info-workspace-git-graph-body {
+  overscroll-behavior-y: auto;
+}
+
 .floating-workspace-card-empty {
   margin: 0;
   padding: 8px 6px 4px;

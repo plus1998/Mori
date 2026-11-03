@@ -220,6 +220,7 @@ import {
   resolvePromptCacheOrchestrationLabel,
 } from "../shared/prompt-cache-config";
 import { resolveDraftCoreKindWhenAcpHidden } from "../shared/resolve-draft-core-kind-when-acp-hidden";
+import { DEFAULT_CORE_KIND } from "../shared/default-core-kind";
 import type { ScheduleDefinition, ScheduledMessageNewThread, ScheduledPlanApproval } from "../shared/scheduling";
 import {
   dedupeSkillsByName,
@@ -1622,7 +1623,7 @@ function App() {
   const [mcpSettings, setMcpSettings] = useState<McpSettingsSnapshot>(emptyMcpSettings);
   const [workflowSettings, setWorkflowSettings] = useState<WorkflowSettingsSnapshot>({
     sessionMode: "agent",
-    defaultCoreKind: "claude",
+    defaultCoreKind: DEFAULT_CORE_KIND,
     showBilling: true,
     defaultBashReviewMode: "always",
     contextWindowLimitTokens: 262_144,
@@ -2192,7 +2193,7 @@ function App() {
   );
   const [cancelBusy, setCancelBusy] = useState(false);
   const [composerRuntimeConfig, setComposerRuntimeConfig] = useState<ThreadRuntimeConfig | null>(null);
-  const [newThreadCoreKind, setNewThreadCoreKind] = useState<CoreKind>("claude");
+  const [newThreadCoreKind, setNewThreadCoreKind] = useState<CoreKind>(DEFAULT_CORE_KIND);
   const [newThreadDevelopmentMode, setNewThreadDevelopmentMode] = useState<ThreadDevelopmentMode>("direct");
   const [newThreadWorktree, setNewThreadWorktree] = useState<ThreadWorktreeRecord>();
   const [coreAvailability, setCoreAvailability] = useState<CoreAvailabilitySnapshot>();
@@ -2521,7 +2522,7 @@ function App() {
         setSettings(modelSettings);
         setMcpSettings(mcp);
         setWorkflowSettings(workflow);
-        setNewThreadCoreKind(workflow.defaultCoreKind ?? "claude");
+        setNewThreadCoreKind(workflow.defaultCoreKind ?? DEFAULT_CORE_KIND);
         setCenterServerSettings(centerServer);
         setProxyBridgeSettings(proxyBridge);
         setIntegratedWebSearchSettings(integratedWebSearch);
@@ -10481,7 +10482,7 @@ function App() {
       });
       setWorkflowSettings(saved);
       if (!activeThread) {
-        setNewThreadCoreKind(saved.defaultCoreKind ?? "claude");
+        setNewThreadCoreKind(saved.defaultCoreKind ?? DEFAULT_CORE_KIND);
       }
     } catch (caught) {
       setError(errorMessage(caught));
@@ -11135,7 +11136,7 @@ function App() {
     removeComposerDraft(composerContextKeyFromParts(undefined, currentProjectPath));
     commitSidebarThreadSelection(undefined);
     applyFeedThreadSelection(undefined, { immediate: true });
-    setNewThreadCoreKind(workflowSettings.defaultCoreKind ?? "claude");
+    setNewThreadCoreKind(workflowSettings.defaultCoreKind ?? DEFAULT_CORE_KIND);
     // Already on an unstarted landing composer: keep orchestration / model edits.
     // Only reset when leaving an existing thread into a new landing surface.
     if (leavingThread) {
@@ -11199,7 +11200,7 @@ function App() {
       selectSearchThread(targetThread);
     } else {
       switchProject(todo.projectPath);
-      setNewThreadCoreKind(workflowSettings.defaultCoreKind ?? "claude");
+      setNewThreadCoreKind(workflowSettings.defaultCoreKind ?? DEFAULT_CORE_KIND);
     }
     if (sameContext) {
       revokeComposerAttachmentPreviews(composerAttachmentsRef.current);
@@ -13855,7 +13856,7 @@ function App() {
 
                 {settingsSection === "defaultAgent" && (
                   <LazyDefaultAgentSettingsPanel
-                    defaultCoreKind={workflowSettings.defaultCoreKind ?? "claude"}
+                    defaultCoreKind={workflowSettings.defaultCoreKind ?? DEFAULT_CORE_KIND}
                     codexAvailable={coreAvailability?.codex.available !== false}
                     {...(coreAvailability?.codex.reason && {
                       codexUnavailableReason: coreAvailability.codex.reason,

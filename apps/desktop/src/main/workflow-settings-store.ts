@@ -27,6 +27,7 @@ import {
 } from "../shared/auxiliary-model";
 import { type BashReviewMode, isBashReviewMode, normalizeBashReviewMode } from "../shared/bash-review-ui";
 import { ECO_AGENT_BROWSER_MCP_SERVER } from "../shared/browser";
+import { DEFAULT_CORE_KIND } from "../shared/default-core-kind";
 import { type McpServersEnabledSettings, normalizeMcpServersEnabled } from "../shared/composer-mcp";
 import { type IntegrationsEnabledSettings, normalizeIntegrationsEnabled } from "../shared/integrations";
 import type { FollowUpDeliveryMode } from "../shared/ipc";
@@ -96,7 +97,7 @@ export interface WorkflowSettingsSnapshot {
 export function defaultWorkflowSettings(): WorkflowSettingsSnapshot {
   return {
     sessionMode: "agent",
-    defaultCoreKind: "claude",
+    defaultCoreKind: DEFAULT_CORE_KIND,
     showBilling: true,
     defaultBashReviewMode: "always",
     contextWindowLimitTokens: DEFAULT_GLOBAL_CONTEXT_WINDOW_LIMIT,
@@ -213,7 +214,7 @@ export class WorkflowSettingsStore {
          VALUES (?, ?, ?)
          ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at`,
       )
-      .run("default_core_kind", JSON.stringify(normalized.defaultCoreKind ?? "claude"), now);
+      .run("default_core_kind", JSON.stringify(normalized.defaultCoreKind ?? DEFAULT_CORE_KIND), now);
     if (normalized.acpAgentsEnabled?.cursor === true) {
       this.db
         .prepare(
@@ -460,13 +461,13 @@ export class WorkflowSettingsStore {
       .prepare(`SELECT value_json FROM workflow_settings WHERE key = ?`)
       .get("default_core_kind") as { value_json: string } | undefined;
     if (!row?.value_json?.trim()) {
-      return "claude";
+      return DEFAULT_CORE_KIND;
     }
     try {
       const parsed = JSON.parse(row.value_json) as unknown;
-      return typeof parsed === "string" ? parsed : "claude";
+      return typeof parsed === "string" ? parsed : DEFAULT_CORE_KIND;
     } catch {
-      return "claude";
+      return DEFAULT_CORE_KIND;
     }
   }
 
@@ -795,7 +796,7 @@ function normalizeDefaultCoreKind(value: unknown): CoreKind {
   if (value === "cursor") {
     return "acp";
   }
-  return isCoreKind(value) ? value : "claude";
+  return isCoreKind(value) ? value : DEFAULT_CORE_KIND;
 }
 
 function normalizeAcpAgentsEnabled(value: unknown): AcpAgentsEnabledSettings | undefined {

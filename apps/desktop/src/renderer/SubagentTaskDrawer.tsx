@@ -546,28 +546,33 @@ function ImageDisplayArtifactDetail({ artifact }: { artifact: ImageDisplayArtifa
     <section className="image-artifact-detail image-artifact-detail--display">
       <header>
         <div className="image-artifact-detail-heading">
-          <span className={`image-artifact-status is-${artifact.status}`}>
-            {t(`task.imageDisplay.status.${artifact.status}`)}
-          </span>
           <p className="image-artifact-detail-title" title={title}>
             {title}
           </p>
+          {metaParts.length > 0 ? (
+            <span className="image-artifact-detail-meta">{metaParts.join(" · ")}</span>
+          ) : null}
         </div>
-        {metaParts.length > 0 ? (
-          <span className="image-artifact-detail-meta">{metaParts.join(" · ")}</span>
-        ) : null}
+        <span className={`image-artifact-status is-${artifact.status}`}>
+          {t(`task.imageDisplay.status.${artifact.status}`)}
+        </span>
       </header>
-      {loadError ? <p className="image-artifact-error">{loadError}</p> : null}
+      {loadError ? <p className="image-artifact-error" role="alert">{loadError}</p> : null}
+      {!src && !loadError ? (
+        <div className="media-workspace-state" role="status">
+          <LoaderCircle size={24} className="media-workspace-spinner" />
+          {t("activity.imageDisplay.loading")}
+        </div>
+      ) : null}
       {src ? (
-        <div className="image-artifact-gallery image-artifact-gallery--display">
-          <figure>
-            <MediaArtifactPreview
-              src={src}
-              mimeType={artifact.mimeType}
-              title={title}
-              onOpenImage={() => setLightboxOpen(true)}
-            />
-          </figure>
+        <div className="image-artifact-gallery--display">
+          <MediaArtifactPreview
+            src={src}
+            mimeType={artifact.mimeType}
+            title={title}
+            layout="workspace"
+            onOpenImage={() => setLightboxOpen(true)}
+          />
         </div>
       ) : null}
       {lightboxOpen && src ? (
