@@ -96,7 +96,7 @@ export const MORI_ASSISTANT_TOOLS: AssistantTool[] = [
   ),
   tool(
     "mori_start_task",
-    "新建 Agent 工作会话并立即开始任务，返回 threadId，后台继续执行。普通任务必须提供 projectPath 和 prompt；执行待办时提供 todoId，使用原待办所属项目及完整引用，prompt 可补充要求，不能另选项目。仅用户要求微信通知时设置 notifyWechat。",
+    "新建 Agent 工作会话并立即开始任务，返回 threadId，后台继续执行。普通任务必须提供 projectPath 和 prompt；执行待办时提供 todoId，使用原待办所属项目及完整引用，prompt 可补充要求，不能另选项目。当前请求来自微信或用户明确要求微信通知时，可设置 notifyWechat。",
     {
       todoId: text,
       projectPath: text,
@@ -110,7 +110,7 @@ export const MORI_ASSISTANT_TOOLS: AssistantTool[] = [
   ),
   tool(
     "mori_send_wechat",
-    "在用户明确要求微信通知时，向已连接的用户微信发送文字或图片。图片使用绝对本机路径或 HTTP(S) URL；没有明确要求时禁止调用。",
+    "当前请求来自微信时，可直接向用户回复文字或图片，无需用户再说‘通过微信发给我’；其他来源须用户明确要求微信通知。图片使用绝对本机路径或 HTTP(S) URL；只在工具成功后确认已发送。",
     {
       text: { type: "string", maxLength: 100_000 },
       imagePath: { type: "string", maxLength: 4_000 },
@@ -587,7 +587,7 @@ export class MoriAssistantService {
           this.emit();
           const runtime = this.runtime;
           if (!runtime) throw new Error("助手运行实例已断开。");
-          await runtime.send(prompt, this.settings);
+          await runtime.send(prompt, this.settings, source);
           if (this.stopped || this.closed) throw new Error("助手已停止。");
           break;
         } catch (error) {
@@ -858,7 +858,7 @@ export class MoriAssistantService {
   }
 
   private wechatAuthorizedForActiveTurn(): boolean {
-    return explicitlyRequestsWechat(this.activePrompt);
+    return this.activeSource === "wechat" || explicitlyRequestsWechat(this.activePrompt);
   }
 
   private async viewComputerScreenshot(path: string, prompt: string, signal: AbortSignal) {
@@ -1057,7 +1057,7 @@ export class MoriAssistantService {
         throw new Error("待办任务必须在原待办所属项目执行。");
       const projectPath = todo?.projectPath ?? this.taskProjectPath(str("projectPath"));
       if (args.notifyWechat === true && !this.wechatAuthorizedForActiveTurn())
-        throw new Error("只有用户明确要求完成后发微信时，才能启用微信通知。");
+        throw new Error("只有当前请求来自微信或用户明确要求完成后发微信时，才能启用微信通知。");
       if (args.notifyWechat === true && !this.canNotifyWechat?.())
         throw new Error("请先连接微信，并从微信向 Mori 发一条消息后再设置微信通知。");
       const config = this.deps.defaultRuntimeConfig();
@@ -1092,7 +1092,7 @@ export class MoriAssistantService {
     }
     if (name === "mori_send_wechat") {
       if (!this.wechatAuthorizedForActiveTurn())
-        throw new Error("只有用户明确要求发微信时，才能调用微信发送能力。");
+        throw new Error("只有当前请求来自微信或用户明确要求发微信时，才能调用微信发送能力。");
       if (!this.canNotifyWechat?.()) throw new Error("微信通知不可用，请先连接微信并向 Mori 发一条消息。");
       const text = typeof args.text === "string" ? args.text.trim() : "";
       const imagePath = typeof args.imagePath === "string" ? args.imagePath.trim() : "";

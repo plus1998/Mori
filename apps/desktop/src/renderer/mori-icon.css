@@ -1,81 +1,65 @@
 .mori-icon {
   display: block;
   flex: none;
-  overflow: visible;
   pointer-events: none;
 }
-.mori-icon-head {
-  transform-origin: 24px 30px;
+.mori-icon-art {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background-repeat: no-repeat;
+  background-size: 400% 100%;
+  background-position: 0 0;
+  transform-origin: 50% 88%;
 }
-.mori-icon-gaze {
-  transform-origin: 24px 28px;
-  transition: transform 220ms ease;
+.mori-icon.is-thinking .mori-icon-art {
+  background-position-x: 33.333333%;
 }
-.mori-icon-eyes {
-  transform-origin: 24px 27px;
+.mori-icon.is-waiting .mori-icon-art {
+  background-position-x: 66.666667%;
 }
-.mori-icon-busy {
-  opacity: 0;
-  transform-origin: 37px 36px;
-  pointer-events: none;
+.mori-icon.is-error .mori-icon-art {
+  background-position-x: 100%;
 }
-.mori-icon.is-thinking .mori-icon-busy {
-  opacity: 1;
+.mori-icon.is-animated.is-idle .mori-icon-art {
+  animation: mori-icon-greet 7.4s ease-in-out infinite;
 }
-.mori-icon.is-animated.is-thinking .mori-icon-busy {
-  animation: mori-icon-busy 14s ease-in-out infinite;
-}
-@keyframes mori-icon-busy {
-  0%, 12%, 72%, 100% { opacity: 0; transform: translateY(2px) scale(.8); }
-  20%, 58% { opacity: 1; transform: translateY(0) scale(1); }
-}
-.mori-icon.is-animated .mori-icon-eyes {
-  animation: mori-icon-blink 7.4s ease-in-out infinite;
-}
-.mori-icon.is-thinking .mori-icon-gaze {
-  transform: translate(1px, -1px);
-}
-.mori-icon.is-animated.is-thinking .mori-icon-head {
+.mori-icon.is-animated.is-thinking .mori-icon-art {
   animation: mori-icon-think 2.8s ease-in-out infinite;
 }
-.mori-icon.is-waiting .mori-icon-gaze {
-  transform: translateY(-1.5px) rotate(-5deg);
-}
-.mori-icon.is-animated.is-waiting .mori-icon-head {
+.mori-icon.is-animated.is-waiting .mori-icon-art {
   animation: mori-icon-listen 4.8s ease-in-out infinite;
 }
-.mori-icon.is-error .mori-icon-gaze {
-  transform: rotate(4deg);
-}
-.mori-ball:hover .mori-icon.is-idle .mori-icon-gaze,
-.mori-ball:focus-visible .mori-icon.is-idle .mori-icon-gaze {
-  transform: translateY(-1.5px);
-}
-@keyframes mori-icon-blink {
+@keyframes mori-icon-greet {
   0%,
-  42%,
-  46%,
+  82%,
   100% {
-    transform: scaleY(1);
+    transform: none;
   }
-  44% {
-    transform: scaleY(0.12);
+  87% {
+    transform: translateY(-1px) rotate(-4deg);
+  }
+  92% {
+    transform: rotate(3deg);
+  }
+  96% {
+    transform: rotate(-1deg);
   }
 }
 @keyframes mori-icon-think {
   0%,
   100% {
-    transform: translateY(0) rotate(-2deg);
+    transform: rotate(-2deg);
   }
   50% {
-    transform: translateY(-1px) rotate(3deg);
+    transform: translateY(1px) rotate(2deg) scaleY(0.98);
   }
 }
 @keyframes mori-icon-listen {
   0%,
   65%,
   100% {
-    transform: rotate(0);
+    transform: none;
   }
   76%,
   86% {
@@ -83,13 +67,7 @@
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .mori-icon.is-animated .mori-icon-eyes,
-  .mori-icon.is-animated.is-thinking .mori-icon-head,
-  .mori-icon.is-animated.is-thinking .mori-icon-busy,
-  .mori-icon.is-animated.is-waiting .mori-icon-head {
+  .mori-icon.is-animated .mori-icon-art {
     animation: none;
-  }
-  .mori-icon-gaze {
-    transition: none;
   }
 }

@@ -390,17 +390,18 @@ export function WorkspaceGitSection({
   }
 
   async function openChangesDrawer() {
-    if (!workspacePath || !window.eco || changesLoading) {
+    if (!workspacePath || !window.eco) {
       return;
     }
-    await onRefreshGitStatus?.(true);
     if (onOpenChangesReview) {
       setChangesDrawerOpen(false);
       await onOpenChangesReview();
       return;
     }
     setChangesDrawerOpen(true);
-    await reloadChangesDiff(selectedChangePath);
+    if (!changesLoading) {
+      await reloadChangesDiff(selectedChangePath);
+    }
   }
 
   function closeChangesDrawer() {
@@ -457,7 +458,7 @@ export function WorkspaceGitSection({
           <button
             type="button"
             className="thread-info-workspace-git-row-button"
-            disabled={!workspacePath || gitBusy}
+            disabled={!workspacePath}
             aria-expanded={changesDrawerOpen}
             aria-haspopup="dialog"
             aria-label={t("workspaceGit.viewChanges")}

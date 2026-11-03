@@ -688,7 +688,7 @@ function ImageDisplayWorkspaceCardBody({
           artifact.title?.trim() ||
           artifact.sourceRef?.split(/[\\/]/u).at(-1) ||
           t("task.imageDisplay.emptyTitle");
-        const status = t(`task.imageDisplay.status.${artifact.status}`);
+        const status = artifact.status === "failed" ? t("task.imageDisplay.status.failed") : "";
         const source = t(`task.imageDisplay.source.${artifact.sourceKind}`);
         const meta = [status, source].filter(Boolean).join(" · ");
         return (

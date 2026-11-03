@@ -1,8 +1,10 @@
 import { afterEach, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { deflateSync } from "node:zlib";
+import { decodePngToRgba } from "../scripts/png-rgba.mjs";
 import { MoriPets, petImageDimensions, readMoriPetDirectory } from "../src/main/mori-pets";
 import {
   MORI_PET_ANIMATIONS,
@@ -157,6 +159,46 @@ test("bundled Mori pet uses the Codex Pets v2 atlas dimensions", async () => {
   );
   expect(pet.info.version).toBe(2);
   expect(petImageDimensions(pet.image)).toEqual({ width: 1536, height: 2288 });
+});
+
+test("painted default pet has complete transparent actions and sixteen registered body poses", async () => {
+  const image = decodePngToRgba(
+    await fs.readFile(path.join(import.meta.dir, "../src/renderer/assets/mori-pet/spritesheet.png")),
+  );
+  const pixels = new Uint8ClampedArray(image.data);
+  expect(missingMoriPetFrame(pixels, image.width, 2)).toBeUndefined();
+  const counts = [...Object.values(MORI_PET_ANIMATIONS).map((a) => a.durations.length), 8, 8];
+  const gazes = new Set<string>();
+  for (const [row, count] of counts.entries()) {
+    for (let column = 0; column < count; column++) {
+      const frame = Buffer.alloc(192 * 208 * 4);
+      let visible = 0;
+      let bottom = 0;
+      let clipped = false;
+      for (let y = 0; y < 208; y++) {
+        const start = ((row * 208 + y) * image.width + column * 192) * 4;
+        frame.set(image.data.subarray(start, start + 192 * 4), y * 192 * 4);
+        for (let x = 0; x < 192; x++) {
+          const alpha = frame[(y * 192 + x) * 4 + 3] ?? 0;
+          if (alpha < 16) continue;
+          visible++;
+          bottom = y;
+          // Painted edges and jumps must stay inside their own cell.
+          if (x < 4 || x >= 188 || y < 4 || y >= 204) clipped = true;
+        }
+      }
+      expect(visible).toBeGreaterThan(12000);
+      expect(clipped).toBe(false);
+      expect(frame[3]).toBe(0);
+      if (row >= 9) {
+        // Turning and crouching must not move the resting foot or leave blank directions.
+        expect(bottom).toBeGreaterThanOrEqual(189);
+        expect(bottom).toBeLessThanOrEqual(190);
+        gazes.add(createHash("sha256").update(frame).digest("hex"));
+      }
+    }
+  }
+  expect(gazes.size).toBe(16);
 });
 
 test("reports the first missing action or v2 gaze frame", () => {

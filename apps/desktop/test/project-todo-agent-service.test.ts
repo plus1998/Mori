@@ -35,6 +35,10 @@ function setup() {
     listSsh: () => [],
     listBrowsers: () => [],
     listThreads: () => [],
+    listPlans: () => [],
+    readPlan: () => {
+      throw new Error("No test plans");
+    },
     getThread: () => undefined,
     listCapabilities: async () => [],
     readHistory: () => ({ messages: [], historyRevision: 0, hasMore: false }),
@@ -107,6 +111,47 @@ test("Agent list filters and paginates current project without leaking other pro
   expect(json(todos.invoke("a", "list_todos", { status: "completed" })).items).toEqual([]);
   expect(() => todos.invoke("a", "list_todos", { limit: 51 })).toThrow();
   expect(() => todos.invoke("a", "list_todos", { offset: -1 })).toThrow();
+});
+
+test("reference picker excludes completed todos from all categories and searches, and includes reopened todos", () => {
+  const { todos, store, references } = setup();
+  const pending = store.save({ ...note, text: "Picker pending" });
+  const running = store.save({ ...note, text: "Picker running", status: "in_progress" });
+  const completed = store.save({ ...note, text: "Picker completed", completed: true });
+  const otherCompleted = store.save({
+    ...note,
+    projectPath: "/project/b",
+    text: "Picker other completed",
+    completed: true,
+  });
+  const expected = [pending.id, running.id].sort();
+  expect(
+    todos
+      .references()
+      .map((item) => item.id)
+      .sort(),
+  ).toEqual(expected);
+  for (const kind of [undefined, "todo"] as const) {
+    for (const query of ["", "Picker"]) {
+      expect(
+        references
+          .search({ query, ...(kind ? { kind } : {}) })
+          .items.map((item) => item.id)
+          .sort(),
+      ).toEqual(expected);
+    }
+    expect(references.search({ query: "completed", ...(kind ? { kind } : {}) }).items).toEqual([]);
+  }
+  // Completion hides a candidate; reopening makes it available again.
+  store.updateStatus({ id: pending.id, revision: pending.revision, status: "completed" });
+  expect(todos.references().map((item) => item.id)).toEqual([running.id]);
+  store.updateStatus({ id: completed.id, revision: completed.revision, status: "pending" });
+  expect(references.search({ query: "Picker completed", kind: "todo" }).items.map((item) => item.id)).toEqual(
+    [completed.id],
+  );
+  expect(todos.references().some((item) => item.id === otherCompleted.id)).toBe(false);
+  // Existing references remain readable after completion.
+  expect(todos.resolveReference("a", pending.id).status).toBe("completed");
 });
 
 test("@todo resolves authoritative metadata and grants only that item in the referencing conversation", async () => {

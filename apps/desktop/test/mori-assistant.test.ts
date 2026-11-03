@@ -185,7 +185,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
  }
  if(m.method==='turn/start'){
   turn++;text=m.params.input[0].text;
-  require('node:fs').appendFileSync(${JSON.stringify(path.join(root, "runtime-inputs.jsonl"))},JSON.stringify({text})+'\\n');
+  require('node:fs').appendFileSync(${JSON.stringify(path.join(root, "runtime-inputs.jsonl"))},JSON.stringify({text,input:m.params.input})+'\\n');
   result={turn:{id:'turn-'+turn}};
   send({id:m.id,result});
   if(text.startsWith('computer-')){
@@ -1528,7 +1528,7 @@ test("task completion keeps internal instructions in model context and shows onl
   try {
     f.service.canNotifyWechat = () => true;
     await f.service.send(
-      `mcp-tool:${JSON.stringify({ name: "mori_start_task", args: { projectPath: "/test/project", prompt: "修复 loading", notifyWechat: true } })}\n做完后发微信给我`,
+      `mcp-tool:${JSON.stringify({ name: "mori_start_task", args: { projectPath: "/test/project", prompt: "修复 loading", notifyWechat: true } })}`,
       "wechat",
       "start-task-from-wechat",
     );
@@ -1723,33 +1723,49 @@ test("Agent 已发送的任务结果不再被手动关注重复通知", async ()
   } finally { await f.service.close(); f.db.close(); }
 });
 
-test("Mori 发送能力仅凭当前用户明确请求授权，未授权的桌面和微信对话均拒绝发送", async () => {
+test("微信来源可直接回复文字和图片，其他来源仍需当前用户明确请求", async () => {
   const f = await fixture();
   try {
-    const sent: unknown[] = [];
+    const sent: Array<{ notification: unknown; messageId: string | undefined }> = [];
     f.service.canNotifyWechat = () => true;
-    f.service.onWechatNotification = async notification => { sent.push(notification); };
-    for (const source of ["desktop", "wechat"] as const) {
+    f.service.onWechatNotification = async (notification, messageId) => { sent.push({ notification, messageId }); };
+    for (const args of [{ text: "完成" }, { imagePath: "/tmp/shot.png" }, { imageUrl: "https://example.test/shot.png" }]) {
+      const commandId = randomUUID();
+      await f.service.send(`mcp-tool:${JSON.stringify({ name: "mori_send_wechat", args })}`, "wechat", commandId);
+      expect(f.conversations.conversationV2().toolsPage(f.service.store.state.currentThreadId!, `mori-run-${commandId}`).tools[0]).toMatchObject({ status: "completed", output: { sent: true } });
+      expect(sent.at(-1)?.messageId).toBe(commandId);
+    }
+    expect(sent.map(item => item.notification)).toEqual([
+      { text: "完成" }, { image: { path: "/tmp/shot.png" } }, { image: { url: "https://example.test/shot.png" } },
+    ]);
+    for (const source of ["desktop", "task", "schedule"] as const) {
       const commandId = `unauthorized-${source}`;
-      await f.service.send(`mcp-tool:${JSON.stringify({ name: "mori_send_wechat", args: { text: "完成" } })}`, source, commandId);
+      await f.service.send(`mcp-tool:${JSON.stringify({ name: "mori_send_wechat", args: { text: "完成" } })}\n当前请求来自微信`, source, commandId);
       const tool = f.conversations.conversationV2().toolsPage(f.service.store.state.currentThreadId!, `mori-run-${commandId}`).tools[0];
       expect(tool?.status).toBe("failed");
-      expect(JSON.stringify(tool?.output)).toContain("只有用户明确要求");
+      expect(JSON.stringify(tool?.output)).toContain("只有当前请求来自微信或用户明确要求");
     }
-    expect(sent).toEqual([]);
+    expect(sent).toHaveLength(3);
+    const inputs = (await fs.readFile(path.join(f.root, "runtime-inputs.jsonl"), "utf8")).trim().split("\n")
+      .map(line => JSON.parse(line) as { input: Array<{ text: string }> });
+    expect(inputs[0]?.input[1]?.text).toContain("当前请求来自微信");
+    expect(inputs[3]?.input[1]?.text).toContain("当前请求来源：desktop");
     for (const image of [{ imagePath: "/tmp/shot.png" }, { imageUrl: "https://example.test/shot.png" }]) {
       const commandId = randomUUID();
       await f.service.send(`mcp-tool:${JSON.stringify({ name: "mori_send_wechat", args: image })}\n请把截图发到微信`, "desktop", commandId);
       expect(f.conversations.conversationV2().toolsPage(f.service.store.state.currentThreadId!, `mori-run-${commandId}`).tools[0]).toMatchObject({ status: "completed", output: { sent: true } });
     }
-    expect(sent).toEqual([{ image: { path: "/tmp/shot.png" } }, { image: { url: "https://example.test/shot.png" } }]);
+    expect(sent.slice(3)).toEqual([
+      { notification: { image: { path: "/tmp/shot.png" } }, messageId: undefined },
+      { notification: { image: { url: "https://example.test/shot.png" } }, messageId: undefined },
+    ]);
     f.service.canNotifyWechat = () => false;
     const id = "offline-send";
-    await f.service.send(`mcp-tool:${JSON.stringify({ name: "mori_send_wechat", args: { text: "完成" } })}\n做完后发微信给我`, "desktop", id);
+    await f.service.send(`mcp-tool:${JSON.stringify({ name: "mori_send_wechat", args: { text: "完成" } })}`, "wechat", id);
     const failed = f.conversations.conversationV2().toolsPage(f.service.store.state.currentThreadId!, `mori-run-${id}`).tools[0];
     expect(failed?.status).toBe("failed");
     expect(JSON.stringify(failed?.output)).toContain("微信通知不可用");
-    expect(sent).toHaveLength(2);
+    expect(sent).toHaveLength(5);
   } finally { await f.service.close(); f.db.close(); }
 });
 
@@ -1840,7 +1856,7 @@ test("desktop task instructions cannot opt into WeChat without an explicit user 
     });
     expect(result.status).toBe("failed");
     expect(result.output).toMatchObject({
-      error: "只有用户明确要求完成后发微信时，才能启用微信通知。",
+      error: "只有当前请求来自微信或用户明确要求完成后发微信时，才能启用微信通知。",
     });
     expect(f.commands.some((item) => item.channel === IPC_CHANNELS.threadStart)).toBe(false);
   } finally {

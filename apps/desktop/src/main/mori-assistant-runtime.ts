@@ -8,7 +8,7 @@ import {
   buildCodexModelProviderSlug,
 } from "@eco/runtime/codex-config-sync";
 import type { ChatApiCompat } from "../shared/api-compat";
-import type { MoriAssistantSettings } from "../shared/mori-assistant";
+import type { MoriAssistantSettings, MoriAssistantState } from "../shared/mori-assistant";
 import type { AccountUsageRecord } from "./account-usage-store";
 import { CodexAccountUsageTracker } from "./codex-account-usage-tracker";
 import { resolveCodexProxyUrl, type SystemProxyResolver } from "./codex-proxy";
@@ -317,7 +317,11 @@ export class MoriAssistantRuntime {
     return this.threadId;
   }
 
-  async send(text: string, settings: MoriAssistantSettings): Promise<void> {
+  async send(
+    text: string,
+    settings: MoriAssistantSettings,
+    source: MoriAssistantState["sourceByMessage"][string] = "desktop",
+  ): Promise<void> {
     if (!this.client || !this.threadId) throw new Error("助手会话尚未建立。");
     if (this.completion) throw new Error("助手正在回复，请等待或停止后再发送。");
     this.text.clear();
@@ -341,7 +345,15 @@ export class MoriAssistantRuntime {
           threadId: this.threadId,
           model: this.requestModel(settings.model),
           effort: settings.reasoningEffort,
-          input: [{ type: "text", text }],
+          input: [
+            { type: "text", text },
+            {
+              type: "text",
+              text: source === "wechat"
+                ? "[Mori 本轮通道上下文] 当前请求来自微信。可使用 mori_send_wechat 直接向用户回复文字或图片，无需再次索要微信发送授权；创建工作任务时可设置 notifyWechat=true 将结果回复微信。只有发送成功后才能确认已发送。"
+                : `[Mori 本轮通道上下文] 当前请求来源：${source}。本轮使用微信发送能力须用户明确要求微信通知，不能沿用历史轮次的微信来源。`,
+            },
+          ],
         },
         {
           onResult: (result) => {

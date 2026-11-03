@@ -18,7 +18,10 @@ export class ProjectTodoAgentService {
   ) {}
 
   references() {
-    return this.deps.store.list().map(projectTodoReference);
+    return this.deps.store
+      .list()
+      .filter((todo) => !todo.completed)
+      .map(projectTodoReference);
   }
 
   resolveReference(threadId: string, id: string) {
