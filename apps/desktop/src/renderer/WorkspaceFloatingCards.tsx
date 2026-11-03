@@ -220,6 +220,7 @@ function WorkspacePanelSection({
   children,
   defaultExpanded = true,
   persistExpanded = true,
+  variant = "plain",
   maxBodyHeight = 360,
   onExpandedChange,
 }: {
@@ -229,6 +230,7 @@ function WorkspacePanelSection({
   children: ReactNode;
   defaultExpanded?: boolean;
   persistExpanded?: boolean;
+  variant?: "plain" | "card";
   maxBodyHeight?: number;
   onExpandedChange?: (expanded: boolean) => void;
 }) {
@@ -249,7 +251,7 @@ function WorkspacePanelSection({
   }
 
   return (
-    <section className={`workspace-panel-section${expanded ? " is-expanded" : " is-collapsed"}`}>
+    <section className={`workspace-panel-section${variant === "card" ? " workspace-panel-section--card" : ""}${expanded ? " is-expanded" : " is-collapsed"}`}>
       <div className="workspace-panel-section-header">
         <button
           type="button"
@@ -846,6 +848,7 @@ export function WorkspaceFloatingCards({
     workspace?.name ||
     t("workspaceCards.noProject");
   const showProgress = hasProgressInfo(todos);
+  const showEnvironment = hasActiveThread || Boolean(onOpenScriptsDialog) || gitStatus?.isGitRepository !== false;
   const [commitsRefreshKey, setCommitsRefreshKey] = useState(0);
   const showCommitGraph = Boolean(workspacePath && gitStatus?.isGitRepository && gitStatus.hasGitCommits);
   const branchLabel = gitStatus?.branch ?? "—";
@@ -886,49 +889,51 @@ export function WorkspaceFloatingCards({
       aria-label={t("workspaceCards.workspacePanels", { project: projectLabel })}
     >
       <div className="workspace-floating-cards-sections">
-        <WorkspacePanelSection
-          id="workspace-env"
-          title={t("workspaceCards.environment")}
-          defaultExpanded
-          summary={
-            <>
-              <GitBranch size={14} aria-hidden />
-              <span>{branchLabel}</span>
-              <span className="floating-workspace-card-bubble-stats">
-                <span className="git-commit-stat-add">+{insertions}</span>
-                <span className="git-commit-stat-del">-{deletions}</span>
-              </span>
-            </>
-          }
-          onExpandedChange={() => void onRefreshGitStatus?.(false)}
-        >
-          <WorkspaceGitSection
-            {...(workspacePath && { workspacePath })}
-            workspaceLabel={projectLabel}
-            {...(gitStatus && { gitStatus })}
-            gitBusy={gitBusy ?? false}
-            commitDisabled={commitDisabled ?? false}
-            {...(defaultCommitCandidateModelId && { defaultCommitCandidateModelId })}
-            {...(gitSettings && { gitSettings })}
-            {...(onCheckoutGitBranch && { onCheckoutGitBranch })}
-            {...(onCreateGitBranch && { onCreateGitBranch })}
-            {...(onOpenGitSettings && { onOpenGitSettings })}
-            {...(onSaveCommitModelPreference && { onSaveCommitModelPreference })}
-            onCommitSuccess={() => void handleCommitSuccess()}
-            {...(onPushSuccess && { onPushSuccess })}
-            {...(onOpenChangesReview && { onOpenChangesReview })}
-            {...(onChangesDiffLoaded && { onChangesDiffLoaded })}
-            {...(onChangesDiffLoadingChange && { onChangesDiffLoadingChange })}
-            {...(onChangesDiffError && { onChangesDiffError })}
-            onPullSuccess={() => void handlePullSuccess()}
-            {...(onPullError && { onPullError })}
-            {...(onResolveConflictsWithAgent && { onResolveConflictsWithAgent })}
-            {...(onRefreshGitStatus && { onRefreshGitStatus })}
-            {...(scriptsDisabled !== undefined && { scriptsDisabled })}
-            {...(onOpenScriptsDialog && { onOpenScriptsDialog })}
-            {...(onCommitDialogOpenChange && { onCommitDialogOpenChange })}
-          />
-        </WorkspacePanelSection>
+        {showEnvironment ? (
+          <WorkspacePanelSection
+            id="workspace-env"
+            title={t("workspaceCards.environment")}
+            defaultExpanded
+            summary={
+              <>
+                <GitBranch size={14} aria-hidden />
+                <span>{branchLabel}</span>
+                <span className="floating-workspace-card-bubble-stats">
+                  <span className="git-commit-stat-add">+{insertions}</span>
+                  <span className="git-commit-stat-del">-{deletions}</span>
+                </span>
+              </>
+            }
+            onExpandedChange={() => void onRefreshGitStatus?.(false)}
+          >
+            <WorkspaceGitSection
+              {...(workspacePath && { workspacePath })}
+              workspaceLabel={projectLabel}
+              {...(gitStatus && { gitStatus })}
+              gitBusy={gitBusy ?? false}
+              commitDisabled={commitDisabled ?? false}
+              {...(defaultCommitCandidateModelId && { defaultCommitCandidateModelId })}
+              {...(gitSettings && { gitSettings })}
+              {...(onCheckoutGitBranch && { onCheckoutGitBranch })}
+              {...(onCreateGitBranch && { onCreateGitBranch })}
+              {...(onOpenGitSettings && { onOpenGitSettings })}
+              {...(onSaveCommitModelPreference && { onSaveCommitModelPreference })}
+              onCommitSuccess={() => void handleCommitSuccess()}
+              {...(onPushSuccess && { onPushSuccess })}
+              {...(onOpenChangesReview && { onOpenChangesReview })}
+              {...(onChangesDiffLoaded && { onChangesDiffLoaded })}
+              {...(onChangesDiffLoadingChange && { onChangesDiffLoadingChange })}
+              {...(onChangesDiffError && { onChangesDiffError })}
+              onPullSuccess={() => void handlePullSuccess()}
+              {...(onPullError && { onPullError })}
+              {...(onResolveConflictsWithAgent && { onResolveConflictsWithAgent })}
+              {...(onRefreshGitStatus && { onRefreshGitStatus })}
+              {...(scriptsDisabled !== undefined && { scriptsDisabled })}
+              {...(onOpenScriptsDialog && { onOpenScriptsDialog })}
+              {...(onCommitDialogOpenChange && { onCommitDialogOpenChange })}
+            />
+          </WorkspacePanelSection>
+        ) : null}
 
         {codexBackgroundTerminals.length > 0 || codexBackgroundTerminalError ? (
           <WorkspacePanelSection
@@ -1046,6 +1051,7 @@ export function WorkspaceFloatingCards({
         {approvedPlan ? (
           <WorkspacePanelSection
             id="workspace-approved-plan"
+            variant="card"
             title={t("workspaceCards.plan")}
             defaultExpanded
             maxBodyHeight={120}
@@ -1057,6 +1063,7 @@ export function WorkspaceFloatingCards({
         {resolvedBrowserInstances.length > 0 ? (
           <WorkspacePanelSection
             id="workspace-browser-tabs"
+            variant="card"
             title={t("workspaceCards.browser")}
             defaultExpanded
             summary={
@@ -1121,6 +1128,7 @@ export function WorkspaceFloatingCards({
         {imageArtifacts.length > 0 ? (
           <WorkspacePanelSection
             id="workspace-image-artifacts"
+            variant="card"
             title={t("task.image.history")}
             defaultExpanded
             summary={
@@ -1141,6 +1149,7 @@ export function WorkspaceFloatingCards({
         {imageDisplayArtifacts.length > 0 ? (
           <WorkspacePanelSection
             id="workspace-image-display-artifacts"
+            variant="card"
             title={t("task.imageDisplay.history")}
             defaultExpanded
             summary={
@@ -1161,6 +1170,7 @@ export function WorkspaceFloatingCards({
         {htmlHostArtifacts.length > 0 ? (
           <WorkspacePanelSection
             id="workspace-html-host-artifacts"
+            variant="card"
             title={t("task.htmlHost.history")}
             defaultExpanded
             summary={

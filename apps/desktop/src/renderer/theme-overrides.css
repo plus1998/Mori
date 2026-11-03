@@ -58,8 +58,8 @@
 /* MCP list */
 .settings-page .mcp-list-toolbar-label {
   color: var(--text-primary);
-  font-size: 15px;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 500;
 }
 
 .settings-page .mcp-add-button {
@@ -81,14 +81,14 @@
 .settings-page .mcp-server-list {
   gap: 0;
   border: 1px solid var(--border-subtle);
-  border-radius: 14px;
+  border-radius: var(--radius-card);
   background: var(--bg-elevated);
   overflow: hidden;
-  box-shadow: 0 1px 0 color-mix(in srgb, var(--text-primary) 4%, transparent);
+  box-shadow: none;
 }
 
 .settings-page .mcp-server-row {
-  padding: 13px 16px;
+  padding: 12px 16px;
   border-radius: 0;
   background: transparent;
   border-bottom: 1px solid color-mix(in srgb, var(--border-subtle) 80%, transparent);
@@ -106,8 +106,8 @@
 .settings-page .mcp-server-name {
   color: var(--text-primary);
   font-size: 14px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
+  font-weight: 400;
+  letter-spacing: 0;
 }
 
 .settings-page .mcp-server-meta {
@@ -340,26 +340,26 @@
 /* Models tabs — segmented control */
 .settings-page .models-settings-tabs {
   display: inline-flex;
-  gap: 0;
+  gap: 2px;
   margin: 0 0 24px;
-  padding: 3px;
+  padding: 2px;
   border: none;
   border-radius: 10px;
-  background: color-mix(in srgb, var(--text-primary) 7%, transparent);
+  background: var(--nav-hover);
 }
 
 .settings-page .models-settings-tab {
   display: inline-flex;
-  align-items: baseline;
+  align-items: center;
   gap: 6px;
-  padding: 6px 14px;
+  padding: 5px 12px;
   border: none;
   border-radius: 8px;
   background: transparent;
   color: var(--text-secondary);
   font-size: 13px;
-  font-weight: 500;
-  letter-spacing: -0.01em;
+  font-weight: 400;
+  letter-spacing: 0;
   transition:
     background-color 0.16s cubic-bezier(0.32, 0.72, 0, 1),
     color 0.14s ease,
@@ -387,15 +387,14 @@
 }
 
 .settings-page .models-settings-tab:active {
-  transform: scale(0.97);
+  transform: none;
 }
 
 .settings-page .models-settings-tab.active {
   background: var(--bg-elevated);
   color: var(--text-primary);
-  box-shadow:
-    0 1px 2px color-mix(in srgb, black 12%, transparent),
-    0 0 0 0.5px color-mix(in srgb, var(--text-primary) 6%, transparent);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 6%);
+  font-weight: 500;
 }
 
 /* Models sections */
@@ -618,7 +617,7 @@
   min-width: 0;
   flex: 1;
   color: var(--text-primary);
-  letter-spacing: -0.015em;
+  letter-spacing: 0;
 }
 
 .settings-page .skill-card-uninstall {
@@ -1067,10 +1066,10 @@
 
 /* Modal internals */
 .settings-page .settings-modal-cancel {
-  border: 1px solid var(--border-subtle);
-  background: var(--bg-elevated);
+  border: 0;
+  background: transparent;
   color: var(--text-primary);
-  border-radius: 9px;
+  border-radius: var(--radius-control);
 }
 
 .settings-page .settings-modal-cancel:hover:not(:disabled) {
@@ -1520,7 +1519,7 @@
 }
 
 [data-theme="light"] .settings-primary-button:hover:not(:disabled) {
-  background: var(--accent-hover);
+  background: var(--primary-btn-hover-bg);
 }
 
 [data-theme="dark"] .settings-primary-button {
@@ -1529,7 +1528,7 @@
 }
 
 [data-theme="dark"] .settings-primary-button:hover:not(:disabled) {
-  filter: brightness(1.05);
+  background: var(--primary-btn-hover-bg);
 }
 
 [data-theme="light"] .composer-switch-track {

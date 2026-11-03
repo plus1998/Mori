@@ -197,7 +197,7 @@ export function ComposerIntegrations({
           }}
         >
           <Blocks size={COMPOSER_TOOLBAR_ICON_PX} aria-hidden />
-          <span className="composer-context-trigger-label">{enabledCount}</span>
+          {enabledCount > 0 ? <span className="composer-context-trigger-label">{enabledCount}</span> : null}
         </button>
       </ComposerHoverTooltip>
       {popover}

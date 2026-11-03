@@ -224,7 +224,7 @@ export function ComposerMcpServers({
             aria-hidden
             className="composer-context-trigger-icon"
           />
-          <span className="composer-context-trigger-label">{enabledCount}</span>
+          {enabledCount > 0 ? <span className="composer-context-trigger-label">{enabledCount}</span> : null}
         </button>
       </ComposerHoverTooltip>
       {popover}
