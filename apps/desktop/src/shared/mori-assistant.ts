@@ -37,6 +37,7 @@ export interface MoriAssistantState {
   draft: string;
   taskIds: string[];
   taskOrigins?: Record<string, { channel: "desktop" | "wechat"; messageId?: string }>;
+  wechatCompletionReceipts?: Record<string, string>;
   sourceByMessage: Record<string, "desktop" | "wechat" | "task" | "schedule">;
   ballPosition?: { x: number; y: number };
 }

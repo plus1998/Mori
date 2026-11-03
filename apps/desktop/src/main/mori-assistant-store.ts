@@ -90,6 +90,10 @@ export class MoriAssistantStore {
       !value.sourceByMessage
     )
       throw new Error("助手状态文件无效，原文件已保留。");
+    if (value.wechatCompletionReceipts !== undefined &&
+      (!value.wechatCompletionReceipts || typeof value.wechatCompletionReceipts !== "object" ||
+        Array.isArray(value.wechatCompletionReceipts) || Object.values(value.wechatCompletionReceipts).some(id => typeof id !== "string")))
+      throw new Error("微信完工通知回执无效，原文件已保留。");
     this.state = { ...value, settings: parseAssistantSettings(value.settings) };
     // Older versions exposed a task project preference. Mori's own workspace is managed locally.
     if (Object.hasOwn(value.settings, "defaultProject")) await this.save();

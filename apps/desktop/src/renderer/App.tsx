@@ -6,7 +6,7 @@ import { MoriIcon } from "./MoriIcon";
 import { MoriAssistantPanel, MoriAssistantSettingsPanel, MoriAssistantSurface } from "./MoriAssistant";
 import { appendProjectTodoReference, type ProjectTodo } from "../shared/project-todos";
 import type { TodoEditorDraft } from "./ProjectTodoPanel";
-import { ReadAloudControls, ReadAloudThreadContext } from "./ReadAloud";
+import { ThreadNotificationControls, ReadAloudThreadContext } from "./ReadAloud";
 import { buildComposerCapabilityReferences } from "../shared/composer-capability-references";
 import { ComposerReferencesMenu } from "./ComposerReferencesMenu";
 import { useComposerReferences } from "./use-composer-references";
@@ -8609,16 +8609,11 @@ function App() {
 
   const updateThreadWechatFollow = useCallback(async (enabled: boolean) => {
     const threadId = selectedThreadIdRef.current;
-    if (!threadId || !window.eco?.setThreadWechatFollow) return;
-    try {
-      const updated = await window.eco.setThreadWechatFollow({ threadId, enabled });
-      if (updated) {
-        setThreads((current) => current.map((thread) => (thread.id === updated.id ? updated : thread)));
-      }
-    } catch (error) {
-      showAppMessageError(error instanceof Error ? error.message : String(error));
-    }
-  }, [showAppMessageError]);
+    if (!threadId || !window.eco?.setThreadWechatFollow) throw new Error(t("thread.wechatUnavailable"));
+    const updated = await window.eco.setThreadWechatFollow({ threadId, enabled });
+    if (!updated) throw new Error(t("thread.wechatFollowSaveFailed"));
+    setThreads((current) => current.map((thread) => (thread.id === updated.id ? updated : thread)));
+  }, [t]);
 
   async function sendComposerMessage(
     promptOverride?: string,
@@ -12590,8 +12585,6 @@ function App() {
                         {...(activeThread && {
                           threadId: activeThread.id,
                           threadStatus: activeThread.status,
-                          wechatFollowEnabled: activeThread.wechatFollowEnabled === true,
-                          onWechatFollowChange: updateThreadWechatFollow,
                         })}
                         {...(threadUsageSummary && { usageSummary: threadUsageSummary })}
                         showBilling={workflowSettings.showBilling !== false}
@@ -13069,8 +13062,11 @@ function App() {
                         onError={showAppMessageError}
                       />
                       <h2 title={activeThread.title}>{activeThread.title}</h2>
-                      <ReadAloudControls
+                      <ThreadNotificationControls
+                        key={activeThread.id}
                         threadId={activeThread.id}
+                        wechatFollowEnabled={activeThread.wechatFollowEnabled === true}
+                        onWechatFollowChange={updateThreadWechatFollow}
                         onOpenSettings={() => {
                           setSettingsSection("tts");
                           setSettingsOpen(true);

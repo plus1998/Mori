@@ -1,7 +1,7 @@
 import {
   AlertCircle,
   ArrowUpRight,
-  AudioLines,
+  Bell,
   Check,
   ChevronDown,
   Cloud,
@@ -9,7 +9,6 @@ import {
   Monitor,
   Square,
   Volume2,
-  X,
 } from "lucide-react";
 import {
   type CSSProperties,
@@ -38,6 +37,7 @@ import {
   ReadAloudController,
   type ReadAloudPlayer,
 } from "./read-aloud-controller";
+import { ThreadNotificationPanel } from "./ThreadNotificationPanel";
 
 class DesktopReadAloudPlayer implements ReadAloudPlayer {
   private finish: ((error?: Error) => void) | undefined;
@@ -241,12 +241,16 @@ function ReadAloudAutoReadSwitch() {
   );
 }
 
-export function ReadAloudControls({
+export function ThreadNotificationControls({
   threadId,
   onOpenSettings,
+  wechatFollowEnabled,
+  onWechatFollowChange,
 }: {
   threadId: string;
   onOpenSettings: () => void;
+  wechatFollowEnabled: boolean;
+  onWechatFollowChange(enabled: boolean): Promise<void>;
 }) {
   const state = useReadAloud();
   const { t } = useTranslation();
@@ -328,14 +332,16 @@ export function ReadAloudControls({
           ref={triggerRef}
           type="button"
           className={`codex-main-toolbar-button read-aloud-toolbar-trigger${open ? " is-active" : ""}${error ? " has-error" : ""}`}
-          aria-label={t("readAloud.title")}
-          title={t("readAloud.title")}
+          aria-label={t("settings.notifications")}
+          title={t("settings.notifications")}
           aria-haspopup="dialog"
           aria-expanded={open}
           onClick={() => setOpen((value) => !value)}
         >
-          {error ? <AlertCircle size={15} aria-hidden /> : <Volume2 size={15} aria-hidden />}
-          {state.autoRead && !error ? <i className="read-aloud-auto-dot" aria-hidden /> : null}
+          {error ? <AlertCircle size={15} aria-hidden /> : <Bell size={15} aria-hidden />}
+          {(wechatFollowEnabled || state.autoRead) && !error ? (
+            <i className="read-aloud-auto-dot" aria-hidden />
+          ) : null}
         </button>
         {active ? (
           <button
@@ -363,51 +369,45 @@ export function ReadAloudControls({
               className="read-aloud-popover"
               style={panelStyle}
               role="dialog"
-              aria-label={t("readAloud.title")}
+              aria-label={t("settings.notifications")}
               tabIndex={-1}
             >
-              <header className="read-aloud-popover-heading">
-                <span>
-                  <AudioLines size={17} aria-hidden />
-                  <strong>{t("readAloud.title")}</strong>
-                </span>
-                <button
-                  type="button"
-                  className="read-aloud-icon-button"
-                  aria-label={t("readAloud.close")}
-                  onClick={() => {
-                    setOpen(false);
-                    triggerRef.current?.focus();
-                  }}
-                >
-                  <X size={15} aria-hidden />
-                </button>
-              </header>
-              <div className="read-aloud-popover-body">
-                <ReadAloudEngineChoice />
-                {state.engine === "system" ? (
-                  <p className="read-aloud-help">{t("readAloud.systemHint")}</p>
-                ) : null}
-                <ReadAloudConfiguration
-                  onManageProviders={() => {
-                    setOpen(false);
-                    onOpenSettings();
-                  }}
-                />
-                <div className="read-aloud-auto-row">
-                  <div>
-                    <strong>{t("readAloud.autoRead")}</strong>
-                    <small>{t("readAloud.autoReadHint")}</small>
-                  </div>
-                  <ReadAloudAutoReadSwitch />
-                </div>
-                {error ? (
-                  <div className="read-aloud-error" role="alert">
-                    <AlertCircle size={15} aria-hidden />
-                    <p>{error}</p>
-                  </div>
-                ) : null}
-              </div>
+              <ThreadNotificationPanel
+                wechatFollowEnabled={wechatFollowEnabled}
+                onWechatFollowChange={onWechatFollowChange}
+                readAloudHasError={Boolean(error)}
+                onClose={() => {
+                  setOpen(false);
+                  triggerRef.current?.focus();
+                }}
+                readAloudContent={
+                  <>
+                    <ReadAloudEngineChoice />
+                    {state.engine === "system" ? (
+                      <p className="read-aloud-help">{t("readAloud.systemHint")}</p>
+                    ) : null}
+                    <ReadAloudConfiguration
+                      onManageProviders={() => {
+                        setOpen(false);
+                        onOpenSettings();
+                      }}
+                    />
+                    <div className="read-aloud-auto-row">
+                      <div>
+                        <strong>{t("readAloud.autoRead")}</strong>
+                        <small>{t("readAloud.autoReadHint")}</small>
+                      </div>
+                      <ReadAloudAutoReadSwitch />
+                    </div>
+                    {error ? (
+                      <div className="read-aloud-error" role="alert">
+                        <AlertCircle size={15} aria-hidden />
+                        <p>{error}</p>
+                      </div>
+                    ) : null}
+                  </>
+                }
+              />
             </div>,
             document.body,
           )

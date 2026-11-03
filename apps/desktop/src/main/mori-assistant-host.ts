@@ -55,6 +55,12 @@ export class MoriAssistantHost {
     });
     this.wechat = new MoriAssistantWechat(path.join(deps.dataDir, "mori-wechat.json"), {
       changed,
+      canSendFollowNotification: (threadId, requestId) => {
+        const thread = deps.conversations.getThread(threadId);
+        if (!thread?.wechatFollowEnabled || thread.status !== "completed") return false;
+        const v2 = deps.conversations.conversationV2();
+        return (v2.latestUserMessageId(threadId) ?? v2.latestRun(threadId)?.runId ?? thread.updatedAt) === requestId;
+      },
       // Always retain presence diagnostics in packaged builds, without payloads or credentials.
       typingDiagnostic: (event, fields) =>
         appendUpstreamLogLine(

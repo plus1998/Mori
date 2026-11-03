@@ -4335,10 +4335,10 @@ export class ConversationStore {
     this.db
       .prepare(
         `UPDATE threads
-         SET wechat_follow_enabled = ?, updated_at = ?
+         SET wechat_follow_enabled = ?
          WHERE id = ?`,
       )
-      .run(enabled ? 1 : 0, new Date().toISOString(), threadId);
+      .run(enabled ? 1 : 0, threadId);
     return this.getThread(threadId);
   }
 

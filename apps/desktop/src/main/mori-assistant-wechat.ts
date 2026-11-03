@@ -38,6 +38,9 @@ export interface WechatNotificationMedia {
 export interface WechatNotification {
   text?: string;
   image?: WechatNotificationMedia;
+  /** Host-owned cancellation guard for a manual completion subscription. */
+  followThreadId?: string;
+  followRequestId?: string;
 }
 type WechatItem = {
   type: number;
@@ -55,6 +58,8 @@ interface WechatOutbox {
   itemList?: WechatItem[];
   sentItemCount?: number;
   error?: string;
+  followThreadId?: string;
+  followRequestId?: string;
 }
 interface WechatState {
   sentNotificationIds?: string[];
@@ -101,6 +106,8 @@ export class MoriAssistantWechat {
   private typing: MoriWechatTyping | undefined;
   private waitingForInput = false;
   private feedbackError: string | undefined;
+  private readonly enqueueWork = new Map<string, Promise<void>>();
+  private readonly outboxControllers = new Map<string, AbortController>();
   status: MoriAssistantSnapshot["wechat"] = { status: "disconnected" };
   constructor(
     private readonly file: string,
@@ -108,6 +115,7 @@ export class MoriAssistantWechat {
       changed(): void;
       receive(text: string, id: string): Promise<string>;
       respondIfPending?(text: string): Promise<boolean>;
+      canSendFollowNotification?(threadId: string, requestId: string | undefined): boolean;
       typingDiagnostic?: WechatTypingDiagnostic;
     },
   ) {}
@@ -287,14 +295,15 @@ export class MoriAssistantWechat {
         });
         if (!response.ok) {
           const detail = response.headers.get("x-error-message") || `HTTP ${response.status}`;
-          if (response.status >= 400 && response.status < 500) throw new Error(`微信图片上传失败：${detail}`);
+          if (response.status >= 400 && response.status < 500)
+            throw Object.assign(new Error(`微信图片上传失败：${detail}`), { retryable: false });
           throw new Error(`微信图片上传暂时失败：${detail}`);
         }
         downloadParam = response.headers.get("x-encrypted-param")?.trim() ?? "";
         if (!downloadParam) throw new Error("微信图片上传响应缺少下载参数。");
       } catch (error) {
         lastError = error;
-        if (attempt === 2 || (error instanceof Error && error.message.includes("HTTP 4"))) throw error;
+        if (attempt === 2 || (error as { retryable?: boolean }).retryable === false) throw error;
       }
     }
     if (!downloadParam) throw lastError instanceof Error ? lastError : new Error("微信图片上传失败。");
@@ -303,7 +312,8 @@ export class MoriAssistantWechat {
       image_item: {
         media: {
           encrypt_query_param: downloadParam,
-          aes_key: aesKey.toString("base64"),
+          // Match Tencent/ClawBot's outgoing media encoding: base64 of the hex key.
+          aes_key: Buffer.from(aesKey.toString("hex")).toString("base64"),
           encrypt_type: 1,
         },
         mid_size: encrypted.length,
@@ -594,6 +604,11 @@ export class MoriAssistantWechat {
       while (this.state.outbox.length && this.enabled && this.state.token) {
         const message = this.state.outbox[0];
         if (!message) break;
+        if (message.followThreadId && !this.deps.canSendFollowNotification?.(message.followThreadId, message.followRequestId)) {
+          this.state.outbox.shift();
+          await this.save();
+          continue;
+        }
         const itemList = message.itemList?.length
           ? message.itemList
           : [{ type: TEXT_ITEM_TYPE, text_item: { text: message.text } } satisfies WechatItem];
@@ -603,18 +618,26 @@ export class MoriAssistantWechat {
           this.state.outbox.shift();
           continue;
         }
-        await this.api("/ilink/bot/sendmessage", {
-          msg: {
-            from_user_id: "",
-            to_user_id: message.userId,
-            client_id: itemList.length === 1 ? message.id : `${message.id}:${sentItemCount}`,
-            message_type: 2,
-            message_state: 2,
-            context_token: message.contextToken,
-            item_list: [item],
-          },
-          base_info: { channel_version: "2.4.8", bot_agent: "Mori/1" },
-        });
+        const controller = new AbortController();
+        const generation = this.generation;
+        this.outboxControllers.set(message.id, controller);
+        try {
+          await this.api("/ilink/bot/sendmessage", {
+            msg: {
+              from_user_id: "",
+              to_user_id: message.userId,
+              client_id: itemList.length === 1 ? message.id : `${message.id}:${sentItemCount}`,
+              message_type: 2,
+              message_state: 2,
+              context_token: message.contextToken,
+              item_list: [item],
+            },
+            base_info: { channel_version: "2.4.8", bot_agent: "Mori/1" },
+          }, AbortSignal.any([controller.signal, ...(this.controller ? [this.controller.signal] : [])]));
+        } finally {
+          this.outboxControllers.delete(message.id);
+        }
+        if (generation !== this.generation || this.state.outbox[0] !== message) continue;
         if (sentItemCount + 1 < itemList.length) {
           message.itemList = itemList;
           message.sentItemCount = sentItemCount + 1;
@@ -647,19 +670,34 @@ export class MoriAssistantWechat {
   }
 
   get canNotify(): boolean {
-    return Boolean(this.state.token && this.state.inbox.length && this.enabled);
+    return Boolean(this.state.token && this.state.inbox.length && this.enabled && this.status.status === "connected");
   }
 
   async enqueueNotification(text: string, messageId: string | undefined, id: string): Promise<void> {
     await this.enqueueMediaNotification({ text }, messageId, id);
   }
 
-  async enqueueMediaNotification(
+  enqueueMediaNotification(
+    notification: WechatNotification,
+    messageId: string | undefined,
+    id: string,
+  ): Promise<void> {
+    const existing = this.enqueueWork.get(id);
+    if (existing) return existing;
+    const work = this.enqueueMediaNotificationOnce(notification, messageId, id);
+    this.enqueueWork.set(id, work);
+    void work.finally(() => this.enqueueWork.delete(id)).catch(() => {});
+    return work;
+  }
+
+  private async enqueueMediaNotificationOnce(
     notification: WechatNotification,
     messageId: string | undefined,
     id: string,
   ): Promise<void> {
     if (this.hasSentNotification(id)) return;
+    if (!this.enabled) throw new Error("微信渠道未在线，请连接后重试。");
+    const generation = this.generation;
     const original = messageId
       ? this.state.inbox.find((item) => item.id === messageId)
       : this.state.inbox.at(-1);
@@ -671,18 +709,30 @@ export class MoriAssistantWechat {
       const itemList: WechatItem[] = [];
       if (text) itemList.push({ type: TEXT_ITEM_TYPE, text_item: { text } });
       if (notification.image) itemList.push(await this.uploadImage(notification.image, original.userId));
+      if (generation !== this.generation || !this.enabled) throw new Error("微信连接已关闭，本次通知未入队。");
+      if (notification.followThreadId && !this.deps.canSendFollowNotification?.(notification.followThreadId, notification.followRequestId))
+        throw new Error("微信关注已关闭或任务状态已改变，本次通知已取消。");
       this.state.outbox.push({
         id,
         userId: original.userId,
         contextToken: latest.contextToken,
         text,
         itemList,
+        ...(notification.followThreadId ? { followThreadId: notification.followThreadId } : {}),
+        ...(notification.followRequestId ? { followRequestId: notification.followRequestId } : {}),
       });
     }
     await this.save();
     await this.flushOutbox();
-    if (this.state.outbox.some(item => item.id === id))
+    if (!this.hasSentNotification(id))
       throw new Error(this.status.error ?? "微信通知已入队，尚未确认送达。");
+  }
+
+  async cancelFollowNotifications(threadId: string): Promise<void> {
+    const cancelled = this.state.outbox.filter(item => item.followThreadId === threadId);
+    for (const item of cancelled) this.outboxControllers.get(item.id)?.abort();
+    this.state.outbox = this.state.outbox.filter(item => item.followThreadId !== threadId);
+    if (cancelled.length) await this.save();
   }
 
   hasSentNotification(id: string): boolean { return this.state.sentNotificationIds?.includes(id) === true; }
@@ -691,6 +741,8 @@ export class MoriAssistantWechat {
     this.binding?.abort();
     await this.setEnabled(false);
     await this.drainWork;
+    await this.flushWork;
+    await Promise.allSettled([...this.enqueueWork.values()]);
     await this.writes;
   }
 }

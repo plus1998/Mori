@@ -6338,6 +6338,17 @@ export class ConversationV2Store {
     return rows.map(rowToTurn);
   }
 
+  latestRun(conversationId: string): ConversationRun | undefined {
+    return this.listRuns(conversationId, 1)[0];
+  }
+
+  latestUserMessageId(conversationId: string): string | undefined {
+    const row = this.db.prepare(`SELECT message_id FROM conversation_messages_v2
+      WHERE conversation_id = ? AND role = 'user' AND is_deleted = 0
+      ORDER BY created_seq DESC LIMIT 1`).get(conversationId) as { message_id: string } | undefined;
+    return row?.message_id;
+  }
+
   private listRuns(conversationId: string, limit: number): ConversationRun[] {
     const rows = this.db
       .prepare(

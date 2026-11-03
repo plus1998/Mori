@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import type { McpSdkConfig } from "../shared/mcp";
@@ -6,6 +5,7 @@ import { BrowserMcpAuthRegistry, createBrowserMcpControlSecret } from "./browser
 import { buildEcoHttpInjection } from "./mcp-http-descriptor";
 import { handleMcpStreamableHttpRequest, type McpToolDefinition } from "./mcp-streamable-http";
 import type { WechatNotification } from "./mori-assistant-wechat";
+import { wechatNotificationId } from "./wechat-notification-policy";
 
 export const ECO_WECHAT_MCP_SERVER = "eco_wechat";
 export const ECO_WECHAT_TOOL = "send_wechat_message";
@@ -24,6 +24,7 @@ export interface WechatMcpGatewayDeps {
     notification: WechatNotification,
     notificationId: string,
     signal: AbortSignal,
+    scopeId: string,
   ): Promise<void>;
 }
 
@@ -47,15 +48,20 @@ export class WechatMcpGateway {
   private readonly controlSecret = createBrowserMcpControlSecret();
   private server: http.Server | undefined;
   private port: number | undefined;
+  private starting: Promise<void> | undefined;
+  private readonly scopes = new Map<string, string>();
 
   constructor(private readonly deps: WechatMcpGatewayDeps) {}
 
-  async resolveInjection(threadId: string, authorized: boolean): Promise<WechatMcpInjection> {
+  async resolveInjection(threadId: string, authorized: boolean, scopeId: string): Promise<WechatMcpInjection> {
     if (!authorized) {
-      this.auth.revokeThread(threadId);
+      this.revokeThread(threadId);
       return { enabled: false };
     }
+    if (!scopeId.trim()) throw new Error("微信通知缺少本轮用户请求标识。");
     await this.start();
+    if (this.scopes.get(threadId) !== scopeId) this.auth.revokeThread(threadId);
+    this.scopes.set(threadId, scopeId);
     const auth = this.auth.ensure(threadId);
     const httpEntry = buildEcoHttpInjection({
       name: ECO_WECHAT_MCP_SERVER,
@@ -73,6 +79,11 @@ export class WechatMcpGateway {
     };
   }
 
+  revokeThread(threadId: string): void {
+    this.auth.revokeThread(threadId);
+    this.scopes.delete(threadId);
+  }
+
   mergeIntoSdkConfig(base: McpSdkConfig, injection: WechatMcpInjection): McpSdkConfig {
     if (!injection.enabled || !injection.sdkEntry) return base;
     return {
@@ -82,6 +93,9 @@ export class WechatMcpGateway {
   }
 
   async close(): Promise<void> {
+    await this.starting;
+    this.starting = undefined;
+    for (const threadId of this.scopes.keys()) this.revokeThread(threadId);
     const server = this.server;
     this.server = undefined;
     this.port = undefined;
@@ -90,7 +104,12 @@ export class WechatMcpGateway {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 
-  private async start(): Promise<void> {
+  private start(): Promise<void> {
+    this.starting ??= this.startOnce();
+    return this.starting;
+  }
+
+  private async startOnce(): Promise<void> {
     if (this.server) return;
     const server = http.createServer((request, response) => void this.handle(request, response));
     this.server = server;
@@ -133,8 +152,9 @@ export class WechatMcpGateway {
             ...(text ? { text } : {}),
             ...(imagePath || imageUrl ? { image: imagePath ? { path: imagePath } : { url: imageUrl } } : {}),
           };
-          const digest = createHash("sha256").update(JSON.stringify(notification)).digest("hex").slice(0, 24);
-          await this.deps.send(threadId, notification, `agent-wechat-${threadId}-${digest}`, signal);
+          const scopeId = this.scopes.get(threadId);
+          if (!scopeId) throw new Error("微信通知的本轮授权已失效。");
+          await this.deps.send(threadId, notification, wechatNotificationId(`${threadId}:${scopeId}`, notification), signal, scopeId);
           return { content: [{ type: "text", text: JSON.stringify({ sent: true }) }] };
         },
       },

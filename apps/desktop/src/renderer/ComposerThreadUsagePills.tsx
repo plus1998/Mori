@@ -44,8 +44,6 @@ export interface ComposerThreadUsagePillsProps {
   agentDisplayNames?: RuntimeAgentDisplayNames;
   agentThemes?: RuntimeAgentThemes;
   agentModelLabels?: ComposerAgentModelLabel[];
-  wechatFollowEnabled?: boolean;
-  onWechatFollowChange?: (enabled: boolean) => void | Promise<void>;
 }
 
 export function ComposerThreadUsagePills({
@@ -61,8 +59,6 @@ export function ComposerThreadUsagePills({
   agentDisplayNames,
   agentThemes,
   agentModelLabels,
-  wechatFollowEnabled = false,
-  onWechatFollowChange,
 }: ComposerThreadUsagePillsProps) {
   const { t } = useTranslation();
   const billing = usageSummary?.billing;
@@ -82,27 +78,12 @@ export function ComposerThreadUsagePills({
     shouldShowBillingUsagePanel(threadStatus, hostUiFeatures) &&
     (showBilling || threadStatus !== undefined);
 
-  const showWechatFollow = Boolean(threadId && onWechatFollowChange);
-  if (!showBillingSection && !showContext && !accountQuota && !showWechatFollow) {
+  if (!showBillingSection && !showContext && !accountQuota) {
     return null;
   }
 
   return (
     <div className="composer-footer-usage">
-      {showWechatFollow ? (
-        <label className="composer-switch notification-settings-switch" title={t("thread.wechatFollowHint")}>
-          <span className="settings-row-main">
-            <strong>{t("thread.wechatFollow")}</strong>
-          </span>
-          <input
-            type="checkbox"
-            checked={wechatFollowEnabled}
-            aria-label={t("thread.wechatFollow")}
-            onChange={(event) => void onWechatFollowChange?.(event.target.checked)}
-          />
-          <span className="composer-switch-track" aria-hidden />
-        </label>
-      ) : null}
       <ThreadInfoFloatStack
         variant="composer"
         accountQuota={accountQuota}

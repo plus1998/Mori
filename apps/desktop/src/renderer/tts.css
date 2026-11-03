@@ -269,6 +269,58 @@
 .read-aloud-popover-body {
   padding: 0 16px 16px;
 }
+.thread-notification-tabs {
+  display: flex;
+  gap: 4px;
+  margin: 0 16px 16px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.thread-notification-tabs button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  gap: 7px;
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.thread-notification-tabs button[aria-selected="true"] {
+  color: var(--accent-text);
+  background: var(--accent-soft);
+}
+.thread-notification-tabs button:hover { background: var(--nav-hover-solid); }
+.thread-notification-tabs button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.thread-notification-tab-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.thread-notification-wechat-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.thread-notification-wechat-row > div { display: grid; gap: 6px; }
+.thread-notification-wechat-row strong { font-size: 12px; font-weight: 550; }
+.thread-notification-wechat-row small { color: var(--text-muted); font-size: 11px; line-height: 1.6; }
+.thread-notification-scope {
+  margin: 16px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle);
+}
 .read-aloud-engine-choice {
   flex: 0 0 auto;
   min-width: 0;

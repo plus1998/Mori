@@ -194,7 +194,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
    callMcp(computer,name,args).catch(error=>send({method:'turn/completed',params:{threadId:thread,turn:{id:'turn-'+turn,status:'failed',error:{message:String(error)}}}}));
   }
   else if(text.startsWith('mcp-tool:')){
-   const request=JSON.parse(text.slice('mcp-tool:'.length));
+   const request=JSON.parse(text.slice('mcp-tool:'.length).split('\\n')[0]);
    callMcp(computer?.enabled_tools.includes(request.name)?computer:scheduling?.enabled_tools.includes(request.name)?scheduling:models?.enabled_tools.includes(request.name)?models:tasks,request.name,request.args).catch(error=>send({method:'turn/completed',params:{threadId:thread,turn:{id:'turn-'+turn,status:'failed',error:{message:String(error)}}}}));
   }
   else if(text.includes('SCHEDULE_TOOL:')){
@@ -1526,8 +1526,9 @@ test("desktop and WeChat share one durable V2 conversation; redelivery does not 
 test("task completion keeps internal instructions in model context and shows only the result", async () => {
   const f = await fixture();
   try {
+    f.service.canNotifyWechat = () => true;
     await f.service.send(
-      `mcp-tool:${JSON.stringify({ name: "mori_start_task", args: { projectPath: "/test/project", prompt: "修复 loading" } })}`,
+      `mcp-tool:${JSON.stringify({ name: "mori_start_task", args: { projectPath: "/test/project", prompt: "修复 loading", notifyWechat: true } })}\n做完后发微信给我`,
       "wechat",
       "start-task-from-wechat",
     );
@@ -1668,6 +1669,88 @@ test("手动关注的微信发送失败后可在下一次完成事件重试，�
     await f.service.close();
     f.db.close();
   }
+});
+
+test("手动关注回执跨重启保留，关闭再打开不重发；后续用户任务仍可通知", async () => {
+  const f = await fixture();
+  try {
+    const task = { id: "follow-receipt", title: "任务", prompt: "工作", workspacePath: "/test/project", coreKind: "codex" as const,
+      status: "completed" as const, message: "结果", createdAt: "2026-11-03T01:00:00.000Z", updatedAt: "2026-11-03T01:00:01.000Z" };
+    f.conversations.saveThread(task);
+    const v2 = f.conversations.conversationV2();
+    const user = (messageId: string) => v2.appendRuntime({ conversationId: task.id, eventId: randomUUID(),
+      occurredAt: new Date().toISOString(), type: "message.created", messageId,
+      payload: { role: "user", channel: "answer", status: "final", body: "完成工作" } });
+    user("request-1");
+    const completedAt = f.conversations.getThread(task.id)?.updatedAt;
+    f.conversations.setThreadWechatFollow(task.id, true);
+    expect(f.conversations.getThread(task.id)?.updatedAt).toBe(completedAt);
+    const sent: string[] = [];
+    f.service.onWechatNotification = async (_notification, _messageId, id) => { sent.push(id); };
+    await Promise.all([f.service.taskChanged(task.id), f.service.taskChanged(task.id)]);
+    expect(sent).toHaveLength(1);
+    f.conversations.setThreadWechatFollow(task.id, false);
+    await f.service.taskChanged(task.id);
+    f.conversations.setThreadWechatFollow(task.id, true);
+    const restored = new MoriAssistantStore(f.service.store.filePath);
+    await restored.load();
+    expect(restored.state.wechatCompletionReceipts?.[task.id]).toBe("request-1");
+    f.service.store.state = restored.state;
+    await f.service.retryWechatFollowNotifications();
+    expect(sent).toHaveLength(1);
+    user("request-2");
+    await f.service.taskChanged(task.id);
+    expect(sent).toHaveLength(2);
+    expect(sent[0]).not.toBe(sent[1]);
+  } finally { await f.service.close(); f.db.close(); }
+});
+
+test("Agent 已发送的任务结果不再被手动关注重复通知", async () => {
+  const f = await fixture();
+  try {
+    const task = { id: "already-agent-notified", title: "任务", prompt: "工作", workspacePath: "/test/project", coreKind: "codex" as const,
+      status: "completed" as const, message: "结果", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    f.conversations.saveThread(task);
+    f.conversations.conversationV2().appendRuntime({ conversationId: task.id, eventId: randomUUID(),
+      occurredAt: new Date().toISOString(), type: "message.created", messageId: "explicit-request",
+      payload: { role: "user", channel: "answer", status: "final", body: "做完后发微信给我" } });
+    await f.service.recordWechatCompletionNotification(task.id, "explicit-request");
+    f.conversations.setThreadWechatFollow(task.id, true);
+    const sent: string[] = [];
+    f.service.onWechatNotification = async (_notification, _messageId, id) => { sent.push(id); };
+    await f.service.taskChanged(task.id);
+    expect(sent).toEqual([]);
+  } finally { await f.service.close(); f.db.close(); }
+});
+
+test("Mori 发送能力仅凭当前用户明确请求授权，未授权的桌面和微信对话均拒绝发送", async () => {
+  const f = await fixture();
+  try {
+    const sent: unknown[] = [];
+    f.service.canNotifyWechat = () => true;
+    f.service.onWechatNotification = async notification => { sent.push(notification); };
+    for (const source of ["desktop", "wechat"] as const) {
+      const commandId = `unauthorized-${source}`;
+      await f.service.send(`mcp-tool:${JSON.stringify({ name: "mori_send_wechat", args: { text: "完成" } })}`, source, commandId);
+      const tool = f.conversations.conversationV2().toolsPage(f.service.store.state.currentThreadId!, `mori-run-${commandId}`).tools[0];
+      expect(tool?.status).toBe("failed");
+      expect(JSON.stringify(tool?.output)).toContain("只有用户明确要求");
+    }
+    expect(sent).toEqual([]);
+    for (const image of [{ imagePath: "/tmp/shot.png" }, { imageUrl: "https://example.test/shot.png" }]) {
+      const commandId = randomUUID();
+      await f.service.send(`mcp-tool:${JSON.stringify({ name: "mori_send_wechat", args: image })}\n请把截图发到微信`, "desktop", commandId);
+      expect(f.conversations.conversationV2().toolsPage(f.service.store.state.currentThreadId!, `mori-run-${commandId}`).tools[0]).toMatchObject({ status: "completed", output: { sent: true } });
+    }
+    expect(sent).toEqual([{ image: { path: "/tmp/shot.png" } }, { image: { url: "https://example.test/shot.png" } }]);
+    f.service.canNotifyWechat = () => false;
+    const id = "offline-send";
+    await f.service.send(`mcp-tool:${JSON.stringify({ name: "mori_send_wechat", args: { text: "完成" } })}\n做完后发微信给我`, "desktop", id);
+    const failed = f.conversations.conversationV2().toolsPage(f.service.store.state.currentThreadId!, `mori-run-${id}`).tools[0];
+    expect(failed?.status).toBe("failed");
+    expect(JSON.stringify(failed?.output)).toContain("微信通知不可用");
+    expect(sent).toHaveLength(2);
+  } finally { await f.service.close(); f.db.close(); }
 });
 
 test("existing task prompts stay hidden across history pages without hiding user quotes or answers", async () => {
