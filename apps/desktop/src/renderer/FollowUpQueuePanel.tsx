@@ -105,6 +105,7 @@ export function FollowUpQueuePanel({
           return (
             <div
               key={followUp.id}
+              data-conversation-message-id={followUp.conversationMessageId}
               className={`follow-up-row${draggedId === followUp.id ? " is-dragging" : ""}${isEditing ? " is-editing" : ""}`}
               onDragOver={(event) => event.preventDefault()}
               onDrop={(event) => {

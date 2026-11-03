@@ -4,7 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { ProjectTodoStore } from "../src/main/project-todo-store";
-import { TODO_MAX_IMAGE_BYTES } from "../src/shared/project-todos";
+import { appendProjectTodoReference, TODO_MAX_IMAGE_BYTES } from "../src/shared/project-todos";
+import { ConversationV2Store } from "../src/main/conversation-v2-store";
 
 const stores: ProjectTodoStore[] = [];
 const directories: string[] = [];
@@ -85,6 +86,91 @@ test("stale, deleted and invalid todos cannot be marked as transferred", () => {
   expect(() => store.markComposed({ id: saved.id, revision: 1.5 })).toThrow("Invalid");
   store.trash({ id: edited.id, revision: edited.revision, deleted: true });
   expect(() => store.markComposed(edited)).toThrow("changed");
+});
+
+test("multiple handoffs resolve drafts into exact messages, remain idempotent and survive reopening", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "eco-todo-links-"));
+  directories.push(directory);
+  const filename = path.join(directory, "notes.sqlite");
+  const store = open(filename);
+  const todo = store.save(note);
+  const compose = (contextKey: string, threadId?: string) => store.markComposed({
+    id: todo.id, revision: todo.revision, contextKey, ...(threadId ? { threadId } : {}),
+  });
+  compose(`landing:${note.projectPath}`);
+  compose("thread:first", "first");
+  compose("thread:first", "first");
+  compose("thread:second", "second");
+  expect(store.get(todo.id).handoffs).toHaveLength(3);
+  const first = {
+    threadId: "first", messageId: "message-one", body: appendProjectTodoReference("", todo),
+    occurredAt: "2099-01-01T00:00:00.000Z", projectPath: note.projectPath, isInitialMessage: false,
+  };
+  expect(store.recordMessage(first)).toBe(true);
+  expect(store.recordMessage(first)).toBe(false);
+  // Sending into an existing conversation must preserve the independent landing draft.
+  expect(store.get(todo.id).handoffs).toHaveLength(3);
+  expect(store.get(todo.id).handoffs?.filter(row => !row.messageId)).toHaveLength(2);
+  store.recordMessage({ ...first, messageId: "message-two" });
+  store.recordMessage({ ...first, threadId: "new", messageId: "message-new", isInitialMessage: true });
+  const links = store.get(todo.id).handoffs;
+  expect(links).toHaveLength(4);
+  expect(links?.filter(row => row.messageId).map(row => row.messageId).sort()).toEqual([
+    "message-new", "message-one", "message-two",
+  ]);
+  expect(links?.filter(row => !row.messageId).map(row => row.threadId)).toEqual(["second"]);
+  expect(store.get(todo.id).revision).toBe(todo.revision);
+  store.save({ ...store.get(todo.id), completed: true });
+  store.close();
+  stores.splice(stores.indexOf(store), 1);
+  const reopened = open(filename);
+  expect(reopened.get(todo.id).handoffs).toEqual(links);
+  expect(reopened.query({ completed: true }).items[0]?.handoffs).toEqual(links);
+});
+
+test("durable V2 messages recover todo links and live create effects link accepted sends", () => {
+  const db = new DatabaseSync(":memory:");
+  const todos = new ProjectTodoStore(db, () => "unused");
+  stores.push(todos);
+  const conversations = new ConversationV2Store(db);
+  conversations.initialize();
+  const todo = todos.save(note);
+  const body = appendProjectTodoReference("send", todo);
+  const sent = conversations.sendMessage({
+    principalId: "local", conversationId: "first", clientCommandId: "first", text: body,
+  });
+  const recovered = conversations.listTodoReferenceMessages();
+  expect(recovered.map(row => row.messageId)).toEqual([sent.messageId]);
+  const record = (message: (typeof recovered)[number]) => todos.recordMessage({
+    threadId: message.conversationId, messageId: message.messageId, body: message.body,
+    occurredAt: message.occurredAt!, projectPath: note.projectPath, isInitialMessage: true,
+  });
+  recovered.forEach(record);
+  conversations.onCommitted(({ effect }) => {
+    if (effect.effect.type === "message.create" && effect.effect.message.role === "user") record(effect.effect.message);
+  });
+  const second = conversations.sendMessage({
+    principalId: "local", conversationId: "second", clientCommandId: "second", text: body,
+  });
+  expect(todos.get(todo.id).handoffs?.map(row => row.messageId).sort()).toEqual([sent.messageId, second.messageId].sort());
+  recovered.forEach(record);
+  expect(todos.get(todo.id).handoffs).toHaveLength(2);
+  expect(todos.recordMessage({ threadId: "x", messageId: "x", body: "@todo{invalid}",
+    occurredAt: "2099-01-01", projectPath: note.projectPath, isInitialMessage: false })).toBe(false);
+});
+
+test("replaying an older send cannot consume a later draft or change its marker", () => {
+  const store = open();
+  const todo = store.save(note);
+  const sent = { threadId: "first", messageId: "old", body: appendProjectTodoReference("", todo),
+    occurredAt: "2026-01-01T00:00:00.000Z", projectPath: note.projectPath, isInitialMessage: true };
+  store.recordMessage(sent);
+  const draft = store.markComposed({ id: todo.id, revision: todo.revision, contextKey: "thread:first", threadId: "first" });
+  expect(store.recordMessage({ ...sent, occurredAt: "2099-01-01T00:00:00.000Z" })).toBe(false);
+  expect(store.get(todo.id).handoffs).toEqual(draft.handoffs);
+  expect(store.get(todo.id).composedAt).toBe(draft.composedAt);
+  expect(() => store.markComposed({ id: todo.id, revision: todo.revision, contextKey: "project:/wrong" })).toThrow("context");
+  expect(store.get(todo.id).handoffs).toEqual(draft.handoffs);
 });
 
 test("existing databases gain handoff metadata without marking old notes or losing data", async () => {

@@ -2868,6 +2868,17 @@ app
         });
       },
     });
+    const recordTodoMessage = (message: import("@eco/shared").ConversationMessage) => {
+      if (message.role !== "user" || message.isDeleted || !message.occurredAt) return false;
+      const thread = conversationStore.getThread(message.conversationId);
+      return thread ? projectTodoStore.recordMessage({
+        threadId: thread.id, messageId: message.messageId, body: message.body,
+        occurredAt: message.occurredAt, projectPath: thread.workspacePath,
+        isInitialMessage: thread.prompt === message.body,
+      }) : false;
+    };
+    // Rebuild missing links after an interrupted run, including older referenced messages.
+    for (const message of conversationStore.conversationV2().listTodoReferenceMessages()) recordTodoMessage(message);
     conversationStore.conversationV2().onCommitted(({ event, effect }) => {
       desktopEventCenter.publish({
         kind: "conversation.sync_effect",
@@ -2879,6 +2890,9 @@ app
           effect,
         },
       });
+      if (effect.effect.type === "message.create" && recordTodoMessage(effect.effect.message)) {
+        desktopEventCenter.publish({ kind: "project-todo.changed", payload: {}, aggregateKey: "project-todos:global" });
+      }
     });
     conversationStore.setPromptImageFileStore(promptImageFileStore);
     if (conversationStore.getConversationStorageMode() === "v2_only") {

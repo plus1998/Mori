@@ -12,6 +12,12 @@ export interface ProjectTodoImage {
   /** Only included when opening a todo for editing or composing. */
   data?: string;
 }
+export interface ProjectTodoHandoff {
+  contextKey: string;
+  composedAt: string;
+  threadId?: string;
+  messageId?: string;
+}
 export interface ProjectTodo {
   id: string;
   revision: number;
@@ -24,6 +30,7 @@ export interface ProjectTodo {
   updatedAt: string;
   /** Last successful transfer into a conversation composer. */
   composedAt?: string;
+  handoffs?: ProjectTodoHandoff[];
 }
 export interface ProjectTodoCursor {
   createdAt: string;
@@ -86,4 +93,7 @@ export interface ProjectTodoTrash {
 export interface ProjectTodoCompose {
   id: string;
   revision: number;
+  /** An unstarted conversation uses landing:<absolute path>. */
+  contextKey?: string;
+  threadId?: string;
 }

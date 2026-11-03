@@ -26,6 +26,7 @@ import type { ThreadSummary } from "../shared/ipc";
 import {
   type ProjectTodo,
   type ProjectTodoImage,
+  type ProjectTodoHandoff,
   type ProjectTodoStatus,
   TODO_MAX_IMAGE_BYTES,
   TODO_MAX_IMAGES,
@@ -65,6 +66,7 @@ interface Props {
   onDraftChange(draft: TodoEditorDraft): void;
   onClose(): void;
   onCompose(todo: ProjectTodo, threadId?: string): Promise<void>;
+  onOpenHandoff(todo: ProjectTodo, handoff: ProjectTodoHandoff): Promise<void>;
 }
 export function ProjectTodoPanel(props: Props) {
   const { bindings: keyboardBindings } = useKeyboardShortcuts();
@@ -319,6 +321,21 @@ export function ProjectTodoPanel(props: Props) {
             })}>
               <Send size={11} aria-hidden/>{t("todos.composedBadge")}
             </span>
+          ) : null}
+          {item.handoffs?.length ? (
+            <div className="todo-handoffs" aria-label={t("todos.handoffs")}>
+              {item.handoffs.map((handoff) => {
+                const thread = props.threads.find(row => row.id === handoff.threadId);
+                const label = handoff.threadId ? thread?.title || t("todos.previousThread", { id: handoff.threadId }) : t("todos.newDraft");
+                return <button type="button" className="todo-handoff" key={`${handoff.contextKey}:${handoff.messageId ?? "draft"}`}
+                  disabled={!!busy} title={t(handoff.messageId ? "todos.openMessage" : "todos.openDraft")}
+                  onClick={() => void action(item.id, () => props.onOpenHandoff(item, handoff))}>
+                  <Send size={11} aria-hidden />
+                  <span>{label}</span>
+                  <small>{t(handoff.messageId ? "todos.openMessage" : "todos.openDraft")} · {new Date(handoff.composedAt).toLocaleString(i18n.language)}</small>
+                </button>;
+              })}
+            </div>
           ) : null}
           {!!item.images.length && (
             <div className="todo-thumbnails">

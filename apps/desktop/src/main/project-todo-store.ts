@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
+import { composerReferences } from "../shared/composer-references";
+import type { ProjectTodoHandoff } from "../shared/project-todos";
 import {
   PROJECT_TODO_STATUSES,
   type ProjectTodo,
@@ -47,6 +49,11 @@ export class ProjectTodoStore {
         todo_id TEXT NOT NULL REFERENCES project_todos(id) ON DELETE CASCADE,
         id TEXT NOT NULL, position INTEGER NOT NULL, media_type TEXT NOT NULL,
         thumbnail TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY(todo_id, id)
+      );
+      CREATE TABLE IF NOT EXISTS project_todo_handoffs (
+        todo_id TEXT NOT NULL REFERENCES project_todos(id) ON DELETE CASCADE,
+        context_key TEXT NOT NULL, thread_id TEXT, message_id TEXT NOT NULL DEFAULT '',
+        composed_at TEXT NOT NULL, PRIMARY KEY(todo_id, context_key, message_id)
       );`);
     const columns = db.prepare("PRAGMA table_info(project_todos)").all() as { name: string }[];
     if (!columns.some((column) => column.name === "composed_at")) {
@@ -194,6 +201,14 @@ export class ProjectTodoStore {
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       ...(row.composed_at ? { composedAt: row.composed_at } : {}),
+      handoffs: (db.prepare(`SELECT context_key, thread_id, message_id, composed_at
+        FROM project_todo_handoffs WHERE todo_id=? ORDER BY composed_at DESC, context_key, message_id`)
+        .all(row.id) as { context_key: string; thread_id: string | null; message_id: string; composed_at: string }[])
+        .map((link): ProjectTodoHandoff => ({
+          contextKey: link.context_key, composedAt: link.composed_at,
+          ...(link.thread_id ? { threadId: link.thread_id } : {}),
+          ...(link.message_id ? { messageId: link.message_id } : {}),
+        })),
       images: images.map((image) => ({
         id: image.id,
         mediaType: image.media_type,
@@ -311,12 +326,60 @@ export class ProjectTodoStore {
     if (!input || typeof input.id !== "string" || !input.id || !Number.isInteger(input.revision)) {
       throw new Error("Invalid todo handoff.");
     }
+    const todo = this.db.prepare("SELECT project_path FROM project_todos WHERE id=? AND revision=? AND deleted_at IS NULL")
+      .get(input.id, input.revision) as { project_path: string } | undefined;
+    if (!todo) throw new Error("Todo changed. Refresh before trying again.");
+    if (input.contextKey !== undefined && input.contextKey !==
+      (input.threadId ? `thread:${input.threadId}` : `landing:${todo.project_path}`)) {
+      throw new Error("Invalid todo handoff context.");
+    }
+    if (input.threadId !== undefined && (typeof input.threadId !== "string" || !input.threadId.trim() || !input.contextKey))
+      throw new Error("Invalid todo handoff thread.");
+    const now = new Date().toISOString();
     // Handoff metadata does not change the content revision or invalidate image reads/edits.
-    const result = this.db.prepare(
-      "UPDATE project_todos SET composed_at=? WHERE id=? AND revision=? AND deleted_at IS NULL",
-    ).run(new Date().toISOString(), input.id, input.revision);
-    if (!result.changes) throw new Error("Todo changed. Refresh before trying again.");
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const result = this.db.prepare(
+        "UPDATE project_todos SET composed_at=? WHERE id=? AND revision=? AND deleted_at IS NULL",
+      ).run(now, input.id, input.revision);
+      if (!result.changes) throw new Error("Todo changed. Refresh before trying again.");
+      if (input.contextKey) this.db.prepare(`INSERT INTO project_todo_handoffs
+        (todo_id, context_key, thread_id, composed_at) VALUES (?, ?, ?, ?)
+        ON CONFLICT(todo_id, context_key, message_id) DO UPDATE SET composed_at=excluded.composed_at`)
+        .run(input.id, input.contextKey, input.threadId ?? null, now);
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
     return this.get(input.id, false);
+  }
+  /** Idempotent recovery from the durable user-message projection, also used on live sends. */
+  recordMessage(input: { threadId: string; messageId: string; body: string; occurredAt: string; projectPath: string; isInitialMessage: boolean }): boolean {
+    const ids = [...new Set(composerReferences(input.body).filter(ref => ref.kind === "todo").map(ref => ref.id))];
+    if (!ids.length) return false;
+    let changed = false;
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      for (const id of ids) {
+        if (!this.db.prepare("SELECT id FROM project_todos WHERE id=?").get(id)) continue;
+        const result = this.db.prepare(`INSERT OR IGNORE INTO project_todo_handoffs
+          (todo_id, context_key, thread_id, message_id, composed_at) VALUES (?, ?, ?, ?, ?)`)
+          .run(id, `thread:${input.threadId}`, input.threadId, input.messageId, input.occurredAt);
+        if (!result.changes) continue;
+        const removed = this.db.prepare(`DELETE FROM project_todo_handoffs WHERE todo_id=? AND message_id=''
+          AND context_key IN (?, ?) AND composed_at<=?`)
+          .run(id, `thread:${input.threadId}`, input.isInitialMessage ? `landing:${input.projectPath}` : `thread:${input.threadId}`, input.occurredAt);
+        this.db.prepare("UPDATE project_todos SET composed_at=MAX(COALESCE(composed_at, ''), ?) WHERE id=?")
+          .run(input.occurredAt, id);
+        changed ||= Boolean(result.changes || removed.changes);
+      }
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+    return changed;
   }
   trash(input: ProjectTodoTrash): number {
     if (

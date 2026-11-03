@@ -4,7 +4,7 @@ import { formatAccelerator } from "../shared/keyboard-shortcuts";
 import { useKeyboardShortcuts, shortcutMatches } from "./keyboard-shortcuts";
 import { MoriIcon } from "./MoriIcon";
 import { MoriAssistantPanel, MoriAssistantSettingsPanel, MoriAssistantSurface } from "./MoriAssistant";
-import { appendProjectTodoReference, type ProjectTodo } from "../shared/project-todos";
+import { appendProjectTodoReference, type ProjectTodo, type ProjectTodoHandoff } from "../shared/project-todos";
 import type { TodoEditorDraft } from "./ProjectTodoPanel";
 import { ThreadNotificationControls, ReadAloudThreadContext } from "./ReadAloud";
 import { buildComposerCapabilityReferences } from "../shared/composer-capability-references";
@@ -1277,6 +1277,9 @@ function App() {
   const [modelPickerOpenRequest, setModelPickerOpenRequest] = useState(0);
   const [schedulingOpen, setSchedulingOpen] = useState(false);
   const [projectTodosOpen, setProjectTodosOpen] = useState(false);
+  const [todoMessageReveal, setTodoMessageReveal] = useState<{ threadId: string; messageId: string }>();
+  const todoMessageRevealRef = useRef(todoMessageReveal);
+  todoMessageRevealRef.current = todoMessageReveal;
   const projectTodoComposerFocusRef = useRef(false);
   const projectTodoDraftRef = useRef<TodoEditorDraft>({ projectPath: "", text: "", images: [], completed: false });
   const scheduling = useSchedulingSnapshot();
@@ -7259,14 +7262,14 @@ function App() {
   }, []);
 
   const jumpToActivityUserMessage = useCallback(
-    (anchorId: string) => {
+    (anchorId: string, behavior: ScrollBehavior = "smooth") => {
       const container = activityMessagesRef.current;
       if (!container) {
         return;
       }
       const scrollToMountedAnchor = () => {
         const anchors = Array.from(container.querySelectorAll<HTMLElement>("[data-user-message-anchor-id]"));
-        const target = anchors.find((anchor) => anchor.dataset.userMessageAnchorId === anchorId);
+        const target = anchors.find((anchor) => anchor.dataset.userMessageAnchorId === anchorId && !anchor.dataset.virtualAnchor);
         if (!target) {
           return false;
         }
@@ -7281,7 +7284,7 @@ function App() {
         setActivityFeedDetachedAnchor(true);
         programmaticActivityFeedScrollRef.current = true;
         updateActiveActivityUserMessageNavId(anchorId);
-        container.scrollTo({ top: targetTop, behavior: "smooth" });
+        container.scrollTo({ top: targetTop, behavior });
         activityUserMessageJumpTimerRef.current = setTimeout(() => {
           activityUserMessageJumpTimerRef.current = null;
           programmaticActivityFeedScrollRef.current = false;
@@ -7294,25 +7297,22 @@ function App() {
         }, 360);
         return true;
       };
-      if (scrollToMountedAnchor()) {
-        return;
-      }
-      // Virtualized rows may be unmounted — ask the feed to bring the section into range first.
-      if (!dispatchFeedScrollToAnchor(container, anchorId)) {
-        return;
-      }
       userDetachedFromBottomRef.current = true;
       setActivityFeedDetachedAnchor(true);
       updateActiveActivityUserMessageNavId(anchorId);
-      window.setTimeout(() => {
-        if (activityMessagesRef.current !== container) {
-          return;
-        }
-        if (!scrollToMountedAnchor()) {
-          syncActivityFeedScrollJump(container);
-          syncActivityUserMessageNavigator(container);
-        }
-      }, 48);
+      // Commit userDetached to the virtualizer before scrolling; its follow-end writer
+      // otherwise pins scrollToIndex straight back to the tail in the same frame.
+      requestAnimationFrame(() => {
+        if (activityMessagesRef.current !== container || scrollToMountedAnchor()) return;
+        if (!dispatchFeedScrollToAnchor(container, anchorId)) return;
+        window.setTimeout(() => {
+          if (activityMessagesRef.current !== container) return;
+          if (!scrollToMountedAnchor()) {
+            syncActivityFeedScrollJump(container);
+            syncActivityUserMessageNavigator(container);
+          }
+        }, 48);
+      });
     },
     [
       syncActivityFeedScrollJump,
@@ -7322,8 +7322,67 @@ function App() {
     ],
   );
 
+  useEffect(() => {
+    if (todoMessageReveal && selectedThreadId !== todoMessageReveal.threadId) {
+      setTodoMessageReveal(undefined);
+      return;
+    }
+    if (!todoMessageReveal || activeThread?.id !== todoMessageReveal.threadId || !activityFeedBootReady ||
+      !activeConversationV2 || activeConversationV2.hasOlder) return;
+    const anchorId = `conversation-v2:${todoMessageReveal.messageId}`;
+    const message = activeConversationV2.messages.get(todoMessageReveal.messageId);
+    if (!message || message.isDeleted || (message.status !== "queued" && !activityUserMessageNavItems.some(item => item.id === anchorId))) {
+      setTodoMessageReveal(undefined);
+      setError(t("todos.messageUnavailable"));
+      return;
+    }
+    // A cold Feed can report ready before its virtual sections have installed their
+    // scroll listener. Keep the reveal intent until the measured message is visible.
+    const deadline = performance.now() + 3000;
+    let lastJump = -Infinity;
+    let frame = 0;
+    const reveal = () => {
+      if (message.status === "queued") {
+        const queued = [...document.querySelectorAll<HTMLElement>("[data-conversation-message-id]")]
+          .find(node => node.dataset.conversationMessageId === message.messageId);
+        if (queued) {
+          queued.scrollIntoView({ block: "nearest" });
+          queued.querySelector<HTMLElement>('[role="button"]')?.focus({ preventScroll: true });
+          setTodoMessageReveal(undefined);
+          return;
+        }
+      }
+      const container = activityMessagesRef.current;
+      const anchor = container && [...container.querySelectorAll<HTMLElement>("[data-user-message-anchor-id]")]
+        .find(node => node.dataset.userMessageAnchorId === anchorId && !node.dataset.virtualAnchor);
+      if (container && anchor) {
+        const offset = anchor.getBoundingClientRect().top - container.getBoundingClientRect().top;
+        if (offset >= 0 && offset < container.clientHeight) {
+          setTodoMessageReveal(undefined);
+          return;
+        }
+      }
+      const now = performance.now();
+      if (now >= deadline) {
+        setTodoMessageReveal(undefined);
+        setError(t("todos.messageRevealFailed"));
+        return;
+      }
+      if (message.status !== "queued" && now - lastJump >= 100) {
+        forceActivityFeedScrollUntilRef.current = 0;
+        jumpToActivityUserMessage(anchorId, "auto");
+        lastJump = now;
+      }
+      frame = requestAnimationFrame(reveal);
+    };
+    frame = requestAnimationFrame(reveal);
+    return () => cancelAnimationFrame(frame);
+  }, [todoMessageReveal, selectedThreadId, activeThread?.id, activityFeedBootReady, activeConversationV2,
+    activityUserMessageNavItems, jumpToActivityUserMessage, t]);
+
   const scrollActivityFeedToEnd = useCallback(
     (force = false) => {
+      if (todoMessageRevealRef.current?.threadId === selectedThreadIdRef.current && activityFeedBootReadyRef.current) return;
       const container = activityMessagesRef.current;
       if (!container) {
         return;
@@ -7525,6 +7584,7 @@ function App() {
   }, [activityUserMessageNavItems.length, feedLeftGutterPx]);
 
   const requestActivityFeedForceScroll = useCallback(() => {
+    if (todoMessageRevealRef.current?.threadId === selectedThreadIdRef.current && activityFeedBootReadyRef.current) return;
     forceActivityFeedScrollUntilRef.current = Date.now() + ACTIVITY_FEED_FORCE_SCROLL_MS;
     userDetachedFromBottomRef.current = false;
     activityFeedUserScrollDirectionRef.current = null;
@@ -11131,7 +11191,7 @@ function App() {
       fromPromptImageAttachments(attachments), contextKey, request => api.readPromptImageChunk(request),
     );
     await api.saveComposerDraft({ contextKey, prompt: nextPrompt, attachments });
-    await api.markProjectTodoComposed({ id: todo.id, revision: todo.revision });
+    await api.markProjectTodoComposed({ id: todo.id, revision: todo.revision, contextKey, ...(threadId ? { threadId } : {}) });
     composerDraftsByKeyRef.current[contextKey] = { prompt: nextPrompt, attachments: nextAttachments };
     ++composerDraftLoadRequestRef.current;
     const sameContext = composerContextKeyRef.current === contextKey;
@@ -11152,6 +11212,35 @@ function App() {
     setProjectTodosOpen(false);
     if (!targetThread) requestSidebarReveal("project", todo.projectPath);
     showAppMessageSuccessRef.current(t(targetThread ? "todos.composedExisting" : "todos.composed"));
+  }
+
+  async function openProjectTodoHandoff(todo: ProjectTodo, handoff: ProjectTodoHandoff) {
+    const thread = handoff.threadId ? await window.eco!.getThread(handoff.threadId) : undefined;
+    if (handoff.threadId && !thread) throw new Error(t("todos.threadUnavailable"));
+    if (thread && handoff.messageId) {
+      const message = await window.eco!.conversationV2MessageGet(thread.id, handoff.messageId);
+      if (!message || message.isDeleted || message.role !== "user") throw new Error(t("todos.messageUnavailable"));
+    }
+    const projectPath = thread?.workspacePath ?? (handoff.contextKey.startsWith("landing:")
+      ? handoff.contextKey.slice("landing:".length) : todo.projectPath);
+    if (!projects.some(project => project.path === projectPath)) {
+      await window.eco!.openWorkspacePath(projectPath);
+      registerImportedProject(projectPath);
+    }
+    if (thread) {
+      setThreads(current => current.some(row => row.id === thread.id)
+        ? current.map(row => row.id === thread.id ? thread : row) : [...current, thread]);
+      selectSearchThread(thread);
+    } else switchProject(projectPath);
+    if (thread && handoff.messageId) {
+      const reveal = { threadId: thread.id, messageId: handoff.messageId };
+      todoMessageRevealRef.current = reveal;
+      setTodoMessageReveal(reveal);
+    } else {
+      setTodoMessageReveal(undefined);
+      projectTodoComposerFocusRef.current = true;
+    }
+    setProjectTodosOpen(false);
   }
 
   async function startNewChatWithPlan(plan: ThreadPendingPlan) {
@@ -13471,7 +13560,7 @@ function App() {
           <LazyProjectTodoPanel projects={projects} currentProjectPath={currentProjectPath} threads={threads}
             pinnedThreadIds={pinnedThreadIds}
             draft={projectTodoDraftRef.current} onDraftChange={next => { projectTodoDraftRef.current = next; }}
-            onClose={() => setProjectTodosOpen(false)} onCompose={composeProjectTodo} />
+            onClose={() => setProjectTodosOpen(false)} onCompose={composeProjectTodo} onOpenHandoff={openProjectTodoHandoff} />
         </SuspensePanel>
       )}
 

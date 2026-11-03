@@ -3264,6 +3264,14 @@ export class ConversationV2Store {
     return row ? rowToMessage(row) : undefined;
   }
 
+  /** Candidates for rebuilding todo handoff links from durable, unexpanded reference tokens. */
+  listTodoReferenceMessages(): ConversationMessage[] {
+    const rows = this.db.prepare(`SELECT * FROM conversation_messages_v2
+      WHERE role='user' AND is_deleted=0 AND instr(body, '@todo{')>0
+      ORDER BY occurred_at, message_id`).all() as unknown as MessageRow[];
+    return rows.map(rowToMessage);
+  }
+
   /** Read the durable user-message projection without consulting the legacy tables. */
   listUserMessages(conversationId: string): ConversationMessage[] {
     return this.readTransaction(() => {
