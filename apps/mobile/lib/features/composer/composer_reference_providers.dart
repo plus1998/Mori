@@ -6,6 +6,7 @@ import '../../core/models/mcp_models.dart';
 import '../../core/models/thread_models.dart';
 import '../../core/models/thread_runtime_config.dart';
 import '../threads/thread_providers.dart';
+import 'composer_runtime_config_provider.dart';
 
 typedef ComposerReferenceSearch = ({
   String query,
@@ -37,16 +38,16 @@ final composerReferenceSearchProvider = FutureProvider.autoDispose
           ref.watch(modelSettingsProvider.future)
         else
           Future.value(null),
-        if ((needsMcp && config.mcpServersEnabled == null) ||
-            (needsIntegrations && config.integrationsEnabled == null))
+        if (needsMcp && config.mcpServersEnabled == null)
           ref.watch(workflowSettingsProvider.future)
         else
           Future.value(null),
-        if (needsIntegrations &&
-            config.integrationsEnabled == null &&
-            input.workspacePath.isNotEmpty)
+        if (needsIntegrations)
           ref.watch(
-            projectIntegrationsSettingsProvider(input.workspacePath).future,
+            effectiveComposerRuntimeConfigProvider((
+              runtimeConfig: config,
+              workspacePath: input.workspacePath,
+            )).future,
           )
         else
           Future.value(null),
@@ -59,7 +60,7 @@ final composerReferenceSearchProvider = FutureProvider.autoDispose
       final result = values[0] as ComposerReferenceSearchResult;
       final settings = values[1] as ModelSettingsSnapshot?;
       final workflow = values[2] as WorkflowSettingsSnapshot?;
-      final project = values[3] as ProjectIntegrationsSettingsSnapshot?;
+      final effectiveConfig = values[3] as ThreadRuntimeConfig?;
       final availability = values[4] as IntegrationAvailabilitySnapshot?;
       if (needsIntegrations && availability == null) {
         throw StateError('无法读取集成工具状态');
@@ -76,11 +77,7 @@ final composerReferenceSearchProvider = FutureProvider.autoDispose
         availability:
             availability ??
             const IntegrationAvailabilitySnapshot(integrations: []),
-        integrationsEnabled:
-            config.integrationsEnabled ??
-            project?.enabled ??
-            workflow?.integrationsEnabled ??
-            {},
+        integrationsEnabled: effectiveConfig?.integrationsEnabled ?? {},
         mcpServers: servers,
         mcpServersEnabled: resolveComposerMcpSettings(
           servers: servers,

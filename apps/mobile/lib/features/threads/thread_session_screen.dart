@@ -36,6 +36,7 @@ import '../approvals/bash_approval_panel.dart';
 import '../approvals/plan_approval_panel.dart';
 import '../composer/composer_dock_shell.dart';
 import '../composer/composer_stack_card.dart';
+import '../composer/composer_runtime_config_provider.dart';
 import '../composer/follow_up_queue_bar.dart';
 import '../composer/session_composer.dart';
 import '../composer/workspace_changes_pill.dart';
@@ -1177,7 +1178,12 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
     setState(() => _starting = true);
     try {
       final sendRuntimeConfig = downgradeApprovalDependentFeatures(
-        runtimeConfig,
+        await ref.read(
+          effectiveComposerRuntimeConfigProvider((
+            runtimeConfig: runtimeConfig,
+            workspacePath: workspacePath,
+          )).future,
+        ),
       );
       if (sendRuntimeConfig.bashReviewMode != runtimeConfig.bashReviewMode) {
         ref.read(runtimeConfigProvider.notifier).state = sendRuntimeConfig;
@@ -1624,7 +1630,12 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
         setState(() => _sendBusy = true);
         try {
           final sendRuntimeConfig = downgradeApprovalDependentFeatures(
-            runtimeConfig,
+            await ref.read(
+              effectiveComposerRuntimeConfigProvider((
+                runtimeConfig: runtimeConfig,
+                workspacePath: thread?.workspacePath ?? '',
+              )).future,
+            ),
           );
           if (sendRuntimeConfig.bashReviewMode !=
               runtimeConfig.bashReviewMode) {
