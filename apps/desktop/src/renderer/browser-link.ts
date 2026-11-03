@@ -39,14 +39,19 @@ export function dispatchBrowserHtmlOpen(html: string): void {
 }
 
 /**
- * Open a hosted HTML page in Eco's built-in browser.
- * Cloud shared domains often serve text/plain — fetch body and open as HTML instead of loadURL.
+ * Open hosted pages at their public URL. Only preview HTML locally when a Cloud
+ * shared domain has rewritten its Content-Type to text/plain.
  */
 export async function openPublishedHtmlInBrowser(publicUrl: string): Promise<void> {
   try {
     const response = await fetch(publicUrl);
+    if (!response.ok || !response.headers.get("content-type")?.toLowerCase().includes("text/plain")) {
+      await response.body?.cancel();
+      dispatchBrowserLinkOpen(publicUrl);
+      return;
+    }
     const html = (await response.text()).trim();
-    if (html) {
+    if (/^(?:<!doctype\s+html\b|<html\b)/i.test(html)) {
       const dataUrl = buildHtmlDataNavigateUrl(html);
       if (dataUrl) {
         dispatchBrowserLinkOpen(dataUrl);

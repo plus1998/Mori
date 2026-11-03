@@ -56,6 +56,7 @@ import {
   resolveSupabaseProjectUrl,
 } from "../shared/center-server";
 import type { EventCenterEnvelope, EventCenterJsonRpcNotification } from "../shared/event-center";
+import { buildHtmlPageViewUrl } from "../shared/html-host";
 import type { CenterServerSettingsSecret, CenterServerStore } from "./center-server-store";
 import {
   collectDesktopDeviceProfile,
@@ -353,10 +354,12 @@ export class SupabaseCenterDesktopClient implements DesktopEventCenterSink {
     const pageId = typeof record.pageId === "string" ? record.pageId : "";
     const slug = typeof record.slug === "string" ? record.slug : "";
     const title = typeof record.title === "string" ? record.title : input.title;
-    const publicUrl = typeof record.publicUrl === "string" ? record.publicUrl : "";
+    // The configured project URL is reachable by this client. SUPABASE_URL in
+    // self-hosted functions may instead point to a Docker-only API gateway.
+    const publicUrl = buildHtmlPageViewUrl(settings.supabaseUrl, slug);
     const expiresAt = typeof record.expiresAt === "string" ? record.expiresAt : "";
     const createdAt = typeof record.createdAt === "string" ? record.createdAt : this.now().toISOString();
-    if (!pageId || !slug || !publicUrl || !expiresAt) {
+    if (!pageId || !slug || !expiresAt) {
       throw new Error("html-page-publish response is missing required fields.");
     }
     return {

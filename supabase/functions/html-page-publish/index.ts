@@ -1,5 +1,5 @@
 /**
- * Authenticated publish/update for Eco HTML pages.
+ * Authenticated publish/update for Mori HTML pages.
  */
 import { handleCors } from "../_shared/cors.ts";
 import {
@@ -10,6 +10,7 @@ import {
   HTML_PAGE_MAX_BODY_CHARS,
   HTML_PAGE_MAX_PER_USER,
   HTML_PAGE_MAX_TITLE_CHARS,
+  resolvePublicSupabaseUrl,
   type HtmlPageRow,
 } from "../_shared/html-pages.ts";
 import {
@@ -49,10 +50,7 @@ Deno.serve(async (req) => {
           : null;
 
     const admin = createServiceClient();
-    const supabaseUrl = Deno.env.get("SUPABASE_URL");
-    if (!supabaseUrl) {
-      throw new HttpError(500, "Missing SUPABASE_URL.", "misconfigured");
-    }
+    const publicSupabaseUrl = resolvePublicSupabaseUrl(req, Deno.env.get("SUPABASE_PUBLIC_URL"));
 
     let page: HtmlPageRow;
 
@@ -119,7 +117,7 @@ Deno.serve(async (req) => {
       page = inserted as HtmlPageRow;
     }
 
-    const publicUrl = buildPublicViewUrl(supabaseUrl, page.slug);
+    const publicUrl = buildPublicViewUrl(publicSupabaseUrl, page.slug);
     return json(
       {
         pageId: page.id,

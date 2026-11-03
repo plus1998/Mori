@@ -1,4 +1,4 @@
-/** Shared helpers for Eco HTML page hosting Edge Functions. */
+/** Shared helpers for Mori HTML page hosting Edge Functions. */
 
 export const HTML_PAGE_DEFAULT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 export const HTML_PAGE_EXTEND_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -79,6 +79,20 @@ export function extractEmbeddableHtml(raw: string): string {
     return trimmed;
   }
   return `<!DOCTYPE html><html><head><meta charset="utf-8"/></head><body>${trimmed}</body></html>`;
+}
+
+/** Public links must not use SUPABASE_URL, which can be a Docker-only address. */
+export function resolvePublicSupabaseUrl(req: Request, configuredUrl?: string): string {
+  if (configuredUrl?.trim()) return configuredUrl.trim().replace(/\/+$/, "");
+  const url = new URL(req.url);
+  const host = req.headers.get("x-forwarded-host")?.split(",")[0]?.trim()
+    || req.headers.get("host") || url.host;
+  const protocol = req.headers.get("x-forwarded-proto")?.split(",")[0]?.trim()
+    || url.protocol.replace(":", "");
+  if (protocol !== "http" && protocol !== "https") {
+    throw new Error("Public HTML hosting URL must use HTTP or HTTPS.");
+  }
+  return new URL(`${protocol}://${host}`).origin;
 }
 
 export function buildPublicViewUrl(supabaseUrl: string, slug: string): string {
@@ -351,7 +365,7 @@ ${ecoChromeCss()}
 </html>`;
 }
 
-/** Shared Eco-branded status / error page for view Edge Function. */
+/** Shared Mori-branded status / error page for view Edge Function. */
 export function buildStatusPageHtml(input: { title?: string; zh: string; en: string }): string {
   const pageTitle = escapeHtml(input.title?.trim() || "Mori");
   const zh = escapeHtml(input.zh);

@@ -1,5 +1,5 @@
 /**
- * Public HTML page view with Eco outer chrome (not authored by the agent).
+ * Public HTML page view with Mori outer chrome (not authored by the agent).
  */
 import { corsHeaders, handleCors } from "../_shared/cors.ts";
 import {
@@ -9,6 +9,7 @@ import {
   canExtendPage,
   extractSlugFromUrl,
   isExpired,
+  resolvePublicSupabaseUrl,
   type HtmlPageRow,
 } from "../_shared/html-pages.ts";
 import { createServiceClient } from "../_shared/supabase.ts";
@@ -32,10 +33,7 @@ Deno.serve(async (req) => {
 
   try {
     const admin = createServiceClient();
-    const supabaseUrl = Deno.env.get("SUPABASE_URL");
-    if (!supabaseUrl) {
-      return htmlResponse(500, buildStatusPageHtml({ zh: "服务未配置。", en: "Service misconfigured." }));
-    }
+    const publicSupabaseUrl = resolvePublicSupabaseUrl(req, Deno.env.get("SUPABASE_PUBLIC_URL"));
 
     const { data, error } = await admin.from("html_pages").select("*").eq("slug", slug).maybeSingle();
     if (error) {
@@ -58,7 +56,7 @@ Deno.serve(async (req) => {
       expiresAt: page.expires_at,
       canExtend: canExtendPage(page),
       bodyHtml: page.body_html,
-      extendUrl: buildExtendUrl(supabaseUrl),
+      extendUrl: buildExtendUrl(publicSupabaseUrl),
       anonKey,
     });
 

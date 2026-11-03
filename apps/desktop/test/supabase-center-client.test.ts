@@ -35,6 +35,48 @@ function testAccessJwt(sub = USER_ID, expiresInSeconds = 3600, tokenId = "initia
 const ACCESS_JWT = testAccessJwt();
 const REFRESHED_ACCESS_JWT = testAccessJwt(USER_ID, 7200, "refreshed");
 
+test("HTML publishing uses the configured public project URL instead of Docker's api-gw", async () => {
+  const store = createFakeStore({
+    enabled: true,
+    supabaseUrl: "https://center.example.com/supabase",
+    anonKey: "anon_key",
+    accessToken: ACCESS_JWT,
+    accessTokenExpiresAt: "2030-01-01T01:00:00.000Z",
+  });
+  const client = new SupabaseCenterDesktopClient({
+    store,
+    eventCenter: new DesktopEventCenter({ now: fixedNow, idPrefix: "test_evt" }),
+    now: fixedNow,
+    fetch: (async (input, init) => {
+      const url = String(input);
+      if (url.endsWith("/functions/v1/html-host-probe")) {
+        return new Response("<!doctype html>", { headers: { "content-type": "text/html" } });
+      }
+      if (url.endsWith("/functions/v1/html-page-publish")) {
+        expect(new Headers(init?.headers).get("authorization")).toBe(`Bearer ${ACCESS_JWT}`);
+        expect(JSON.parse(String(init?.body))).toEqual({ title: "Report", html: "<h1>Report</h1>" });
+        return jsonResponse({
+          pageId: "page-id",
+          slug: "published-slug",
+          title: "Report",
+          publicUrl: "http://api-gw:8000/functions/v1/html-page-view/published-slug",
+          expiresAt: "2030-01-08T00:00:00.000Z",
+          canExtend: true,
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    }) as typeof fetch,
+  });
+  try {
+    const result = await client.publishHtmlPage({ title: "Report", html: "<h1>Report</h1>" });
+    expect(result.publicUrl).toBe(
+      "https://center.example.com/supabase/functions/v1/html-page-view/published-slug",
+    );
+  } finally {
+    client.dispose();
+  }
+});
+
 test("supabase center client reports HTML hosting availability transitions once", async () => {
   const store = createFakeStore({
     enabled: true,
