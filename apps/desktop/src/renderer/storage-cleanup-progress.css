@@ -1,0 +1,17 @@
+.storage-cleanup-progress {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  margin-bottom: 20px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  font-size: 13px;
+}
+
+.storage-cleanup-progress progress {
+  width: 100%;
+  accent-color: var(--accent);
+}
+.storage-cleanup-progress small {
+  opacity: 0.7;
+}

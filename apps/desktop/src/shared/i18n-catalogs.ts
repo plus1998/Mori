@@ -547,6 +547,13 @@ export const i18nCatalogs = {
       "settings.storage.vacuumAction": "压缩",
       "settings.storage.freed": "已释放 {{size}}",
       "settings.storage.done": "完成",
+      "settings.storage.cleanupRunning": "正在后台清理",
+      "settings.storage.cleanupFinished": "清理已结束",
+      "settings.storage.cleanupPreparing": "正在处理文件或准备清理…",
+      "settings.storage.cleanupProgress": "已处理 {{processed}} / {{total}} 条对话",
+      "settings.storage.cleanupSummary": "已删除 {{deleted}} · 已跳过 {{skipped}} · 失败 {{failed}}",
+      "settings.storage.cleanupBackgroundHint": "可以离开此页继续使用。进行中或状态已变化的对话会自动跳过。",
+
       "settings.personalization.rules": "全局规则",
       "settings.personalization.rulesSubtitle":
         "写入后对 Claude、Codex 与 PI 对话全局生效，注入到系统提示（与编排主提示词分开）。",
@@ -4228,6 +4235,13 @@ export const i18nCatalogs = {
       "settings.storage.vacuumAction": "Compact",
       "settings.storage.freed": "Freed {{size}}",
       "settings.storage.done": "Done",
+      "settings.storage.cleanupRunning": "Cleaning up in the background",
+      "settings.storage.cleanupFinished": "Cleanup finished",
+      "settings.storage.cleanupPreparing": "Preparing cleanup or processing files…",
+      "settings.storage.cleanupProgress": "Processed {{processed}} / {{total}} conversations",
+      "settings.storage.cleanupSummary": "Deleted {{deleted}} · Skipped {{skipped}} · Failed {{failed}}",
+      "settings.storage.cleanupBackgroundHint": "You can leave this page and keep working. Active or changed conversations are skipped.",
+
       "settings.personalization.rules": "Global rules",
       "settings.personalization.rulesSubtitle":
         "Applied to every Claude, Codex, and PI session via system prompt injection (separate from orchestration main prompts).",

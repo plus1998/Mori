@@ -1,9 +1,11 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { setTimeout as pause } from "node:timers/promises";
 import { resolveCodexHomeDir } from "@eco/runtime/codex-config-sync";
 import type {
   StorageCleanupAction,
   StorageCleanupOlderThanUnit,
+  StorageCleanupProgress,
   StorageCleanupRequest,
   StorageCleanupResult,
 } from "../shared/storage-usage";
@@ -27,6 +29,7 @@ export interface StorageCleanupDeps {
   conversationStore: ConversationStore;
   deleteThreadWithExternalState: (threadId: string) => Promise<void>;
   hasActiveThreadRuns: () => boolean;
+  onProgress?: (progress: Omit<StorageCleanupProgress, "request" | "status" | "result">) => void;
   logsDir?: string;
   codexHomeDir?: string;
   claudeProjectsDir?: string;
@@ -296,25 +299,20 @@ export async function clearPiAgent(
     };
   }
 
-  const piThreads = deps.conversationStore.listThreads().filter((thread) => thread.coreKind === "pi");
-  const skippedThreadIds: string[] = [];
-  const errors: string[] = [];
-  let deletedThreadCount = 0;
-
-  for (const thread of piThreads) {
-    if (thread.status === "running" || thread.status === "queued") {
-      skippedThreadIds.push(thread.id);
-      continue;
-    }
-    try {
-      await deps.deleteThreadWithExternalState(thread.id);
-      deletedThreadCount += 1;
-    } catch (error) {
-      errors.push(`${thread.id}: ${errorMessage(error)}`);
-    }
-  }
-
-  const keepIds = new Set(skippedThreadIds);
+  const threadResult = await clearConversationBatch(deps, (thread) => thread.coreKind === "pi");
+  const skippedThreadIds = threadResult.skippedThreadIds ?? [];
+  const errors = threadResult.errors ?? [];
+  const deletedThreadCount = threadResult.deletedCount ?? 0;
+  // Keep failed deletions and conversations created while the cleanup was running.
+  const keepIds = new Set(deps.conversationStore.listCleanupThreads().map((thread) => thread.id));
+  deps.onProgress?.({
+    phase: "files",
+    processedCount: 0,
+    totalCount: 0,
+    deletedCount: deletedThreadCount,
+    skippedCount: skippedThreadIds.length,
+    failedCount: errors.length,
+  });
   let deletedDirCount = 0;
   let names: string[] = [];
   try {
@@ -326,7 +324,7 @@ export async function clearPiAgent(
   }
 
   for (const name of names) {
-    if (keepIds.has(name)) {
+    if (keepIds.has(name) || deps.conversationStore.getThread(name)) {
       continue;
     }
     const dirPath = path.join(piAgentDir, name);
@@ -352,7 +350,9 @@ export async function clearPiAgent(
     ...(skippedThreadIds.length > 0 ? { skippedThreadIds } : {}),
     ...(errors.length > 0 ? { errors } : {}),
     ...(skippedThreadIds.length > 0
-      ? { message: "Some PI threads were still running or queued and were not deleted." }
+      ? {
+          message: "Some PI conversations were skipped because their state changed or they are still active.",
+        }
       : {}),
   };
 }
@@ -370,66 +370,67 @@ async function clearOldConversations(
     };
   }
 
-  const threads = deps.conversationStore.listThreads();
-  const skippedThreadIds: string[] = [];
-  const errors: string[] = [];
-  let deletedCount = 0;
-
-  for (const thread of threads) {
-    const updatedAtMs = Date.parse(thread.updatedAt);
-    if (!Number.isFinite(updatedAtMs) || updatedAtMs >= cutoffMs) {
-      continue;
-    }
-    if (thread.status === "running" || thread.status === "queued") {
-      skippedThreadIds.push(thread.id);
-      continue;
-    }
-    try {
-      await deps.deleteThreadWithExternalState(thread.id);
-      deletedCount += 1;
-    } catch (error) {
-      errors.push(`${thread.id}: ${errorMessage(error)}`);
-    }
-  }
-
-  return {
-    ok: errors.length === 0 && skippedThreadIds.length === 0,
-    deletedCount,
-    ...(skippedThreadIds.length > 0 ? { skippedThreadIds } : {}),
-    ...(errors.length > 0 ? { errors } : {}),
-    ...(skippedThreadIds.length > 0
-      ? { message: "Some threads were still running or queued and were not deleted." }
-      : {}),
-  };
+  return clearConversationBatch(deps, (thread) => {
+    const updatedAt = Date.parse(thread.updatedAt);
+    return Number.isFinite(updatedAt) && updatedAt < cutoffMs;
+  });
 }
 
 async function clearAllConversations(deps: StorageCleanupDeps): Promise<StorageCleanupResult> {
-  const threads = deps.conversationStore.listThreads();
+  return clearConversationBatch(deps);
+}
+
+type CleanupThread = Pick<import("../shared/ipc").ThreadSummary, "id" | "status" | "updatedAt" | "coreKind">;
+
+async function clearConversationBatch(
+  deps: StorageCleanupDeps,
+  eligible: (thread: CleanupThread) => boolean = () => true,
+): Promise<StorageCleanupResult> {
+  // Snapshot only the candidate IDs/metadata, never entire conversation projections.
+  const threads = deps.conversationStore.listCleanupThreads().filter(eligible);
   const skippedThreadIds: string[] = [];
   const errors: string[] = [];
   let deletedCount = 0;
-
-  for (const thread of threads) {
-    if (thread.status === "running" || thread.status === "queued") {
-      skippedThreadIds.push(thread.id);
-      continue;
-    }
+  let processedCount = 0;
+  const report = () =>
+    deps.onProgress?.({
+      phase: "conversations",
+      totalCount: threads.length,
+      processedCount,
+      deletedCount,
+      skippedCount: skippedThreadIds.length,
+      failedCount: errors.length,
+    });
+  report();
+  for (const candidate of threads) {
+    // A resolved Promise only yields to microtasks. A timer gives IPC, input and
+    // other active conversations a turn, even when deletion completes synchronously.
+    await pause(25);
     try {
-      await deps.deleteThreadWithExternalState(thread.id);
-      deletedCount += 1;
+      const thread = deps.conversationStore.getThread(candidate.id);
+      if (
+        !thread ||
+        thread.updatedAt !== candidate.updatedAt ||
+        !eligible(thread) ||
+        thread.status === "running" ||
+        thread.status === "queued"
+      ) {
+        skippedThreadIds.push(candidate.id);
+      } else {
+        await deps.deleteThreadWithExternalState(thread.id);
+        deletedCount += 1;
+      }
     } catch (error) {
-      errors.push(`${thread.id}: ${errorMessage(error)}`);
+      errors.push(`${candidate.id}: ${errorMessage(error)}`);
     }
+    processedCount += 1;
+    report();
   }
-
   return {
     ok: errors.length === 0 && skippedThreadIds.length === 0,
     deletedCount,
     ...(skippedThreadIds.length > 0 ? { skippedThreadIds } : {}),
     ...(errors.length > 0 ? { errors } : {}),
-    ...(skippedThreadIds.length > 0
-      ? { message: "Some threads were still running or queued and were not deleted." }
-      : {}),
   };
 }
 

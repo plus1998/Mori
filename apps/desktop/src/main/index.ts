@@ -1001,7 +1001,7 @@ import { linkAgentsSkillsToClaude } from "./skills-symlink";
 import { uninstallDiscoveredSkill } from "./skills-uninstall";
 import { createSshBookmarkStore, type SshBookmarkStore } from "./ssh-bookmark-store";
 import { connectSshBookmark, type SshConnectSecrets } from "./ssh-connect";
-import { runStorageCleanup } from "./storage-cleanup";
+import { createStorageCleanupService } from "./storage-cleanup-service";
 import { buildStorageUsageSnapshot } from "./storage-inventory";
 import { SubagentConcurrencyGate } from "./subagent-concurrency-gate";
 import {
@@ -9658,12 +9658,18 @@ function registerIpcHandlers(): void {
     });
   });
 
+  const storageCleanupService = createStorageCleanupService((progress) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.storageCleanupProgress, progress);
+    }
+  });
+  registerDesktopCommand(IPC_CHANNELS.storageGetCleanupProgress, () => storageCleanupService.getProgress());
   registerDesktopCommand(IPC_CHANNELS.storageCleanup, async (payload: unknown) => {
     if (!isStorageCleanupRequest(payload)) {
       throw new Error("Invalid storage cleanup request.");
     }
     const userDataDir = app.getPath("userData");
-    return runStorageCleanup(
+    return storageCleanupService.run(
       {
         userDataDir,
         databasePath: path.join(userDataDir, "eco-coding.sqlite"),
@@ -9693,8 +9699,15 @@ function registerIpcHandlers(): void {
               });
               return;
             }
+            const thread = conversationStore.getThread(threadId);
             await cleanupThreadExternalState(threadId);
             conversationStore.deleteThread(threadId);
+            schedulingService?.threadDeleted(threadId);
+            clearThreadRuntimeMemory(threadId);
+            emitThreadEvent(
+              threadId, "thread.deleted", "对话已删除。", "system", false,
+              thread ? { workspacePath: thread.workspacePath } : undefined,
+            );
             return;
           }
           const head = conversationStore.conversationV2().head(threadId);

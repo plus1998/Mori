@@ -213,6 +213,7 @@ import {
   type StartPackageScriptResult,
   type StorageCleanupRequest,
   type StorageCleanupResult,
+  type StorageCleanupProgress,
   type StorageUsageSnapshot,
   type SubagentOrchestrationResource,
   type TerminalInputRequest,
@@ -1846,6 +1847,15 @@ const api = {
   },
   getStorageUsage(): Promise<StorageUsageSnapshot> {
     return ipcRenderer.invoke(IPC_CHANNELS.storageGetUsage);
+  },
+  getStorageCleanupProgress(): Promise<StorageCleanupProgress | null> {
+    return ipcRenderer.invoke(IPC_CHANNELS.storageGetCleanupProgress);
+  },
+  onStorageCleanupProgress(callback: (progress: StorageCleanupProgress) => void): () => void {
+    const listener = (_event: Electron.IpcRendererEvent, progress: StorageCleanupProgress) =>
+      callback(progress);
+    ipcRenderer.on(IPC_CHANNELS.storageCleanupProgress, listener);
+    return () => ipcRenderer.off(IPC_CHANNELS.storageCleanupProgress, listener);
   },
   cleanupStorage(request: StorageCleanupRequest): Promise<StorageCleanupResult> {
     return ipcRenderer.invoke(IPC_CHANNELS.storageCleanup, request);

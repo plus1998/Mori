@@ -2,11 +2,13 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { removeTempDirectory } from "./helpers/temp-directory";
 import { encodeClaudeProjectDirName } from "../src/main/claude-session-paths";
 import { createConversationStore } from "../src/main/conversation-store";
 import { clearCodexHomeCaches, clearLogs, runStorageCleanup } from "../src/main/storage-cleanup";
+import { createStorageCleanupService } from "../src/main/storage-cleanup-service";
 import type { ThreadSummary } from "../src/shared/ipc";
+import type { StorageCleanupProgress } from "../src/shared/storage-usage";
+import { removeTempDirectory } from "./helpers/temp-directory";
 
 /** 跨平台的工作区 fixture：POSIX 上是 `/Users/me/repo`，Windows 上是 `<当前盘>:/Users/me/repo`。 */
 const WORKSPACE_ROOT = path.resolve(path.parse(process.cwd()).root, "Users", "me", "repo");
@@ -204,6 +206,8 @@ test("clearOldConversations deletes by updatedAt and skips busy", async () => {
       databasePath: path.join(userDataDir, "eco-coding.sqlite"),
       conversationStore: {
         listThreads: () => threads,
+        listCleanupThreads: () => threads.map((thread) => ({ ...thread })),
+        getThread: (id: string) => threads.find((thread) => thread.id === id),
       } as never,
       deleteThreadWithExternalState: async (threadId) => {
         deleted.push(threadId);
@@ -312,6 +316,8 @@ test("clearPiAgent full wipe deletes Eco PI threads and leftover agent dirs", as
       databasePath: path.join(userDataDir, "x.sqlite"),
       conversationStore: {
         listThreads: () => threads,
+        listCleanupThreads: () => threads.map((thread) => ({ ...thread })),
+        getThread: (id: string) => threads.find((thread) => thread.id === id),
       } as never,
       deleteThreadWithExternalState: async (threadId) => {
         deleted.push(threadId);
@@ -346,7 +352,10 @@ test("clearPiAgent full wipe with no running PI threads removes all agent dirs",
       userDataDir,
       databasePath: path.join(userDataDir, "x.sqlite"),
       conversationStore: {
-        listThreads: () => [{ id: "thr_pi", status: "idle" as const, coreKind: "pi" as const }],
+        listThreads: () => [],
+        listCleanupThreads: () =>
+          deleted.length ? [] : [{ id: "thr_pi", status: "idle" as const, coreKind: "pi" as const }],
+        getThread: () => ({ id: "thr_pi", status: "idle", coreKind: "pi" }),
       } as never,
       deleteThreadWithExternalState: async (threadId) => {
         deleted.push(threadId);
@@ -368,4 +377,159 @@ test("clearPiAgent full wipe with no running PI threads removes all agent dirs",
       throw error;
     }),
   ).toEqual([]);
+});
+
+function batchFixture(threads: Array<{ id: string; status: string; updatedAt: string; coreKind?: string }>) {
+  return {
+    userDataDir: tempDir,
+    databasePath: path.join(tempDir, "batch.sqlite"),
+    conversationStore: {
+      listCleanupThreads: () => threads.map((thread) => ({ ...thread })),
+      getThread: (id: string) => threads.find((thread) => thread.id === id),
+    } as never,
+    hasActiveThreadRuns: () => false,
+    deleteThreadWithExternalState: async (id: string) => {
+      const index = threads.findIndex((thread) => thread.id === id);
+      if (index >= 0) threads.splice(index, 1);
+    },
+  };
+}
+
+test("conversation cleanup gives timers a turn between deletions and reports incremental progress", async () => {
+  const threads = Array.from({ length: 5 }, (_, i) => ({
+    id: `batch-${i}`,
+    status: "idle",
+    updatedAt: "2020-01-01",
+  }));
+  const deps = batchFixture(threads);
+  const progress: StorageCleanupProgress["processedCount"][] = [];
+  let heartbeat = 0;
+  const beatsAtDeletion: number[] = [];
+  const timer = setInterval(() => heartbeat++, 1);
+  const deleteThread = deps.deleteThreadWithExternalState;
+  try {
+    await runStorageCleanup(
+      {
+        ...deps,
+        onProgress: (next) => progress.push(next.processedCount),
+        deleteThreadWithExternalState: async (id) => {
+          beatsAtDeletion.push(heartbeat);
+          await deleteThread(id);
+        },
+      },
+      { action: "clearAllConversations" },
+    );
+  } finally {
+    clearInterval(timer);
+  }
+  expect(progress).toEqual([0, 1, 2, 3, 4, 5]);
+  expect(beatsAtDeletion).toHaveLength(5);
+  let previousBeat = 0;
+  for (const beat of beatsAtDeletion) {
+    expect(beat).toBeGreaterThan(previousBeat);
+    previousBeat = beat;
+  }
+});
+
+test("cleanup rechecks candidates, skips changed/busy conversations and excludes new arrivals", async () => {
+  const threads = ["first", "became-running", "became-queued", "updated", "removed"].map((id) => ({
+    id,
+    status: "idle",
+    updatedAt: "2020-01-01",
+  }));
+  const deps = batchFixture(threads);
+  const deleteThread = deps.deleteThreadWithExternalState;
+  const result = await runStorageCleanup(
+    {
+      ...deps,
+      deleteThreadWithExternalState: async (id) => {
+        await deleteThread(id);
+        for (const thread of threads) {
+          if (thread.id === "became-running") thread.status = "running";
+          if (thread.id === "became-queued") thread.status = "queued";
+          if (thread.id === "updated") thread.updatedAt = new Date().toISOString();
+        }
+        threads.pop();
+        threads.push({ id: "new", status: "idle", updatedAt: "2020-01-01" });
+      },
+    },
+    { action: "clearAllConversations" },
+  );
+  expect(result.deletedCount).toBe(1);
+  expect(result.skippedThreadIds).toEqual(["became-running", "became-queued", "updated", "removed"]);
+  expect(threads.map((thread) => thread.id)).toContain("new");
+});
+
+test("cleanup service rejects concurrent work, retains progress and reports partial failures", async () => {
+  const threads = ["fail", "ok"].map((id) => ({ id, status: "idle", updatedAt: "2020-01-01" }));
+  const deps = batchFixture(threads);
+  const updates: StorageCleanupProgress[] = [];
+  const service = createStorageCleanupService((next) => updates.push(next));
+  const deleteThread = deps.deleteThreadWithExternalState;
+  const task = service.run(
+    {
+      ...deps,
+      deleteThreadWithExternalState: async (id) => {
+        if (id === "fail") throw new Error("cannot delete");
+        expect(service.getProgress()?.processedCount).toBe(1);
+        await deleteThread(id);
+      },
+    },
+    { action: "clearAllConversations" },
+  );
+  expect(service.getProgress()?.status).toBe("running");
+  await expect(service.run(deps, { action: "clearAllConversations" })).rejects.toThrow(/already running/);
+  const result = await task;
+  expect(result.ok).toBe(false);
+  expect(result.deletedCount).toBe(1);
+  expect(result.errors).toEqual(["fail: cannot delete"]);
+  expect(service.getProgress()).toMatchObject({
+    status: "completed",
+    processedCount: 2,
+    deletedCount: 1,
+    failedCount: 1,
+    result,
+  });
+  expect(updates.map((next) => next.status)).toEqual([
+    "running",
+    "running",
+    "running",
+    "running",
+    "completed",
+  ]);
+  // A new operation is allowed once the previous one has completed.
+  expect((await service.run(deps, { action: "clearAllConversations" })).ok).toBe(true);
+});
+
+test("PI cleanup preserves files of failed deletions and newly created conversations", async () => {
+  const piAgentDir = path.join(tempDir, "pi-agent-preserved");
+  for (const id of ["failed", "ok", "orphan"]) {
+    await fs.mkdir(path.join(piAgentDir, id), { recursive: true });
+    await fs.writeFile(path.join(piAgentDir, id, "session.jsonl"), "history");
+  }
+  const threads = ["failed", "ok"].map((id) => ({
+    id,
+    status: "idle",
+    updatedAt: "2020-01-01",
+    coreKind: "pi",
+  }));
+  const deps = batchFixture(threads);
+  const deleteThread = deps.deleteThreadWithExternalState;
+  const result = await runStorageCleanup(
+    {
+      ...deps,
+      piAgentDir,
+      deleteThreadWithExternalState: async (id) => {
+        if (id === "failed") throw new Error("keep me");
+        await deleteThread(id);
+        threads.push({ id: "new", status: "idle", updatedAt: "2020-01-01", coreKind: "pi" });
+        await fs.mkdir(path.join(piAgentDir, "new"));
+      },
+    },
+    { action: "clearPiAgent" },
+  );
+  expect(result.ok).toBe(false);
+  expect(result.errors).toEqual(["failed: keep me"]);
+  expect((await fs.readdir(piAgentDir)).sort()).toEqual(["failed", "new"]);
+  expect(await fs.readFile(path.join(piAgentDir, "failed", "session.jsonl"), "utf8")).toBe("history");
 });

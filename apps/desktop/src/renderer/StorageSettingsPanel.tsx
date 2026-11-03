@@ -19,10 +19,13 @@ import type {
   StorageCategoryUsage,
   StorageCleanupAction,
   StorageCleanupOlderThanUnit,
+  StorageCleanupProgress,
   StorageCleanupRequest,
   StorageCleanupResult,
   StorageUsageSnapshot,
 } from "../shared/storage-usage";
+
+import "./storage-cleanup-progress.css";
 
 /** Spring: critically damped, response ~0.35s — Apple move/reposition default. */
 const SPRING_SETTLE = { type: "spring" as const, bounce: 0, duration: 0.35 };
@@ -153,38 +156,66 @@ export function StorageSettingsPanel() {
   const liveRegionId = useId();
   const [snapshot, setSnapshot] = useState<StorageUsageSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
+  const [cleanupProgress, setCleanupProgress] = useState<StorageCleanupProgress | null>(null);
   const [busyKey, setBusyKey] = useState<BusyKey>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [oldConversationsValue, setOldConversationsValue] = useState(DEFAULT_OLD_CONVERSATIONS_VALUE);
-  const [oldConversationsUnit, setOldConversationsUnit] =
-    useState<StorageCleanupOlderThanUnit>(DEFAULT_OLD_CONVERSATIONS_UNIT);
+  const [oldConversationsUnit, setOldConversationsUnit] = useState<StorageCleanupOlderThanUnit>(
+    DEFAULT_OLD_CONVERSATIONS_UNIT,
+  );
 
   const springSettle = prefersReducedMotion ? { duration: 0.15 } : SPRING_SETTLE;
   const springBar = prefersReducedMotion ? { duration: 0.15 } : SPRING_BAR;
 
-  const loadUsage = useCallback(async () => {
-    if (!window.eco?.getStorageUsage) {
-      setErrorMessage(t("settings.storage.unavailable"));
-      setLoading(false);
-      return;
-    }
-    setBusyKey("refresh");
-    setErrorMessage(null);
-    try {
-      const next = await window.eco.getStorageUsage();
-      setSnapshot(next);
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : String(error));
-    } finally {
-      setLoading(false);
-      setBusyKey(null);
-    }
-  }, [t]);
+  const loadUsage = useCallback(
+    async (preserveFeedback = false) => {
+      if (!window.eco?.getStorageUsage) {
+        setErrorMessage(t("settings.storage.unavailable"));
+        setLoading(false);
+        return;
+      }
+      setBusyKey("refresh");
+      if (!preserveFeedback) setErrorMessage(null);
+      try {
+        const next = await window.eco.getStorageUsage();
+        setSnapshot(next);
+      } catch (error) {
+        setErrorMessage(error instanceof Error ? error.message : String(error));
+      } finally {
+        setLoading(false);
+        setBusyKey(null);
+      }
+    },
+    [t],
+  );
 
   useEffect(() => {
     void loadUsage();
   }, [loadUsage]);
+
+  useEffect(() => {
+    const eco = window.eco;
+    if (!eco) return;
+    let receivedEvent = false;
+    let disposed = false;
+    const unsubscribe = eco.onStorageCleanupProgress((next) => {
+      receivedEvent = true;
+      setCleanupProgress(next);
+    });
+    void eco
+      .getStorageCleanupProgress()
+      .then((next) => {
+        if (!disposed && !receivedEvent) setCleanupProgress(next);
+      })
+      .catch((error) => {
+        if (!disposed) setErrorMessage(error instanceof Error ? error.message : String(error));
+      });
+    return () => {
+      disposed = true;
+      unsubscribe();
+    };
+  }, []);
 
   async function runCleanup(def: CleanupActionDef) {
     if (!window.eco?.cleanupStorage) {
@@ -200,7 +231,7 @@ export function StorageSettingsPanel() {
     try {
       const result: StorageCleanupResult = await window.eco.cleanupStorage(def.request);
       applyCleanupResult(result);
-      await loadUsage();
+      await loadUsage(true);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : String(error));
     } finally {
@@ -244,7 +275,7 @@ export function StorageSettingsPanel() {
         },
       });
       applyCleanupResult(result);
-      await loadUsage();
+      await loadUsage(true);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : String(error));
     } finally {
@@ -255,6 +286,16 @@ export function StorageSettingsPanel() {
   function applyCleanupResult(result: StorageCleanupResult) {
     if (result.errors?.length) {
       setErrorMessage(result.errors.join("\n"));
+    }
+    if (result.skippedThreadIds?.length) {
+      setStatusMessage(
+        t("settings.storage.cleanupSummary", {
+          deleted: result.deletedCount ?? 0,
+          skipped: result.skippedThreadIds.length,
+          failed: result.errors?.length ?? 0,
+        }),
+      );
+      return;
     }
     if (result.message) {
       setStatusMessage(result.message);
@@ -278,7 +319,7 @@ export function StorageSettingsPanel() {
     setStatusMessage(t("settings.storage.done"));
   }
 
-  const busy = busyKey !== null;
+  const busy = busyKey !== null || cleanupProgress?.status === "running";
   const totalBytes = snapshot?.totalBytes ?? 0;
   const meteredCategories = snapshot?.categories ?? [];
 
@@ -323,6 +364,48 @@ export function StorageSettingsPanel() {
           )}
         </button>
       </header>
+
+      {cleanupProgress ? (
+        <div className="storage-cleanup-progress" role="status" aria-live="polite">
+          <strong>
+            {t(
+              cleanupProgress.status === "completed"
+                ? "settings.storage.cleanupFinished"
+                : "settings.storage.cleanupRunning",
+            )}
+          </strong>
+          {cleanupProgress.phase === "conversations" ? (
+            <>
+              <progress
+                max={Math.max(1, cleanupProgress.totalCount)}
+                value={cleanupProgress.processedCount}
+                aria-label={t("settings.storage.cleanupRunning")}
+              />
+              <span>
+                {t("settings.storage.cleanupProgress", {
+                  processed: cleanupProgress.processedCount,
+                  total: cleanupProgress.totalCount,
+                })}
+              </span>
+            </>
+          ) : cleanupProgress.status === "running" ? (
+            <span>{t("settings.storage.cleanupPreparing")}</span>
+          ) : null}
+          <span>
+            {t("settings.storage.cleanupSummary", {
+              deleted: cleanupProgress.deletedCount,
+              skipped: cleanupProgress.skippedCount,
+              failed: cleanupProgress.failedCount,
+            })}
+          </span>
+          {cleanupProgress.status === "running" ? (
+            <small>{t("settings.storage.cleanupBackgroundHint")}</small>
+          ) : null}
+          {cleanupProgress.status === "completed" && cleanupProgress.result?.errors?.length ? (
+            <p className="storage-feedback-error">{cleanupProgress.result.errors.join("\n")}</p>
+          ) : null}
+        </div>
+      ) : null}
 
       <section className="storage-hero" aria-labelledby={`${liveRegionId}-total`}>
         <div className="storage-hero-material">

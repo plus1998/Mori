@@ -70,3 +70,16 @@ export interface StorageCleanupResult {
   errors?: string[];
   message?: string;
 }
+
+/** Retained by the main process so progress survives settings navigation. */
+export interface StorageCleanupProgress {
+  request: StorageCleanupRequest;
+  status: "running" | "completed";
+  phase: "preparing" | "conversations" | "files";
+  processedCount: number;
+  totalCount: number;
+  deletedCount: number;
+  skippedCount: number;
+  failedCount: number;
+  result?: StorageCleanupResult;
+}

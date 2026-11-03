@@ -9055,6 +9055,12 @@ export class ConversationStore {
       ORDER BY updated_at DESC, id DESC LIMIT ?`).all(query, limit) as Array<Pick<ThreadSummary, "id" | "title" | "workspacePath" | "updatedAt">>;
   }
 
+  listCleanupThreads(): Pick<ThreadSummary, "id" | "status" | "updatedAt" | "coreKind">[] {
+    return this.db.prepare(
+      `SELECT id, status, updated_at AS updatedAt, core_kind AS coreKind FROM threads ORDER BY created_at DESC`,
+    ).all() as Pick<ThreadSummary, "id" | "status" | "updatedAt" | "coreKind">[];
+  }
+
   listThreads(): ThreadSummary[] {
     const rows = this.db
       .prepare(
