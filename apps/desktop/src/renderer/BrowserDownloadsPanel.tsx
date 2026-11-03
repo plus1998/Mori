@@ -13,7 +13,7 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
-export function BrowserDownloadsPanel({ browserId, files }: { browserId: string; files: BrowserDownload[] }) {
+export function BrowserDownloadsPanel({ browserId, files, onClose }: { browserId: string; files: BrowserDownload[]; onClose: () => void }) {
   const { t } = useTranslation();
   const [busy, setBusy] = useState<{ fileId: string; action: BrowserDownloadActionRequest["action"] }>();
   const [error, setError] = useState<string>();
@@ -39,6 +39,10 @@ export function BrowserDownloadsPanel({ browserId, files }: { browserId: string;
       <header className="browser-downloads-header">
         <h3>{t("browser.downloads.title")}</h3>
         <span className="browser-downloads-count">{files.length}</span>
+        <button type="button" className="browser-downloads-action browser-downloads-close"
+          aria-label={t("common.close")} title={t("common.close")} onClick={onClose}>
+          <X size={15} aria-hidden />
+        </button>
       </header>
       {files.length === 0 ? (
         <div className="browser-downloads-empty">

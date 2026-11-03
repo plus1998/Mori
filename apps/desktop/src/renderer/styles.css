@@ -39382,11 +39382,31 @@ body.is-resizing-browser-split::before {
 .browser-panel-icon-btn.is-active { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .browser-viewport-error { padding: 6px 10px; color: var(--danger, #e06c75); font-size: 12px; }
 
+.browser-panel-floating-layer {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  padding: 8px;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
 .browser-selection-hint {
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: calc(100% - 16px);
+  box-sizing: border-box;
   padding: 7px 10px;
   color: var(--text-secondary);
   font-size: 12px;
-  background: color-mix(in srgb, var(--text-primary) 5%, transparent);
+  text-align: center;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--bg-main);
+  box-shadow: 0 4px 16px #0003;
 }
 .browser-selection-backdrop {
   position: fixed;

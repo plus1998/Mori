@@ -24,6 +24,7 @@ import { useTranslation } from "react-i18next";
 import { type BrowserViewState, resolveBrowserNavigateTarget } from "../shared/browser";
 import { BrowserViewportControls } from "./BrowserViewportControls";
 import { BrowserDownloadsPanel } from "./BrowserDownloadsPanel";
+import { BrowserPanelOverlay } from "./BrowserPanelOverlay";
 import { BrowserWebviewViewportMarker } from "./BrowserWebviewViewportMarker";
 import { useBrowserInstanceIds } from "./browser-state-store";
 import type { TaskPanelHomeTool } from "./task-panel-tabs";
@@ -350,11 +351,15 @@ export function BrowserPanel({ active, visible = active, browserId, onOpenTool, 
           {t("browser.screenshotFailed", { error: screenshotError })}
         </div>
       ) : null}
-      {showDownloads ? <BrowserDownloadsPanel browserId={browserId} files={downloads ?? []} /> : null}
+      {visible && (showDownloads || selecting === "element") ? (
+        <BrowserPanelOverlay browserId={browserId}>
+          {showDownloads ? <BrowserDownloadsPanel browserId={browserId} files={downloads ?? []} onClose={() => setShowDownloads(false)} /> : null}
+          {selecting === "element" ? <div className="browser-selection-hint" role="status">{t("browser.selection.hint")}</div> : null}
+        </BrowserPanelOverlay>
+      ) : null}
       {viewportControlsVisible ? (
         <BrowserViewportControls browserId={browserId} viewport={instance?.viewport} onChange={setState} />
       ) : null}
-      {selecting === "element" ? <div className="browser-selection-hint" role="status">{t("browser.selection.hint")}</div> : null}
       {selectionError ? <div className="browser-viewport-error" role="alert">{selectionError}</div> : null}
       {instance?.viewportError ? (
         <div className="browser-viewport-error" role="alert">

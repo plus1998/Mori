@@ -3,8 +3,15 @@
   flex: 0 1 auto;
   flex-direction: column;
   min-height: 0;
-  max-height: min(360px, 50vh);
-  border-bottom: 1px solid color-mix(in srgb, var(--text-primary) 9%, transparent);
+  width: min(440px, 100%);
+  max-height: min(360px, 100%);
+  box-sizing: border-box;
+  overflow: auto;
+  pointer-events: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: var(--bg-main);
+  box-shadow: 0 8px 28px #0003;
   color: var(--text-primary);
   font-size: 12px;
 }
@@ -18,6 +25,7 @@
 }
 
 .browser-downloads-header h3 { margin: 0; font-size: 12px; font-weight: 600; }
+.browser-downloads-close { margin-left: auto; flex-shrink: 0; }
 .browser-downloads-count {
   min-width: 19px;
   padding: 1px 5px;

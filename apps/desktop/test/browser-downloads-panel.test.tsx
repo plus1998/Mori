@@ -11,7 +11,7 @@ function file(state: BrowserDownloadState, name = "报告.pdf"): BrowserDownload
 
 test("finished downloads expose delete while completed files retain save and reveal actions", () => {
   for (const state of ["completed", "failed", "cancelled"] as const) {
-    const markup = renderLocalized(createElement(BrowserDownloadsPanel, { browserId: "tab", files: [file(state)] }), "zh-CN");
+    const markup = renderLocalized(createElement(BrowserDownloadsPanel, { browserId: "tab", files: [file(state)], onClose: () => {} }), "zh-CN");
     expect(markup).toContain('aria-label="删除下载 报告.pdf"');
     expect(markup.includes('aria-label="另存为 报告.pdf"')).toBe(state === "completed");
     expect(markup.includes('aria-label="在文件夹中显示 报告.pdf"')).toBe(state === "completed");
@@ -20,7 +20,7 @@ test("finished downloads expose delete while completed files retain save and rev
 });
 
 test("active downloads show progress and cancellation before deletion becomes available", () => {
-  const markup = renderLocalized(createElement(BrowserDownloadsPanel, { browserId: "tab", files: [file("pending")] }), "zh-CN");
+  const markup = renderLocalized(createElement(BrowserDownloadsPanel, { browserId: "tab", files: [file("pending")], onClose: () => {} }), "zh-CN");
   expect(markup).toContain('aria-label="取消下载 报告.pdf"');
   expect(markup).toContain('aria-label="报告.pdf 下载进度"');
   expect(markup).toContain("50%");
@@ -29,8 +29,9 @@ test("active downloads show progress and cancellation before deletion becomes av
 });
 
 test("empty downloads explain where files appear without offering file actions", () => {
-  const markup = renderLocalized(createElement(BrowserDownloadsPanel, { browserId: "tab", files: [] }), "en-US");
+  const markup = renderLocalized(createElement(BrowserDownloadsPanel, { browserId: "tab", files: [], onClose: () => {} }), "en-US");
   expect(markup).toContain("No downloads yet");
   expect(markup).toContain("Files you download from the web will appear here");
-  expect(markup).not.toContain("<button");
+  expect(markup).toContain('aria-label="Close"');
+  expect(markup.match(/<button/g)).toHaveLength(1);
 });
