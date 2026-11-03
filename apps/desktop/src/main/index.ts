@@ -11229,15 +11229,7 @@ function runThreadRequestOnce(
     phase,
     runOnce: (context) => {
       planAttemptId = context.runAttemptId;
-      const sourceThreadId = conversationStore.startPlanExecution(threadId, context.runAttemptId);
-      if (sourceThreadId) {
-        // End the parked planner RPC without approving execution in the source conversation.
-        activeRunRuntimeState.abortRun(sourceThreadId, "plan handed off to another conversation");
-        cancelPlanApprovalsForThreadKeepPending(sourceThreadId, "plan handed off to another conversation");
-        emitThreadEvent(sourceThreadId, "thread.plan_cleared", "计划已交给新会话执行。", "system");
-        updateThread(sourceThreadId, { status: "idle", message: "" });
-        void retryDeferredRunCleanupIfNeeded(sourceThreadId);
-      }
+      conversationStore.startPlanExecution(threadId, context.runAttemptId);
       publishPlanExecutionChanges(threadId);
       return runOnce(context);
     },
@@ -14594,6 +14586,10 @@ async function startNewThread(
     await assertAcpCursorRunnableForMain();
   }
 
+  if (payload.planExecutionId !== undefined &&
+    (typeof payload.planExecutionId !== "string" || !payload.planExecutionId.trim())) {
+    throw new Error("计划执行 ID 不能为空。");
+  }
   const workspace = options.scheduled
     ? await inspectWorkspace(path.resolve(payload.workspacePath))
     : await ensureWorkspace(payload.workspacePath);
@@ -14631,7 +14627,11 @@ async function startNewThread(
     runtimeConfig: threadRuntime,
   };
 
-  conversationStore.saveThread(thread);
+  // Persist the new conversation and its plan link atomically, before preparation can fail.
+  conversationStore.saveThread(thread, () => {
+    if (payload.planExecutionId) conversationStore.reservePlanExecution(payload.planExecutionId, thread.id);
+  });
+  publishPlanExecutionChanges(thread.id);
   try {
     let worktreeCreationFailed = false;
     if (payload.developmentMode === "isolated" || payload.managedWorktreeId) {
@@ -14665,6 +14665,10 @@ async function startNewThread(
     const attachmentsForRuntime = await loadPromptAttachmentsForRuntime(
       recorded.storedAttachments ?? attachmentsForHandOff,
     );
+    if (thread.status === "blocked") {
+      conversationStore.failQueuedPlanExecution(thread.id, thread.message);
+      publishPlanExecutionChanges(thread.id);
+    }
     emitThreadEvent(thread.id, thread.status === "blocked" ? "thread.blocked" : "thread.started", thread.message);
 
     // Landing browsers opened before the first message must move onto this thread
@@ -14692,7 +14696,11 @@ async function startNewThread(
           ...(attachmentsForRuntime?.length ? { attachments: attachmentsForRuntime } : {}),
           roleRoutes,
         })
-        .catch((error) => updateThread(thread.id, { status: "failed", message: errorMessage(error) }));
+        .catch((error) => {
+          conversationStore.failQueuedPlanExecution(thread.id, errorMessage(error));
+          updateThread(thread.id, { status: "failed", message: errorMessage(error) });
+          publishPlanExecutionChanges(thread.id);
+        });
     }
 
     return { thread };

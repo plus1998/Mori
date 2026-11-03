@@ -72,30 +72,31 @@ test("plan references persist immutable numbered content versions across reopeni
   expect(() => reopened.validatePlanExecution(planId, pending.workspacePath)).toThrow("已更新");
 });
 
-test("reserving links both conversations without resolving approval, and rejects duplicate execution", async () => {
+test("reserving multiple executions links every conversation without resolving source approval", async () => {
   const { store, dir, planId, thread } = await setup();
   store.reservePlanExecution(planId, "execution");
   expect(store.getThread("source")?.status).toBe("awaiting_plan");
   expect(store.getPendingPlan("source")?.referenceId).toBe(planId);
   expect(store.listPlanExecutions("source")).toEqual(store.listPlanExecutions("execution"));
   expect(store.listPlanExecutions("source")[0]?.status).toBe("queued");
-  expect(() => store.validatePlanExecution(planId, dir)).toThrow("已交给");
+  expect(store.validatePlanExecution(planId, dir).id).toBe(planId);
   expect(() => store.assertPlanApprovalNotHandedOff("source")).toThrow("已交给");
-  expect(() =>
-    store.saveThread(thread("duplicate"), () => store.reservePlanExecution(planId, "duplicate")),
-  ).toThrow("已交给");
-  expect(store.getThread("duplicate")).toBeUndefined();
+  store.saveThread(thread("duplicate"), () => store.reservePlanExecution(planId, "duplicate"));
+  expect(store.getThread("duplicate")?.id).toBe("duplicate");
+  expect(store.listPlanExecutions("source")).toHaveLength(2);
+  expect(store.listPlanExecutions("duplicate")[0]?.planId).toBe(planId);
+  expect(() => store.reservePlanExecution(planId, "duplicate")).toThrow("UNIQUE");
 });
 
-test("only the first launched runtime attempt releases the exact matching source approval", async () => {
+test("launching execution preserves the exact source plan and approval for review or another execution", async () => {
   const { store, planId, attempt } = await setup();
   store.reservePlanExecution(planId, "execution");
   expect(() => store.startPlanExecution("execution", "not-started")).toThrow("执行尚未启动");
   expect(store.getPendingPlan("source")?.referenceId).toBe(planId);
   store.upsertRunAttempt(attempt("first"));
-  expect(store.startPlanExecution("execution", "first")).toBe("source");
-  expect(store.getPendingPlan("source")).toBeUndefined();
-  expect(store.getThread("source")?.status).toBe("idle");
+  expect(store.startPlanExecution("execution", "first")).toBeUndefined();
+  expect(store.getPendingPlan("source")?.referenceId).toBe(planId);
+  expect(store.getThread("source")?.status).toBe("awaiting_plan");
   expect(store.listPlanExecutions("source")[0]).toMatchObject({
     attemptId: "first",
     status: "running",
@@ -160,7 +161,7 @@ for (const status of ["completed", "failed", "cancelled"] as const) {
     const reopened = await createConversationStore(dbPath);
     reopened.recoverPlanExecutions();
     expect(reopened.listPlanExecutions("source")[0]).toMatchObject({ status, attemptId: "first" });
-    expect(reopened.getThread("source")?.status).toBe("idle");
+    expect(reopened.getThread("source")?.status).toBe("awaiting_plan");
   });
 }
 
@@ -176,24 +177,37 @@ for (const phase of ["execution", "continuation"] as const) {
 
     store.upsertRunAttempt({ ...attempt("retry"), phase, retryIndex: 1 });
     expect(store.startPlanExecution("execution", "retry")).toBeUndefined();
-    expect(store.listPlanExecutions("source")[0]).toMatchObject({ attemptId: "retry", status: "running", message: "" });
+    expect(store.listPlanExecutions("source")[0]).toMatchObject({
+      attemptId: "retry",
+      status: "running",
+      message: "",
+    });
     expect(store.listPlanExecutions("execution")).toEqual(store.listPlanExecutions("source"));
-    expect(store.getPendingPlan("source")).toBeUndefined();
-    expect(store.getThread("source")?.status).toBe("idle");
+    expect(store.getPendingPlan("source")?.referenceId).toBe(planId);
+    expect(store.getThread("source")?.status).toBe("awaiting_plan");
     // A delayed terminal callback from the old attempt cannot fail the retry.
     store.settlePlanExecution("execution", "first", "Selected model is at capacity.");
     expect(store.listPlanExecutions("source")[0]?.status).toBe("running");
-    expect(store.listRunAttempts("execution").find(item => item.attemptId === "first")?.status).toBe("failed");
+    expect(store.listRunAttempts("execution").find((item) => item.attemptId === "first")?.status).toBe(
+      "failed",
+    );
 
     store.upsertRunAttempt({ ...attempt("retry", "completed"), phase, retryIndex: 1 });
     store.settlePlanExecution("execution", "retry", "");
     const reopened = await createConversationStore(dbPath);
     reopened.recoverPlanExecutions();
-    expect(reopened.listPlanExecutions("source")[0]).toMatchObject({ attemptId: "retry", status: "completed", message: "" });
+    expect(reopened.listPlanExecutions("source")[0]).toMatchObject({
+      attemptId: "retry",
+      status: "completed",
+      message: "",
+    });
     // Success ends this execution; later work must not reopen the plan.
     reopened.upsertRunAttempt(attempt("later"));
     reopened.startPlanExecution("execution", "later");
-    expect(reopened.listPlanExecutions("source")[0]).toMatchObject({ attemptId: "retry", status: "completed" });
+    expect(reopened.listPlanExecutions("source")[0]).toMatchObject({
+      attemptId: "retry",
+      status: "completed",
+    });
   });
 }
 
@@ -208,7 +222,11 @@ test("transient errors cannot settle a running attempt or bind an unstarted retr
   store.settlePlanExecution("execution", "first", "Provider error");
   store.startPlanExecution("execution", "not-started");
   store.startPlanExecution("execution", "first");
-  expect(store.listPlanExecutions("source")[0]).toMatchObject({ attemptId: "first", status: "failed", message: "Provider error" });
+  expect(store.listPlanExecutions("source")[0]).toMatchObject({
+    attemptId: "first",
+    status: "failed",
+    message: "Provider error",
+  });
 });
 
 test("resuming after a stop or restart updates the link while preserving changed source approval", async () => {
@@ -222,7 +240,12 @@ test("resuming after a stop or restart updates the link while preserving changed
   store.updateThread("source", { status: "awaiting_plan", message: "New approval" });
   store.upsertRunAttempt(attempt("second"));
   store.startPlanExecution("execution", "second");
-  expect(store.listPlanExecutions("source")[0]).toMatchObject({ attemptId: "second", status: "running", version: 1, message: "" });
+  expect(store.listPlanExecutions("source")[0]).toMatchObject({
+    attemptId: "second",
+    status: "running",
+    version: 1,
+    message: "",
+  });
 
   const reopened = await createConversationStore(dbPath);
   reopened.recoverPlanExecutions();
@@ -230,12 +253,17 @@ test("resuming after a stop or restart updates the link while preserving changed
   reopened.upsertRunAttempt(attempt("second", "cancelled"));
   reopened.upsertRunAttempt(attempt("third"));
   reopened.startPlanExecution("execution", "third");
-  expect(reopened.listPlanExecutions("source")[0]).toMatchObject({ attemptId: "third", status: "running", version: 1, message: "" });
+  expect(reopened.listPlanExecutions("source")[0]).toMatchObject({
+    attemptId: "third",
+    status: "running",
+    version: 1,
+    message: "",
+  });
   expect(reopened.getPendingPlan("source")?.version).toBe(2);
   expect(reopened.getThread("source")?.status).toBe("awaiting_plan");
 });
 
-test("resuming an old failed conversation cannot take over a plan active elsewhere", async () => {
+test("resuming a failed conversation tracks its own attempt alongside another execution", async () => {
   const { store, planId, attempt, thread, pending } = await setup();
   store.reservePlanExecution(planId, "execution");
   store.upsertRunAttempt(attempt("first"));
@@ -248,24 +276,39 @@ test("resuming an old failed conversation cannot take over a plan active elsewhe
   store.reservePlanExecution(planId, "other");
   store.upsertRunAttempt(attempt("retry"));
   expect(() => store.startPlanExecution("execution", "retry")).not.toThrow();
-  expect(store.listPlanExecutions("execution")[0]).toMatchObject({ attemptId: "first", status: "failed" });
+  expect(store.listPlanExecutions("execution")[0]).toMatchObject({ attemptId: "retry", status: "running" });
   expect(store.listPlanExecutions("other")[0]?.status).toBe("queued");
 });
 
 test("a retry that really fails reports its own error and can be resumed again", async () => {
   const { store, planId, attempt } = await setup();
   store.reservePlanExecution(planId, "execution");
-  for (const [id, error] of [["first", "Capacity error"], ["second", "Authentication error"]] as const) {
+  for (const [id, error] of [
+    ["first", "Capacity error"],
+    ["second", "Authentication error"],
+  ] as const) {
     store.upsertRunAttempt(attempt(id));
     store.startPlanExecution("execution", id);
-    expect(store.listPlanExecutions("source")[0]).toMatchObject({ attemptId: id, status: "running", message: "" });
+    expect(store.listPlanExecutions("source")[0]).toMatchObject({
+      attemptId: id,
+      status: "running",
+      message: "",
+    });
     store.upsertRunAttempt(attempt(id, "failed"));
     store.settlePlanExecution("execution", id, error);
-    expect(store.listPlanExecutions("source")[0]).toMatchObject({ attemptId: id, status: "failed", message: error });
+    expect(store.listPlanExecutions("source")[0]).toMatchObject({
+      attemptId: id,
+      status: "failed",
+      message: error,
+    });
   }
   store.upsertRunAttempt(attempt("third"));
   store.startPlanExecution("execution", "third");
-  expect(store.listPlanExecutions("source")[0]).toMatchObject({ attemptId: "third", status: "running", message: "" });
+  expect(store.listPlanExecutions("source")[0]).toMatchObject({
+    attemptId: "third",
+    status: "running",
+    message: "",
+  });
 });
 
 test("restart marks unfinished links interrupted and preserves unstarted approval", async () => {
@@ -288,22 +331,44 @@ test("restart uses a committed terminal run outcome even if link settlement was 
   expect(reopened.listPlanExecutions("source")[0]?.status).toBe("completed");
 });
 
-test("approval release and attempt binding roll back together on storage failure", async () => {
-  const { store, dbPath, planId, attempt } = await setup();
-  store.reservePlanExecution(planId, "execution");
-  store.upsertRunAttempt(attempt("first"));
-  const db = new DatabaseSync(dbPath);
-  db.exec(`CREATE TRIGGER fail_source_update BEFORE UPDATE ON threads WHEN NEW.id = 'source'
-    BEGIN SELECT RAISE(ABORT, 'injected source failure'); END;`);
-  try {
-    expect(() => store.startPlanExecution("execution", "first")).toThrow("injected source failure");
-    expect(store.getPendingPlan("source")?.referenceId).toBe(planId);
-    expect(store.getThread("source")?.status).toBe("awaiting_plan");
-    expect(store.listPlanExecutions("source")[0]?.status).toBe("queued");
-  } finally {
-    db.close();
-  }
+test("new conversation and its binding roll back together when the plan is stale", async () => {
+  const { store, planId, thread, pending } = await setup();
+  store.savePendingPlan({ ...pending, plan: "# Updated plan" });
+  expect(() => store.saveThread(thread("new"), () => store.reservePlanExecution(planId, "new"))).toThrow(
+    "已更新",
+  );
+  expect(store.getThread("new")).toBeUndefined();
+  expect(store.listPlanExecutions("source")).toEqual([]);
 });
+
+test("startup removes the old single-active-execution index", async () => {
+  const { store, dbPath, planId, thread } = await setup();
+  store.reservePlanExecution(planId, "execution");
+  const db = new DatabaseSync(dbPath);
+  db.exec(`CREATE UNIQUE INDEX idx_plan_execution_active ON plan_execution_links(plan_id)
+    WHERE status IN ('queued', 'running')`);
+  db.close();
+  const reopened = await createConversationStore(dbPath);
+  reopened.saveThread(thread("new"), () => reopened.reservePlanExecution(planId, "new"));
+  expect(reopened.listPlanExecutions("source")).toHaveLength(2);
+});
+
+for (const status of ["completed", "failed", "cancelled"] as const) {
+  test(`a ${status} execution allows another conversation without recreating the source plan`, async () => {
+    const { store, dbPath, planId, thread, attempt } = await setup();
+    store.reservePlanExecution(planId, "execution");
+    store.upsertRunAttempt(attempt("first"));
+    store.startPlanExecution("execution", "first");
+    store.upsertRunAttempt(attempt("first", status));
+    store.settlePlanExecution("execution", "first", status === "failed" ? "Provider error" : "");
+    const reopened = await createConversationStore(dbPath);
+    reopened.saveThread(thread("next"), () => reopened.reservePlanExecution(planId, "next"));
+    expect(reopened.getPendingPlan("source")?.referenceId).toBe(planId);
+    expect(reopened.listPlanExecutions("source")).toHaveLength(2);
+    expect(reopened.listPlanExecutions("execution")[0]?.status).toBe(status);
+    expect(reopened.listPlanExecutions("next")[0]?.status).toBe("queued");
+  });
+}
 
 test("deleted conversations are explicit and referenced snapshots remain until both sides are deleted", async () => {
   const { store, planId } = await setup();

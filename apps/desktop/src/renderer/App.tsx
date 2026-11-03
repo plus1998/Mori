@@ -340,11 +340,7 @@ import {
   isBuiltInOpenAiProvider,
   resolveComposerModelAvailability,
 } from "./composer-model-availability";
-import {
-  type ComposerPlanHandoff,
-  resolveComposerContextPrompt,
-  resolveComposerPlanRuntimeConfig,
-} from "./composer-plan-handoff";
+import { buildPlanExecutionRequest } from "./composer-plan-handoff";
 import {
   applySlashSkillSelection,
   buildSkillMap,
@@ -4179,7 +4175,6 @@ function App() {
       ),
     [threads, composerDraftPresenceByThread],
   );
-  const pendingPlanComposerHandoffRef = useRef<ComposerPlanHandoff | undefined>(undefined);
   const prevComposerContextKeyRef = useRef<string | undefined>(undefined);
   const composerContextKeyRef = useRef(composerContextKey);
   const composerPromptRef = useRef(prompt);
@@ -5758,21 +5753,7 @@ function App() {
       if (editingFollowUpIdRef.current && prevThreadId) {
         void releaseThreadFollowUpEditingLock(prevThreadId).catch((caught) => setError(errorMessage(caught)));
       }
-      const promptResolution = resolveComposerContextPrompt(
-        composerContextKey,
-        draft?.prompt,
-        pendingPlanComposerHandoffRef.current,
-      );
-      if (promptResolution.handoffConsumed) {
-        pendingPlanComposerHandoffRef.current = undefined;
-        setComposerRuntimeConfig(
-          (current) =>
-            resolveComposerPlanRuntimeConfig(current, promptResolution.sessionMode) ??
-            buildComposerDefaultConfig({ planModeOverride: false }) ??
-            current,
-        );
-      }
-      const nextPrompt = promptResolution.prompt;
+      const nextPrompt = draft?.prompt ?? "";
       editingFollowUpIdRef.current = undefined;
       editingFollowUpThreadIdRef.current = undefined;
       savedComposerBeforeFollowUpEditRef.current = undefined;
@@ -5780,11 +5761,10 @@ function App() {
       composerPromptRef.current = nextPrompt;
       setPrompt(nextPrompt);
       setComposerAttachments(
-        promptResolution.handoffConsumed ? [] : draft?.attachments ? [...draft.attachments] : [],
+        draft?.attachments ? [...draft.attachments] : [],
       );
       setComposerRewindTarget(
-        !promptResolution.handoffConsumed &&
-          draft?.rewindTarget &&
+        draft?.rewindTarget &&
           (!threadId || draft.rewindTarget.threadId === threadId)
           ? draft.rewindTarget
           : undefined,
@@ -5793,20 +5773,9 @@ function App() {
       setComposerLightboxId(null);
       prevComposerContextKeyRef.current = composerContextKey;
 
-      if (promptResolution.handoffConsumed) {
-        window.requestAnimationFrame(() => {
-          if (
-            composerContextKeyRef.current === composerContextKey &&
-            composerPromptRef.current === nextPrompt
-          ) {
-            composerRef.current?.focus();
-          }
-        });
-      }
-
       const requestId = ++composerDraftLoadRequestRef.current;
       if (
-        promptResolution.shouldLoadPersistedDraft &&
+        draft === undefined &&
         composerContextKey &&
         typeof window.eco?.getComposerDraft === "function"
       ) {
@@ -11186,11 +11155,12 @@ function App() {
   }
 
   async function startNewChatWithPlan(plan: ThreadPendingPlan) {
-    const contextKey = composerContextKeyFromParts(undefined, currentProjectPath);
-    if (!contextKey) {
+    if (!window.eco || !activeThread || activeThread.id !== plan.threadId || planActionBusy) return;
+    const runtimeConfig = resolveComposerRuntimeConfigForSend();
+    if (!runtimeConfig) {
+      setError(t("app.configureOrchestration"));
       return;
     }
-    if (!window.eco || planActionBusy) return;
     setPlanActionBusy(true);
     setError(undefined);
     try {
@@ -11198,14 +11168,14 @@ function App() {
       if (!current?.referenceId || current.plan !== plan.plan || current.analysis !== plan.analysis || current.userPrompt !== plan.userPrompt) {
         throw new Error(t("planExecution.planChanged"));
       }
-      if (selectedThreadIdRef.current !== plan.threadId) return;
-      pendingPlanComposerHandoffRef.current = {
-        contextKey,
-        prompt: composerReferenceToken({ kind: "plan", id: current.referenceId, label: t("planExecution.referenceLabel", { version: current.version }),
-          detail: activeThread?.title ?? "" }),
-        sessionMode: "agent",
-      };
-      startNewChat();
+      const result = await window.eco.startThread(buildPlanExecutionRequest(
+        current,
+        activeThread,
+        runtimeConfig,
+        t("planExecution.referenceLabel", { version: current.version }),
+      ));
+      setThreads((threads) => [result.thread, ...threads.filter((thread) => thread.id !== result.thread.id)]);
+      if (result.thread.status === "blocked") setError(result.thread.message);
     } catch (caught) {
       setError(errorMessage(caught));
     } finally {
@@ -12334,6 +12304,7 @@ function App() {
                 {...(planFailureMessage && { failureMessage: planFailureMessage })}
                 onApprove={() => void approvePendingPlan()}
                 onStartNewSession={() => void startNewChatWithPlan(pendingPlan)}
+                onNavigateExecution={(threadId) => void navigatePlanConversation(threadId)}
                 onReviewCode={() => void reviewPendingPlanCode()}
                 onScheduleExecution={() => {
                   setScheduledMessageEditor({
@@ -13151,7 +13122,7 @@ function App() {
                       </div>
                     ) : (
                       <div className="codex-feed-stack">
-                        {activeThread ? <PlanExecutionLinks threadId={activeThread.id} onNavigate={threadId => void navigatePlanConversation(threadId)} /> : null}
+                        {activeThread ? <PlanExecutionLinks threadId={activeThread.id} excludePlanId={showPlanApproval ? pendingPlan?.referenceId : undefined} onNavigate={threadId => void navigatePlanConversation(threadId)} /> : null}
                         <div
                           className={["activity-feed", !activityFeedBootReady ? "is-booting" : ""]
                             .filter(Boolean)

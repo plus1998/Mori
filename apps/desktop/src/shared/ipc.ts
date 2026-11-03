@@ -2057,6 +2057,8 @@ export interface ThreadClarificationNotificationResult {
 }
 
 export interface ThreadStartRequest {
+  /** Explicit new-session execution; ordinary plan references remain discussion context. */
+  planExecutionId?: string;
   developmentMode?: import("./thread-worktree").ThreadDevelopmentMode;
   managedWorktreeId?: string;
   workspacePath: string;

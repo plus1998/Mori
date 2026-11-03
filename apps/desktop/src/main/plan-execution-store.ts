@@ -42,8 +42,7 @@ export class PlanExecutionStore {
         created_at TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_plan_execution_source ON plan_execution_links(source_thread_id, created_at);
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_plan_execution_active ON plan_execution_links(plan_id)
-        WHERE status IN ('queued', 'running');
+      DROP INDEX IF EXISTS idx_plan_execution_active;
     `);
   }
 
@@ -105,7 +104,6 @@ export class PlanExecutionStore {
   reserve(planId: string, executionThreadId: string): void {
     const plan = this.requireSnapshot(planId);
     if (plan.sourceThreadId === executionThreadId) throw new Error("请在新会话中执行引用的计划。");
-    this.assertAvailable(planId);
     this.db
       .prepare(`INSERT INTO plan_execution_links
       (id, plan_id, source_thread_id, execution_thread_id, status, created_at) VALUES (?, ?, ?, ?, 'queued', ?)`)
@@ -153,13 +151,7 @@ export class PlanExecutionStore {
     this.db
       .prepare(`UPDATE plan_execution_links SET attempt_id = ?, status = 'running', message = ''
       WHERE execution_thread_id = ? AND attempt_id IS NOT NULL
-        AND status IN ('failed', 'cancelled', 'interrupted')
-        AND NOT EXISTS (
-          SELECT 1 FROM plan_execution_links active
-          WHERE active.plan_id = plan_execution_links.plan_id
-            AND active.execution_thread_id != plan_execution_links.execution_thread_id
-            AND active.status IN ('queued', 'running')
-        )`)
+        AND status IN ('failed', 'cancelled', 'interrupted')`)
       .run(attemptId, threadId);
   }
 

@@ -9580,7 +9580,6 @@ export class ConversationStore {
     const source = this.getThread(plan.sourceThreadId);
     if (!source) throw new Error("来源会话已删除，无法交接执行计划。");
     if (plan.workspacePath !== workspacePath) throw new Error("请在计划所属项目中执行，避免修改其他项目。");
-    this.planExecutions.assertAvailable(planId);
     if (this.v2.listRecoverableCommandJobs().some(job => job.conversationId === source.id && job.commandType === "plan.resolve")) {
       throw new Error("来源计划正在处理审批，请等待处理结束后再执行。");
     }
@@ -9603,40 +9602,25 @@ export class ConversationStore {
     if (pending?.referenceId) this.planExecutions.assertAvailable(pending.referenceId);
   }
 
-  /** Release source approval once; resumed execution follows its new durable attempt. */
-  startPlanExecution(executionThreadId: string, attemptId: string): string | undefined {
+  /** Bind execution attempts without consuming the source plan or its approval. */
+  startPlanExecution(executionThreadId: string, attemptId: string): void {
     const queued = this.planExecutions.queuedForThread(executionThreadId);
-    if (!queued && !this.planExecutions.canResume(executionThreadId)) return undefined;
+    if (!queued && !this.planExecutions.canResume(executionThreadId)) return;
     const attempt = this.listRunAttempts(executionThreadId).find(item => item.attemptId === attemptId);
     if (!queued) {
       // A provider failure or user stop ends an attempt, not the whole plan.
       // Only a real execution/continuation can resume it; unrelated asks and
-      // completed plans retain their prior outcome. Source approval stays closed.
+      // completed plans retain their prior outcome. Source approval remains available.
       if (attempt?.status === "running" && (attempt.phase === "execution" || attempt.phase === "continuation")) {
         this.planExecutions.resumeAttempt(executionThreadId, attemptId);
       }
-      return undefined;
+      return;
     }
     if (attempt?.status !== "running") {
-      throw new Error("执行尚未启动，不能解除来源计划审批。");
+      throw new Error("执行尚未启动，不能绑定计划执行记录。");
     }
-    const pending = this.getPendingPlan(queued.sourceThreadId);
-    const source = this.getThread(queued.sourceThreadId);
-    const clearSource = pending && planReferenceId(pending) === queued.planId && source?.status === "awaiting_plan";
-    this.db.exec("BEGIN IMMEDIATE");
-    try {
-      this.planExecutions.bindAttempt(executionThreadId, attemptId);
-      if (clearSource) {
-        if (this.isV2OnlyStorage()) this.v2.clearPendingPlan(queued.sourceThreadId, { inCurrentTransaction: true });
-        else this.db.prepare("DELETE FROM thread_pending_plans WHERE thread_id = ?").run(queued.sourceThreadId);
-        this.updateThread(queued.sourceThreadId, { status: "idle", message: "" });
-      }
-      this.db.exec("COMMIT");
-    } catch (error) {
-      rollbackConversationTransaction(this.db);
-      throw error;
-    }
-    return clearSource ? queued.sourceThreadId : undefined;
+    this.planExecutions.bindAttempt(executionThreadId, attemptId);
+    return;
   }
 
   settlePlanExecution(threadId: string, attemptId: string, message?: string): void {

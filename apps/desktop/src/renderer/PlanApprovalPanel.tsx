@@ -20,6 +20,7 @@ import { MAIN_SHELL_MEDIA_QUERIES } from "./activity-workspace-layout";
 import { ComposerAbovePanel } from "./ComposerAbovePanel";
 import { copyTextToClipboard } from "./clipboard";
 import { MarkdownContent } from "./MarkdownContent";
+import { PlanExecutionList, usePlanExecutions } from "./PlanExecutionLinks";
 
 interface PlanApprovalPanelProps {
   plan: ThreadPendingPlan;
@@ -32,10 +33,11 @@ interface PlanApprovalPanelProps {
    * orchestration snapshot exposes at least one enabled, delegation-capable subagent.
    */
   onApproveWithSubagent?: ((agentKey: string, additionalMessage?: string) => void) | undefined;
-  /** Starts a new composer with a versioned plan reference; sending launches execution. */
+  /** Starts a linked execution conversation while keeping this plan open. */
   onStartNewSession?: (() => void) | undefined;
   /** Confirms the plan was implemented and asks the current agent to review the code. */
   onReviewCode?: (() => void) | undefined;
+  onNavigateExecution?: ((threadId: string) => void) | undefined;
   onScheduleExecution?: (() => void) | undefined;
   delegationAgents?: readonly PlanDelegationAgentOption[] | undefined;
   additionalMessage?: string | undefined;
@@ -53,6 +55,7 @@ export function PlanApprovalPanel({
   onApproveWithSubagent,
   onStartNewSession,
   onReviewCode,
+  onNavigateExecution,
   onScheduleExecution,
   delegationAgents,
   additionalMessage,
@@ -62,6 +65,11 @@ export function PlanApprovalPanel({
 }: PlanApprovalPanelProps) {
   const { t } = useTranslation();
   const planTrimmed = plan.plan.trim();
+  const executionState = usePlanExecutions(plan.threadId);
+  const executions = executionState.links.filter(
+    (link) => link.planId === plan.referenceId && link.sourceThreadId === plan.threadId,
+  );
+  const hasExecutions = executions.length > 0;
   const docked = variant === "dock";
   const [expanded, setExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -205,6 +213,15 @@ export function PlanApprovalPanel({
           <p>{failureMessage}</p>
         </div>
       ) : null}
+      {onNavigateExecution ? (
+        <PlanExecutionList
+          threadId={plan.threadId}
+          links={executions}
+          error={executionState.error}
+          showSummary
+          onNavigate={onNavigateExecution}
+        />
+      ) : null}
       <div
         className={["plan-approval-markdown", docked ? "plan-approval-dock-markdown" : ""]
           .filter(Boolean)
@@ -228,11 +245,22 @@ export function PlanApprovalPanel({
             t("common.dismiss")
           )}
         </button>
+        {hasExecutions && onReviewCode ? (
+          <button
+            type="button"
+            className={docked ? "bash-approval-dismiss" : "plan-button secondary"}
+            onClick={reviewCode}
+            disabled={executeMenuDisabled}
+          >
+            <FileSearch size={14} aria-hidden />
+            {t("approval.plan.reviewCode")}
+          </button>
+        ) : null}
         <div className="plan-approval-execute-split">
           <button
             type="button"
             className={docked ? "bash-approval-submit" : "plan-button primary"}
-            onClick={onApprove}
+            onClick={hasExecutions && onStartNewSession ? startNewSession : onApprove}
             disabled={busy || !planTrimmed}
           >
             {busy ? (
@@ -241,7 +269,11 @@ export function PlanApprovalPanel({
                 {t("common.processing")}
               </>
             ) : (
-              t("approval.plan.execute")
+              t(
+                hasExecutions && onStartNewSession
+                  ? "approval.plan.executeAgainInNewSession"
+                  : "approval.plan.execute",
+              )
             )}
           </button>
           {canOpenExecuteMenu ? (

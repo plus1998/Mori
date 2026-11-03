@@ -2991,6 +2991,11 @@ button.sidebar-settings-meta {
   padding: 8px 16px 4px;
   font-size: 12px;
 }
+.plan-execution-summary { margin: 0 0 8px; color: var(--text-primary); font-weight: 500; }
+.plan-approval-dock-inner > .plan-execution-links,
+.plan-approval > .plan-execution-links { padding: 0; margin-block: 4px 12px; }
+.plan-execution-link[data-status="failed"] .plan-execution-status,
+.plan-execution-link[data-status="failed"] .plan-execution-link-message { color: var(--text-danger, #d55); }
 .plan-execution-link {
   display: flex;
   align-items: center;

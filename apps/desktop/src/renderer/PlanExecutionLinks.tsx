@@ -3,14 +3,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { PLAN_EXECUTION_CHANGED, type PlanExecutionLink } from "../shared/plan-execution";
 
-export function PlanExecutionLinks({
-  threadId,
-  onNavigate,
-}: {
-  threadId: string;
-  onNavigate(threadId: string): void;
-}) {
-  const { t } = useTranslation();
+export function usePlanExecutions(threadId: string) {
   const [state, setState] = useState<{ threadId: string; links: PlanExecutionLink[]; error?: string }>({
     threadId,
     links: [],
@@ -53,10 +46,55 @@ export function PlanExecutionLinks({
       unsubscribe();
     };
   }, [threadId]);
-  if (state.threadId !== threadId || (!state.links.length && !state.error)) return null;
+  return state.threadId === threadId ? state : { threadId, links: [] };
+}
+
+export function PlanExecutionLinks({
+  threadId,
+  excludePlanId,
+  onNavigate,
+}: {
+  threadId: string;
+  excludePlanId?: string | undefined;
+  onNavigate(threadId: string): void;
+}) {
+  const state = usePlanExecutions(threadId);
+  return (
+    <PlanExecutionList
+      threadId={threadId}
+      links={state.links.filter((link) => link.planId !== excludePlanId)}
+      error={state.error}
+      onNavigate={onNavigate}
+    />
+  );
+}
+
+export function PlanExecutionList({
+  threadId,
+  links,
+  error,
+  showSummary = false,
+  onNavigate,
+}: {
+  threadId: string;
+  links: PlanExecutionLink[];
+  error?: string | undefined;
+  showSummary?: boolean;
+  onNavigate(threadId: string): void;
+}) {
+  const { t } = useTranslation();
+  if (!links.length && !error) return null;
+  const hasActive = links.some(
+    (link) => !link.executionDeleted && (link.status === "running" || link.status === "queued"),
+  );
   return (
     <section className="plan-execution-links" aria-label={t("planExecution.links")}>
-      {state.links.map((link) => {
+      {showSummary && links.length > 0 ? (
+        <p className="plan-execution-summary" role="status">
+          {t(hasActive ? "planExecution.activeConversations" : "planExecution.existingConversations")}
+        </p>
+      ) : null}
+      {links.map((link) => {
         const isSource = link.sourceThreadId === threadId;
         const targetId = isSource ? link.executionThreadId : link.sourceThreadId;
         const deleted = isSource ? link.executionDeleted : link.sourceDeleted;
@@ -94,9 +132,9 @@ export function PlanExecutionLinks({
           </div>
         );
       })}
-      {state.error ? (
+      {error ? (
         <p className="plan-execution-link-error" role="alert">
-          {t("planExecution.loadFailed", { detail: state.error })}
+          {t("planExecution.loadFailed", { detail: error })}
         </p>
       ) : null}
     </section>
