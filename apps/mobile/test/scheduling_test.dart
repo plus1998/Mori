@@ -597,6 +597,22 @@ void main() {
         'Run an independent task with all context',
       );
       await tester.enterText(find.byType(TextField).at(1), 'Daily task');
+      final access = find.byType(DropdownButtonFormField<String>).at(1);
+      await tester.ensureVisible(access);
+      await tester.tap(access);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Full access').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Cancel').last);
+      await tester.pumpAndSettle();
+      expect(find.text('Request approval'), findsOneWidget);
+      await tester.tap(access);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Full access').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Full access').last);
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Save'));
       await tester.tap(find.text('Save'));
       await tester.pumpAndSettle();
       final input = client.calls.single.args.single as Map;
@@ -604,6 +620,10 @@ void main() {
       expect(input['workspacePath'], '/workspace');
       expect(input.containsKey('threadId'), isFalse);
       expect(input['executionProfile']['coreKind'], 'acp');
+      expect(
+        input['executionProfile']['runtimeConfig']['bashReviewMode'],
+        'allow_all',
+      );
       expect(
         input['executionProfile']['runtimeConfig']['cursorModelId'],
         'test-model',

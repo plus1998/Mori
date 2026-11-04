@@ -57,6 +57,23 @@ async function sleepFixture(t: test.TestContext, overrides: Partial<SchedulingDe
   };
 }
 
+test("task access permissions persist, update and reach each dispatch without agent escalation", async t => {
+  const f = await fixture(t);
+  const full = { ...profile, runtimeConfig: { ...profile.runtimeConfig, bashReviewMode: "allow_all" as const } };
+  const input = { ...task("access"), executionProfile: full } as ScheduleCreateInput;
+  const created = f.service.create(input);
+  const reopened = new SchedulingStore(f.dbPath);
+  assert.equal(reopened.get(created.id)?.executionProfile?.runtimeConfig.bashReviewMode, "allow_all");
+  reopened.close();
+  assert.throws(() => f.service.update({ id: created.id, expectedRevision: 1, executionProfile: full }, { source: "agent", threadId: "source" }), /Agent/);
+  const updated = f.service.update({ id: created.id, expectedRevision: 1, executionProfile: profile });
+  assert.equal(updated.executionProfile?.runtimeConfig.bashReviewMode, profile.runtimeConfig.bashReviewMode);
+  f.service.update({ id: created.id, expectedRevision: updated.revision, executionProfile: full });
+  f.setNow(baseTime + 60_000);
+  await f.service.tick();
+  assert.equal(f.dispatched[0]?.definition.executionProfile?.runtimeConfig.bashReviewMode, "allow_all");
+});
+
 test("schedule deletion checks the revision inside the service and keeps legacy deletion compatible", async t => {
   const f = await fixture(t);
   const created = f.service.create(task("revision-delete"));

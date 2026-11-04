@@ -79,6 +79,7 @@ class _ScheduleEditorState extends ConsumerState<ScheduleEditor> {
   List<String>? _preview;
   ThreadRuntimeConfig? _config;
   String? _coreKind;
+  int _accessFieldRevision = 0;
   final _attachments = <PromptImageAttachment>[];
   bool get _isMessage =>
       widget.definition?.isMessage ?? widget.threadId != null;
@@ -572,14 +573,92 @@ class _ScheduleEditorState extends ConsumerState<ScheduleEditor> {
                                 onChanged: _busy
                                     ? null
                                     : (value) => setState(() {
+                                        final access = _config!.bashReviewMode;
                                         _coreKind = value!;
                                         _config = buildDefaultRuntimeConfig(
                                           modelSettings: settings?.valueOrNull,
                                           workflow: workflow?.valueOrNull,
                                           mcpServers: mcp,
                                           coreKind: value,
-                                        );
+                                        ).copyWith(bashReviewMode: access);
                                       }),
+                              ),
+                              DropdownButtonFormField<String>(
+                                key: ValueKey(
+                                  '${_config!.bashReviewMode}:$_accessFieldRevision',
+                                ),
+                                initialValue: _config!.bashReviewMode,
+                                decoration: InputDecoration(
+                                  labelText: l.composerBashApproval,
+                                ),
+                                items: [
+                                  DropdownMenuItem(
+                                    value: 'always',
+                                    child: Text(l.bashReviewAlways),
+                                  ),
+                                  DropdownMenuItem(
+                                    value: 'auto',
+                                    child: Text(l.bashReviewAuto),
+                                  ),
+                                  DropdownMenuItem(
+                                    value: 'allow_all',
+                                    child: Text(l.bashReviewAllowAll),
+                                  ),
+                                ],
+                                onChanged: _busy
+                                    ? null
+                                    : (value) async {
+                                        if (value == null) return;
+                                        if (value == 'allow_all' &&
+                                            _config!.bashReviewMode != value) {
+                                          final confirmed =
+                                              await showDialog<bool>(
+                                                context: context,
+                                                builder: (context) => AlertDialog(
+                                                  title: Text(
+                                                    l.bashReviewAllowAll,
+                                                  ),
+                                                  content: Text(
+                                                    l.bashReviewAllowAllConfirm,
+                                                  ),
+                                                  actions: [
+                                                    TextButton(
+                                                      onPressed: () =>
+                                                          Navigator.pop(
+                                                            context,
+                                                            false,
+                                                          ),
+                                                      child: Text(
+                                                        l.commonCancel,
+                                                      ),
+                                                    ),
+                                                    TextButton(
+                                                      onPressed: () =>
+                                                          Navigator.pop(
+                                                            context,
+                                                            true,
+                                                          ),
+                                                      child: Text(
+                                                        l.bashReviewAllowAll,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              );
+                                          if (!mounted) return;
+                                          if (confirmed != true) {
+                                            setState(
+                                              () => _accessFieldRevision++,
+                                            );
+                                            return;
+                                          }
+                                        }
+                                        setState(
+                                          () => _config = _config!.copyWith(
+                                            bashReviewMode: value,
+                                          ),
+                                        );
+                                      },
                               ),
                               if (_coreKind != 'acp' &&
                                   settings?.valueOrNull != null)

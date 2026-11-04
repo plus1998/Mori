@@ -18,6 +18,7 @@ import { scheduleCronLabel } from "./schedule-cron-label";
 import { localScheduleDate as localDate, scheduleCatchUpSeconds, scheduleIntervalDuration, scheduleIntervalLabel, scheduleTriggerFor as triggerFor, type ScheduleTimingForm } from "./schedule-form";
 import "./scheduling.css";
 import { moriScheduledActionLabel } from "../shared/mori-scheduled-action";
+import { BASH_REVIEW_UI, bashReviewUi, isBashReviewMode, normalizeBashReviewMode } from "../shared/bash-review-ui";
 
 interface Props {
   settings: ModelSettingsSnapshot;
@@ -253,6 +254,17 @@ export function SchedulingPanel(props: Props) {
                   disabled={!form.profile} placeholder={t("scheduling.chooseModel")} hint={t("scheduling.model")} onChange={chooseModel}/>
               </div>
             </div>
+            <label>{t("scheduling.accessPermission")}
+              <select disabled={!form.profile} value={normalizeBashReviewMode(form.profile?.runtimeConfig.bashReviewMode)} onChange={event => {
+                const mode = event.target.value;
+                if (!form.profile || !isBashReviewMode(mode)) return;
+                if (mode === "allow_all" && form.profile.runtimeConfig.bashReviewMode !== "allow_all" && !window.confirm(t("scheduling.fullAccessConfirm"))) return;
+                updateForm({ profile: { ...form.profile, runtimeConfig: { ...form.profile.runtimeConfig, bashReviewMode: mode } } });
+              }}>
+                {BASH_REVIEW_UI.map(option => <option key={option.value} value={option.value}>{t(option.title)}</option>)}
+              </select>
+              <span className="scheduling-hint">{t(bashReviewUi(normalizeBashReviewMode(form.profile?.runtimeConfig.bashReviewMode)).description)}</span>
+            </label>
             {modelError && <p className="scheduling-error">{modelError}</p>}</>}
             <ScheduleTimingFields form={form} onChange={updateForm} onceOnly={form.assistant === true} />
             <div className="scheduling-form-actions"><button type="button" disabled={busy} onClick={() => void runAction(async () => setPreview(await api.previewSchedule(triggerFor(form))))}>{t("scheduling.preview")}</button><button className="scheduling-primary" disabled={busy} type="submit">{t(busy ? "scheduling.saving" : "scheduling.save")}</button></div>
@@ -261,7 +273,7 @@ export function SchedulingPanel(props: Props) {
             <h3>{selected.name}</h3>
             <div className="scheduling-meta">
               <span>{t("scheduling.nextRun")}：{selected.enabled && selected.nextRunAt ? formatTime(selected.nextRunAt) : "—"}</span>
-              {selected.executionProfile && <span><img className="scheduling-core-icon" src={coreIconSrc(selected.executionProfile.coreKind)} alt="" aria-hidden/>{labelModel(selected.executionProfile)}</span>}
+              {selected.executionProfile && <><span><img className="scheduling-core-icon" src={coreIconSrc(selected.executionProfile.coreKind)} alt="" aria-hidden/>{labelModel(selected.executionProfile)}</span><span>{t("scheduling.accessPermission")}：{t(bashReviewUi(normalizeBashReviewMode(selected.executionProfile.runtimeConfig.bashReviewMode)).title)}</span></>}
               {selected.workspacePath && <span><Folder size={13} aria-hidden/>{projectDisplayName(props.projects, selected.workspacePath)}</span>}
             </div>
             {selected.error && <p className="scheduling-error" role="alert">{selected.error}</p>}
