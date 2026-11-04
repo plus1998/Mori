@@ -113,7 +113,7 @@
   --workspace-panel-scrollbar-thumb-hover: rgba(255, 255, 255, 0.32);
   --composer-chat-bg: #1f1f1f;
   --composer-chat-border: #353535;
-  --composer-surface-bg: #272727;
+  --composer-surface-bg: #282828;
   --composer-outer-radius: 20px;
   --composer-inner-bottom-radius: 16px;
   --composer-shell-gap: 8px;
@@ -129,7 +129,7 @@
   --composer-pill-hover-bg: #2d2d2d;
   --composer-pill-hover-border: #454545;
   --composer-pill-hover-text: #f2f2f2;
-  --composer-context-bg: #272727;
+  --composer-context-bg: #242424;
   --composer-context-text: #b0b0b0;
   --composer-context-icon: #999999;
   --composer-context-placeholder: #999999;
@@ -314,7 +314,7 @@
   --workspace-panel-scrollbar-thumb-hover: rgba(0, 0, 0, 0.28);
   --composer-chat-bg: #ffffff;
   --composer-chat-border: #e7e7e7;
-  --composer-surface-bg: #ffffff;
+  --composer-surface-bg: #f9f9f9;
   --composer-outer-radius: 20px;
   --composer-inner-bottom-radius: 16px;
   --composer-shell-gap: 10px;
@@ -330,7 +330,7 @@
   --composer-pill-hover-bg: #e8e8ed;
   --composer-pill-hover-border: #d1d1d6;
   --composer-pill-hover-text: #1d1d1f;
-  --composer-context-bg: #f5f5f5;
+  --composer-context-bg: #f3f3f3;
   --composer-context-text: #666666;
   --composer-context-icon: #767676;
   --composer-context-placeholder: #767676;
