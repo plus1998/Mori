@@ -1,5 +1,6 @@
 import http from "node:http";
 import type { AddressInfo } from "node:net";
+import { BROWSER_REFERENCE_ACTION_VALUES } from "../shared/browser-reference-actions";
 import { CONTEXT_MCP_SERVER, CONTEXT_REFERENCE_PROMPT } from "../shared/composer-references";
 import { BrowserMcpAuthRegistry, createBrowserMcpControlSecret } from "./browser-mcp-auth";
 import type { ComposerReferenceService } from "./composer-reference-service";
@@ -108,11 +109,11 @@ export const contextReferenceTools = [
   ),
   tool(
     "browser_reference",
-    "Read or interact with the exact existing browserId explicitly referenced by the user in this conversation. action is an agent_browser_* tool (snapshot, read, click, fill, type, press, check, uncheck, select, scroll, get_text, get_url, get_title, screenshot, wait_for_selector/text/load, reload, back, forward, eval, cdp). eval arguments: {script} for live DOM/computed styles/inline SVG/JS state. cdp arguments: {method, params?, sessionId?, captureEvents?, waitMs? (0-5000), maxEvents? (1-10000), output? (inline/file)}; use Page.getResourceTree then Page.getResourceContent {frameId,url} to read browser-held JS/CSS/SVG/logo/image/font files including cross-origin resources. Resource URLs belong inside params, not top-level arguments. Debugger.enable with captureEvents:[Debugger.scriptParsed] discovers JS scriptIds for Debugger.getScriptSource; CSS.enable with captureEvents:[CSS.styleSheetAdded] discovers styleSheetIds for CSS.getStyleSheetText (DOM.enable first). Target.setAutoAttach with params:{autoAttach:true}, captureEvents:[Target.attachedToTarget] discovers child iframe/worker sessionIds for use in subsequent CDP calls. Large CDP results return a complete temporary JSON file. Use snapshot first for ref-based interaction. No new tabs or URL substitution. Page state and snapshot refs stay bound to browserId. Selection references require selectionId and original-document validation.",
+    "Read or interact with the exact existing browserId explicitly referenced by the user in this conversation. Use a listed action such as snapshot, screenshot, get_text, eval or cdp. Both the short name and its agent_browser_* spelling are accepted (for example snapshot and agent_browser_snapshot). eval arguments: {script} for live DOM/computed styles/inline SVG/JS state. cdp arguments: {method, params?, sessionId?, captureEvents?, waitMs? (0-5000), maxEvents? (1-10000), output? (inline/file)}; use Page.getResourceTree then Page.getResourceContent {frameId,url} to read browser-held JS/CSS/SVG/logo/image/font files including cross-origin resources. Resource URLs belong inside params, not top-level arguments. Debugger.enable with captureEvents:[Debugger.scriptParsed] discovers JS scriptIds for Debugger.getScriptSource; CSS.enable with captureEvents:[CSS.styleSheetAdded] discovers styleSheetIds for CSS.getStyleSheetText (DOM.enable first). Target.setAutoAttach with params:{autoAttach:true}, captureEvents:[Target.attachedToTarget] discovers child iframe/worker sessionIds for use in subsequent CDP calls. Large CDP results return a complete temporary JSON file. Use snapshot first for ref-based interaction. No new tabs or URL substitution. Page state and snapshot refs stay bound to browserId. Selection references require selectionId and original-document validation.",
     {
       browserId: string,
       selectionId: string,
-      action: string,
+      action: { ...string, enum: BROWSER_REFERENCE_ACTION_VALUES },
       arguments: { type: "object", additionalProperties: true },
     },
     ["browserId", "action"],

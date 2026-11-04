@@ -37,13 +37,15 @@ test("reference DevTools targets the exact page even when another same-URL tab h
     const second = await host.openSharedSession({ threadId: "b", url: "https://example.test/same", revealUi: false });
     const b = guest(2);
     host.registerGuestWebContents(second.focusedBrowserId!, b as never);
-    const referenced = await host.invokeReferencedBrowserTool(firstId, "agent_browser_cdp", {
-      method: "Page.getResourceContent", params: { frameId: "frame-a", url: "https://cdn.test/logo.svg" },
-    });
-    expect(JSON.parse(referenced.content[0]!.text!)).toMatchObject({ result: { guestId: 1 } });
+    for (const action of ["agent_browser_cdp", "cdp"]) {
+      const referenced = await host.invokeReferencedBrowserTool(firstId, action, {
+        method: "Page.getResourceContent", params: { frameId: "frame-a", url: "https://cdn.test/logo.svg" },
+      });
+      expect(JSON.parse(referenced.content[0]!.text!)).toMatchObject({ result: { guestId: 1 } });
+    }
     const focused = await host.invokeNativeAgentBrowserTool("b", "agent_browser_cdp", { method: "DOM.getDocument" });
     expect(JSON.parse(focused!.content[0]!.text!)).toMatchObject({ result: { guestId: 2 } });
-    expect(a.commands).toEqual(["Page.getResourceContent"]);
+    expect(a.commands).toEqual(["Page.getResourceContent", "Page.getResourceContent"]);
     expect(b.commands).toEqual(["DOM.getDocument"]);
     await expect(host.invokeReferencedBrowserTool(firstId, "agent_browser_cdp", {
       method: "DOM.getDocument", browserId: second.focusedBrowserId,
@@ -58,5 +60,20 @@ test("eval passes the reference action allowlist while tab switching and URL sub
     await expect(host.invokeReferencedBrowserTool("closed", "agent_browser_eval", { script: "document.body.outerHTML" })).rejects.toThrow("引用的网页已关闭");
     await expect(host.invokeReferencedBrowserTool("closed", "agent_browser_eval", { script: "1", session: "other" })).rejects.toThrow("不能改用");
     await expect(host.invokeReferencedBrowserTool("closed", "agent_browser_tab_switch", { tabId: "t1" })).rejects.toThrow("不适用于");
+  } finally { host.dispose(); }
+});
+
+test("the five short actions recorded in the failed conversation reach target resolution", async () => {
+  const host = createHost();
+  try {
+    for (const action of ["screenshot", "snapshot", "get_text", "eval", "get_title"]) {
+      await expect(host.invokeReferencedBrowserTool("closed", action, {})).rejects.toThrow("引用的网页已关闭");
+    }
+    for (const action of ["snapshot", "agent_browser_snapshot"]) {
+      await expect(host.invokeReferencedBrowserTool("closed", action, { browserId: "another" })).rejects.toThrow("不能改用");
+    }
+    for (const action of ["navigate", "tab_switch", "agent_browser_tab_switch"]) {
+      await expect(host.invokeReferencedBrowserTool("closed", action, {})).rejects.toThrow("不适用于");
+    }
   } finally { host.dispose(); }
 });

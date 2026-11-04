@@ -1,4 +1,5 @@
 import { webChatSitePartition } from "../shared/web-chat-list";
+import { normalizeBrowserReferenceAction } from "../shared/browser-reference-actions";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import { createRequire } from "node:module";
@@ -1759,8 +1760,7 @@ export class BrowserHost {
 
   /** User-selected references have their own single-page CDP target and CLI session. */
   async invokeReferencedBrowserTool(browserId: string, action: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<AgentBrowserMcpToolResult> {
-    const allowed = new Set(["snapshot", "read", "click", "fill", "type", "press", "check", "uncheck", "select", "scroll", "get_text", "get_url", "get_title", "screenshot", "wait_for_selector", "wait_for_text", "wait_for_load", "reload", "back", "forward", "eval", "cdp"]);
-    if (!action.startsWith("agent_browser_") || !allowed.has(action.slice("agent_browser_".length))) throw new Error("该操作不适用于网页引用。");
+    const toolName = normalizeBrowserReferenceAction(action);
     if (["url", "href", "session", "cdp", "tabId", "browserId", "targetId", "extraArgs"].some(key => Object.hasOwn(args, key))) throw new Error("网页引用不能改用其他地址、会话或标签页。");
     const previous = this.referenceCalls.get(browserId) ?? Promise.resolve();
     const call = previous.catch(() => {}).then(async () => {
@@ -1770,8 +1770,8 @@ export class BrowserHost {
       if (!found || this.disposedThreadScopes.has(found.scope.threadId) || !shouldSurfaceBrowserInstance({ url: this.resolveBrowserTabUrl(found.browser), surfacePlaceholder: found.browser.surfacePlaceholder })) throw new Error("引用的网页已关闭。");
       const guest = await this.waitForGuestWebContents(browserId);
       this.noteAgentPresence(browserId);
-      if (action === "agent_browser_cdp") return invokeGuestCdp(guest, args, signal);
-      if (action === "agent_browser_screenshot") {
+      if (toolName === "agent_browser_cdp") return invokeGuestCdp(guest, args, signal);
+      if (toolName === "agent_browser_screenshot") {
         const output = resolveAgentBrowserScreenshotPath(args);
         return agentBrowserTextResult(await captureGuestScreenshot(guest, output, isFullPageScreenshot(args)));
       }
@@ -1792,7 +1792,7 @@ export class BrowserHost {
       const sessionId = `reference:${browserId}`;
       return callAgentBrowserToolViaCli({ binaryPath: binary.binaryPath, cdpPort: proxy.port, cdpTargetId: browserId,
         sessionKey: browserAgentSessionKey(sessionId), threadId: found.scope.threadId, browserId,
-        env: ensureAgentBrowserRuntimeEnv(proxy.port, sessionId), toolName: action, args, ...(signal ? { signal } : {}) });
+        env: ensureAgentBrowserRuntimeEnv(proxy.port, sessionId), toolName, args, ...(signal ? { signal } : {}) });
     });
     this.referenceCalls.set(browserId, call);
     try { return await call; } finally { if (this.referenceCalls.get(browserId) === call) this.referenceCalls.delete(browserId); }

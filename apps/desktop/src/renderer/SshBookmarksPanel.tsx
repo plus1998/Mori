@@ -492,10 +492,7 @@ export function SshBookmarksPanel({
   return (
     <section className="ssh-bookmarks-panel" aria-labelledby="ssh-bookmarks-title">
       <header className="ssh-bookmarks-header">
-        <div>
-          <h2 id="ssh-bookmarks-title">{t("app.sshBookmarks.title")}</h2>
-          <p className="ssh-bookmarks-subtitle">{t("app.sshBookmarks.subtitle")}</p>
-        </div>
+        <h2 id="ssh-bookmarks-title">{t("app.sshBookmarks.title")}</h2>
         <div className="ssh-bookmarks-header-actions">
           {onSyncDomain ? (
             <SettingsSyncControl
@@ -516,6 +513,7 @@ export function SshBookmarksPanel({
             <Plus size={16} strokeWidth={1.75} aria-hidden />
           </button>
         </div>
+        <p className="ssh-bookmarks-subtitle">{t("app.sshBookmarks.subtitle")}</p>
       </header>
 
       {panelError ? <p className="ssh-bookmarks-panel-error">{panelError}</p> : null}
@@ -531,9 +529,14 @@ export function SshBookmarksPanel({
                 className="ssh-bookmarks-item"
                 disabled={Boolean(connectingId) || saving || busy}
                 onClick={() => void handleConnect(bookmark)}
+                title={`${bookmark.name}\n${sshBookmarkEndpointLabel(bookmark)}`}
               >
                 <span className="ssh-bookmarks-item-icon" aria-hidden>
-                  {bookmark.authType === "password" ? <Lock size={14} /> : <KeyRound size={14} />}
+                  {bookmark.authType === "password" ? (
+                    <Lock size={16} strokeWidth={1.5} />
+                  ) : (
+                    <KeyRound size={16} strokeWidth={1.5} />
+                  )}
                 </span>
                 <span className="ssh-bookmarks-item-body">
                   <span className="ssh-bookmarks-item-title">{bookmark.name}</span>
@@ -543,26 +546,28 @@ export function SshBookmarksPanel({
                   <span className="ssh-bookmarks-item-status">{t("app.sshBookmarks.connecting")}</span>
                 ) : null}
               </button>
-              <button
-                type="button"
-                className="ssh-bookmarks-icon-btn"
-                title={t("app.sshBookmarks.edit")}
-                aria-label={t("app.sshBookmarks.editNamed", { name: bookmark.name })}
-                disabled={saving || busy}
-                onClick={() => startEdit(bookmark)}
-              >
-                <Pencil size={13} aria-hidden />
-              </button>
-              <button
-                type="button"
-                className="ssh-bookmarks-icon-btn ssh-bookmarks-remove"
-                title={t("app.sshBookmarks.remove")}
-                aria-label={t("app.sshBookmarks.removeNamed", { name: bookmark.name })}
-                disabled={saving || busy}
-                onClick={() => void handleDelete(bookmark)}
-              >
-                <Trash2 size={13} aria-hidden />
-              </button>
+              <div className="ssh-bookmarks-row-actions">
+                <button
+                  type="button"
+                  className="ssh-bookmarks-icon-btn"
+                  title={t("app.sshBookmarks.edit")}
+                  aria-label={t("app.sshBookmarks.editNamed", { name: bookmark.name })}
+                  disabled={saving || busy}
+                  onClick={() => startEdit(bookmark)}
+                >
+                  <Pencil size={15} strokeWidth={1.5} aria-hidden />
+                </button>
+                <button
+                  type="button"
+                  className="ssh-bookmarks-icon-btn ssh-bookmarks-remove"
+                  title={t("app.sshBookmarks.remove")}
+                  aria-label={t("app.sshBookmarks.removeNamed", { name: bookmark.name })}
+                  disabled={saving || busy}
+                  onClick={() => void handleDelete(bookmark)}
+                >
+                  <Trash2 size={15} strokeWidth={1.5} aria-hidden />
+                </button>
+              </div>
             </div>
           ))
         )}
