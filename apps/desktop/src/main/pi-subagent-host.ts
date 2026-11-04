@@ -53,6 +53,8 @@ export interface CreatePiSubagentSpawnHandlerInput {
   parentMcpServers?: Record<string, unknown>;
   parentSkillPaths?: readonly string[];
   registry: EcoAgentRuntimeConfig;
+  /** Revalidate the live thread policy immediately before each child launch. */
+  assertSubagentLaunchAllowed: () => void;
   conversationStore: ConversationStore;
   lifecycle?: AgentLifecycleService;
   metricsRegistry?: SubagentMetricsRegistry;
@@ -75,6 +77,7 @@ export function createPiSubagentSpawnHandler(
   const byKey = new Map(agents.map((agent) => [agent.agentKey, agent]));
 
   const spawn: PiSubagentSpawnHandler = async (spawnInput): Promise<PiSubagentSpawnResult> => {
+    input.assertSubagentLaunchAllowed();
     const agent = byKey.get(spawnInput.agentKey);
     if (!agent) {
       throw new Error(

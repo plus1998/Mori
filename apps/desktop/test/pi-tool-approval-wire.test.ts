@@ -34,8 +34,24 @@ test("createPiSubagentSpawnHandler fail-closes when toolPermissionHandler is mis
       ecoDataDir: "/tmp/eco",
       getArmedBinding: () => undefined,
       registry: { agents: [] } as never,
+      assertSubagentLaunchAllowed: () => {},
       conversationStore: {} as never,
+      getIntegratedWebSearchRuntime: () => ({} as never),
       toolPermissionHandler: undefined as never,
     }),
   ).toThrow(/tool permission handler/i);
+});
+
+test("PI revalidates policy before starting a child", async () => {
+  const spawn = createPiSubagentSpawnHandler({
+    threadId: "t1",
+    ecoDataDir: "/tmp/eco",
+    getArmedBinding: () => undefined,
+    registry: { templates: [], orchestration: { agents: [] } } as never,
+    assertSubagentLaunchAllowed: () => { throw new Error("Codex Login conflict"); },
+    conversationStore: {} as never,
+    getIntegratedWebSearchRuntime: () => ({} as never),
+    toolPermissionHandler: async () => ({ behavior: "allow" as const }),
+  });
+  await expect(spawn({ threadId: "t1", parentToolUseId: "tool", agentKey: "reviewer", task: "test", emitEvent: () => {} })).rejects.toThrow("Codex Login conflict");
 });

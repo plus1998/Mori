@@ -20,6 +20,7 @@ import { startTaskPanelResizeSession } from "./task-panel-resize-session";
 import { BROWSER_SELECTION_INSERT_EVENT, BROWSER_SELECTION_REVEAL_EVENT } from "./browser-selection-events";
 import { CodexQuotaReminder } from "./CodexQuotaReminder";
 import { isCodexAuthThread, codexAccountIdForThread } from "../shared/codex-auth-thread";
+import { assertCodexLoginSubagentPolicy, isCodexLoginProvider } from "../shared/codex-login-subagent-policy";
 import type { CoreKind } from "@eco/runtime/core-runtime";
 import {
   listPlanDelegationAgents,
@@ -10065,6 +10066,19 @@ function App() {
           }
         : {}),
     };
+    if (!activeThread) {
+      try {
+        assertCodexLoginSubagentPolicy({
+          coreKind: composerCoreKind,
+          snapshot,
+          routes: runtimeRoleRoutesFromOrchestrationSnapshot(snapshot, next.mainAgentModelOverride),
+          isCodexLoginProvider: (providerId) => isCodexLoginProvider(providerId, settings.providers),
+        });
+      } catch (caught) {
+        setError(errorMessage(caught));
+        return;
+      }
+    }
     await persistComposerRuntimeConfig(next);
     if (!activeThread && hasCompleteOrchestrationSelection(nextSelection)) {
       await saveProjectOrchestrationSelection(nextSelection);

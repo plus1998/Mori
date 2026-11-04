@@ -12,6 +12,7 @@ import { resolveGenerationToolContext } from "./generation-tool-context";
 import type { ImageGenerationToolInput } from "../shared/image-generation";
 import type { TtsToolInput } from "../shared/tts";
 import { codexAccountIdForThread } from "../shared/codex-auth-thread";
+import { assertCodexLoginSubagentPolicy, isCodexLoginProvider } from "../shared/codex-login-subagent-policy";
 import { createAccountUsagePricingLookup } from "./account-usage-pricing";
 import { ChatGptModelCatalogService, resolveChatGptModelCatalogCachePath } from "./chatgpt-model-catalog";
 import { ProjectTodoStore } from "./project-todo-store";
@@ -4433,14 +4434,7 @@ function codexCatalogCandidateViews(models: readonly CodexCatalogModelView[]): C
 
 /** True when the provider id is the virtual Codex Auth provider rather than a user-created OpenAI provider. */
 function isBuiltInCodexCatalogProvider(providerId: string): boolean {
-  if (providerId !== "openai") {
-    return false;
-  }
-  const stored = providerStore.listProviders().find((provider) => provider.id === providerId);
-  if (!stored) {
-    return true;
-  }
-  return stored.authMethod === "auth_json" && !stored.hasApiKey;
+  return isCodexLoginProvider(providerId, providerStore.listProviders());
 }
 
 async function codexModelCatalogSnapshot(): Promise<CodexModelCatalogSnapshot> {
@@ -4629,8 +4623,26 @@ function resolveContinueThreadRuntimeConfig(
   settings: ModelSettingsSnapshot,
   existing: ThreadRuntimeConfig | undefined,
   incoming: ThreadRuntimeConfig,
+  coreKind: string | undefined,
 ): ThreadRuntimeConfig {
-  return resolveThreadRuntimeConfigUpdate(settings, existing, incoming);
+  const config = resolveThreadRuntimeConfigUpdate(settings, existing, incoming);
+  assertThreadCodexLoginSubagents(coreKind, settings, config);
+  return config;
+}
+
+function assertThreadCodexLoginSubagents(
+  coreKind: string | undefined,
+  settings: ModelSettingsSnapshot,
+  config: ThreadRuntimeConfig,
+): void {
+  const snapshot = resolveThreadOrchestrationSnapshot(settings, config);
+  if (!snapshot) throw new Error("找不到线程编排快照，请重新选择完整组合。");
+  assertCodexLoginSubagentPolicy({
+    coreKind,
+    snapshot,
+    routes: runtimeRoleRoutesFromOrchestrationSnapshot(snapshot, config.mainAgentModelOverride),
+    isCodexLoginProvider: isBuiltInCodexCatalogProvider,
+  });
 }
 
 function roleRoutesForThreadConfig(
@@ -4708,6 +4720,7 @@ function resolveRuntimeConfigForThreadId(
   if (!config) {
     throw new Error("Thread runtime configuration is missing.");
   }
+  assertThreadCodexLoginSubagents(thread.coreKind, settings, config);
   return resolveThreadRuntimeConfig(
     settings,
     providerStore.listProvidersWithSecrets(),
@@ -4786,6 +4799,7 @@ function resolveAgentRuntimeConfigForThread(thread: ThreadSummary): EcoAgentRunt
   if (!snapshot) {
     return undefined;
   }
+  assertThreadCodexLoginSubagents(thread.coreKind, settings, runtimeConfig);
   const systemPromptPreset = resolveMainAgentSystemPromptPreset(snapshot, runtimeConfig);
   const config = orchestrationConfigFromSnapshot(snapshot);
   const resolved: EcoAgentRuntimeConfig = {
@@ -7473,6 +7487,7 @@ function registerIpcHandlers(): void {
             }
             return { thread: updatedThread };
           }
+          assertThreadCodexLoginSubagents(thread.coreKind, settings, runtimeConfig);
           const roleRoutes = roleRoutesForThreadConfig(settings, runtimeConfig);
           const configChanged =
             !existing ||
@@ -11878,11 +11893,13 @@ async function startPiThreadContinuation(input: StartThreadContinuationInput): P
   }
 
   const settings = getModelSettingsSnapshot();
+  if (!input.runtimeConfigInput && thread.runtimeConfig) assertThreadCodexLoginSubagents(thread.coreKind, settings, thread.runtimeConfig);
   if (input.runtimeConfigInput) {
     const next = resolveContinueThreadRuntimeConfig(
       settings,
       thread.runtimeConfig,
       parseThreadRuntimeConfigInput(input.runtimeConfigInput),
+      thread.coreKind,
     );
     roleRoutesForThreadConfig(settings, next);
     conversationStore.saveThreadRuntimeConfig(thread.id, next);
@@ -12587,11 +12604,13 @@ async function startCodexThreadContinuation(
     );
   }
   const settings = getModelSettingsSnapshot();
+  if (!input.runtimeConfigInput && thread.runtimeConfig) assertThreadCodexLoginSubagents(thread.coreKind, settings, thread.runtimeConfig);
   if (input.runtimeConfigInput) {
     const next = resolveContinueThreadRuntimeConfig(
       settings,
       thread.runtimeConfig,
       parseThreadRuntimeConfigInput(input.runtimeConfigInput),
+      thread.coreKind,
     );
     roleRoutesForThreadConfig(settings, next);
     conversationStore.saveThreadRuntimeConfig(thread.id, next);
@@ -14601,6 +14620,7 @@ async function startNewThread(
     coreKind === "acp" || options.scheduled
       ? normalizeThreadRuntimeConfig(parsedRuntimeConfig)
       : materializeThreadRuntimeConfig(settings, parsedRuntimeConfig);
+  if (coreKind !== "acp") assertThreadCodexLoginSubagents(coreKind, settings, threadRuntime);
   const roleRoutes = coreKind === "acp" ? [] : roleRoutesForThreadConfig(settings, threadRuntime);
   const resolvedRuntimeConfig =
     coreKind === "acp"
@@ -14841,7 +14861,9 @@ async function startClaudeThreadContinuation(
       settings,
       thread.runtimeConfig,
       parseThreadRuntimeConfigInput(input.runtimeConfigInput),
+      thread.coreKind,
     );
+    assertThreadCodexLoginSubagents(thread.coreKind, settings, nextConfig);
     roleRoutesForThreadConfig(settings, nextConfig);
     conversationStore.saveThreadRuntimeConfig(input.threadId, nextConfig);
   }
@@ -14850,6 +14872,7 @@ async function startClaudeThreadContinuation(
   if (!activeRuntimeConfig) {
     throw new Error("Thread runtime configuration is missing.");
   }
+  assertThreadCodexLoginSubagents(thread.coreKind, settings, activeRuntimeConfig);
   const roleRoutes = roleRoutesForThreadConfig(settings, activeRuntimeConfig);
   noteSdkSessionRouteChange(input.threadId, roleRoutes);
 
@@ -16784,7 +16807,19 @@ function buildSdkHookContextExtras(
   return {
     ...rest,
     subagentSessions,
-    subagentLaunchGate,
+    subagentLaunchGate: {
+      tryReserveLaunch(input) {
+        try {
+          const thread = conversationStore.getThread(threadId);
+          if (!thread?.runtimeConfig) throw new Error("Thread runtime configuration is missing.");
+          assertThreadCodexLoginSubagents(thread.coreKind, getModelSettingsSnapshot(), thread.runtimeConfig);
+        } catch (error) {
+          return { ok: false as const, reason: error instanceof Error ? error.message : String(error) };
+        }
+        return subagentLaunchGate.tryReserveLaunch(input);
+      },
+      releaseLaunch: (input) => subagentLaunchGate.releaseLaunch?.(input),
+    },
     subagentMaxRuntimeMs: orchestrationGuardrails.maxSubagentRuntimeMs,
     subagentAttribution,
     subagentLaunchRegistry,

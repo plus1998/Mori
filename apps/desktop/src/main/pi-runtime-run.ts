@@ -405,6 +405,10 @@ export async function startPiThreadRun(
                     };
                   },
                   registry: input.agentRegistry,
+                  assertSubagentLaunchAllowed: () => {
+                    const result = deps.resolveRuntimeConfigForThreadId(input.thread.id);
+                    if (!result.ok) throw new Error(result.reason);
+                  },
                   conversationStore: deps.conversationStore,
                   toolPermissionHandler,
                   getIntegratedWebSearchRuntime: deps.getIntegratedWebSearchRuntime,
