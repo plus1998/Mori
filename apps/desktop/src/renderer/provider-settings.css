@@ -1,0 +1,402 @@
+/* The provider page and its dialogs share one control palette and type scale.
+ * Dialog roots are included explicitly because account editors can be portaled.
+ * Other settings pages keep their own tokens. */
+:is(.provider-settings-page, .settings-modal-provider-editor, .candidate-picker-modal, .codex-catalog-dialog) {
+  --provider-text-size: 13px;
+  --provider-caption-size: 12px;
+  --provider-section-size: 14px;
+  --accent: var(--text-primary);
+  --accent-hover: var(--primary-btn-hover-bg);
+  --accent-text: var(--text-primary);
+  --accent-soft: var(--nav-active);
+  --search-focus-ring: color-mix(in srgb, var(--text-primary) 18%, transparent);
+  --codex-blue: var(--text-primary);
+  --codex-blue-soft: var(--nav-active);
+  color: var(--text-primary);
+  font-size: var(--provider-text-size);
+  font-weight: 400;
+  line-height: 1.55;
+
+  & :is(button, input, select, textarea) {
+    font-family: inherit;
+    letter-spacing: normal;
+  }
+
+  & :is(.settings-primary-button, .mcp-save-button, .settings-modal-confirm, .plan-button.primary) {
+    min-height: 34px;
+    padding: 6px 14px;
+    border: 0;
+    border-radius: 8px;
+    background: var(--primary-btn-bg);
+    color: var(--primary-btn-text);
+    box-shadow: none;
+    font-size: var(--provider-text-size);
+    font-weight: 400;
+    line-height: 20px;
+
+    &:hover:not(:disabled) {
+      background: var(--primary-btn-hover-bg);
+      color: var(--primary-btn-text);
+    }
+
+    &:active:not(:disabled) {
+      transform: none;
+    }
+  }
+
+  & :is(.settings-secondary-button, .mcp-secondary-button, .settings-modal-cancel,
+    .provider-config-button, .codex-action-secondary, .chatgpt-action-secondary,
+    .chatgpt-action-primary, .codex-action-primary, .provider-advanced-toggle,
+    .candidate-panel-toggle, .mcp-uninstall-button, .settings-danger-button) {
+    min-height: 32px;
+    border-radius: 8px;
+    font-size: var(--provider-text-size);
+    font-weight: 400;
+    line-height: 20px;
+  }
+
+  & :is(input.mcp-field-input, input.model-spec-field-input, input.candidate-editor-input) {
+    padding: 7px 10px;
+  }
+
+  & .openai-secret-field {
+    &:focus-within {
+      border-color: color-mix(in srgb, var(--text-primary) 40%, var(--border-subtle));
+      box-shadow: 0 0 0 2px var(--search-focus-ring);
+    }
+
+    & .mcp-field-input {
+      border: 0;
+      background: transparent;
+      box-shadow: none;
+    }
+  }
+
+  & :is(.mcp-field-input, .model-spec-field-input, .candidate-editor-input,
+    .provider-list-search input, .codex-accounts-search .search-input) {
+    min-height: 36px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+    background: var(--bg-input);
+    color: var(--text-primary);
+    font-size: var(--provider-text-size);
+    font-weight: 400;
+    line-height: 20px;
+    box-shadow: none;
+
+    &:focus {
+      outline: none;
+      border-color: color-mix(in srgb, var(--text-primary) 40%, var(--border-subtle));
+      box-shadow: 0 0 0 2px var(--search-focus-ring);
+    }
+
+    &::placeholder {
+      color: var(--text-muted);
+    }
+  }
+
+  & :is(.mcp-field-label, .model-spec-field-label, .candidate-editor-field-label,
+    .candidate-picker-manual-label, .candidate-editor-subtitle) {
+    color: var(--text-secondary);
+    font-size: var(--provider-caption-size);
+    font-weight: 400;
+    line-height: 18px;
+    letter-spacing: normal;
+    text-transform: none;
+  }
+
+  & :is(.mcp-field-hint, .model-spec-field-caption, .candidate-editor-caption,
+    .candidate-editor-hint, .candidate-editor-error, .model-cascade-hint,
+    .candidate-model-id, .provider-card-meta, .provider-list-toolbar,
+    .provider-status-badge, .candidate-panel-count, .candidate-editor-badge,
+    .model-manual-spec-sidebar-badge, .model-spec-chip, .model-spec-chip-badge,
+    .codex-account-plan, .codex-accounts-toolbar, .codex-account-quotas,
+    .codex-account-details, .codex-account-filters button, .codex-account-filters button span,
+    .codex-toolbar-links .chatgpt-inline-link, .codex-account-identity > span,
+    .chatgpt-account-meta, .chatgpt-status-badge, .chatgpt-list-toolbar,
+    .codex-status-badge, .candidate-picker-count, .openai-profile-fields legend,
+    .openai-profile-fields legend span, .openai-profile-fields > p) {
+    font-size: var(--provider-caption-size);
+    font-weight: 400;
+    line-height: 18px;
+    letter-spacing: normal;
+    text-transform: none;
+  }
+
+  & :is(.mcp-field-hint, .model-spec-field-caption, .candidate-editor-caption, .candidate-editor-hint) {
+    color: var(--text-muted);
+  }
+
+  & :is(.provider-card-identity strong, .candidate-model-display-name,
+    .codex-account-identity strong, .chatgpt-account-identity strong, .candidate-editor-cap-title,
+    .codex-empty-state strong, .chatgpt-empty-state strong) {
+    font-size: var(--provider-text-size);
+    font-weight: 400;
+    line-height: 20px;
+  }
+
+  & :is(.provider-list-heading h2, .codex-accounts-heading h2, .chatgpt-subscription-heading h2,
+    .provider-form-section-title, .candidate-panel-title, .candidate-editor-section-title,
+    .model-spec-form-section-title, .model-manual-spec-sidebar-title) {
+    color: var(--text-primary);
+    font-size: var(--provider-section-size);
+    font-weight: 500;
+    line-height: 22px;
+    letter-spacing: normal;
+    text-transform: none;
+  }
+
+  & :is(.settings-modal-title, .candidate-editor-model-id) {
+    color: var(--text-primary);
+    font-size: 16px;
+    font-weight: 500;
+    line-height: 24px;
+    letter-spacing: normal;
+  }
+
+  & :is(.candidate-editor-eyebrow, .model-manual-spec-section-title) {
+    font-size: var(--provider-caption-size);
+    font-weight: 400;
+    line-height: 18px;
+    letter-spacing: normal;
+    text-transform: none;
+  }
+
+  & :is(.candidate-editor-preset, .candidate-editor-seg-btn, .model-spec-segmented-btn,
+    .model-manual-spec-tristate-btn) {
+    min-height: 28px;
+    font-size: var(--provider-caption-size);
+    font-weight: 400;
+    line-height: 18px;
+  }
+
+  & :is(.model-manual-spec-toggle, .model-manual-spec-tristate-btn, .model-manual-spec-auto-hint) {
+    color: var(--text-secondary);
+    border-color: var(--border-subtle);
+  }
+
+  & :is(.candidate-editor-preset.is-on, .candidate-editor-seg-btn.is-active,
+    .model-spec-segmented-btn.is-active, .model-manual-spec-tristate-btn.active) {
+    background: var(--nav-active);
+    border-color: var(--border-strong);
+    color: var(--text-primary);
+    box-shadow: none;
+    font-weight: 400;
+  }
+
+  & :is(.model-spec-chip-price-in, .model-spec-chip-price-out, .model-spec-chip-price-cache) {
+    background: var(--nav-hover);
+    border-color: var(--border-subtle);
+    color: var(--text-secondary);
+
+    & .model-spec-chip-value {
+      color: var(--text-primary);
+      font-weight: 400;
+    }
+  }
+
+  & .mcp-toggle input:checked + .mcp-toggle-track::after {
+    background: var(--primary-btn-text);
+  }
+
+  & :is(.mcp-icon-button, .cs-icon-btn) {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+  }
+
+  & button:focus-visible {
+    outline: 2px solid var(--search-focus-ring);
+    outline-offset: 2px;
+  }
+
+  & .openai-secret-field .mcp-field-input:focus {
+    border: 0;
+    box-shadow: none;
+  }
+
+  & :is(.settings-form-error, .provider-form-error, .candidate-editor-error) {
+    color: var(--danger);
+  }
+}
+
+.provider-settings-page {
+  min-width: 0;
+
+  & .mcp-page-header {
+    margin-bottom: 22px;
+
+    & h1 {
+      font-size: 20px;
+      font-weight: 500;
+      line-height: 28px;
+    }
+  }
+
+  & .models-settings-tabs {
+    max-width: 100%;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-bottom: 24px;
+    padding: 3px;
+    border-radius: 10px;
+  }
+
+  & .models-settings-tab {
+    gap: 6px;
+    min-height: 32px;
+    font-size: var(--provider-text-size);
+    font-weight: 400;
+  }
+
+  & .models-settings-tab-icon {
+    display: block;
+    flex-shrink: 0;
+    object-fit: contain;
+  }
+
+  & .provider-list-panel {
+    gap: 16px;
+  }
+
+  & .provider-list-heading > p:only-child {
+    margin: 0;
+    font-size: var(--provider-text-size);
+    line-height: 20px;
+  }
+
+  & .provider-card {
+    padding: 16px;
+    border-radius: 12px;
+  }
+
+  & .provider-card-meta {
+    margin-top: 10px;
+  }
+
+  & .provider-card-avatar {
+    background: var(--nav-hover);
+  }
+
+  & .provider-list-empty {
+    border: 0;
+    background: var(--nav-hover);
+
+    & strong {
+      font-size: var(--provider-text-size);
+      font-weight: 400;
+    }
+  }
+
+  & :is(.codex-accounts-description, .chatgpt-subscription-description) {
+    color: var(--text-muted);
+    font-size: var(--provider-caption-size);
+    line-height: 20px;
+  }
+
+  & .codex-accounts-panel {
+    --codex-blue: var(--text-primary);
+    --codex-blue-soft: var(--nav-active);
+  }
+
+  & .codex-accounts-panel .codex-account-header-actions .settings-primary-button {
+    background: var(--primary-btn-bg);
+    border-color: transparent;
+    color: var(--primary-btn-text);
+
+    &:hover:not(:disabled) {
+      background: var(--primary-btn-hover-bg);
+    }
+  }
+}
+
+.settings-modal-provider-editor {
+  & .provider-modal-form-main {
+    gap: 24px;
+  }
+
+  & :is(.provider-form-section, .candidate-editor-section) {
+    gap: 12px;
+  }
+
+  & .provider-enable-row {
+    margin-top: 0;
+    padding: 12px;
+    border: 0;
+    border-radius: 8px;
+    background: var(--nav-hover);
+  }
+
+  & .provider-preset-tab {
+    min-height: 32px;
+    padding: 5px 10px;
+    font-weight: 400;
+  }
+
+  & :is(.provider-preset-tab.is-active, .endpoint-compat-tab.is-active) {
+    border-color: var(--border-strong);
+    background: var(--nav-active);
+    color: var(--text-primary);
+    font-weight: 400;
+  }
+
+  & .candidate-panel {
+    background: color-mix(in srgb, var(--bg-main) 55%, var(--bg-elevated));
+  }
+
+  & .candidate-model-display-name {
+    font-weight: 400;
+  }
+
+  & .candidate-model-card.is-editing {
+    border-color: var(--border-strong);
+    box-shadow: inset 2px 0 var(--text-primary);
+  }
+
+  & .candidate-editor-body {
+    gap: 24px;
+  }
+
+  & :is(.candidate-editor-field-label, .candidate-editor-field-caption) {
+    font-weight: 400;
+  }
+
+  & :is(.candidate-editor-input, .candidate-spec-table) {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@media (max-width: 800px) {
+  .settings-modal-provider-editor.is-candidates-open {
+    width: calc(100vw - 24px);
+    max-height: calc(100dvh - 32px);
+
+    & .provider-modal-layout {
+      flex-direction: column;
+      overflow-y: auto;
+    }
+
+    & :is(.provider-modal-form-main, .candidate-editor) {
+      flex: 0 0 auto;
+      overflow: visible;
+    }
+
+    & .candidate-editor-body {
+      overflow: visible;
+    }
+
+    & .candidate-panel {
+      width: 100%;
+      min-width: 0;
+      max-width: none;
+      max-height: 320px;
+      flex-shrink: 0;
+      border-left: 0;
+      border-top: 1px solid var(--border-subtle);
+    }
+  }
+
+  .settings-modal-provider-editor:not(.is-candidates-open) .candidate-panel {
+    display: none;
+  }
+}

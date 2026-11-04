@@ -14061,17 +14061,19 @@ function App() {
                   ))}
 
                 {settingsSection === "providers" && (
-                  <LazyModelsSettingsPanel
-                    settings={settings}
-                    defaultCoreKind={workflowSettings.defaultCoreKind}
-                    mode="providerSettings"
-                    initialTab={modelsSettingsTab}
-                    busy={isSavingSettings}
-                    onSettingsChange={setSettings}
-                    onSavingChange={setIsSavingSettings}
-                    centerServerSyncVisible={centerServerSyncVisible}
-                    onSyncDomain={syncCenterServerConfigDomain}
-                  />
+                  <div className="provider-settings-page">
+                    <LazyModelsSettingsPanel
+                      settings={settings}
+                      defaultCoreKind={workflowSettings.defaultCoreKind}
+                      mode="providerSettings"
+                      initialTab={modelsSettingsTab}
+                      busy={isSavingSettings}
+                      onSettingsChange={setSettings}
+                      onSavingChange={setIsSavingSettings}
+                      centerServerSyncVisible={centerServerSyncVisible}
+                      onSyncDomain={syncCenterServerConfigDomain}
+                    />
+                  </div>
                 )}
 
                 {settingsSection === "proxy" &&

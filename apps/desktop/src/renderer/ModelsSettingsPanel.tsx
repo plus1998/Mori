@@ -76,6 +76,7 @@ import { ProviderPresetTabs } from "./ProviderPresetTabs";
 import { SettingsSyncControl } from "./SettingsSyncControl";
 import { SubagentSettingsSection } from "./SubagentSettingsSection";
 import { ToolCapabilityPanel } from "./ToolCapabilityPanel";
+import "./provider-settings.css";
 
 export type ModelsSettingsTab =
   | "subagents"
@@ -780,14 +781,8 @@ export function ModelsSettingsPanel({
               className={activeTab === tab.id ? "models-settings-tab active" : "models-settings-tab"}
               onClick={() => setActiveTab(tab.id)}
             >
-              <div style={{ height: "100%", display: "flex", gap: 5 }}>
-                {tab.icon && (
-                  <div style={{ height: "100%", display: "flex", flexDirection: "column", justifyContent: "center" }}>
-                    <img src={tab.icon} alt="" width="14" height="14" style={{ display: "block" }} />
-                  </div>
-                )}
-                <div>{tab.label}</div>
-              </div>
+              {tab.icon ? <img className="models-settings-tab-icon" src={tab.icon} alt="" width="14" height="14" /> : null}
+              <span>{tab.label}</span>
             </button>
           ))}
         </div>
@@ -809,7 +804,7 @@ export function ModelsSettingsPanel({
         <section className="provider-list-panel providers-list-section">
           <div className="provider-list-hero">
             <div className="provider-list-heading">
-              <h2>{t("settings.models.providers")}</h2>
+              {mode !== "providerSettings" ? <h2>{t("settings.models.providers")}</h2> : null}
               <p>{t("settings.models.providersDescription")}</p>
             </div>
             <button type="button" className="settings-primary-button" disabled={busy} onClick={openCreateProvider}>
