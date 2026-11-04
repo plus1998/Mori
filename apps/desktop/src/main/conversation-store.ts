@@ -1563,6 +1563,7 @@ export class ConversationStore {
       ["acp_agent_id", "TEXT"],
       ["claude_plan_file_path", "TEXT"],
       ["follow_up_queue_paused", "INTEGER NOT NULL DEFAULT 0"],
+      ["wechat_follow_enabled", "INTEGER NOT NULL DEFAULT 0"],
       ["work_location_json", "TEXT"],
     ] as const;
     for (const [name, definition] of threadMigrations) {
@@ -2166,9 +2167,6 @@ export class ConversationStore {
     }
     if (!names.has("follow_up_queue_paused")) {
       this.db.exec(`ALTER TABLE threads ADD COLUMN follow_up_queue_paused INTEGER NOT NULL DEFAULT 0`);
-    }
-    if (!names.has("wechat_follow_enabled")) {
-      this.db.exec(`ALTER TABLE threads ADD COLUMN wechat_follow_enabled INTEGER NOT NULL DEFAULT 0`);
     }
 
     const pendingPlanColumns = this.db.prepare(`PRAGMA table_info(thread_pending_plans)`).all() as Array<{

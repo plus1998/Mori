@@ -1367,7 +1367,10 @@ export interface GitCommitRequest {
   candidateModelId?: string | "auto";
 }
 
-export interface GitListCommitModelOptionsRequest {}
+export interface GitListCommitModelOptionsRequest {
+  /** Model selectors only need local identities; omit pricing to avoid catalog network reads. */
+  includePricing?: boolean;
+}
 
 export interface GitListCommitModelOptionsResult {
   options: CommitModelOptionView[];
@@ -3015,19 +3018,20 @@ export function isGitGenerateCommitMessageRequest(value: unknown): value is GitG
 }
 
 export function parseGitListCommitModelOptionsRequest(value: unknown): GitListCommitModelOptionsRequest {
-  if (!value || typeof value !== "object") {
+  if (!isGitListCommitModelOptionsRequest(value)) {
     throw new Error("Invalid git list commit model options request.");
   }
-  return {};
+  return value.includePricing === undefined ? {} : { includePricing: value.includePricing };
 }
 
 export function isGitListCommitModelOptionsRequest(
   value: unknown,
 ): value is GitListCommitModelOptionsRequest {
-  if (!value || typeof value !== "object") {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
     return false;
   }
-  return true;
+  const includePricing = (value as Record<string, unknown>).includePricing;
+  return includePricing === undefined || typeof includePricing === "boolean";
 }
 
 export function parseGitSaveCommitModelPreferenceRequest(

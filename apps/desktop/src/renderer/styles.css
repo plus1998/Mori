@@ -1839,6 +1839,56 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .thread-info-workspac
   padding-right: 4px;
 }
 
+.sidebar-thread-tooltip {
+  position: fixed;
+  z-index: 1000;
+  width: 320px;
+  max-width: calc(100vw - 16px);
+  padding: 12px 14px;
+  border: 1px solid var(--popover-border);
+  border-radius: 10px;
+  background: var(--popover-bg, var(--bg-menu));
+  backdrop-filter: blur(20px);
+  box-shadow: var(--shadow-menu);
+  color: var(--text-primary);
+  pointer-events: none;
+}
+
+.sidebar-thread-tooltip-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  font-size: 13px;
+}
+
+.sidebar-thread-tooltip-title {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-weight: 600;
+}
+
+.sidebar-thread-tooltip-time {
+  flex: none;
+  color: var(--text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.sidebar-thread-tooltip-project {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.sidebar-thread-tooltip-project svg {
+  flex: none;
+}
+
 .chat-item-trailing {
   display: inline-flex;
   flex: 0 0 auto;

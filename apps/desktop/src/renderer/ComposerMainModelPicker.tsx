@@ -9,6 +9,7 @@ import { ComposerAbovePanel } from "./ComposerAbovePanel";
 import { ComposerModelLabel, formatComposerThinkingEffortLabel } from "./ComposerModelLabel";
 
 type Source = "login" | "oauth" | string;
+type PickerDataKey = "custom" | "loginAccounts" | "oauthAccounts" | "loginModels" | "oauthModels";
 type Account = { id: string; name: string; quota?: OpenAIAccountQuota | undefined; quotaError?: string | undefined };
 type PickerModel = { id: string; name: string; candidateModelId?: string;
   reasoningEfforts?: ThinkingEffort[] };
@@ -179,8 +180,8 @@ export function ComposerMainModelPicker({
   const [oauthModels, setOauthModels] = useState<PickerModel[]>([]);
   const [candidateCapabilities, setCandidateCapabilities] = useState<Record<string, CandidateModelView>>({});
   const [capabilitySettled, setCapabilitySettled] = useState<ReadonlySet<string>>(new Set());
-  const [loading, setLoading] = useState(false);
-  const [modelsLoading, setModelsLoading] = useState(false);
+  const [loadingData, setLoadingData] = useState<ReadonlySet<PickerDataKey>>(new Set());
+  const [loadErrors, setLoadErrors] = useState<Partial<Record<PickerDataKey, string>>>({});
   const [error, setError] = useState<string>();
 
   useEffect(() => {
@@ -196,34 +197,45 @@ export function ComposerMainModelPicker({
   useEffect(() => {
     if (!open || !window.eco) return;
     let cancelled = false;
-    setLoading(true);
+    const eco = window.eco;
+    setLoadingData(new Set(["custom", "loginAccounts", "oauthAccounts", "loginModels", "oauthModels"]));
+    setLoadErrors({});
     setError(undefined);
-    void Promise.allSettled([
-      window.eco.listGitCommitModelOptions({}),
-      window.eco.openAIAccountsList(),
-      window.eco.chatGptSubscriptionAccountsList(),
-      window.eco.getCodexModelCatalog(),
-    ]).then(([custom, login, oauth, catalog]) => {
-      if (cancelled) return;
-      if (custom.status === "fulfilled") setCandidates(custom.value.options);
-      if (login.status === "fulfilled") setLoginAccounts(login.value
-        .filter((account) => account.isLoggedIn || account.authState === "refreshable" ||
-          account.authState === "refreshing")
-        .map((account) => ({ id: account.id, name: account.name, quota: account.quota,
-          quotaError: account.quotaRefresh?.error })));
-      if (oauth.status === "fulfilled") setOauthAccounts(oauth.value
-        .filter((account) => account.enabled && account.hasCredentials)
-        .map((account) => ({ id: account.accountId, name: account.displayName })));
-      if (catalog.status === "fulfilled") setLoginModels(catalog.value.models
-        .filter((entry) => !entry.hidden)
-        .map((entry) => ({ modelId: entry.modelId, displayName: entry.displayName,
-          reasoningEfforts: entry.reasoningEfforts })));
-      const failures = [custom, login, oauth, catalog]
-        .filter((result): result is PromiseRejectedResult => result.status === "rejected")
-        .map((result) => result.reason instanceof Error ? result.reason.message : String(result.reason));
-      setError(failures.length ? failures.join("；") : undefined);
-      setLoading(false);
-    });
+    function load<T>(key: PickerDataKey, request: Promise<T>, apply: (value: T) => void) {
+      void request.then((value) => {
+        if (!cancelled) apply(value);
+      }).catch((cause: unknown) => {
+        if (!cancelled) setLoadErrors((current) => ({
+          ...current,
+          [key]: cause instanceof Error ? cause.message : String(cause),
+        }));
+      }).finally(() => {
+        if (!cancelled) setLoadingData((current) => {
+          const next = new Set(current);
+          next.delete(key);
+          return next;
+        });
+      });
+    }
+    // Each local read publishes immediately; unrelated accounts and pricing never gate it.
+    load("custom", eco.listGitCommitModelOptions({ includePricing: false }),
+      (result) => setCandidates(result.options));
+    load("loginAccounts", eco.openAIAccountsList(), (accounts) => setLoginAccounts(accounts
+      .filter((account) => account.isLoggedIn || account.authState === "refreshable" ||
+        account.authState === "refreshing")
+      .map((account) => ({ id: account.id, name: account.name, quota: account.quota,
+        quotaError: account.quotaRefresh?.error }))));
+    load("oauthAccounts", eco.chatGptSubscriptionAccountsList(), (accounts) => setOauthAccounts(accounts
+      .filter((account) => account.enabled && account.hasCredentials)
+      .map((account) => ({ id: account.accountId, name: account.displayName }))));
+    load("loginModels", eco.getCodexModelCatalog(), (catalog) => setLoginModels(catalog.models
+      .filter((entry) => !entry.hidden)
+      .map((entry) => ({ modelId: entry.modelId, displayName: entry.displayName,
+        reasoningEfforts: entry.reasoningEfforts }))));
+    load("oauthModels", eco.getChatGptModelCatalog(), (catalog) => setOauthModels(catalog.models
+      .filter((entry) => !entry.hidden)
+      .map((entry) => ({ id: entry.modelId, name: entry.displayName,
+        reasoningEfforts: catalogThinkingEfforts(entry.reasoningEfforts) }))));
     return () => { cancelled = true; };
   }, [open]);
 
@@ -243,27 +255,6 @@ export function ComposerMainModelPicker({
     }
     return () => { cancelled = true; };
   }, [open, source, loginAccountIds]);
-
-  useEffect(() => {
-    if (!open || source !== "oauth" || !accountId || !window.eco) {
-      setOauthModels([]);
-      return;
-    }
-    let cancelled = false;
-    setOauthModels([]);
-    setModelsLoading(true);
-    void window.eco.chatGptSubscriptionAccountModelsList(accountId)
-      .then((models) => {
-        if (!cancelled) setOauthModels(models.map((entry) => ({
-          id: entry.id, name: entry.displayName ?? entry.id,
-        })));
-      })
-      .catch((cause: unknown) => {
-        if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
-      })
-      .finally(() => { if (!cancelled) setModelsLoading(false); });
-    return () => { cancelled = true; };
-  }, [open, source, accountId]);
 
   useEffect(() => {
     if (!open || source === "login" || source === "oauth" || !source || !window.eco) return;
@@ -288,10 +279,11 @@ export function ComposerMainModelPicker({
   const selectedProvider = providers.find((provider) => provider.id === source);
   const accountSource = source === "login" || source === "oauth";
   const accounts = source === "login" ? loginAccounts : oauthAccounts;
-  const availableModels = source === "oauth" ? oauthModels.map((entry) => {
-    const catalog = loginModels.find((model) => model.modelId === entry.id);
-    return catalog ? { ...entry, reasoningEfforts: catalogThinkingEfforts(catalog.reasoningEfforts) } : entry;
-  }) : selectedProvider?.models ?? [];
+  const availableModels = source === "oauth" ? oauthModels : selectedProvider?.models ?? [];
+  const accountsLoading = loadingData.has(source === "login" ? "loginAccounts" : "oauthAccounts");
+  const modelsLoading = loadingData.has(source === "login" ? "loginModels"
+    : source === "oauth" ? "oauthModels" : "custom");
+  const displayError = [error, ...Object.values(loadErrors)].filter(Boolean).join("；");
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const visibleModels = availableModels.filter((entry) =>
     !normalizedQuery || entry.name.toLocaleLowerCase().includes(normalizedQuery) ||
@@ -467,7 +459,7 @@ export function ComposerMainModelPicker({
                       : t("settings.openaiAccounts.quotaIdle")}
                   </span> : null}
                 </span>{account.id === accountId ? <Check size={14} aria-hidden /> : null}
-              </button>) : <p className="composer-main-model-picker-hint">{loading
+              </button>) : <p className="composer-main-model-picker-hint">{accountsLoading
                 ? t("composer.mainPicker.loading") : t("composer.mainPicker.noAccounts")}</p>}
             </div>
           </div> : null}
@@ -476,7 +468,7 @@ export function ComposerMainModelPicker({
             aria-label={t("composer.mainPicker.models")}>
             {accountSource && !accountId ? <p className="composer-main-model-picker-hint">
               {t("composer.route.selectAccount")}</p>
-              : loading || modelsLoading ? <p className="composer-main-model-picker-hint">
+              : modelsLoading && availableModels.length === 0 ? <p className="composer-main-model-picker-hint">
                 {t("composer.mainPicker.loading")}</p>
                 : visibleModels.length ? <div className="composer-main-model-picker-model-grid">
                   {visibleModels.map((entry) => {
@@ -508,12 +500,12 @@ export function ComposerMainModelPicker({
           </div>
         </div>
       </div>
-      {!loading && candidates.length === 0 ? <button type="button"
+      {!loadingData.has("custom") && candidates.length === 0 ? <button type="button"
         className="composer-main-model-picker-add-provider"
         onClick={() => { setOpen(false); onAddProvider(); }}>
         {t("composer.model.addProvider")}
       </button> : null}
-      {error ? <div className="composer-main-model-picker-error" role="alert">{error}</div> : null}
+      {displayError ? <div className="composer-main-model-picker-error" role="alert">{displayError}</div> : null}
     </ComposerAbovePanel> : null}
   </span>;
 }

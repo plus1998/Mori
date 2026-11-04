@@ -12,29 +12,30 @@ export function formatRelativeTime(iso: string, now = Date.now(), locale: AppLoc
   if (minutes < 1) {
     return translateCatalog(locale, "time.justNow");
   }
+  const formatter = new Intl.RelativeTimeFormat(locale, { numeric: "always" });
   if (minutes < 60) {
-    return translateCatalog(locale, "time.minutes", { count: minutes });
+    return formatter.format(-minutes, "minute");
   }
 
   const hours = Math.floor(minutes / 60);
   if (hours < 24) {
-    return translateCatalog(locale, "time.hours", { count: hours });
+    return formatter.format(-hours, "hour");
   }
 
   const days = Math.floor(hours / 24);
   if (days < 7) {
-    return translateCatalog(locale, "time.days", { count: days });
+    return formatter.format(-days, "day");
   }
 
   const weeks = Math.floor(days / 7);
   if (weeks < 5) {
-    return translateCatalog(locale, "time.weeks", { count: weeks });
+    return formatter.format(-weeks, "week");
   }
 
   const months = Math.floor(days / 30);
-  if (months < 12) {
-    return translateCatalog(locale, "time.months", { count: months });
+  if (days < 365) {
+    return formatter.format(-months, "month");
   }
 
-  return translateCatalog(locale, "time.years", { count: Math.floor(days / 365) });
+  return formatter.format(-Math.floor(days / 365), "year");
 }

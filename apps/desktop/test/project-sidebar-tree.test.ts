@@ -49,6 +49,8 @@ test("renders stable reveal targets for projects and threads", () => {
 
   expect(markup).toContain('data-project-path="/repo"');
   expect(markup).toContain('data-thread-id="thread_1"');
+  expect(markup).not.toContain('class="chat-item-time"');
+  expect(markup).not.toContain('role="tooltip"');
 });
 
 test("detects waiting threads from status and pending approvals, not slogans", () => {

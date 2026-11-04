@@ -846,6 +846,39 @@ test("Node SQLite claims queued follow-ups one at a time by default", async (t) 
   assert.equal(store.getThreadFollowUp("thr_followup_queue", second.id)?.status, "queued");
 });
 
+test("existing databases migrate the WeChat follow column in both storage modes", async (t) => {
+  const directory = await createTestDirectory(t, "eco-node-wechat-follow-migration-");
+  for (const mode of ["v2_only", "legacy_compat"] as const) {
+    const databasePath = path.join(directory, `${mode}.sqlite`);
+    const store = await createConversationStore(databasePath, { freshStorageMode: mode, requiredStorageMode: mode });
+    store.saveThread({
+      id: `thread_${mode}`,
+      title: "Existing conversation",
+      prompt: "hello",
+      workspacePath: directory,
+      status: "completed",
+      message: "done",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    (store as unknown as { db: DatabaseSync }).db.close();
+
+    const oldDatabase = new DatabaseSync(databasePath);
+    oldDatabase.exec("ALTER TABLE threads DROP COLUMN wechat_follow_enabled");
+    oldDatabase.close();
+
+    const migrated = await createConversationStore(databasePath, { requiredStorageMode: mode });
+    assert.equal(migrated.listThreads()[0]?.title, "Existing conversation");
+    assert.equal(migrated.getThread(`thread_${mode}`)?.wechatFollowEnabled, undefined);
+    assert.equal(migrated.setThreadWechatFollow(`thread_${mode}`, true)?.wechatFollowEnabled, true);
+    (migrated as unknown as { db: DatabaseSync }).db.close();
+
+    const reopened = await createConversationStore(databasePath, { requiredStorageMode: mode });
+    assert.equal(reopened.listThreads()[0]?.wechatFollowEnabled, true);
+    (reopened as unknown as { db: DatabaseSync }).db.close();
+  }
+});
+
 test("Node SQLite migrates the legacy thread activity schema", async (t) => {
   const directory = await createTestDirectory(t, "eco-node-sqlite-migration-");
   const databasePath = path.join(directory, "eco-coding.sqlite");

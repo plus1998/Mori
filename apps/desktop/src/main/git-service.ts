@@ -140,14 +140,13 @@ export async function handleGitListCommitModelOptions(
   },
   purpose: "general" | "approval" = "general",
 ): Promise<GitListCommitModelOptionsResult> {
-  void request;
   const providers = deps.providerStore.listProvidersWithSecrets();
   const candidates = listCommitMessageCandidateModels(
     providers,
     (providerId) => deps.providerStore.listCandidateModels(providerId),
     purpose,
   );
-  const hints = await lookupCommitModelPricingHints(
+  const hints = request.includePricing === false ? [] : await lookupCommitModelPricingHints(
     deps.pricingCache,
     providers,
     candidates.map((candidate) => ({

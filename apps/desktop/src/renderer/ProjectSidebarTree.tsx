@@ -12,7 +12,8 @@ import {
   Terminal,
   Trash2,
 } from "lucide-react";
-import { type DragEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type DragEvent, type FocusEvent, type MouseEvent as ReactMouseEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import type { ThreadSummary } from "../shared/ipc";
 import type { AppLocale } from "../shared/locale";
@@ -110,6 +111,8 @@ export function ProjectSidebarTree({
   const [openMenuPath, setOpenMenuPath] = useState<string>();
   const [renamingPath, setRenamingPath] = useState<string>();
   const [renameDraft, setRenameDraft] = useState("");
+  const [threadTooltip, setThreadTooltip] = useState<{ thread: ThreadSummary; projectName: string; top: number; left: number }>();
+  const tooltipTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const renameDraftRef = useRef("");
   const renameInputRef = useRef<HTMLInputElement>(null);
   const dragCounterRef = useRef(0);
@@ -126,6 +129,35 @@ export function ProjectSidebarTree({
       renameInputRef.current?.select();
     }
   }, [renamingPath]);
+
+  function hideThreadTooltip() {
+    clearTimeout(tooltipTimerRef.current);
+    setThreadTooltip(undefined);
+  }
+
+  function showThreadTooltip(
+    event: ReactMouseEvent<HTMLButtonElement> | FocusEvent<HTMLButtonElement>,
+    thread: ThreadSummary,
+    projectName: string,
+    delay: number,
+  ) {
+    clearTimeout(tooltipTimerRef.current);
+    const rect = event.currentTarget.getBoundingClientRect();
+    const top = Math.max(8, Math.min(rect.top, window.innerHeight - 88));
+    const left = Math.max(8, Math.min(rect.right + 12, window.innerWidth - 328));
+    tooltipTimerRef.current = setTimeout(() => setThreadTooltip({ thread, projectName, top, left }), delay);
+  }
+
+  useEffect(() => {
+    const hide = () => hideThreadTooltip();
+    window.addEventListener("scroll", hide, true);
+    window.addEventListener("resize", hide);
+    return () => {
+      clearTimeout(tooltipTimerRef.current);
+      window.removeEventListener("scroll", hide, true);
+      window.removeEventListener("resize", hide);
+    };
+  }, []);
 
   function startRenameProject(projectPath: string, currentName: string) {
     renameDraftRef.current = currentName;
@@ -508,7 +540,16 @@ export function ProjectSidebarTree({
 
                 return (
                   <div key={thread.id} className={rowClassName} data-thread-id={thread.id}>
-                    <button type="button" className="chat-item nested" onClick={() => onSelectThread(thread)}>
+                    <button
+                      type="button"
+                      className="chat-item nested"
+                      aria-describedby={threadTooltip?.thread.id === thread.id ? "sidebar-thread-tooltip" : undefined}
+                      onMouseEnter={(event) => showThreadTooltip(event, thread, project.name, 500)}
+                      onMouseLeave={hideThreadTooltip}
+                      onFocus={(event) => showThreadTooltip(event, thread, project.name, 0)}
+                      onBlur={hideThreadTooltip}
+                      onClick={() => { hideThreadTooltip(); onSelectThread(thread); }}
+                    >
                       {thread.coreKind ? (
                         <img
                           className="chat-item-core-icon"
@@ -567,17 +608,11 @@ export function ProjectSidebarTree({
                           : "chat-item-trailing"
                       }
                     >
-                      {!hasThreadStatusIndicator ? (
+                      {!hasThreadStatusIndicator && isThreadPinned ? (
                         <span className="chat-item-trailing-label">
-                          {isThreadPinned ? (
-                            <span className="chat-item-pin-indicator" aria-hidden>
-                              <Pin size={ICON_SIZE.sm} strokeWidth={ICON_STROKE} />
-                            </span>
-                          ) : (
-                            <span className="chat-item-time">
-                              {formatRelativeTime(thread.updatedAt ?? thread.createdAt, Date.now(), locale)}
-                            </span>
-                          )}
+                          <span className="chat-item-pin-indicator" aria-hidden>
+                            <Pin size={ICON_SIZE.sm} strokeWidth={ICON_STROKE} />
+                          </span>
                         </span>
                       ) : null}
                       <span className="chat-item-trailing-actions">
@@ -681,6 +716,16 @@ export function ProjectSidebarTree({
         <p className="project-tree-empty-drop">{t("projectTree.dropFolder")}</p>
       ) : null}
       {renderProjectSection(t("nav.projects"), displayProjectTree)}
+      {threadTooltip ? createPortal(
+        <div id="sidebar-thread-tooltip" className="sidebar-thread-tooltip" role="tooltip" style={{ top: threadTooltip.top, left: threadTooltip.left }}>
+          <div className="sidebar-thread-tooltip-heading">
+            <span className="sidebar-thread-tooltip-title">{threadTooltip.thread.title}</span>
+            <span className="sidebar-thread-tooltip-time">{formatRelativeTime(threadTooltip.thread.updatedAt ?? threadTooltip.thread.createdAt, Date.now(), locale)}</span>
+          </div>
+          <div className="sidebar-thread-tooltip-project"><Folder size={ICON_SIZE.sm} strokeWidth={ICON_STROKE} aria-hidden />{threadTooltip.projectName}</div>
+        </div>,
+        document.body,
+      ) : null}
     </div>
   );
 }
