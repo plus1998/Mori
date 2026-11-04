@@ -348,6 +348,18 @@ test("StreamingMarkdownContent renders an incomplete code fence without a local 
   expect(html).not.toContain("markdown-streaming-block-loading");
 });
 
+test("StreamingMarkdownContent renders partial table rows in the final table structure", () => {
+  const table = "正文\n\n| 名称 | 数值 |\n| --- | --- |\n| 第一行 | 100 |";
+  for (const suffix of ["", "\n| 第二行", "\n| 第二行 | 200", "\n| 第二行 | 200 | "]) {
+    const text = table + suffix;
+    const streamingHtml = renderToStaticMarkup(createElement(StreamingMarkdownContent, { text, streaming: true }));
+    const settledHtml = renderToStaticMarkup(createElement(StreamingMarkdownContent, { text, streaming: false }));
+    expect(streamingHtml).toContain('<table class="markdown-table">');
+    expect(streamingHtml).not.toContain("markdown-content--streaming-plain");
+    expect(streamingHtml).toBe(settledHtml);
+  }
+});
+
 test("StreamingMarkdownContent leaves held structured edit loading to the conversation tail", () => {
   const html = renderToStaticMarkup(
     createElement(StreamingMarkdownContent, {
@@ -1563,7 +1575,7 @@ test("ActivityLogView collapses completed thinking behind a deep-thinking summar
 
   expect(html).toContain('class="run-log-thinking');
   expect(html).toContain("run-log-thinking-trigger");
-  expect(html).toContain("run-log-thinking-icon");
+  expect(html).not.toContain("run-log-thinking-icon");
   expect(html).toContain("run-log-thinking-chevron");
   expect(html).toContain('aria-expanded="false"');
   expect(html).toContain("已思考");

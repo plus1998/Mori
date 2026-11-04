@@ -2,14 +2,13 @@ import {
   Check,
   ChevronDown,
   CloudDownload,
-  Diff,
   GitBranch,
   GitCommitHorizontal,
   Loader2,
   Play,
   Plus,
 } from "lucide-react";
-import { type CSSProperties, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type CSSProperties, type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import type {
@@ -27,10 +26,14 @@ import { composerFloatingStyleForAnchor } from "./composer-floating";
 import { GitCommitDialog } from "./GitCommitDialog";
 import { GitPullConflictDialog } from "./GitPullConflictDialog";
 import { ICON_SIZE, ICON_STROKE } from "./icon-metrics";
+import { OverflowFadeText } from "./OverflowFadeText";
 import { useEcoWorkspaceFileDiffLoader, WorkspaceDiffDrawer } from "./WorkspaceDiffDrawer";
 import { getWorkspaceGitCommitEntryLabel, useWorkspaceGitAction } from "./workspace-git-action-store";
 
 export interface WorkspaceGitSectionProps {
+  summary?: boolean;
+  actionsAnchor?: HTMLButtonElement;
+  onActionsClose?: () => void;
   workspacePath?: string;
   workspaceLabel: string;
   gitStatus?: GitWorkingTreeStatus;
@@ -66,8 +69,11 @@ export function resolveGitRemoteSyncAction(behindCount: number): "fetch" | "pull
 }
 
 export function WorkspaceGitSection({
+  summary = false,
+  actionsAnchor,
+  onActionsClose,
   workspacePath,
-  workspaceLabel: _workspaceLabel,
+  workspaceLabel,
   gitStatus,
   gitBusy,
   commitDisabled,
@@ -94,7 +100,8 @@ export function WorkspaceGitSection({
   onOpenScriptsDialog,
   onCommitDialogOpenChange,
 }: WorkspaceGitSectionProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const formatCount = (value: number) => value.toLocaleString(i18n.resolvedLanguage ?? i18n.language);
   const loadFileDiff = useEcoWorkspaceFileDiffLoader();
   const [commitDialogOpen, setCommitDialogOpen] = useState(false);
   const [commitDialogWorkspacePath, setCommitDialogWorkspacePath] = useState<string | undefined>();
@@ -181,6 +188,10 @@ export function WorkspaceGitSection({
     setNewBranchName("");
     setBranchError(undefined);
   }, []);
+
+  useEffect(() => {
+    if (summary && !actionsAnchor) closeBranchMenu();
+  }, [summary, actionsAnchor, closeBranchMenu]);
 
   const handleSelectBranch = useCallback(
     async (branch: string) => {
@@ -348,6 +359,7 @@ export function WorkspaceGitSection({
     }
     const action = remoteSyncAction;
     setRemoteSyncOperation(action);
+    onActionsClose?.();
     try {
       if (action === "fetch") {
         await window.eco.fetchGitChanges({ workspacePath });
@@ -445,41 +457,9 @@ export function WorkspaceGitSection({
     }
   }
 
-  return (
-    <div className="thread-info-workspace-git">
-      <ul className="thread-info-workspace-git-list">
-        <li
-          className={
-            changesDrawerOpen
-              ? "thread-info-workspace-git-row thread-info-workspace-git-changes-row is-active"
-              : "thread-info-workspace-git-row thread-info-workspace-git-changes-row"
-          }
-        >
-          <button
-            type="button"
-            className="thread-info-workspace-git-row-button"
-            disabled={!workspacePath}
-            aria-expanded={changesDrawerOpen}
-            aria-haspopup="dialog"
-            aria-label={t("workspaceGit.viewChanges")}
-            onClick={() => void openChangesDrawer()}
-          >
-            <Diff size={ICON_SIZE.md} strokeWidth={ICON_STROKE} aria-hidden />
-            <span>{t("workspace.diff.changes")}</span>
-            <span className="thread-info-workspace-git-stats" aria-label={t("workspaceGit.changedLines")}>
-              {gitBusy ? (
-                <Loader2 size={12} className="spinning thread-info-workspace-git-stats-busy" aria-hidden />
-              ) : (
-                <>
-                  <span className="git-commit-stat-add">+{insertions}</span>
-                  <span className="git-commit-stat-del">-{deletions}</span>
-                </>
-              )}
-            </span>
-          </button>
-        </li>
-
-        <li
+  const secondaryActions = (
+    <>
+<li
           className={
             branchMenuOpen
               ? "thread-info-workspace-git-row thread-info-workspace-git-picker-row is-active"
@@ -639,6 +619,7 @@ export function WorkspaceGitSection({
                 void onRefreshGitStatus?.(true);
                 setCommitDialogWorkspacePath(workspacePath);
                 setCommitDialogOpen(true);
+                onActionsClose?.();
               }}
             >
               {commitEntryBusy ? (
@@ -686,14 +667,65 @@ export function WorkspaceGitSection({
               type="button"
               className="thread-info-workspace-git-row-button"
               disabled={scriptsDisabled}
-              onClick={onOpenScriptsDialog}
+              onClick={() => { onActionsClose?.(); onOpenScriptsDialog(); }}
             >
               <Play size={16} aria-hidden />
               <span>{t("dialog.scripts.title")}</span>
             </button>
           </li>
         ) : null}
+    </>
+  );
+
+  return (
+    <div className="thread-info-workspace-git">
+      <ul className="thread-info-workspace-git-list">
+        <li
+          className={
+            changesDrawerOpen
+              ? "thread-info-workspace-git-row thread-info-workspace-git-changes-row is-active"
+              : "thread-info-workspace-git-row thread-info-workspace-git-changes-row"
+          }
+        >
+          <button
+            type="button"
+            className="thread-info-workspace-git-row-button"
+            disabled={!workspacePath}
+            aria-expanded={changesDrawerOpen}
+            aria-haspopup="dialog"
+            aria-label={t("workspaceGit.viewChanges")}
+            onClick={() => void openChangesDrawer()}
+          >
+            <svg width={ICON_SIZE.md} height={ICON_SIZE.md} viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={ICON_STROKE} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <rect x="3" y="2" width="14" height="16" rx="3" />
+              <path d="M7.5 7.5h5M10 5v5M7.5 13.5h5" />
+            </svg>
+            {summary ? (
+              <OverflowFadeText className="workspace-git-changes-label">{t("workspace.diff.changes")}</OverflowFadeText>
+            ) : <span>{t("workspace.diff.changes")}</span>}
+            <span className="thread-info-workspace-git-stats" aria-label={t("workspaceGit.changedLines")}>
+              {gitBusy ? (
+                <Loader2 size={12} className="spinning thread-info-workspace-git-stats-busy" aria-hidden />
+              ) : (
+                <>
+                  <span className="git-commit-stat-add">+{formatCount(insertions)}</span>
+                  <span className="git-commit-stat-del">-{formatCount(deletions)}</span>
+                </>
+              )}
+            </span>
+          </button>
+        </li>
+        {!summary ? secondaryActions : null}
       </ul>
+      {summary && actionsAnchor && onActionsClose ? (
+        <WorkspaceGitActionsPopover
+          anchor={actionsAnchor}
+          onClose={onActionsClose}
+          label={t("projectTree.actions", { name: workspaceLabel })}
+        >
+          <ul className="thread-info-workspace-git-list">{secondaryActions}</ul>
+        </WorkspaceGitActionsPopover>
+      ) : null}
 
       {showCommitEntry && commitDialogWorkspacePath ? (
         <GitCommitDialog
@@ -750,5 +782,62 @@ export function WorkspaceGitSection({
         />
       ) : null}
     </div>
+  );
+}
+
+
+function WorkspaceGitActionsPopover({ anchor, onClose, label, children }: {
+  anchor: HTMLButtonElement;
+  onClose: () => void;
+  label: string;
+  children: ReactNode;
+}) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [style, setStyle] = useState<CSSProperties>({ visibility: "hidden" });
+
+  useLayoutEffect(() => {
+    const update = () => setStyle(composerFloatingStyleForAnchor(anchor, {
+      width: 240, minHeight: 120, prefer: "below", align: "end",
+    }));
+    update();
+    const frame = requestAnimationFrame(() => {
+      panelRef.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
+    });
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+    };
+  }, [anchor]);
+
+  useEffect(() => {
+    const outside = (event: MouseEvent | FocusEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node) || panelRef.current?.contains(target) || anchor.contains(target)) return;
+      if (target instanceof Element && target.closest(".thread-info-workspace-git-branch-menu")) return;
+      onClose();
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || document.querySelector(".thread-info-workspace-git-branch-menu")) return;
+      onClose();
+      anchor.focus();
+    };
+    document.addEventListener("mousedown", outside);
+    document.addEventListener("focusin", outside);
+    document.addEventListener("keydown", escape);
+    return () => {
+      document.removeEventListener("mousedown", outside);
+      document.removeEventListener("focusin", outside);
+      document.removeEventListener("keydown", escape);
+    };
+  }, [anchor, onClose]);
+
+  return createPortal(
+    <div ref={panelRef} className="workspace-git-actions-popover" role="dialog" aria-label={label} style={style}>
+      {children}
+    </div>,
+    document.body,
   );
 }

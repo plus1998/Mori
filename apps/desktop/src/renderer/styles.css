@@ -623,6 +623,9 @@ html[data-platform="linux"] .settings-nav {
   --sidebar-session-hover-bg: var(--sidebar-control-hover-bg);
   --sidebar-session-active-bg: var(--sidebar-control-active-bg);
   --sidebar-session-action-hover-bg: var(--sidebar-control-icon-hover-bg);
+  --sidebar-row-height: max(30px, calc(var(--ui-font-size) + 12px));
+  --sidebar-label-inset: 32px;
+  font-weight: 400;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -810,16 +813,22 @@ html:not([data-platform="darwin"]) .codex-sidebar-chrome-drag {
 .sidebar-action {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   width: 100%;
-  padding: 8px 12px;
-  border-radius: var(--radius-control);
-  color: var(--text-primary);
-  font-size: 14px;
-  font-weight: 430;
+  padding: 4px 8px;
+  border-radius: 10px;
+  color: var(--sidebar-item-text);
+  font-size: var(--ui-font-size);
+  font-weight: 400;
   text-align: left;
   line-height: 20px;
-  min-height: 36px;
+  min-height: var(--sidebar-row-height);
+}
+
+.sidebar-action > svg {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
 }
 
 .sidebar-shortcut-hint {
@@ -852,16 +861,16 @@ html:not([data-platform="darwin"]) .codex-sidebar-chrome-drag {
   flex-shrink: 0;
   align-items: center;
   min-height: 40px;
-  padding: 0 12px 2px;
+  padding: 0 8px;
 }
 
 .sidebar-core-heading {
   min-width: 0;
   color: var(--text-primary);
-  font-size: 16px;
-  font-weight: 500;
-  line-height: 1.25;
-  letter-spacing: -0.2px;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 22px;
+  letter-spacing: 0;
 }
 
 .sidebar-core-heading-label {
@@ -890,7 +899,8 @@ html:not([data-platform="darwin"]) .codex-sidebar-chrome-drag {
 button.sidebar-core-heading {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
+  min-height: 32px;
   padding: 3px 0;
   text-align: left;
 }
@@ -1373,7 +1383,7 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .thread-info-workspac
 .sidebar-section {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
   margin-top: 8px;
 }
 
@@ -1387,7 +1397,7 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .thread-info-workspac
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding-right: 2px;
+  padding-right: 0;
   /* The action row replaces the section that used to sit below "新对话";
      drop the extra section margin so the row hugs the button above it. */
   margin-top: 0;
@@ -1396,6 +1406,7 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .thread-info-workspac
 .sidebar-section-grow .project-tree {
   flex: 1 0 auto;
   min-height: 0;
+  margin-top: 20px;
 }
 
 .sidebar-section-label {
@@ -1415,12 +1426,12 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .thread-info-workspac
 .project-tree-section {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
 }
 
 .project-tree-section-label {
-  padding: 0 12px;
+  padding: 4px 8px;
   color: var(--sidebar-label);
   font-size: 12px;
   font-weight: 400;
@@ -1430,7 +1441,7 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .thread-info-workspac
 .project-tree-section-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 16px;
   min-width: 0;
   margin: 0;
   padding: 0;
@@ -1485,7 +1496,7 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .thread-info-workspac
   min-width: 0;
   min-inline-size: 0;
   margin: 0;
-  padding: 2px 6px 2px 4px;
+  padding: 0 4px 0 0;
   border: 0;
   border-radius: 10px;
   cursor: grab;
@@ -1605,19 +1616,53 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .thread-info-workspac
   display: flex;
   flex: 1;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
-  padding: 6px 4px;
+  min-height: var(--sidebar-row-height);
+  padding: 4px 8px;
   border-radius: 8px;
   background: transparent;
-  color: var(--sidebar-thread-text);
-  font-size: var(--ui-font-size);
+  color: var(--sidebar-muted-strong);
+  font-size: calc(var(--ui-font-size) - 1px);
+  font-weight: 400;
+  line-height: 20px;
   text-align: left;
 }
 
 .project-group-toggle svg {
   flex: 0 0 auto;
   color: currentColor;
+}
+
+.project-group-icon {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 16px;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 20px;
+}
+
+.project-group-icon .project-group-disclosure {
+  position: absolute;
+  opacity: 0;
+}
+
+.project-group-toggle[aria-expanded="true"] .project-group-disclosure {
+  transform: rotate(90deg);
+}
+
+.project-group-main:is(:hover, :focus-within) .project-group-icon > svg:not(.project-group-disclosure) {
+  opacity: 0;
+}
+
+.project-group-main:is(:hover, :focus-within) .project-group-disclosure {
+  opacity: 1;
+}
+
+.project-group-title {
+  flex: 1;
 }
 
 .project-pin-indicator {
@@ -1668,11 +1713,13 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .thread-info-workspac
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  gap: 2px;
+  gap: 0;
+  width: 0;
   opacity: 0;
   transform: translateX(3px);
   pointer-events: none;
   transition:
+    width 0.12s ease,
     opacity 0.12s ease,
     transform 0.12s ease;
 }
@@ -1684,9 +1731,15 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .thread-info-workspac
 .project-group-main:hover .project-row-actions,
 .project-group-main:focus-within .project-row-actions,
 .project-row-actions.menu-open {
+  width: 24px;
   opacity: 1;
   transform: translateX(0);
   pointer-events: auto;
+}
+
+.project-group-main:is(:hover, :focus-within) .project-row-actions:has(.project-menu-wrap),
+.project-row-actions.menu-open:has(.project-menu-wrap) {
+  width: 48px;
 }
 
 .project-menu-wrap {
@@ -1700,9 +1753,9 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .thread-info-workspac
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 7px;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
   color: var(--text-muted);
   transition:
     background 0.12s ease,
@@ -1799,7 +1852,8 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .thread-info-workspac
   display: flex;
   align-items: center;
   min-width: 0;
-  border-radius: 8px;
+  min-height: var(--sidebar-row-height);
+  border-radius: 10px;
 }
 
 .chat-item-row:hover {
@@ -1972,36 +2026,36 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .thread-info-workspac
   color: #fca5a5;
 }
 
-.chat-item-row:hover .chat-item-trailing-label {
+.chat-item-row:is(:hover, :focus-within) .chat-item-trailing-label {
   max-width: 0;
   opacity: 0;
 }
 
-.chat-item-row:hover .chat-item-trailing-actions {
+.chat-item-row:is(:hover, :focus-within) .chat-item-trailing-actions {
   opacity: 1;
   pointer-events: auto;
 }
 
-.chat-item-row:hover .chat-item-trailing:not(.chat-item-trailing-actions-only) .chat-item-trailing-actions {
+.chat-item-row:is(:hover, :focus-within) .chat-item-trailing:not(.chat-item-trailing-actions-only) .chat-item-trailing-actions {
   width: 48px;
 }
 
 /* failed / blocked: status indicator only, hover shows delete */
-.chat-item-row:hover .chat-item-trailing-actions-only .chat-item-trailing-actions:has(.chat-item-row-action) {
+.chat-item-row:is(:hover, :focus-within) .chat-item-trailing-actions-only .chat-item-trailing-actions:has(.chat-item-row-action) {
   width: 24px;
 }
 
 .project-empty {
   margin: 0;
-  padding: 2px 12px 4px 36px;
+  min-height: var(--sidebar-row-height);
+  padding: 5px 8px 5px var(--sidebar-label-inset);
   color: var(--sidebar-empty-text);
   font-size: 12px;
+  line-height: 20px;
 }
 
-.project-group-toggle span,
 .project-group-header span,
-.project-open span,
-.chat-item-title {
+.project-open span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2037,7 +2091,10 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .thread-info-workspac
 
 .chat-item.nested {
   position: relative;
-  padding-left: 28px;
+  min-height: var(--sidebar-row-height);
+  padding: 4px 8px 4px var(--sidebar-label-inset);
+  font-weight: 400;
+  line-height: 20px;
   color: var(--sidebar-thread-text);
   font-size: var(--ui-font-size);
 }
@@ -2045,9 +2102,9 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .thread-info-workspac
 .chat-item-core-icon {
   position: absolute;
   top: 50%;
-  left: 8px;
-  width: 16px;
-  height: 16px;
+  left: 10px;
+  width: 14px;
+  height: 14px;
   object-fit: contain;
   opacity: 0;
   pointer-events: none;
@@ -2071,6 +2128,61 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .thread-info-workspac
   align-items: center;
   gap: 6px;
   min-width: 0;
+}
+
+/* Overflow alone enables the edge mask. Hover reveals the end once, then holds. */
+.overflow-fade-text {
+  --overflow-text-fade-start: 0.571429em;
+  --overflow-text-fade-end: 1.14286em;
+  display: block;
+  width: 100%;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.overflow-fade-text-clip {
+  display: block;
+  width: calc(100% + var(--overflow-text-fade-start));
+  margin-inline-start: calc(-1 * var(--overflow-text-fade-start));
+  overflow: hidden;
+}
+
+.overflow-fade-text-content {
+  display: inline-block;
+  width: max-content;
+  padding-inline-start: var(--overflow-text-fade-start);
+  white-space: nowrap;
+}
+
+.overflow-fade-text[data-overflowing] .overflow-fade-text-clip {
+  mask-image: linear-gradient(to right, transparent, #000 var(--overflow-text-fade-start), #000 calc(100% - var(--overflow-text-fade-end)), transparent);
+  mask-size: 100% 100%;
+  mask-repeat: no-repeat;
+}
+
+:is(.chat-item-row, .project-group-main, .workspace-resource-row, .workspace-panel-section-header, .thread-info-workspace-git-row):is(:hover, :focus-within) .overflow-fade-text[data-overflowing] .overflow-fade-text-content {
+  animation: overflow-text-reveal var(--overflow-text-duration) cubic-bezier(0.49, 0.6, 0.7, 1) 0.35s both;
+}
+
+:is(.chat-item-row, .project-group-main, .workspace-resource-row, .workspace-panel-section-header, .thread-info-workspace-git-row):is(:hover, :focus-within) .overflow-fade-text[data-overflowing] .overflow-fade-text-clip {
+  animation: overflow-text-reveal-end var(--overflow-text-duration) linear 0.35s both;
+}
+
+@keyframes overflow-text-reveal {
+  to { transform: translateX(calc(-1 * var(--overflow-text-distance))); }
+}
+
+@keyframes overflow-text-reveal-end {
+  75% { mask-size: 100% 100%; }
+  to { mask-size: calc(100% + var(--overflow-text-fade-end)) 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :is(.chat-item-row, .project-group-main, .workspace-resource-row, .workspace-panel-section-header, .thread-info-workspace-git-row):is(:hover, :focus-within) .overflow-fade-text[data-overflowing] :is(.overflow-fade-text-content, .overflow-fade-text-clip) {
+    animation: none;
+  }
 }
 
 .chat-item-meta {
@@ -2129,11 +2241,16 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .thread-info-workspac
 }
 
 .project-expand {
+  display: flex;
+  align-items: center;
   width: 100%;
-  padding: 4px 12px 4px 36px;
-  border-radius: 6px;
-  color: var(--sidebar-muted-strong);
-  font-size: 12px;
+  min-height: var(--sidebar-row-height);
+  padding: 4px 8px 4px var(--sidebar-label-inset);
+  border-radius: 10px;
+  color: var(--sidebar-label);
+  font-size: var(--ui-font-size);
+  font-weight: 400;
+  line-height: 20px;
   text-align: left;
 }
 
@@ -3118,6 +3235,13 @@ button.sidebar-settings-meta {
 
 .codex-chat-shell.is-landing {
   /* Keep the greeting and composer together; tall drafts scroll in normal flow. */
+  --composer-shadow-gutter: 64px;
+  /* The scrollport needs room for the input's outline and shadow. Its content
+     keeps the same width and alignment as the conversation feed. */
+  width: calc(100% + var(--composer-shadow-gutter) * 2);
+  max-width: calc(var(--feed-max-width, 750px) + var(--composer-shadow-gutter) * 2);
+  margin-inline: calc(-1 * var(--composer-shadow-gutter));
+  padding-inline: var(--composer-shadow-gutter);
   padding-bottom: 96px;
   gap: 28px;
   padding-top: 48px;
@@ -3838,8 +3962,8 @@ button.sidebar-settings-meta {
 
 .codex-chat-shell.is-landing .composer-primary {
   margin: 0;
-  padding: 16px 14px 10px;
-  border: 1px solid var(--composer-primary-border);
+  padding: 16px 12px 10px;
+  border: 0;
   border-radius: var(--composer-outer-radius);
   background: var(--composer-surface-bg);
   box-shadow: var(--composer-primary-shadow);
@@ -4467,6 +4591,12 @@ button.sidebar-settings-meta {
    otherwise draws an amber frame around the entire conversation. */
 .activity-messages:focus-visible {
   outline: none;
+}
+
+.activity-feed-content {
+  display: flow-root;
+  width: 100%;
+  min-width: 0;
 }
 
 /* Detached reader (scrolled up to browse history): hand scroll anchoring back to the browser so
@@ -13437,7 +13567,7 @@ button.default-agent-option:focus-visible {
   --run-log-user-prompt-fg: #f5f5f5;
   --run-log-user-prompt-muted: #a3a3a3;
   width: fit-content;
-  max-width: min(480px, 75%);
+  max-width: min(456px, 85%);
   min-width: 0;
 }
 
@@ -13454,7 +13584,7 @@ button.default-agent-option:focus-visible {
 
 .run-log-user-prompt-bubble {
   overflow: hidden;
-  border-radius: 16px 16px 4px 16px;
+  border-radius: 16px;
   background: var(--run-log-user-prompt-bg);
   color: var(--run-log-user-prompt-fg);
 }
@@ -13512,8 +13642,8 @@ button.default-agent-option:focus-visible {
 .run-log-user-prompt-body {
   margin: 0;
   /* Top needs more air than sides: first line sits under a 16px radius. */
-  padding: 16px 16px 14px;
-  border-radius: 16px 16px 4px 16px;
+  padding: 12px 16px;
+  border-radius: 16px;
   background: var(--run-log-user-prompt-bg);
   color: var(--run-log-user-prompt-fg);
   font-family: inherit;
@@ -13522,6 +13652,7 @@ button.default-agent-option:focus-visible {
   white-space: pre-wrap;
   word-break: break-word;
   overflow-wrap: anywhere;
+  font-weight: 400;
 }
 
 .run-log-user-prompt-bubble .run-log-user-prompt-body {
@@ -13858,12 +13989,12 @@ button.default-agent-option:focus-visible {
      string next to the timestamp. Wrap the row instead of squeezing its parts:
      a squeezed <time> folds onto two lines and reads as a second column. */
   flex-wrap: wrap;
-  gap: 2px 6px;
-  min-height: 22px;
-  margin-top: 4px;
+  gap: 2px 4px;
+  min-height: 28px;
+  margin-top: 8px;
   color: var(--codex-log-faint, #737373);
   font-size: 11px;
-  font-weight: 500;
+  font-weight: 400;
   line-height: 1;
   opacity: 0;
   pointer-events: none;
@@ -13897,8 +14028,8 @@ button.default-agent-option:focus-visible {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: 28px;
+  height: 28px;
   padding: 0;
   border: none;
   border-radius: 6px;
@@ -15279,6 +15410,8 @@ button.default-agent-option:focus-visible {
 }
 
 .run-log-narrative {
+  --feed-prose-font-size: var(--codex-feed-font-size, var(--ui-font-size));
+  --feed-prose-line-height: 1.625;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -15289,7 +15422,7 @@ button.default-agent-option:focus-visible {
 
 .run-log-narrative.compact .run-log-narrative-body,
 .run-log-narrative.compact .markdown-content {
-  font-size: 14px;
+  font-size: var(--feed-prose-font-size);
   color: var(--markdown-text);
 }
 
@@ -15300,8 +15433,11 @@ button.default-agent-option:focus-visible {
   min-width: 0;
   margin: 0;
   color: var(--markdown-text);
-  font-size: 15px;
-  line-height: 1.65;
+  font-family: var(--font-sans);
+  font-size: var(--feed-prose-font-size);
+  font-weight: 400;
+  line-height: var(--feed-prose-line-height);
+  letter-spacing: normal;
   overflow-wrap: break-word;
   word-break: normal;
 }
@@ -20866,6 +21002,11 @@ a.run-log-web-search-detail-result-url:focus-visible {
   box-shadow: none;
 }
 
+/* The input surface owns its contour; let its elevation extend past the shell. */
+.codex-composer:has(> .composer-primary) {
+  overflow: visible;
+}
+
 .composer-primary {
   position: relative;
   z-index: 1;
@@ -20873,7 +21014,7 @@ a.run-log-web-search-detail-result-url:focus-visible {
   flex-direction: column;
   margin: 0 calc(var(--composer-shell-padding-x) * -1) var(--composer-shell-gap);
   min-height: 100px;
-  padding: 18px 18px 14px;
+  padding: 14px 12px 10px;
   border: none;
   border-radius: var(--composer-outer-radius) var(--composer-outer-radius) var(--composer-inner-bottom-radius)
     var(--composer-inner-bottom-radius);
@@ -20906,7 +21047,7 @@ a.run-log-web-search-detail-result-url:focus-visible {
 .codex-composer.is-compact .composer-primary {
   margin-bottom: 0;
   min-height: 100px;
-  padding: 10px 12px 8px;
+  padding: 12px 12px 10px;
   border-radius: var(--composer-outer-radius);
 }
 
@@ -20919,13 +21060,13 @@ a.run-log-web-search-detail-result-url:focus-visible {
 .codex-composer.is-compact .composer-footer {
   margin-top: 8px;
   min-height: 32px;
-  gap: 6px;
+  gap: 8px;
 }
 
 .codex-composer.is-compact .composer-footer-compact-row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   flex-wrap: wrap;
   min-width: 0;
 }
@@ -21012,7 +21153,7 @@ a.run-log-web-search-detail-result-url:focus-visible {
 
 /* Align typed text with the first footer/context trigger icon. */
 .codex-composer:not(.is-compact) .composer-skill-input-control {
-  padding-left: calc(var(--composer-shell-padding-x) + 14px - 18px);
+  padding-left: 8px;
 }
 
 .codex-composer.is-compact .composer-skill-input-control {
@@ -21082,9 +21223,9 @@ a.run-log-web-search-detail-result-url:focus-visible {
   flex-shrink: 0;
   flex-wrap: nowrap;
   align-items: center;
-  gap: 10px;
-  margin-top: 12px;
-  min-height: 40px;
+  gap: 8px;
+  margin-top: 8px;
+  min-height: 32px;
   min-width: 0;
 }
 
@@ -21098,7 +21239,7 @@ a.run-log-web-search-detail-result-url:focus-visible {
   flex: 0 1 auto;
   flex-wrap: nowrap;
   align-items: center;
-  gap: inherit;
+  gap: 8px;
   min-width: 0;
   margin-left: auto;
 }
@@ -22812,8 +22953,8 @@ button.composer-session-mode-tag:focus-visible {
 .send-button {
   display: grid;
   flex-shrink: 0;
-  width: 34px;
-  height: 34px;
+  width: 32px;
+  height: 32px;
   place-items: center;
   border: none;
   border-radius: 50%;
@@ -30893,6 +31034,26 @@ html:not([data-platform="darwin"])
   margin-top: 0.28em;
 }
 
+/* Match desktop text smoothing without applying it to code editors or sidebars. */
+html[data-platform="darwin"] :is(.run-log, .codex-composer, .codex-sidebar) {
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Regular replies use a full text-size gap; nested list paragraphs stay compact. */
+.codex-main:not(.codex-main-landing) .run-log-narrative .markdown-content > :is(p, ul, ol),
+.codex-main:not(.codex-main-landing) .run-log-narrative .markdown-content .ProseMirror > :is(p, ul, ol) {
+  margin-block: 1em;
+}
+
+.codex-main:not(.codex-main-landing) .run-log-narrative .markdown-content > :is(h1, h2, h3, h4) + p,
+.codex-main:not(.codex-main-landing) .run-log-narrative .markdown-content .ProseMirror > :is(h1, h2, h3, h4) + p {
+  margin-top: 0;
+}
+
+.codex-main:not(.codex-main-landing) .run-log-narrative .markdown-content li > p + p {
+  margin-top: 1em;
+}
+
 /*
  * Edge margins used to target `.markdown-content > :first/last-child`.
  * PM nests real blocks under `.ProseMirror`, so reset there too �?otherwise
@@ -30940,18 +31101,18 @@ html:not([data-platform="darwin"])
 .codex-main:not(.codex-main-landing) .run-log-narrative .run-log-narrative-body,
 .codex-main:not(.codex-main-landing) .run-log-narrative .markdown-content,
 .codex-main:not(.codex-main-landing) .run-log-narrative p {
-  color: var(--codex-log-text);
+  color: var(--codex-log-prose);
   font-size: var(--codex-feed-font-size);
   font-weight: 400;
-  line-height: 1.68;
+  line-height: var(--feed-prose-line-height);
 }
 
 .codex-main:not(.codex-main-landing) .run-log-narrative.compact .run-log-narrative-body,
 .codex-main:not(.codex-main-landing) .run-log-narrative.compact .markdown-content,
 .codex-main:not(.codex-main-landing) .run-log-narrative.compact p {
-  color: var(--codex-log-text);
+  color: var(--codex-log-prose);
   font-size: var(--codex-feed-font-size);
-  line-height: 1.68;
+  line-height: var(--feed-prose-line-height);
 }
 
 .codex-main:not(.codex-main-landing) .run-log-narrative--sticky-final {
@@ -30983,6 +31144,53 @@ html:not([data-platform="darwin"])
 .codex-main:not(.codex-main-landing) .markdown-content h3,
 .codex-main:not(.codex-main-landing) .markdown-content h4 {
   font-size: 1.02em;
+}
+
+/* Heading sizes are relative to the user's text size, rather than fixed pixels. */
+.codex-main:not(.codex-main-landing) .run-log-narrative .markdown-content :is(h1, h2, h3, h4) {
+  margin-top: var(--feed-prose-font-size);
+  margin-bottom: calc(var(--feed-prose-font-size) / 4);
+  font-weight: 600;
+}
+
+.codex-main:not(.codex-main-landing) .run-log-narrative .markdown-content h1 {
+  font-size: 1.5em;
+  line-height: calc(var(--feed-prose-font-size) * 2);
+  margin-bottom: calc(var(--feed-prose-font-size) / 2);
+}
+
+.codex-main:not(.codex-main-landing) .run-log-narrative .markdown-content h2 {
+  font-size: 1.25em;
+  line-height: calc(var(--feed-prose-font-size) * 1.75);
+}
+
+.codex-main:not(.codex-main-landing) .run-log-narrative .markdown-content h3 {
+  font-size: 1.125em;
+  line-height: calc(var(--feed-prose-font-size) * 1.75);
+}
+
+.codex-main:not(.codex-main-landing) .run-log-narrative .markdown-content h4 {
+  font-size: 1em;
+  line-height: calc(var(--feed-prose-font-size) * 1.5);
+}
+
+.codex-main:not(.codex-main-landing) .run-log-narrative .markdown-content :is(ul, ol) {
+  padding-inline-start: 1.625em;
+}
+
+.codex-main:not(.codex-main-landing) .run-log-narrative .markdown-content li {
+  padding-inline-start: 0.375em;
+}
+
+.codex-main:not(.codex-main-landing) .run-log-narrative .markdown-content li + li {
+  margin-top: 0;
+}
+
+.codex-main:not(.codex-main-landing) .run-log-narrative .markdown-content .markdown-inline-code {
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-size: max(var(--code-font-size), 0.92em);
+  font-weight: 400;
 }
 
 .codex-main:not(.codex-main-landing) .markdown-content li::marker {
@@ -31093,7 +31301,7 @@ html:not([data-platform="darwin"])
   background: transparent;
   color: var(--codex-log-muted);
   font-size: var(--codex-feed-font-size);
-  font-weight: 450;
+  font-weight: 400;
   line-height: 1.55;
 }
 
@@ -31118,8 +31326,8 @@ html:not([data-platform="darwin"])
   min-height: 24px;
   color: var(--codex-log-muted);
   font-size: var(--codex-feed-font-size);
-  font-weight: 450;
-  line-height: 1.55;
+  font-weight: 400;
+  line-height: calc(var(--codex-feed-font-size) + 8px);
 }
 
 .codex-main:not(.codex-main-landing) .run-log-tool-group-trigger:hover .run-log-tool-group-summary {
@@ -31258,7 +31466,7 @@ html:not([data-platform="darwin"])
 .codex-main:not(.codex-main-landing) .run-log-thinking.streaming .run-log-thinking-label {
   color: var(--codex-log-muted);
   font-size: var(--codex-feed-font-size);
-  font-weight: 500;
+  font-weight: 400;
   letter-spacing: 0;
 }
 
@@ -31279,7 +31487,7 @@ html:not([data-platform="darwin"])
 .codex-main:not(.codex-main-landing) .run-log-thinking.streaming .run-log-thinking-summary {
   color: var(--codex-log-muted);
   font-size: var(--codex-feed-font-size);
-  font-weight: 500;
+  font-weight: 400;
   letter-spacing: 0;
 }
 
@@ -31336,15 +31544,15 @@ html:not([data-platform="darwin"])
 
 .codex-main:not(.codex-main-landing) .run-log-shimmer-text {
   font-size: var(--codex-feed-font-size);
-  font-weight: 500;
+  font-weight: 400;
   letter-spacing: 0;
   background-image: linear-gradient(
     90deg,
-    var(--codex-log-muted) 0%,
-    var(--codex-log-muted) 38%,
+    color-mix(in srgb, var(--codex-log-text) 35%, transparent) 0%,
+    color-mix(in srgb, var(--codex-log-text) 35%, transparent) 38%,
     color-mix(in srgb, var(--codex-log-text) 72%, var(--codex-log-muted)) 50%,
-    var(--codex-log-muted) 62%,
-    var(--codex-log-muted) 100%
+    color-mix(in srgb, var(--codex-log-text) 35%, transparent) 62%,
+    color-mix(in srgb, var(--codex-log-text) 35%, transparent) 100%
   );
 }
 
@@ -31621,13 +31829,14 @@ html:not([data-platform="darwin"])
 .codex-main:not(.codex-main-landing) .run-log-user-prompt-expand {
   background: var(--run-log-user-prompt-bg);
   color: var(--codex-log-chip-text);
-  font-size: 13px;
-  line-height: 1.55;
+  font-size: var(--codex-feed-font-size);
+  line-height: calc(var(--codex-feed-font-size) + 6px);
+  font-weight: 400;
 }
 
 .codex-main:not(.codex-main-landing) .run-log-user-prompt-edit-textarea {
-  font-size: 13px;
-  line-height: 1.55;
+  font-size: var(--codex-feed-font-size);
+  line-height: calc(var(--codex-feed-font-size) + 6px);
 }
 
 .codex-main:not(.codex-main-landing) .run-log-user-prompt-bubble {
@@ -31840,7 +32049,7 @@ html:not([data-platform="darwin"])
 .codex-main:not(.codex-main-landing) .composer-primary {
   width: 100%;
   max-width: 100%;
-  border: 1px solid var(--composer-primary-border);
+  border: 0;
   background: var(--composer-surface-bg);
   background-clip: padding-box;
   box-shadow: var(--composer-primary-shadow);
@@ -36133,14 +36342,15 @@ html[data-platform="win32"] .workspace-panel--floating-cards {
   min-height: 0;
   max-height: inherit;
   overflow: hidden;
-  border: 1px solid var(--floating-card-border, rgba(0, 0, 0, 0.06));
-  border-radius: var(--radius-card);
-  background: var(--floating-card-bg);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  border: 0;
+  border-radius: 16px;
+  background: var(--bg-elevated);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   box-shadow:
-    0 4px 16px var(--floating-card-shadow),
-    0 1px 3px var(--floating-card-shadow-subtle);
+    0 0 0 0.5px var(--workspace-summary-stroke),
+    0 3px 7.5px #0000000a,
+    0 0 20px #0000000d;
   color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
   font-size: 13px;
@@ -36193,24 +36403,38 @@ html[data-platform="win32"] .workspace-panel--floating-cards {
   background: var(--workspace-panel-scrollbar-thumb-hover);
 }
 
+/* Summary sections share one surface, with inset hairline dividers. */
 .workspace-panel-section {
-  border-bottom: 0;
+  position: relative;
   flex: 0 0 auto;
   min-width: 0;
+  padding-bottom: 8px;
+  border: 0;
+}
+
+.workspace-panel-section:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  right: 20px;
+  bottom: 0;
+  left: 20px;
+  height: 0.5px;
+  background: var(--workspace-summary-divider);
+  pointer-events: none;
 }
 
 .workspace-panel-section:last-child {
-  border-bottom: 0;
+  padding-bottom: 0;
 }
 
 .workspace-panel-section-header {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, auto) 18px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, auto) 24px;
   align-items: center;
   gap: 8px;
   width: 100%;
-  min-height: 32px;
-  padding: 2px 20px;
+  min-height: 28px;
+  padding: 0 14px 0 20px;
   -webkit-app-region: no-drag;
   transition:
     background-color 0.14s cubic-bezier(0.32, 0.72, 0, 1),
@@ -36218,11 +36442,11 @@ html[data-platform="win32"] .workspace-panel--floating-cards {
 }
 
 .workspace-panel-section-header:hover {
-  background: var(--nav-hover);
+  background: transparent;
 }
 
 .workspace-panel-section-header:active {
-  background: var(--nav-active);
+  background: transparent;
 }
 
 .workspace-panel-section-toggle {
@@ -36256,6 +36480,61 @@ html[data-platform="win32"] .workspace-panel--floating-cards {
   -webkit-app-region: no-drag;
   opacity: 0;
   transition: opacity 0.14s ease;
+}
+
+@supports (corner-shape: superellipse(1.5)) {
+  .workspace-floating-cards {
+    border-radius: 20px;
+    corner-shape: superellipse(1.5);
+  }
+}
+
+.workspace-panel-section-heading {
+  grid-column: 1;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  min-height: 28px;
+  margin: 0;
+}
+
+.workspace-panel-section-title.overflow-fade-text {
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.workspace-panel-section-action {
+  grid-column: 3;
+  display: flex;
+  justify-content: center;
+}
+
+.workspace-panel-section-more {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: 6px;
+  color: var(--text-muted);
+}
+
+.workspace-panel-section-more:hover,
+.workspace-panel-section-more[aria-expanded="true"] {
+  background: var(--nav-hover);
+  color: var(--text-primary);
+}
+
+.workspace-git-actions-popover {
+  padding: 6px;
+  overflow: auto;
+  border: 0.5px solid var(--popover-border);
+  border-radius: 10px;
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-menu);
+  color: var(--text-primary);
 }
 
 .workspace-panel-section-title {
@@ -36335,12 +36614,13 @@ html[data-platform="win32"] .workspace-panel--floating-cards {
   transform: rotate(180deg);
 }
 
+.workspace-panel-section.is-expanded .workspace-panel-section-summary > :not(button),
 .workspace-panel-section.is-expanded .floating-workspace-card-bubble-stats {
   display: none;
 }
 
-.workspace-panel-section-body {
-  padding: 6px 20px 10px;
+.workspace-floating-cards .workspace-panel-section-body {
+  padding: 2px 20px 0;
 }
 
 .workspace-panel-section--card .workspace-panel-section-body {
@@ -36378,6 +36658,129 @@ html[data-platform="win32"] .workspace-panel--floating-cards {
   background: var(--border-subtle);
   pointer-events: none;
 }
+
+.workspace-floating-cards .workspace-resource-row {
+  position: relative;
+  isolation: isolate;
+  min-height: 28px;
+  gap: 12px;
+  padding: 4px 0;
+  border-radius: 6px;
+  overflow: visible;
+}
+
+.workspace-floating-cards .workspace-resource-row-icon {
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  opacity: 1;
+}
+
+.workspace-floating-cards .workspace-resource-row-icon > svg {
+  width: 16px;
+  height: 16px;
+}
+
+.workspace-floating-cards .workspace-resource-row-title.overflow-fade-text {
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.workspace-floating-cards .workspace-image-artifact-thumbnail {
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+}
+
+.workspace-floating-cards .workspace-panel-section--card .workspace-resource-row {
+  min-height: 40px;
+  padding: 8px 12px;
+  border-radius: 0;
+}
+
+.workspace-floating-cards .thread-info-workspace-git-list {
+  gap: 2px;
+}
+
+.workspace-floating-cards .thread-info-workspace-git-row {
+  position: relative;
+  isolation: isolate;
+  min-height: 28px;
+  padding: 4px 0;
+  color: var(--text-primary);
+}
+
+.workspace-floating-cards .thread-info-workspace-git-row-button {
+  gap: 12px;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 20px;
+}
+
+.workspace-floating-cards .thread-info-workspace-git-row-button > svg {
+  flex: 0 0 18px;
+  width: 18px;
+  height: 16px;
+}
+
+.workspace-floating-cards :is(.workspace-resource-row, .thread-info-workspace-git-row)::before {
+  content: "";
+  position: absolute;
+  inset: 0 -8px;
+  z-index: -1;
+  border-radius: 6px;
+  pointer-events: none;
+}
+
+.workspace-floating-cards :is(.workspace-resource-row, .thread-info-workspace-git-row):hover {
+  background: transparent;
+}
+
+.workspace-floating-cards :is(.workspace-resource-row, .thread-info-workspace-git-row):hover::before {
+  background: var(--nav-hover);
+}
+
+.workspace-floating-cards :is(.workspace-resource-row, .thread-info-workspace-git-row):active {
+  transform: none;
+}
+
+.workspace-floating-cards .workspace-git-changes-label {
+  flex: 1;
+  min-width: 0;
+}
+
+.workspace-floating-cards .thread-info-workspace-git-stats {
+  flex: none;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 400;
+  font-feature-settings: "cv01" on, "cv02" on;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.025em;
+  line-height: 1;
+}
+
+.workspace-floating-cards .git-commit-stat-add {
+  color: var(--workspace-summary-added);
+}
+
+.workspace-floating-cards .git-commit-stat-del {
+  margin-left: 0;
+  color: var(--workspace-summary-deleted);
+}
+
+.workspace-floating-cards .workspace-browser-card-close {
+  height: 20px;
+  margin-left: -12px;
+}
+
+.workspace-floating-cards :is(.workspace-browser-card-trigger, .workspace-agent-bash-card-trigger):is(:hover, :focus-within) .workspace-browser-card-close {
+  width: 22px;
+  margin-left: 0;
+  margin-right: 0;
+  opacity: 1;
+}
+
 
 .workspace-panel > * {
   -webkit-app-region: no-drag;
@@ -37130,8 +37533,8 @@ html[data-platform="win32"] .codex-main-pane.is-task-panel-open:not(.has-panel-c
 .subagent-conversation .run-log-narrative.compact .run-log-narrative-body,
 .subagent-conversation .run-log-narrative.compact .markdown-content {
   color: var(--terminal-fg);
-  font-size: 14px;
-  line-height: 1.62;
+  font-size: var(--feed-prose-font-size);
+  line-height: var(--feed-prose-line-height);
 }
 
 .subagent-task-detail-empty,
@@ -37649,7 +38052,7 @@ body,
   color: var(--composer-toolbar-text);
   font: inherit;
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 400;
   letter-spacing: 0;
   line-height: 1;
   cursor: pointer;
@@ -38578,7 +38981,7 @@ body,
 
   .codex-composer .composer-footer-config-row,
   .codex-composer.is-compact .composer-footer-config-row {
-    flex: 0 1 auto;
+    flex: 0 0 auto;
     gap: 0;
   }
 
@@ -38763,7 +39166,7 @@ body,
 
   .codex-composer .composer-footer-config-row,
   .codex-composer.is-compact .composer-footer-config-row {
-    flex: 0 1 auto;
+    flex: 0 0 auto;
     gap: 0;
   }
 
@@ -38922,7 +39325,7 @@ body,
   }
 }
 
-/* Keep both action ends fixed; the model shrinks without filling unused space. */
+/* Keep configuration leading and the model/send cluster on the trailing edge. */
 .codex-composer .composer-footer-config-row {
   flex: 0 0 auto;
 }

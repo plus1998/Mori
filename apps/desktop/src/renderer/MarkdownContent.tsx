@@ -26,6 +26,8 @@ interface MarkdownContentProps {
   docProvider?: ProseMirrorDocProvider;
   /** Receives the editor view, e.g. so a controller can drive decorations. */
   onView?: (view: EditorView | null) => void;
+  /** Retain the editor while an adjacent streaming tail temporarily holds all text. */
+  keepMounted?: boolean;
 }
 
 function canUseProseMirrorHost(): boolean {
@@ -39,8 +41,10 @@ export function MarkdownContent({
   plugins,
   docProvider,
   onView,
+  keepMounted = false,
 }: MarkdownContentProps) {
-  if (!text.trim()) {
+  const empty = !text.trim();
+  if (empty && !keepMounted) {
     return null;
   }
 
@@ -48,13 +52,20 @@ export function MarkdownContent({
 
   // SSR / renderToStaticMarkup (tests): emit HTML from the same PM document model.
   if (!canUseProseMirrorHost()) {
-    return <div className={rootClass} dangerouslySetInnerHTML={{ __html: renderFeedMarkdownHtml(text) }} />;
+    return (
+      <div
+        className={rootClass}
+        hidden={empty}
+        dangerouslySetInnerHTML={{ __html: renderFeedMarkdownHtml(text) }}
+      />
+    );
   }
 
   return (
     <MarkdownContentProseMirror
       text={text}
       className={rootClass}
+      hidden={empty}
       {...(localImageContext ? { localImageContext } : {})}
       {...(plugins ? { plugins } : {})}
       {...(docProvider ? { docProvider } : {})}
@@ -70,6 +81,7 @@ function MarkdownContentProseMirror({
   plugins: pluginsOverride,
   docProvider,
   onView,
+  hidden,
 }: {
   text: string;
   className: string;
@@ -77,6 +89,7 @@ function MarkdownContentProseMirror({
   plugins?: readonly PMPlugin[];
   docProvider?: ProseMirrorDocProvider;
   onView?: (view: EditorView | null) => void;
+  hidden: boolean;
 }) {
   const plugins = useMemo(() => pluginsOverride ?? FEED_MARKDOWN_PLUGINS, [pluginsOverride]);
   const serializeDoc = useMemo(() => () => "__feed_markdown__", []);
@@ -141,7 +154,7 @@ function MarkdownContentProseMirror({
   );
 
   return (
-    <div className={className}>
+    <div className={className} hidden={hidden}>
       <ProseMirrorHost
         key={`md-images:${imageEpoch}`}
         className="pm-feed-markdown"

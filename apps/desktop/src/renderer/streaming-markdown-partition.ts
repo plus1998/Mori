@@ -3,10 +3,9 @@
  * - stable: completed top-level blocks (safe to fully render)
  * - tail: mutable remainder
  *
- * Incomplete fences / *confirmed* GFM tables (header+separator) / search-replace
- * must stay plain in the tail (half-syntax thrash). Pipe rows without a separator
- * are not GFM tables — live-render them as markdown so a malformed table cannot
- * freeze the rest of the stream as plain text.
+ * Incomplete fences / search-replace stay plain in the tail. Tables remain
+ * mutable but are live-rendered: the parser handles partial rows, and keeping
+ * the table mounted avoids switching between pipe text and table DOM per row.
  *
  * Incomplete prose (paragraphs, lists, headings) is not structural — callers
  * should live-render that as markdown so spacing matches settle.
@@ -51,8 +50,8 @@ export function partitionStreamingMarkdown(text: string, streaming: boolean): St
 }
 
 /**
- * True when the mutable tail must stay plain (incomplete fence / confirmed table / edit hold).
- * Incomplete loose prose — and pipe rows without a GFM separator — return false.
+ * True when the mutable tail must stay plain (incomplete fence / edit hold).
+ * Prose and tables use the live Markdown document, including incomplete rows.
  */
 export function isStructuralStreamingTail(tail: string): boolean {
   if (!tail) {
@@ -74,13 +73,7 @@ export function isStructuralStreamingTail(tail: string): boolean {
       return findClosingFence(lines, i + 1, fence.marker) === null;
     }
 
-    if (isTableRow(line.content) || isTableSeparator(line.content)) {
-      const table = scanTable(lines, i);
-      // Only confirmed GFM tables (separator seen) are structural while open.
-      return !table.complete && table.sawSeparator;
-    }
-
-    // Loose block (paragraph / list / heading / quote) — safe for live markdown.
+    // The remaining blocks, including a confirmed GFM table, stay live.
     return false;
   }
 

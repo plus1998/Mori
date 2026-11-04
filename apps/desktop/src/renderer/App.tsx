@@ -7086,6 +7086,7 @@ function App() {
     return merged;
   }, [activeRoutes, threadModelByRole]);
   const activityMessagesRef = useRef<HTMLDivElement>(null);
+  const activityFeedContentRef = useRef<HTMLDivElement>(null);
   const activityEndRef = useRef<HTMLDivElement>(null);
   const activityWorkspaceRef = useRef<HTMLDivElement>(null);
   const scrollBodyRef = useRef<HTMLDivElement>(null);
@@ -7936,8 +7937,10 @@ function App() {
     if (!container || !activeThread?.id) {
       return;
     }
-    const content = container.querySelector(".run-log");
-    if (!(content instanceof HTMLElement)) {
+    // This host survives loading, lazy Feed mount and projection replacement.
+    // Observing .run-log once could miss its later mount entirely.
+    const content = activityFeedContentRef.current;
+    if (!content) {
       return;
     }
     let lastContentHeight = content.getBoundingClientRect().height;
@@ -7949,6 +7952,14 @@ function App() {
       clampActivityFeedOverscroll(container);
       syncActivityFeedBoot(container);
       if (userDetachedFromBottomRef.current) {
+        syncActivityUserMessageNavigator(container);
+        return;
+      }
+      // Ordinary rows have no virtualizer to compensate their growth. Follow
+      // before paint, even when one table reflow exceeds the near-bottom band.
+      // Wheel / keyboard / drag intent detaches before this observer runs.
+      if (!feedEndAnchoredRef.current) {
+        scrollActivityFeedToEnd();
         syncActivityUserMessageNavigator(container);
         return;
       }
@@ -12932,7 +12943,7 @@ function App() {
           {/* Only Mori and New Chat stay fixed; utility entries scroll with the projects. */}
           <div className="sidebar-nav-list">
             <button type="button" className={moriOpen ? "sidebar-action active" : "sidebar-action"} aria-label="Mori" aria-current={moriOpen ? "page" : undefined} onClick={() => setMoriOpen(true)}>
-              <MoriIcon size={20} />
+              <MoriIcon size={ICON_SIZE.md} />
               Mori
               {renderSidebarShortcut("open-mori")}
             </button>
@@ -13282,6 +13293,7 @@ function App() {
                               tabIndex={0}
                               aria-busy={!activityFeedBootReady}
                             >
+                              <div ref={activityFeedContentRef} className="activity-feed-content">
                               {activityFeedBootReady ? (
                                 <SuspensePanel>
                                   <ReadAloudThreadContext value={activeThread?.id ?? ""}>
@@ -13337,6 +13349,7 @@ function App() {
                                 </SuspensePanel>
                               ) : null}
                               <div ref={activityEndRef} className="activity-scroll-anchor" aria-hidden />
+                              </div>
                             </div>
                             {activityFeedScrollJump ? (
                               <button

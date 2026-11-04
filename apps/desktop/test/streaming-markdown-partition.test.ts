@@ -65,13 +65,15 @@ test("completed fence closed at eof with no following unfinished block is stable
   expect(isStructuralStreamingTail("")).toBe(false);
 });
 
-test("incomplete GFM table with separator stays in tail and is structural", () => {
+test("incomplete GFM table stays mutable but uses live Markdown", () => {
   const source = "| a | b |\n| --- | --- |\n| 1 |";
   expect(partitionStreamingMarkdown(source, true)).toEqual({
     stable: "",
     tail: source,
   });
-  expect(isStructuralStreamingTail(source)).toBe(true);
+  expect(isStructuralStreamingTail(source)).toBe(false);
+  expect(isStructuralStreamingTail(`${source} 2`)).toBe(false);
+  expect(isStructuralStreamingTail(`${source} 2 |`)).toBe(false);
 });
 
 test("pipe rows without separator are not structural", () => {

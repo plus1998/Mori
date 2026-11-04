@@ -172,13 +172,13 @@ export function ReadAloudButton({ entryId, sourceText }: { entryId: string; sour
       }}
     >
       {preparing ? (
-        <LoaderCircle size={13} className="tts-artifact-spinner" aria-hidden />
+        <LoaderCircle size={16} strokeWidth={1.75} className="tts-artifact-spinner" aria-hidden />
       ) : active ? (
         <Square size={12} fill="currentColor" aria-hidden />
       ) : playback === "failed" ? (
-        <AlertCircle size={13} aria-hidden />
+        <AlertCircle size={16} strokeWidth={1.75} aria-hidden />
       ) : (
-        <Volume2 size={13} aria-hidden />
+        <Volume2 size={16} strokeWidth={1.75} aria-hidden />
       )}
     </button>
   );

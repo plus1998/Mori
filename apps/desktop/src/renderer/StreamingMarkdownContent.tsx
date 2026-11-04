@@ -45,9 +45,8 @@ export function StreamingMarkdownContent({
     [renderText, renderAsStreaming],
   );
   const structuralTail = renderAsStreaming && isStructuralStreamingTail(tail);
-  // Structural tails (open code fences, confirmed GFM tables, structured edits)
-  // must stay plain: live-parsing half-written syntax flickers. Everything else
-  // is live Markdown so the tail matches the settled spacing exactly.
+  // Hold open fences and structured edits as plain text. Tables stay live so
+  // completing each pipe row never switches the entire response's DOM shape.
   const plainTail = structuralTail ? tail : "";
   const markdownText = structuralTail ? stable : stable + tail;
   const caretVisible = renderAsStreaming && markdownText.length > 0;
@@ -109,7 +108,7 @@ export function StreamingMarkdownContent({
       if (!layoutSignature) {
         return;
       }
-      // Plain table/fence tails snap to a real table in one frame — stick immediately
+      // Plain fence tails snap to a real block in one frame — stick immediately
       // so Chromium overflow-anchor cannot walk the feed off the bottom.
       const structuralSnap = wasStructuralTail !== structuralTail;
       onLayoutChange?.(structuralSnap ? { immediate: true } : undefined);
@@ -120,48 +119,36 @@ export function StreamingMarkdownContent({
     }
   }, [renderAsStreaming, layoutSignature, structuralTail, onLayoutChange]);
 
-  if (renderAsStreaming) {
-    // Empty after holds (e.g. incomplete SEARCH-only) → leave Feed tail as loading host.
-    if (!markdownText.trim() && !plainTail) {
-      return null;
-    }
-    // Live Markdown in the same host the settled response uses, so block
-    // margins never jump when the response settles.
-    if (!plainTail) {
-      return (
+  // Empty after holds (e.g. incomplete SEARCH-only) → leave Feed tail as loading host.
+  if (!markdownText.trim() && !plainTail) {
+    return null;
+  }
+
+  // Keep the same parent chain and child position through prose, plain fences,
+  // live tables and settle. Stable plugins alone cannot prevent a remount when
+  // the surrounding React tree changes shape.
+  return (
+    <div
+      className={
+        className ? `markdown-content--streaming-wrap ${className}` : "markdown-content--streaming-wrap"
+      }
+    >
+      <div className="markdown-content--streaming-body">
         <MarkdownContent
           text={markdownText}
           plugins={plugins}
           docProvider={docProvider}
           onView={handleView}
-          {...(className && { className })}
+          className="markdown-content--streaming-stable"
+          keepMounted
         />
-      );
-    }
-    return (
-      <div
-        className={
-          className ? `markdown-content--streaming-wrap ${className}` : "markdown-content--streaming-wrap"
-        }
-      >
-        <div className="markdown-content--streaming-body">
-          {markdownText.trim() ? (
-            <MarkdownContent
-              text={markdownText}
-              plugins={plugins}
-              docProvider={docProvider}
-              onView={handleView}
-              className="markdown-content--streaming-stable"
-            />
-          ) : null}
+        {plainTail ? (
           <div className="markdown-content markdown-content--streaming-plain">
             {plainTail}
             <span className="stream-caret" aria-hidden="true" />
           </div>
-        </div>
+        ) : null}
       </div>
-    );
-  }
-
-  return <MarkdownContent text={text} plugins={plugins} onView={handleView} {...(className && { className })} />;
+    </div>
+  );
 }

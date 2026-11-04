@@ -1,18 +1,20 @@
 .feed-error-card {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
   width: 100%;
   min-width: 0;
-  padding: 12px 16px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--composer-outer-radius, 22px);
-  background: var(--bg-elevated);
-  color: var(--text-primary);
+  padding: 10px 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font-weight: 400;
 }
 
 .feed-error-card-icon {
   flex: 0 0 auto;
+  margin-top: 2px;
+  color: var(--danger);
 }
 
 .feed-error-card-copy,
@@ -26,7 +28,7 @@
   align-items: baseline;
   gap: 7px;
   font-size: 13px;
-  line-height: 1.45;
+  line-height: 20px;
   overflow-wrap: anywhere;
 }
 
@@ -65,8 +67,8 @@
 .feed-error-card-context {
   flex: 0 0 auto;
   color: var(--text-muted);
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 400;
 }
 
 .feed-error-card-message {
@@ -97,16 +99,17 @@
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  min-height: 30px;
-  padding: 5px 14px;
-  border: 1px solid var(--border-strong);
-  border-radius: 999px;
+  min-height: 28px;
+  margin-top: -4px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 6px;
   background: transparent;
   color: var(--text-primary);
   font: inherit;
   font-size: 12px;
-  font-weight: 500;
-  line-height: 1.2;
+  font-weight: 400;
+  line-height: 20px;
   cursor: pointer;
 }
 
@@ -127,6 +130,7 @@
   }
 
   .feed-error-card-retry {
-    margin-left: 28px;
+    margin-left: 26px;
+    margin-top: 0;
   }
 }

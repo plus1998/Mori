@@ -57,3 +57,27 @@ test("composerFloatingStyleForAnchor aligns popovers to the anchor trailing edge
     expect(style.width).toBe(320);
   });
 });
+
+test("below preference uses space below the anchor before moving above", () => {
+  withGlobalWindow(viewportWindow, () => {
+    const anchor = {
+      getBoundingClientRect: () => ({ left: 900, right: 924, top: 150, bottom: 174 }) as DOMRect,
+    } as HTMLElement;
+    const style = composerFloatingStyleForAnchor(anchor, { prefer: "below", minHeight: 120 });
+    expect(style.top).toBe(182);
+    expect(style.bottom).toBeUndefined();
+    expect(style.maxHeight).toBe(610);
+  });
+});
+
+test("below preference moves above only when the remaining lower space is too short", () => {
+  withGlobalWindow(viewportWindow, () => {
+    const anchor = {
+      getBoundingClientRect: () => ({ left: 900, right: 924, top: 700, bottom: 724 }) as DOMRect,
+    } as HTMLElement;
+    const style = composerFloatingStyleForAnchor(anchor, { prefer: "below", minHeight: 120 });
+    expect(style.top).toBeUndefined();
+    expect(style.bottom).toBe(108);
+    expect(style.maxHeight).toBe(684);
+  });
+});

@@ -28,7 +28,7 @@ export function FeedErrorCard({
 
   return (
     <section className="feed-error-card" role="alert" {...(title ? { title } : {})}>
-      <CircleAlert className="feed-error-card-icon" size={18} strokeWidth={1.8} aria-hidden />
+      <CircleAlert className="feed-error-card-icon" size={16} strokeWidth={1.75} aria-hidden />
       {detail ? (
         <details className="feed-error-card-details">
           <summary className="feed-error-card-copy">

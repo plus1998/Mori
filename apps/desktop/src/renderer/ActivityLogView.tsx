@@ -394,7 +394,11 @@ function MessageForkButton({
             .finally(() => setSaving(false));
         }}
       >
-        {saving ? <LoaderCircle size={13} className="spin" /> : <GitFork size={13} />}
+        {saving ? (
+          <LoaderCircle size={16} strokeWidth={1.75} className="spin" aria-hidden />
+        ) : (
+          <GitFork size={16} strokeWidth={1.75} aria-hidden />
+        )}
       </button>
       {error ? (
         <span role="alert" className="run-log-user-prompt-edit-error">
@@ -458,7 +462,7 @@ function RunLogMessageMeta({
           aria-label={i18n.t("activity.rewind")}
           title={i18n.t("activity.rewindTitle")}
         >
-          <Reply size={13} />
+          <Reply size={16} strokeWidth={1.75} aria-hidden />
         </button>
       ) : null}
       {editUserMessage ? (
@@ -474,7 +478,7 @@ function RunLogMessageMeta({
           })}
           disabled={editUserMessage.disabled}
         >
-          <Pencil size={13} />
+          <Pencil size={16} strokeWidth={1.75} aria-hidden />
         </button>
       ) : null}
       {canCopy ? (
@@ -485,7 +489,7 @@ function RunLogMessageMeta({
           aria-label={i18n.t("activity.copyMessage")}
           title={i18n.t("activity.copyMessage")}
         >
-          <Copy size={13} />
+          <Copy size={16} strokeWidth={1.75} aria-hidden />
         </button>
       ) : null}
       {readAloud ? <ReadAloudButton {...readAloud} /> : null}
@@ -6223,7 +6227,6 @@ function ThinkingBlock({
         }}
         aria-expanded={hasBody ? isExpanded : undefined}
       >
-        <Sparkles size={14} className="run-log-thinking-icon" aria-hidden />
         <span className="run-log-thinking-summary">
           {activelyStreaming ? <ShimmerText>{baseLabel}</ShimmerText> : baseLabel}
           {durationLabel ? <span className="run-log-thinking-elapsed">{durationLabel}</span> : null}
@@ -8162,7 +8165,7 @@ function RunLogActionIcon({
   const statusLabel = approvalLifecycle ? lifecycleStatusLabel(approvalLifecycle) : undefined;
   return (
     <span className="run-log-action-icon-wrap" aria-hidden>
-      <Icon size={14} className="run-log-action-icon" />
+      <Icon size={14} strokeWidth={1.5} className="run-log-action-icon" />
       {StatusIcon && approvalLifecycle ? (
         <span
           className={["run-log-action-status-badge", approvalStatusBadgeClass(approvalLifecycle)].join(" ")}

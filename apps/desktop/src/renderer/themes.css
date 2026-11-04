@@ -74,6 +74,7 @@
   --sidebar-item-active-text: #ffffff;
   --codex-log-bg: #1f1f1f;
   --codex-log-text: #ededed;
+  --codex-log-prose: #dfdfdf;
   --codex-log-muted: #999999;
   --codex-log-faint: #6f6f6f;
   --codex-log-line: #353535;
@@ -99,6 +100,10 @@
   --card-surface-bg-muted: #232323;
   --card-surface-border: #373737;
   --card-surface-border-active: #484848;
+  --workspace-summary-stroke: rgba(255, 255, 255, 0.2);
+  --workspace-summary-divider: rgba(255, 255, 255, 0.1);
+  --workspace-summary-added: #3fb950;
+  --workspace-summary-deleted: #f85149;
   --floating-card-bg: rgba(39, 39, 39, 0.96);
   --floating-card-border: rgba(255, 255, 255, 0.09);
   --floating-card-edge: rgba(255, 255, 255, 0.04);
@@ -115,7 +120,7 @@
   --composer-shell-padding-x: 10px;
   --composer-shell-padding-bottom: 10px;
   --composer-primary-border: #414141;
-  --composer-primary-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  --composer-primary-shadow: inset 0 0 1px 0 #ffffff33;
   --composer-shell-border: rgba(255, 255, 255, 0.1);
   --composer-wrap-fade: linear-gradient(to bottom, rgba(23, 23, 23, 0), #171717 24%);
   --composer-pill-bg: #252525;
@@ -270,6 +275,7 @@
   --sidebar-item-active-text: #1d1d1f;
   --codex-log-bg: #ffffff;
   --codex-log-text: #242424;
+  --codex-log-prose: #1a1c1f;
   --codex-log-muted: #767676;
   --codex-log-faint: #aeaeb2;
   --codex-log-line: #e7e7e7;
@@ -295,6 +301,10 @@
   --card-surface-bg-muted: #fafafa;
   --card-surface-border: #e7e7e7;
   --card-surface-border-active: #d5d5d5;
+  --workspace-summary-stroke: rgba(0, 0, 0, 0.15);
+  --workspace-summary-divider: rgba(0, 0, 0, 0.1);
+  --workspace-summary-added: #00a63e;
+  --workspace-summary-deleted: #d1242f;
   --floating-card-bg: rgba(255, 255, 255, 0.97);
   --floating-card-border: rgba(0, 0, 0, 0.07);
   --floating-card-edge: rgba(255, 255, 255, 0.35);
@@ -311,7 +321,7 @@
   --composer-shell-padding-x: 10px;
   --composer-shell-padding-bottom: 12px;
   --composer-primary-border: #dddddd;
-  --composer-primary-shadow: 0 2px 8px rgba(0, 0, 0, 0.035);
+  --composer-primary-shadow: 0 0 0 1px #0000000a, 0 2px 8px 0 #0000000a, 0 4px 80px 8px #00000006;
   --composer-shell-border: rgba(0, 0, 0, 0.06);
   --composer-wrap-fade: linear-gradient(to bottom, rgba(255, 255, 255, 0), #ffffff 24%);
   --composer-pill-bg: #f3f3f3;

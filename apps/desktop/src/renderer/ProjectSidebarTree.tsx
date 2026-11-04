@@ -1,6 +1,6 @@
 import {
+  ChevronRight,
   Folder,
-  FolderOpen,
   Home,
   LoaderCircle,
   MessageCirclePlus,
@@ -21,6 +21,7 @@ import { ICON_SIZE, ICON_STROKE } from "./icon-metrics";
 import { coreDisplayName, coreIconSrc } from "./SidebarCoreSelector";
 import type { ProjectReorderPosition } from "./project-sidebar-order";
 import { formatRelativeTime } from "./relative-time";
+import { OverflowFadeText } from "./OverflowFadeText";
 
 const PROJECT_DRAG_MIME = "application/x-eco-project-path";
 
@@ -425,19 +426,20 @@ export function ProjectSidebarTree({
                 }
                 onClick={() => onToggleProjectCollapsed(project.path)}
               >
+                <span className="project-group-icon" aria-hidden>
+                  {project.isHome ? (
+                    <Home size={ICON_SIZE.md} strokeWidth={ICON_STROKE} />
+                  ) : (
+                    <Folder size={ICON_SIZE.md} strokeWidth={ICON_STROKE} />
+                  )}
+                  <ChevronRight size={ICON_SIZE.sm} strokeWidth={ICON_STROKE} className="project-group-disclosure" />
+                </span>
+                <OverflowFadeText className="project-group-title">{project.name}</OverflowFadeText>
                 {project.pinned && !project.isHome ? (
                   <span className="project-pin-indicator" title={t("projectTree.pinned")} aria-hidden>
-                    <Pin size={ICON_SIZE.sm} strokeWidth={ICON_STROKE} />
+                    <Pin size={ICON_SIZE.xs} strokeWidth={ICON_STROKE} />
                   </span>
                 ) : null}
-                {project.isHome ? (
-                  <Home size={ICON_SIZE.md} strokeWidth={ICON_STROKE} />
-                ) : collapsed ? (
-                  <Folder size={ICON_SIZE.md} strokeWidth={ICON_STROKE} />
-                ) : (
-                  <FolderOpen size={ICON_SIZE.md} strokeWidth={ICON_STROKE} />
-                )}
-                <span>{project.name}</span>
               </button>
             )}
             <span
@@ -558,7 +560,7 @@ export function ProjectSidebarTree({
                         />
                       ) : null}
                       <span className="chat-item-title-row">
-                        <span className="chat-item-title">{thread.title}</span>
+                        <OverflowFadeText className="chat-item-title">{thread.title}</OverflowFadeText>
                         {draftThreadIds?.has(thread.id) ? (
                           <span className="chat-item-draft" title={t("projectTree.draftHint")}>
                             {t("projectTree.draft")}

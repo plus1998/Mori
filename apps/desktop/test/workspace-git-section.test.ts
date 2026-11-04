@@ -29,3 +29,29 @@ test("work panel commit entry labels stay project-progress oriented", () => {
   expect(getWorkspaceGitCommitEntryLabel("committing")).toBe("Committing");
   expect(getWorkspaceGitCommitEntryLabel("pushing")).toBe("Pushing");
 });
+
+test("summary keeps formatted changes visible and moves secondary actions out of the default card", async () => {
+  const { createElement } = await import("react");
+  const { renderLocalized } = await import("./i18n-test");
+  const { WorkspaceGitSection } = await import("../src/renderer/WorkspaceGitSection");
+  const props = {
+    workspacePath: "/repo",
+    workspaceLabel: "eco-coding",
+    gitStatus: {
+      workspacePath: "/repo", isGitRepository: true, hasGitCommits: true,
+      branch: "review-branch", branches: ["review-branch", "main"], dirtyFileCount: 2,
+      insertions: 34911, deletions: 13797, canCommit: true,
+      aheadCount: 0, behindCount: 0, hasUpstream: true,
+      gh: { available: false, authenticated: false },
+    },
+    onOpenScriptsDialog: () => undefined,
+  };
+  const summary = renderLocalized(createElement(WorkspaceGitSection, { ...props, summary: true }), "en-US");
+  expect(summary).toContain("+34,911");
+  expect(summary).toContain("-13,797");
+  expect(summary).not.toContain("review-branch");
+  expect(summary).not.toContain(">Fetch</span>");
+  const full = renderLocalized(createElement(WorkspaceGitSection, props), "en-US");
+  expect(full).toContain("review-branch");
+  expect(full).toContain(">Fetch</span>");
+});

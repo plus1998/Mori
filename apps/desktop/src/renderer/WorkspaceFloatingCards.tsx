@@ -7,21 +7,22 @@ import {
   ChevronDown,
   Clock3,
   Copy,
-  GitBranch,
   GitGraph,
   Globe,
   Image as ImageIcon,
   Lightbulb,
   ListTodo,
   Loader2,
+  MoreHorizontal,
   Square,
+  SquareTerminal,
   Sparkles,
   Terminal,
   Unplug,
   Users,
   X,
 } from "lucide-react";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { pathToName } from "../shared/home-project";
 import { countEnabledMcpServers } from "../shared/composer-mcp";
@@ -77,6 +78,7 @@ import { resolveWorkspacePlanTitle } from "./workspace-plan-title";
 import type { ScheduleDefinition, ScheduleOccurrence } from "../shared/scheduling";
 import { ScheduledMessagesCardBody } from "./ScheduledMessagesCardBody";
 import { ImageDisplayArtifactIcon } from "./ImageDisplayArtifactIcon";
+import { OverflowFadeText } from "./OverflowFadeText";
 
 export interface ThreadUsageSummary {
   billing?: ThreadBillingSnapshot;
@@ -217,6 +219,8 @@ function WorkspacePanelSection({
   id,
   title,
   summary,
+  headerAction,
+  collapsible = true,
   children,
   defaultExpanded = true,
   persistExpanded = true,
@@ -227,6 +231,8 @@ function WorkspacePanelSection({
   id: string;
   title: string;
   summary?: ReactNode;
+  headerAction?: ReactNode;
+  collapsible?: boolean;
   children: ReactNode;
   defaultExpanded?: boolean;
   persistExpanded?: boolean;
@@ -234,9 +240,10 @@ function WorkspacePanelSection({
   maxBodyHeight?: number;
   onExpandedChange?: (expanded: boolean) => void;
 }) {
-  const [expanded, setExpanded] = useState(() =>
+  const [expandedState, setExpanded] = useState(() =>
     persistExpanded ? readCardExpanded(id, defaultExpanded) : defaultExpanded,
   );
+  const expanded = !collapsible || expandedState;
   const bodyId = `${id}-body`;
 
   function toggleExpanded() {
@@ -253,25 +260,35 @@ function WorkspacePanelSection({
   return (
     <section className={`workspace-panel-section${variant === "card" ? " workspace-panel-section--card" : ""}${expanded ? " is-expanded" : " is-collapsed"}`}>
       <div className="workspace-panel-section-header">
-        <button
-          type="button"
-          className="workspace-panel-section-toggle"
-          onClick={toggleExpanded}
-          aria-expanded={expanded}
-          aria-controls={bodyId}
-        >
-          <span className="workspace-panel-section-title">{title}</span>
-        </button>
+        {collapsible ? (
+          <button
+            type="button"
+            className="workspace-panel-section-toggle"
+            onClick={toggleExpanded}
+            aria-expanded={expanded}
+            aria-controls={bodyId}
+          >
+            <OverflowFadeText className="workspace-panel-section-title">{title}</OverflowFadeText>
+          </button>
+        ) : (
+          <h3 className="workspace-panel-section-heading">
+            <OverflowFadeText className="workspace-panel-section-title">{title}</OverflowFadeText>
+          </h3>
+        )}
         {summary ? <span className="workspace-panel-section-summary">{summary}</span> : null}
-        <button
-          type="button"
-          className="workspace-panel-section-chevron-btn"
-          onClick={toggleExpanded}
-          aria-hidden="true"
-          tabIndex={-1}
-        >
-          <ChevronDown size={14} className="workspace-panel-section-chevron" aria-hidden />
-        </button>
+        {headerAction ? (
+          <div className="workspace-panel-section-action">{headerAction}</div>
+        ) : collapsible ? (
+          <button
+            type="button"
+            className="workspace-panel-section-chevron-btn"
+            onClick={toggleExpanded}
+            aria-hidden="true"
+            tabIndex={-1}
+          >
+            <ChevronDown size={14} className="workspace-panel-section-chevron" aria-hidden />
+          </button>
+        ) : null}
       </div>
       {expanded ? (
         <div
@@ -411,15 +428,13 @@ function CodexBackgroundTerminalsCardBody({
           <div
             key={key}
             className="workspace-resource-row workspace-agent-bash-card-trigger"
-            title={`${terminal.workspacePath}\nprocessId ${terminal.processId}\n${terminal.command}`}
+            title={`${terminal.workspacePath}\nprocessId ${terminal.processId}\n${terminal.command}\n${processMeta}`}
           >
             <span className="workspace-resource-row-icon workspace-agent-bash-icon" aria-hidden>
-              <Terminal size={16} strokeWidth={1.75} />
-              <span className="workspace-agent-bash-live-dot" />
+              <SquareTerminal size={16} strokeWidth={1.75} />
             </span>
             <span className="workspace-agent-bash-main">
-              <span className="workspace-resource-row-title">{command}</span>
-              <span className="workspace-agent-bash-meta">{processMeta}</span>
+              <OverflowFadeText className="workspace-resource-row-title">{command}</OverflowFadeText>
             </span>
             <button
               type="button"
@@ -480,17 +495,13 @@ function ClaudeBackgroundTasksCardBody({
           <div
             key={task.taskId}
             className="workspace-resource-row workspace-agent-bash-card-trigger"
-            title={`${task.workspacePath}\ntaskId ${task.taskId}\n${task.label}`}
+            title={`${task.workspacePath}\ntaskId ${task.taskId}\n${task.label}\n${task.taskType}`}
           >
             <span className="workspace-resource-row-icon workspace-agent-bash-icon" aria-hidden>
-              <Terminal size={16} strokeWidth={1.75} />
-              <span className="workspace-agent-bash-live-dot" />
+              <SquareTerminal size={16} strokeWidth={1.75} />
             </span>
             <span className="workspace-agent-bash-main">
-              <span className="workspace-resource-row-title">{task.label}</span>
-              <span className="workspace-agent-bash-meta">
-                taskId {task.taskId} · {task.taskType}
-              </span>
+              <OverflowFadeText className="workspace-resource-row-title">{task.label}</OverflowFadeText>
             </span>
             <button
               type="button"
@@ -550,7 +561,7 @@ function PlanWorkspaceCardBody({ plan, onOpenPlan }: { plan: ThreadPendingPlan; 
         <span className="workspace-resource-row-icon" aria-hidden>
           <Lightbulb size={16} strokeWidth={1.75} />
         </span>
-        <span className="workspace-resource-row-title">{title}</span>
+        <OverflowFadeText className="workspace-resource-row-title">{title}</OverflowFadeText>
       </button>
       <button
         type="button"
@@ -613,7 +624,7 @@ function BrowserWorkspaceCardBody({
                     title={title}
                   />
                 </span>
-                <span className="workspace-resource-row-title">{title}</span>
+                <OverflowFadeText className="workspace-resource-row-title">{title}</OverflowFadeText>
                 {showHost ? <span className="workspace-resource-row-meta">{host}</span> : null}
               </button>
               {onCloseBrowser ? (
@@ -665,7 +676,7 @@ function ImageGenerationWorkspaceCardBody({
             <span className="workspace-resource-row-icon" aria-hidden>
               <ImageIcon size={16} strokeWidth={1.75} />
             </span>
-            <span className="workspace-resource-row-title">{prompt}</span>
+            <OverflowFadeText className="workspace-resource-row-title">{prompt}</OverflowFadeText>
             <span className="workspace-resource-row-meta">{meta}</span>
           </button>
         );
@@ -703,7 +714,7 @@ function ImageDisplayWorkspaceCardBody({
             title={title}
           >
             <ImageDisplayArtifactIcon artifact={artifact} />
-            <span className="workspace-resource-row-title">{title}</span>
+            <OverflowFadeText className="workspace-resource-row-title">{title}</OverflowFadeText>
             <span className="workspace-resource-row-meta">{meta}</span>
           </button>
         );
@@ -751,7 +762,7 @@ function HtmlHostWorkspaceCardBody({
                 draggable={false}
               />
             </span>
-            <span className="workspace-resource-row-title">{title}</span>
+            <OverflowFadeText className="workspace-resource-row-title">{title}</OverflowFadeText>
             <span className="workspace-resource-row-meta">{meta}</span>
           </button>
         );
@@ -850,10 +861,11 @@ export function WorkspaceFloatingCards({
   const showProgress = hasProgressInfo(todos);
   const showEnvironment = hasActiveThread || Boolean(onOpenScriptsDialog) || gitStatus?.isGitRepository !== false;
   const [commitsRefreshKey, setCommitsRefreshKey] = useState(0);
+  const [gitActionsAnchor, setGitActionsAnchor] = useState<HTMLButtonElement | null>(null);
+  const closeGitActions = useCallback(() => setGitActionsAnchor(null), []);
+  useEffect(() => setGitActionsAnchor(null), [workspacePath]);
   const showCommitGraph = Boolean(workspacePath && gitStatus?.isGitRepository && gitStatus.hasGitCommits);
   const branchLabel = gitStatus?.branch ?? "—";
-  const insertions = gitStatus?.insertions ?? 0;
-  const deletions = gitStatus?.deletions ?? 0;
   const enabledMcpCount = composerMcpSettings ? countEnabledMcpServers(composerMcpSettings) : 0;
   const enabledMcpServers = mcpServers.filter((server) => server.enabled && server.name.trim());
   const integrationItems = integrationAvailability?.integrations ?? [];
@@ -892,23 +904,30 @@ export function WorkspaceFloatingCards({
         {showEnvironment ? (
           <WorkspacePanelSection
             id="workspace-env"
-            title={t("workspaceCards.environment")}
-            defaultExpanded
-            summary={
-              <>
-                <GitBranch size={14} aria-hidden />
-                <span>{branchLabel}</span>
-                <span className="floating-workspace-card-bubble-stats">
-                  <span className="git-commit-stat-add">+{insertions}</span>
-                  <span className="git-commit-stat-del">-{deletions}</span>
-                </span>
-              </>
+            title={projectLabel}
+            collapsible={false}
+            headerAction={
+              <button
+                type="button"
+                className="workspace-panel-section-more"
+                aria-label={t("projectTree.actions", { name: projectLabel })}
+                aria-haspopup="dialog"
+                aria-expanded={Boolean(gitActionsAnchor)}
+                onClick={(event) => {
+                  const anchor = event.currentTarget;
+                  setGitActionsAnchor((current) => current ? null : anchor);
+                }}
+              >
+                <MoreHorizontal size={16} strokeWidth={1.75} aria-hidden />
+              </button>
             }
-            onExpandedChange={() => void onRefreshGitStatus?.(false)}
           >
             <WorkspaceGitSection
               {...(workspacePath && { workspacePath })}
               workspaceLabel={projectLabel}
+              summary
+              {...(gitActionsAnchor && { actionsAnchor: gitActionsAnchor })}
+              onActionsClose={closeGitActions}
               {...(gitStatus && { gitStatus })}
               gitBusy={gitBusy ?? false}
               commitDisabled={commitDisabled ?? false}
@@ -1063,7 +1082,6 @@ export function WorkspaceFloatingCards({
         {resolvedBrowserInstances.length > 0 ? (
           <WorkspacePanelSection
             id="workspace-browser-tabs"
-            variant="card"
             title={t("workspaceCards.browser")}
             defaultExpanded
             summary={

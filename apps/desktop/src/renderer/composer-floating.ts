@@ -94,7 +94,7 @@ export function composerFloatingStyleForAnchor(
     prefer === "above"
       ? spaceAbove >= minHeight || spaceAbove >= spaceBelow
       : prefer === "below"
-        ? !(spaceBelow < minHeight && spaceAbove > spaceBelow)
+        ? spaceBelow < minHeight && spaceAbove > spaceBelow
         : spaceBelow < minHeight && spaceAbove > spaceBelow;
   const availableSpace = Math.max(MIN_FLOATING_HEIGHT, Math.floor(placeAbove ? spaceAbove : spaceBelow));
   const fixedHeight =

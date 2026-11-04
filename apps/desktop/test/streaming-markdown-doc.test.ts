@@ -24,6 +24,8 @@ const corpus: Array<[string, string]> = [
   ["table", "| a | b |\n| --- | --- |\n| 1 | 2 |\n\n后面\n\n"],
   ["pipe-lookalike", "a | b\n--- | --\n\n后续\n\n"],
   ["pipe-to-table", "a | b\n--- | ---\n1 | 2\n\n后续\n\n"],
+  ["single-column-table", "| 说明 |\n| --- |\n| 第一行 |\n| 第二行 |\n\n结束\n\n"],
+  ["table-inline", "| 内容 | 数值 |\n| --- | --- |\n| **加粗**与 `code` | 123 |\n| a\\|b | 456 |\n\n"],
   ["inline-marks", "**粗体** 和 `code`\n\n> 引用\n> 第二行\n\n"],
   [
     "cjk-emphasis",
@@ -62,7 +64,7 @@ test("every streamed prefix matches a full parse", () => {
         const prefix = stream.slice(0, end);
         const { stable, tail } = partitionStreamingMarkdown(prefix, true);
         if (isStructuralStreamingTail(tail)) {
-          // The renderer shows incomplete fences/tables as plain text on purpose.
+          // Only unfinished fences / structured edits are held as plain text.
           continue;
         }
         const streamed = buildStreamingMarkdownDoc(cache, stable, tail);
@@ -77,6 +79,22 @@ test("every streamed prefix matches a full parse", () => {
     }
   }
   expect(failures.join("\n\n")).toBe("");
+});
+
+test("a growing table preserves sealed prose and matches the final document", () => {
+  const cache = createStreamingMarkdownDocCache();
+  const intro = "# 报告\n\n保留这段正文。\n\n";
+  const header = "| 名称 | 数值 |\n| --- | --- |\n";
+  let sealedHeading: ReturnType<typeof createFeedMarkdownDoc>["firstChild"];
+  for (const rows of ["| a", "| a | 1", "| a | 1 |", "| a | 1 |\n| b | 2 |", "| a | 1 |\n| b | 2 |\n\n"]) {
+    const text = intro + header + rows;
+    const { stable, tail } = partitionStreamingMarkdown(text, true);
+    const doc = buildStreamingMarkdownDoc(cache, stable, tail);
+    expect(jsonOf(doc)).toBe(jsonOf(createFeedMarkdownDoc(text)));
+    expect(doc.child(2).type.name).toBe("table");
+    if (sealedHeading) expect(doc.firstChild).toBe(sealedHeading);
+    sealedHeading = doc.firstChild;
+  }
 });
 
 test("unsupported constructs fall back to a full parse instead of drifting", () => {

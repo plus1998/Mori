@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import { composerFloatingViewport } from "./composer-floating";
 import { i18n } from "./i18n";
 import { SidebarAttentionButton } from "./SidebarAttentionButton";
+import { ICON_SIZE, ICON_STROKE } from "./icon-metrics";
 import type { SidebarAttentionItem } from "./sidebar-attention-items";
 
 interface SidebarCoreSelectorProps {
@@ -222,7 +223,7 @@ export function SidebarCoreSelector({
           }}
         >
           <CoreHeadingLabel coreKind={coreKind} />
-          <ChevronDown size={15} aria-hidden />
+          <ChevronDown size={ICON_SIZE.md} strokeWidth={ICON_STROKE} aria-hidden />
         </button>
       ) : (
         <div className="sidebar-core-heading">
