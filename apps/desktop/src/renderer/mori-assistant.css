@@ -96,6 +96,12 @@ html[data-platform="darwin"] .shell-sidebar-hidden .mori-main-view {
 .mori-main-view .mori-panel-header {
   padding-left: var(--mori-chrome-inset, 22px);
 }
+/* Windows/Linux: the native Window Controls Overlay (min/max/close) paints over
+   the top-right corner of the frameless main window; keep header actions clear. */
+html[data-platform="win32"] .mori-main-view .mori-panel-header,
+html[data-platform="linux"] .mori-main-view .mori-panel-header {
+  padding-right: calc(22px + var(--window-controls-overlay-end, 0px));
+}
 .mori-panel-header button:hover:not(:disabled),
 .mori-panel-header button.is-selected {
   color: var(--text-primary);
