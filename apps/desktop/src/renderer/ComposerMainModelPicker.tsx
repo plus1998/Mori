@@ -12,7 +12,7 @@ type Source = "login" | "oauth" | string;
 type PickerDataKey = "custom" | "loginAccounts" | "oauthAccounts" | "loginModels" | "oauthModels";
 type Account = { id: string; name: string; quota?: OpenAIAccountQuota | undefined; quotaError?: string | undefined };
 type PickerModel = { id: string; name: string; candidateModelId?: string;
-  reasoningEfforts?: ThinkingEffort[] };
+  reasoningEfforts?: ThinkingEffort[]; reasoningUnknown?: boolean; unsupportedCatalogEfforts?: string[] };
 type ProviderOption = { id: Source; name: string; color?: string; icon?: string; models: PickerModel[] };
 const THINKING_EFFORTS: readonly ThinkingEffort[] = ["off", "low", "medium", "high", "xhigh", "max"];
 function catalogThinkingEfforts(levels: readonly string[]): ThinkingEffort[] {
@@ -30,7 +30,7 @@ export function resolvePickerThinkingEffort(
 
 export function thinkingEffortsForModel(entry: PickerModel | undefined,
   capabilities: Record<string, CandidateModelView>): readonly ThinkingEffort[] {
-  if (!entry) return [];
+  if (!entry || entry.reasoningUnknown) return [];
   if (entry.reasoningEfforts) return entry.reasoningEfforts;
   if (entry.candidateModelId) {
     const capability = capabilities[entry.candidateModelId];
@@ -99,6 +99,24 @@ function ThinkingEffortSlider({ efforts, value, disabled = false, statusLabel, o
         onPointerCancel={() => { draftIndexRef.current = undefined; setDraftIndex(undefined); }} />
     </div>
   </div>;
+}
+
+export function associateOAuthModelEfforts(
+  models: readonly PickerModel[],
+  catalog: readonly { modelId: string; reasoningEfforts: string[] }[],
+): PickerModel[] {
+  const byId = new Map(catalog.map((entry) => [entry.modelId, entry]));
+  return models.map((model) => {
+    const entry = byId.get(model.id);
+    if (!entry || entry.reasoningEfforts.length === 0) {
+      return { ...model, reasoningEfforts: [], reasoningUnknown: true };
+    }
+    const reasoningEfforts = catalogThinkingEfforts(entry.reasoningEfforts);
+    const unsupportedCatalogEfforts = entry.reasoningEfforts.filter((value) =>
+      !THINKING_EFFORTS.includes((value === "none" ? "off" : value) as ThinkingEffort));
+    return { ...model, reasoningEfforts, reasoningUnknown: reasoningEfforts.length === 0,
+      unsupportedCatalogEfforts };
+  });
 }
 
 export function buildMainModelProviderOptions(
@@ -234,8 +252,7 @@ export function ComposerMainModelPicker({
         reasoningEfforts: entry.reasoningEfforts }))));
     load("oauthModels", eco.getChatGptModelCatalog(), (catalog) => setOauthModels(catalog.models
       .filter((entry) => !entry.hidden)
-      .map((entry) => ({ id: entry.modelId, name: entry.displayName,
-        reasoningEfforts: catalogThinkingEfforts(entry.reasoningEfforts) }))));
+      .map((entry) => ({ id: entry.modelId, name: entry.displayName }))));
     return () => { cancelled = true; };
   }, [open]);
 
@@ -279,7 +296,9 @@ export function ComposerMainModelPicker({
   const selectedProvider = providers.find((provider) => provider.id === source);
   const accountSource = source === "login" || source === "oauth";
   const accounts = source === "login" ? loginAccounts : oauthAccounts;
-  const availableModels = source === "oauth" ? oauthModels : selectedProvider?.models ?? [];
+  const oauthModelsWithEfforts = useMemo(() => associateOAuthModelEfforts(oauthModels, loginModels),
+    [oauthModels, loginModels]);
+  const availableModels = source === "oauth" ? oauthModelsWithEfforts : selectedProvider?.models ?? [];
   const accountsLoading = loadingData.has(source === "login" ? "loginAccounts" : "oauthAccounts");
   const modelsLoading = loadingData.has(source === "login" ? "loginModels"
     : source === "oauth" ? "oauthModels" : "custom");
@@ -301,8 +320,9 @@ export function ComposerMainModelPicker({
       (!entry.candidateModelId || entry.candidateModelId === activeChoice?.candidateModelId))
     : undefined;
   const supportedEfforts = thinkingEffortsForModel(activeModel, candidateCapabilities);
-  const capabilitiesLoading = Boolean(activeModel?.candidateModelId &&
-    !candidateCapabilities[activeModel.candidateModelId] && !capabilitySettled.has(source));
+  const capabilitiesLoading = Boolean((source === "oauth" && loadingData.has("loginModels")) ||
+    (activeModel?.candidateModelId &&
+      !candidateCapabilities[activeModel.candidateModelId] && !capabilitySettled.has(source)));
   const sliderDisabled = capabilitiesLoading || Boolean(activeModel && supportedEfforts.length === 0);
   const sliderEfforts = activeModel && supportedEfforts.length > 0 ? supportedEfforts : THINKING_EFFORTS;
 
@@ -366,14 +386,14 @@ export function ComposerMainModelPicker({
   };
 
   useEffect(() => {
-    if (!open || !activeModel || !activeChoice || activeChoice.thinkingEffort) return;
+    if (!open || !activeModel || !activeChoice || activeChoice.thinkingEffort || capabilitiesLoading) return;
     const effort = resolvePickerThinkingEffort(preferredEffort, supportedEfforts);
     if (effort) {
       setActiveChoice({ ...activeChoice, thinkingEffort: effort });
       setPreferredEffort(effort);
       void saveChoice({ ...activeChoice, thinkingEffort: effort });
     }
-  }, [open, activeModel?.id, activeChoice?.thinkingEffort, preferredEffort, supportedEfforts]);
+  }, [open, activeModel?.id, activeChoice?.thinkingEffort, preferredEffort, supportedEfforts, capabilitiesLoading]);
 
   return <span className="composer-model-selector">
     <button ref={triggerRef} type="button"
@@ -494,9 +514,14 @@ export function ComposerMainModelPicker({
               efforts={sliderEfforts} value={activeChoice?.thinkingEffort ?? preferredEffort}
               disabled={sliderDisabled}
               {...(capabilitiesLoading ? { statusLabel: t("composer.mainPicker.loading") }
-                : activeModel && supportedEfforts.length === 0
-                  ? { statusLabel: t("composer.mainPicker.noThinkingEfforts") } : {})}
+                : activeModel?.reasoningUnknown
+                  ? { statusLabel: t("composer.mainPicker.unknownThinkingEfforts") }
+                  : activeModel && supportedEfforts.length === 0
+                    ? { statusLabel: t("composer.mainPicker.noThinkingEfforts") } : {})}
               onCommit={chooseEffort} />
+            {activeModel?.unsupportedCatalogEfforts?.length ? <p className="composer-main-model-picker-hint">
+              {t("composer.mainPicker.unsupportedCatalogEfforts", { efforts: activeModel.unsupportedCatalogEfforts.join(", ") })}
+            </p> : null}
           </div>
         </div>
       </div>

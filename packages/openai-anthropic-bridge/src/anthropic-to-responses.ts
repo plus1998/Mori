@@ -42,9 +42,6 @@ export function normalizeWebSearchDomain(domain: string): string {
 }
 
 export function mapAnthropicEffortToResponses(effort: string): string {
-  if (effort === "max") {
-    return "xhigh";
-  }
   return effort;
 }
 

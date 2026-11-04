@@ -1,6 +1,6 @@
 import { codexQuotaPeriod, codexQuotaResetAt } from "../src/renderer/codex-quota-reminder";
 import { expect, test } from "bun:test";
-import { buildMainModelProviderOptions, resolvePickerThinkingEffort,
+import { associateOAuthModelEfforts, buildMainModelProviderOptions, resolvePickerThinkingEffort,
   thinkingEffortsForModel } from "../src/renderer/ComposerMainModelPicker";
 import type { CandidateModelView, CommitModelOptionView } from "../src/shared/ipc";
 
@@ -34,6 +34,24 @@ test("shows only supported thinking strengths from the Login catalog", () => {
   ], true);
   expect(providers.find((entry) => entry.id === "login")?.models[0]?.reasoningEfforts)
     .toEqual(["off", "low", "high"]);
+});
+
+test("associates OAuth models with the official Codex catalog by exact ID", () => {
+  const [matched, unknown] = associateOAuthModelEfforts([
+    { id: "gpt-6.1-terra", name: "Terra", reasoningEfforts: [] },
+    { id: "unlisted", name: "Unlisted", reasoningEfforts: [] },
+  ], [{ modelId: "gpt-6.1-terra", reasoningEfforts: ["low", "medium", "high", "xhigh", "max", "ultra"] }]);
+  expect(matched?.reasoningEfforts).toEqual(["low", "medium", "high", "xhigh", "max"]);
+  expect(matched?.unsupportedCatalogEfforts).toEqual(["ultra"]);
+  expect(unknown?.reasoningUnknown).toBe(true);
+  expect(thinkingEffortsForModel(unknown, {})).toEqual([]);
+});
+
+test("treats an empty official effort list as unknown", () => {
+  const [model] = associateOAuthModelEfforts([{ id: "test", name: "Test" }],
+    [{ modelId: "test", reasoningEfforts: [] }]);
+  expect(model?.reasoningUnknown).toBe(true);
+  expect(thinkingEffortsForModel(model, {})).toEqual([]);
 });
 
 test("uses low for an unset strength and respects model-supported levels", () => {

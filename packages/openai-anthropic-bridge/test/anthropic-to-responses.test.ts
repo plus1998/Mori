@@ -146,7 +146,7 @@ describe("anthropicToResponses", () => {
     expect(resp.reasoning).toEqual({ effort: "high", summary: "auto" });
   });
 
-  test("maps top-level effort to reasoning and max to xhigh", () => {
+  test("preserves top-level max effort in Responses reasoning", () => {
     const resp = anthropicToResponses({
       model: "gpt-5.2",
       max_tokens: 256,
@@ -155,7 +155,17 @@ describe("anthropicToResponses", () => {
       thinking: { type: "adaptive" },
     });
 
-    expect(resp.reasoning).toEqual({ effort: "xhigh", summary: "auto" });
+    expect(resp.reasoning).toEqual({ effort: "max", summary: "auto" });
+  });
+
+  test("preserves output_config max effort in Responses reasoning", () => {
+    const resp = anthropicToResponses({
+      model: "gpt-6.1-terra",
+      max_tokens: 256,
+      messages: [{ role: "user", content: "hi" }],
+      output_config: { effort: "max" },
+    });
+    expect(resp.reasoning).toEqual({ effort: "max", summary: "auto" });
   });
 
   test("maps Anthropic thinking budget to Responses reasoning effort", () => {
