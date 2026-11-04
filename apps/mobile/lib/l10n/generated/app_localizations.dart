@@ -6287,7 +6287,7 @@ abstract class AppLocalizations {
   /// No description provided for @approvalPlanExecuteInNewSession.
   ///
   /// In en, this message translates to:
-  /// **'Execute in a new conversation'**
+  /// **'Add to new conversation'**
   String get approvalPlanExecuteInNewSession;
 
   /// No description provided for @approvalPlanDelegateTitle.

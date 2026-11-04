@@ -760,10 +760,7 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
                               () => _schedulePlanExecution(pendingPlan),
                             ),
                             onStartNewSession: () => _runPlanAction(
-                              () => _startPlanExecution(
-                                pendingPlan,
-                                runtimeConfig,
-                              ),
+                              () => _startPlanExecution(pendingPlan),
                             ),
                             onApprove: () => _runPlanAction(
                               () => _handlePlanApproval(approve: true),
@@ -1788,10 +1785,7 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
     );
   }
 
-  Future<void> _startPlanExecution(
-    ThreadPendingPlan plan,
-    ThreadRuntimeConfig runtimeConfig,
-  ) async {
+  Future<void> _startPlanExecution(ThreadPendingPlan plan) async {
     final rpc = ref.read(desktopRpcProvider);
     if (rpc == null) throw StateError('Desktop is not connected.');
     final current = await rpc.getPendingPlan(plan.threadId);
@@ -1806,34 +1800,19 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
         source == null) {
       throw StateError(context.l10n.approvalPlanChanged);
     }
-    final location = source.workLocation;
-    if (location?.mode == 'needs_choice' ||
-        (location?.mode == 'isolated' && location?.worktreeId == null)) {
-      throw StateError(context.l10n.approvalPlanWorkLocationRequired);
-    }
-    final execution = await rpc.startThread(
-      workspacePath: current.workspacePath,
-      prompt: composerReferenceToken(
-        kind: 'plan',
-        id: current.referenceId!,
-        label: context.l10n.approvalPlanReferenceLabel(current.version!),
-        detail: source.title,
-      ),
-      coreKind: source.coreKind ?? 'claude',
-      runtimeConfig: runtimeConfig.copyWith(sessionMode: 'agent'),
-      planExecutionId: current.referenceId,
-      developmentMode: 'direct',
-      managedWorktreeId: location?.mode == 'isolated'
-          ? location?.worktreeId
-          : null,
+    final prompt = composerReferenceToken(
+      kind: 'plan',
+      id: current.referenceId!,
+      label: context.l10n.approvalPlanReferenceLabel(current.version!),
+      detail: source.title,
     );
-    ref.read(threadListProvider.notifier).upsertThread(execution);
-    if (execution.status == 'blocked') throw StateError(execution.message);
+    await ref
+        .read(selectedProjectPathProvider.notifier)
+        .select(current.workspacePath);
     if (!mounted) return;
-    ref.read(threadSessionSeedProvider.notifier).state = execution;
-    context.go(
-      '/threads/${execution.id}',
-      extra: const ThreadSessionRouteExtra(handoff: true),
+    context.push(
+      '/threads/new',
+      extra: ThreadSessionRouteExtra(prompt: prompt),
     );
   }
 

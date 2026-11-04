@@ -1219,7 +1219,7 @@
   "approvalClarificationTitle": "Answer a question",
   "approvalPlanExecutionOptions": "More plan execution options",
   "approvalPlanScheduleExecution": "Schedule execution",
-  "approvalPlanExecuteInNewSession": "Execute in a new conversation",
+  "approvalPlanExecuteInNewSession": "Add to new conversation",
   "approvalPlanDelegateTitle": "Execute with a subagent",
   "approvalPlanDelegateReadOnly": "Read-only subagent; cannot execute plans",
   "approvalPlanDelegateMessage": "Additional instructions for the subagent (optional)",

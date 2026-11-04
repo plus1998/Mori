@@ -3582,7 +3582,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get approvalPlanScheduleExecution => 'Schedule execution';
 
   @override
-  String get approvalPlanExecuteInNewSession => 'Execute in a new conversation';
+  String get approvalPlanExecuteInNewSession => 'Add to new conversation';
 
   @override
   String get approvalPlanDelegateTitle => 'Execute with a subagent';

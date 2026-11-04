@@ -343,7 +343,7 @@ import {
   isBuiltInOpenAiProvider,
   resolveComposerModelAvailability,
 } from "./composer-model-availability";
-import { buildPlanExecutionRequest } from "./composer-plan-handoff";
+import { appendPlanReference } from "./composer-plan-handoff";
 import {
   applySlashSkillSelection,
   buildSkillMap,
@@ -11298,26 +11298,32 @@ function App() {
 
   async function startNewChatWithPlan(plan: ThreadPendingPlan) {
     if (!window.eco || !activeThread || activeThread.id !== plan.threadId || planActionBusy) return;
-    const runtimeConfig = resolveComposerRuntimeConfigForSend();
-    if (!runtimeConfig) {
-      setError(t("app.configureOrchestration"));
-      return;
-    }
     setPlanActionBusy(true);
     setError(undefined);
     try {
       const current = await window.eco.getPendingPlan(plan.threadId);
-      if (!current?.referenceId || current.plan !== plan.plan || current.analysis !== plan.analysis || current.userPrompt !== plan.userPrompt) {
+      if (!current?.referenceId || current.referenceId !== plan.referenceId || current.plan !== plan.plan || current.analysis !== plan.analysis || current.userPrompt !== plan.userPrompt) {
         throw new Error(t("planExecution.planChanged"));
       }
-      const result = await window.eco.startThread(buildPlanExecutionRequest(
-        current,
-        activeThread,
-        runtimeConfig,
-        t("planExecution.referenceLabel", { version: current.version }),
-      ));
-      setThreads((threads) => [result.thread, ...threads.filter((thread) => thread.id !== result.thread.id)]);
-      if (result.thread.status === "blocked") setError(result.thread.message);
+      const contextKey = composerContextKeyFromParts(undefined, current.workspacePath)!;
+      if (composerDraftSaveTimerRef.current?.key === contextKey) {
+        window.clearTimeout(composerDraftSaveTimerRef.current.timer);
+        composerDraftSaveTimerRef.current = undefined;
+      }
+      const memory = composerDraftsByKeyRef.current[contextKey];
+      if (memory) await window.eco.saveComposerDraft({ contextKey, prompt: memory.prompt, attachments: toPromptImageAttachments(memory.attachments) });
+      const previous = await window.eco.getComposerDraft(contextKey);
+      const nextPrompt = appendPlanReference(previous?.prompt ?? "", current, activeThread, t("planExecution.referenceLabel", { version: current.version }));
+      const attachments = previous?.attachments ?? [];
+      const nextAttachments = await hydrateComposerImageAttachments(
+        fromPromptImageAttachments(attachments), contextKey, request => window.eco!.readPromptImageChunk(request),
+      );
+      await window.eco.saveComposerDraft({ contextKey, prompt: nextPrompt, attachments });
+      composerDraftsByKeyRef.current[contextKey] = { prompt: nextPrompt, attachments: nextAttachments };
+      ++composerDraftLoadRequestRef.current;
+      switchProject(current.workspacePath);
+      setNewThreadCoreKind(workflowSettings.defaultCoreKind ?? DEFAULT_CORE_KIND);
+      projectTodoComposerFocusRef.current = true;
     } catch (caught) {
       setError(errorMessage(caught));
     } finally {

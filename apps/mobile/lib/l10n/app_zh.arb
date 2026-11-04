@@ -1162,7 +1162,7 @@
   "approvalClarificationTitle": "回答问题",
   "approvalPlanExecutionOptions": "更多计划执行选项",
   "approvalPlanScheduleExecution": "指定时间执行",
-  "approvalPlanExecuteInNewSession": "在新会话中执行",
+  "approvalPlanExecuteInNewSession": "添加到新会话",
   "approvalPlanDelegateTitle": "指定子 Agent 执行",
   "approvalPlanDelegateReadOnly": "只读子 Agent，无法执行计划",
   "approvalPlanDelegateMessage": "给子 Agent 的补充说明（可选）",

@@ -3383,7 +3383,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get approvalPlanScheduleExecution => '指定时间执行';
 
   @override
-  String get approvalPlanExecuteInNewSession => '在新会话中执行';
+  String get approvalPlanExecuteInNewSession => '添加到新会话';
 
   @override
   String get approvalPlanDelegateTitle => '指定子 Agent 执行';
