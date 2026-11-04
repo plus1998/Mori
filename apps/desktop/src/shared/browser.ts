@@ -185,6 +185,15 @@ export interface BrowserLoadError {
 }
 
 export interface BrowserInstanceView {
+  /** The guest is hosted by a separate built-in browser window. */
+  windowed?: boolean;
+  /** An active OAuth page must stay in its original window. */
+  presentationLocked?: boolean;
+  /** Account pages retain their own site data and proxy, independent of the workspace. */
+  accountId?: string;
+  accountName?: string;
+  /** OAuth has completed remotely and is waiting for the local callback. */
+  closeBlocked?: boolean;
   /** Fixed CSS viewport, independently scaled to fit the panel; absent means auto. */
   viewport?: BrowserViewport;
   viewportError?: string;
@@ -211,6 +220,7 @@ export interface BrowserInstanceView {
 export interface BrowserGuestInstanceView {
   id: string;
   partition: string;
+  windowed?: boolean;
 }
 
 /** First usable favicon from Chromium's page-favicon-updated list. */
@@ -273,6 +283,8 @@ export interface BrowserViewState {
    * as soon as that page closes — a stale id re-opens a tab for a dead browser.
    */
   activateBrowserId?: string;
+  /** Distinguishes repeated user requests to reveal the same account tab. */
+  activationRevision?: number;
 }
 
 export interface BrowserRegisterGuestRequest {

@@ -6380,6 +6380,9 @@ function App() {
   useEffect(() => {
     const unsubscribe = browserStateStore.onStateChange((state) => {
       if (state.uiScopeId !== browserScopeIdRef.current) return;
+      // Separate browser windows do not activate the work panel or dismiss settings.
+      state = { ...state, instances: state.instances.filter(instance => !instance.windowed),
+        guestInstances: state.guestInstances.filter(instance => !instance.windowed) };
       // `revealBrowserId` is sticky in main (it survives every emit until the page is
       // closed or the panel hides it), so an unchanged id is not a new request. Treating
       // every snapshot as one drags the panel back to the previous tab right after the
@@ -6412,15 +6415,23 @@ function App() {
       // Main keeps `activateBrowserId` set for the page's lifetime, so re-switching on every
       // later emit would drag the user off whatever tab they opened next (files / file viewer).
       if (
-        state.activateBrowserId &&
-        currentProjectPath &&
+        state.activateBrowserId && state.instances.some(instance => instance.id === state.activateBrowserId) &&
+        (currentProjectPath || state.instances.some(instance => instance.id === state.activateBrowserId && instance.accountId)) &&
         !replacingBrowserHomeIdsRef.current.has(state.activateBrowserId)
       ) {
         const tabId = browserTaskTabId(state.activateBrowserId);
-        const isNewActivation = handledActivateBrowserIdRef.current !== state.activateBrowserId;
-        handledActivateBrowserIdRef.current = state.activateBrowserId;
+        const activationKey = `${state.activateBrowserId}:${state.activationRevision ?? 0}`;
+        const isNewActivation = handledActivateBrowserIdRef.current !== activationKey;
+        handledActivateBrowserIdRef.current = activationKey;
         setOpenTaskPanelTabIds((current) => addOpenTaskPanelTab(current, tabId));
-        if (taskDrawerOpenRef.current && isNewActivation) {
+        const accountPage = state.instances.find(instance => instance.id === state.activateBrowserId && instance.accountId);
+        if (accountPage && isNewActivation) {
+          setSettingsOpen(false);
+          setMoriOpen(false);
+          setTaskPanelFullscreen(false);
+          revealTaskPanel();
+        }
+        if ((taskDrawerOpenRef.current || accountPage) && isNewActivation) {
           setTaskPanelActiveTab(tabId);
           setSelectedSubagentAgentId(undefined);
         }
@@ -6438,7 +6449,7 @@ function App() {
       }
     });
     return () => unsubscribe?.();
-  }, [currentProjectPath]);
+  }, [currentProjectPath, revealTaskPanel]);
 
   useEffect(() => {
     // IPC still describes the previous chat until the scope-switch broadcast arrives.
@@ -6879,7 +6890,11 @@ function App() {
 
   const closeTaskPanelTabs = useCallback(
     (tabIds: readonly TaskPanelActiveTab[]) => {
-      const closing = openTaskPanelTabIds.filter((id) => tabIds.includes(id));
+      const closing = openTaskPanelTabIds.filter((id) => {
+        if (!tabIds.includes(id)) return false;
+        const browserId = parseBrowserTaskTabId(id);
+        return !browserId || !browserStateStore.getState()?.instances.some(instance => instance.id === browserId && instance.closeBlocked);
+      });
       if (!closing.length) return;
       const result = removeOpenTaskPanelTabs(openTaskPanelTabIds, closing, taskPanelActiveTab);
       const closingBrowserIds = closing.flatMap((id) => {
@@ -9816,6 +9831,15 @@ function App() {
     },
     [dismissTaskPanel, refreshReviewDiff, showAppMessageError, toggleTerminalForCurrentProject],
   );
+
+  useEffect(() => window.eco?.onBrowserWindowAction(action => {
+    if (action.kind === "selection") window.dispatchEvent(new CustomEvent(BROWSER_SELECTION_INSERT_EVENT, { detail: action.selection }));
+    else if (action.kind === "screenshot") window.dispatchEvent(new CustomEvent(BROWSER_SCREENSHOT_CAPTURED_EVENT, { detail: action }));
+    else {
+      revealTaskPanel();
+      void openTaskPanelHomeTool(browserTaskTabId(action.browserId), action.tool);
+    }
+  }), [openTaskPanelHomeTool, revealTaskPanel]);
 
   const openReviewTaskDrawer = useCallback(async () => {
     setOpenTaskPanelTabIds((current) => addOpenTaskPanelTab(current, TASK_PANEL_REVIEW_TAB_ID));

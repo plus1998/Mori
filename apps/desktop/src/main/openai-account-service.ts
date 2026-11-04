@@ -522,7 +522,9 @@ export class OpenAIAccountService {
       await login.result;
     }
     // Keep the account registered if filesystem cleanup fails so deletion can be retried.
-    await fs.rm(this.accountDir(accountId), { recursive: true, force: true });
+    // Chromium can finish a profile write after its final guest closes. Retry
+    // transient ENOTEMPTY/EBUSY filesystem errors; persistent failures still reject.
+    await fs.rm(this.accountDir(accountId), { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     this.quotaRefreshPolicy.forget(accountId);
     this.getStore().delete(accountId);
     this.onAccountsChanged?.();

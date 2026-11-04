@@ -15,6 +15,8 @@ type BrowserWebviewPoolEntry = {
   registeredGuestId: number | undefined;
   intentionalRelease: boolean;
   hostSlotUnsubscribe: (() => void) | undefined;
+  attachTimer: ReturnType<typeof setTimeout> | undefined;
+  onAttach: () => void;
   onDomReady: () => void;
   onDestroyed: () => void;
 };
@@ -108,6 +110,8 @@ export class BrowserWebviewPool {
       registeredGuestId: undefined,
       intentionalRelease: false,
       hostSlotUnsubscribe: undefined,
+      attachTimer: undefined,
+      onAttach: () => {},
       onDomReady: () => {},
       onDestroyed: () => {},
     };
@@ -182,6 +186,20 @@ export class BrowserWebviewPool {
     entry.onDomReady = () => {
       registerIfReady();
     };
+    entry.onAttach = () => {
+      if (!entry.partition.startsWith("browser:")) return;
+      const deadline = Date.now() + 1_000;
+      const register = () => {
+        entry.attachTimer = undefined;
+        if (entry.intentionalRelease) return;
+        registerIfReady();
+        // did-attach can arrive before Electron's createGuest promise publishes
+        // getWebContentsId(). Wait for that promise without loading a blank page.
+        if (!entry.registeredGuestId && Date.now() < deadline) entry.attachTimer = setTimeout(register, 10);
+      };
+      if (entry.attachTimer) clearTimeout(entry.attachTimer);
+      entry.attachTimer = setTimeout(register, 0);
+    };
     entry.onDestroyed = () => {
       if (entry.intentionalRelease) {
         return;
@@ -191,13 +209,19 @@ export class BrowserWebviewPool {
       this.entries.delete(entry.browserId);
     };
 
+    // Restoring history must happen before the first document loads. The attach
+    // bridge suppresses about:blank for these guests; dom-ready alone would deadlock.
+    entry.webview.addEventListener("did-attach", entry.onAttach);
     entry.webview.addEventListener("dom-ready", entry.onDomReady);
     entry.webview.addEventListener("destroyed", entry.onDestroyed);
   }
 
   private disposeEntry(entry: BrowserWebviewPoolEntry): void {
+    if (entry.attachTimer) clearTimeout(entry.attachTimer);
+    entry.attachTimer = undefined;
     entry.hostSlotUnsubscribe?.();
     entry.hostSlotUnsubscribe = undefined;
+    entry.webview.removeEventListener("did-attach", entry.onAttach);
     entry.webview.removeEventListener("dom-ready", entry.onDomReady);
     entry.webview.removeEventListener("destroyed", entry.onDestroyed);
     try {

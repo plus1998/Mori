@@ -1293,6 +1293,17 @@ const api = {
   browserCloseInstance(request: BrowserCloseRequest): Promise<BrowserViewState> {
     return ipcRenderer.invoke(IPC_CHANNELS.browserClose, request);
   },
+  browserSetWindowed(browserId: string, windowed: boolean): Promise<BrowserViewState> {
+    return ipcRenderer.invoke(IPC_CHANNELS.browserSetWindowed, { browserId, windowed });
+  },
+  browserWindowAction(action: import("../shared/browser-window").BrowserWindowAction): Promise<void> {
+    return ipcRenderer.invoke(IPC_CHANNELS.browserWindowAction, action);
+  },
+  onBrowserWindowAction(listener: (action: import("../shared/browser-window").BrowserWindowAction) => void): () => void {
+    const handler = (_event: Electron.IpcRendererEvent, action: import("../shared/browser-window").BrowserWindowAction) => listener(action);
+    ipcRenderer.on(IPC_CHANNELS.browserWindowAction, handler);
+    return () => { ipcRenderer.removeListener(IPC_CHANNELS.browserWindowAction, handler); };
+  },
   browserSetUiScope(request: BrowserSetUiScopeRequest): Promise<BrowserViewState> {
     return ipcRenderer.invoke(IPC_CHANNELS.browserSetUiScope, request);
   },

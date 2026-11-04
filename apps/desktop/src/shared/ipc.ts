@@ -390,6 +390,8 @@ export const IPC_CHANNELS = {
   browserNavigate: "browser:navigate",
   browserFocus: "browser:focus",
   browserClose: "browser:close",
+  browserSetWindowed: "browser:set-windowed",
+  browserWindowAction: "browser:window-action",
   browserSetUiScope: "browser:set-ui-scope",
   browserGoBack: "browser:go-back",
   browserGoForward: "browser:go-forward",

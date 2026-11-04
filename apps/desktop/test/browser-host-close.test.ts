@@ -9,12 +9,13 @@ mock.module("electron", () => ({
 }));
 const { BrowserHost } = await import("../src/main/browser-host");
 
-function createHost(states: BrowserViewState[]) {
+function createHost(states: BrowserViewState[], extra: Partial<ConstructorParameters<typeof BrowserHost>[0]> = {}) {
   return new BrowserHost({
     getMainWindow: () => undefined,
     getSettings: () => ({ get: () => ({ agentIntegrationEnabled: false }) }) as never,
     broadcast: (state) => states.push(state),
     resolveWorkspacePath: () => "/tmp/browser-close-test",
+    ...extra,
   });
 }
 
@@ -101,4 +102,61 @@ test("unexpected guest destruction still preserves the tab for recovery", async 
   } finally {
     await host.dispose();
   }
+});
+
+test("failed browser-window creation leaves the original page alive", async () => {
+  const host = createHost([], { openBrowserWindow: async () => { throw new Error("Window renderer failed to load"); } });
+  try {
+    const opened = await host.openSharedSession({ threadId: "a", newBrowser: true });
+    const id = opened.focusedBrowserId!;
+    const guest = createGuest(911);
+    host.registerGuestWebContents(id, guest as never);
+    await expect(host.setWindowed(id, true)).rejects.toThrow("Window renderer failed");
+    expect(guest.isDestroyed()).toBe(false);
+    expect(host.getState().instances.find(page => page.id === id)?.windowed).toBeUndefined();
+  } finally { await host.dispose(); }
+});
+
+test("closing a page while its separate window is loading destroys the late window", async () => {
+  let finishWindow: () => void = () => {};
+  const closed: string[] = [];
+  const host = createHost([], {
+    openBrowserWindow: () => new Promise<void>(resolve => { finishWindow = resolve; }),
+    closeBrowserWindow: id => { closed.push(id); },
+  });
+  try {
+    const opened = await host.openSharedSession({ threadId: "a", newBrowser: true });
+    const id = opened.focusedBrowserId!;
+    host.registerGuestWebContents(id, createGuest(912) as never);
+    const moving = host.setWindowed(id, true);
+    const rejected = moving.catch(error => error as Error);
+    await host.closeBrowser(id);
+    finishWindow();
+    expect((await rejected as Error).message).toContain("浏览器页面已关闭");
+    expect(closed).toContain(id);
+    expect(host.getState().allInstances).toHaveLength(0);
+  } finally { await host.dispose(); }
+});
+
+test("account guests require explicit identity and cannot be assigned to an ordinary tab", async () => {
+  const host = createHost([]);
+  const accountSession = Object.assign(new EventEmitter(), {
+    setPermissionCheckHandler() {}, setPermissionRequestHandler() {},
+  });
+  try {
+    host.setUiScope("account-test");
+    const ordinary = await host.openSharedSession({ newBrowser: true });
+    const opening = host.openAccountPage({ accountId: "account-a", name: "Account A", session: accountSession as never });
+    const accountTab = host.getState().instances.find(tab => tab.accountId === "account-a")!;
+    expect(host.consumePendingGuestAttach(901, accountSession as never)).toBeUndefined();
+    expect(host.consumePendingGuestAttach(902, {} as never)).toBe(ordinary.focusedBrowserId);
+    const guest = Object.assign(createGuest(901), { session: accountSession, setWebRTCIPHandlingPolicy() {} });
+    host.registerGuestWebContents(accountTab.id, guest as never);
+    const page = await opening;
+    expect(page.webContents).toBe(guest as never);
+    page.setClosable(false);
+    expect((await host.closeBrowser(page.id)).instances.some(tab => tab.id === page.id)).toBe(true);
+    await page.close();
+    expect(page.isDestroyed()).toBe(true);
+  } finally { await host.dispose(); }
 });

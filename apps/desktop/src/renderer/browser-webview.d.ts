@@ -14,11 +14,11 @@ export interface EcoBrowserWebviewElement extends HTMLElement {
   canGoBack?: () => boolean;
   canGoForward?: () => boolean;
   addEventListener(
-    type: "dom-ready" | "did-start-loading" | "did-stop-loading" | "did-fail-load" | "destroyed",
+    type: "did-attach" | "dom-ready" | "did-start-loading" | "did-stop-loading" | "did-fail-load" | "destroyed",
     listener: () => void,
   ): void;
   removeEventListener(
-    type: "dom-ready" | "did-start-loading" | "did-stop-loading" | "did-fail-load" | "destroyed",
+    type: "did-attach" | "dom-ready" | "did-start-loading" | "did-stop-loading" | "did-fail-load" | "destroyed",
     listener: () => void,
   ): void;
 }

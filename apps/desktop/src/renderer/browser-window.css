@@ -1,0 +1,4 @@
+.browser-window-root { height: 100vh; display: flex; flex-direction: column; overflow: hidden; background: var(--bg-main); }
+.browser-window-root > .browser-panel { flex: 1; min-height: 0; }
+.browser-window-placeholder { align-items: center; justify-content: center; gap: 10px; color: var(--text-muted); padding: 24px; text-align: center; }
+.browser-window-placeholder button { font: inherit; color: inherit; background: transparent; border: 1px solid var(--border-subtle); border-radius: 8px; padding: 8px 12px; cursor: pointer; }

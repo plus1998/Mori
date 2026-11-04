@@ -18,6 +18,7 @@ import {
   MousePointer2,
   TextSelect,
   Columns2,
+  AppWindow,
 } from "lucide-react";
 import { type FormEvent, useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -34,9 +35,12 @@ import { BrowserAddressInput, browserAddressDisplayValue } from "./BrowserAddres
 import { showBrowserScreenshot } from "./browser-screenshot-events";
 import { BrowserToolbarMenu, type BrowserToolbarMenuItem } from "./BrowserToolbarMenu";
 
+import "./browser-window.css";
+
 const ICON_SIZE = 15;
 
 export interface BrowserPanelProps {
+  standalone?: boolean;
   /** True when this browser task-panel tab is the active pane. */
   active: boolean;
   /** A split's secondary pane stays visible without taking the focused browser. */
@@ -54,7 +58,7 @@ export interface BrowserPanelProps {
  * {@link browserWebviewPool} in {@link BrowserWebviewLayer}; this panel only
  * publishes viewport bounds via {@link BrowserWebviewViewportMarker}.
  */
-export function BrowserPanel({ active, visible = active, browserId, onOpenTool, onToggleSplit, split, splitBusy }: BrowserPanelProps) {
+export function BrowserPanel({ active, visible = active, browserId, onOpenTool, onToggleSplit, split, splitBusy, standalone = false }: BrowserPanelProps) {
   const { t } = useTranslation();
   const toolHomeTitleId = `browser-tool-home-title-${browserId}`;
   const [state, setState] = useState<BrowserViewState | undefined>();
@@ -79,11 +83,13 @@ export function BrowserPanel({ active, visible = active, browserId, onOpenTool, 
   const selectionRequest = useRef(0);
   const addressInputId = useId();
   const [addressMenuOpen, setAddressMenuOpen] = useState(false);
+  const [windowError, setWindowError] = useState<string>();
+  const [movingWindow, setMovingWindow] = useState(false);
   /** Main drops a closed browser from its guest list — never focus a page that is gone. */
   const liveBrowserIds = useBrowserInstanceIds();
-  const browserLive = liveBrowserIds.includes(browserId);
-
-  const instance = state?.instances.find((item) => item.id === browserId);
+  const instance = state?.allInstances.find((item) => item.id === browserId);
+  const browserLive = standalone ? Boolean(instance) : liveBrowserIds.includes(browserId);
+  const inOtherWindow = Boolean(instance?.windowed && !standalone);
   const downloads = instance?.downloads;
   const viewportControlsVisible = showViewportControls ?? Boolean(instance?.viewport);
   const displayUrl = instance?.url ?? "about:blank";
@@ -95,14 +101,14 @@ export function BrowserPanel({ active, visible = active, browserId, onOpenTool, 
   useEffect(() => {
     void window.eco?.getBrowserState?.().then((next) => {
       setState(next);
-      const url = next.instances.find((i) => i.id === browserId)?.url;
+      const url = next.allInstances.find((i) => i.id === browserId)?.url;
       if (url === undefined) return;
       setAddress(url === "about:blank" ? "" : url);
     });
   }, [browserId]);
 
   useEffect(() => {
-    if (!active || !browserLive) {
+    if (!active || !browserLive || standalone || inOtherWindow) {
       return;
     }
     void window.eco?.browserFocus?.({ browserId, reveal: true });
@@ -111,7 +117,7 @@ export function BrowserPanel({ active, visible = active, browserId, onOpenTool, 
         setState(next);
       }
     });
-  }, [active, browserId, browserLive]);
+  }, [active, browserId, browserLive, standalone, inOtherWindow]);
 
   useEffect(() => {
     const unsubscribe = window.eco?.onBrowserStateChanged?.((next) => {
@@ -120,7 +126,7 @@ export function BrowserPanel({ active, visible = active, browserId, onOpenTool, 
         return;
       }
       if (!addressMenuOpen && document.activeElement?.id !== addressInputId) {
-        const url = next.instances.find((i) => i.id === browserId)?.url;
+        const url = next.allInstances.find((i) => i.id === browserId)?.url;
         if (url === undefined) return;
         setAddress(url === "about:blank" ? "" : url);
       }
@@ -137,7 +143,7 @@ export function BrowserPanel({ active, visible = active, browserId, onOpenTool, 
     event.currentTarget.querySelector("input")?.blur();
     const next = await window.eco.browserNavigate({ url, reveal: true, browserId });
     setState(next);
-    const shown = next.instances.find((i) => i.id === browserId)?.url;
+    const shown = next.allInstances.find((i) => i.id === browserId)?.url;
     if (shown === undefined) return;
     setAddress(shown === "about:blank" ? "" : shown);
   }
@@ -203,7 +209,23 @@ export function BrowserPanel({ active, visible = active, browserId, onOpenTool, 
     }
   }
 
+  async function moveWindow(windowed: boolean) {
+    if (movingWindow) return;
+    setMovingWindow(true);
+    setWindowError(undefined);
+    try {
+      if (!window.eco) throw new Error(t("browser.selection.unavailable"));
+      await window.eco.browserSetWindowed(browserId, windowed);
+    }
+    catch (error) { setWindowError(formatIpcInvokeError(error)); }
+    finally { setMovingWindow(false); }
+  }
+
   const toolbarMenuItems: BrowserToolbarMenuItem[] = [
+    ...(!instance?.presentationLocked ? [{
+      id: "window", label: t(standalone ? "browser.window.dock" : "browser.window.detach"), icon: <AppWindow size={ICON_SIZE} />,
+      disabled: movingWindow || !instance, onSelect: () => void moveWindow(!standalone),
+    }] : []),
     ...(toolbarMenu?.compactNav ? [
       { id: "back", label: t("browser.back"), icon: <ArrowLeft size={ICON_SIZE} />, disabled: !canGoBack, onSelect: () => void window.eco?.browserGoBack?.(browserId) },
       { id: "forward", label: t("browser.forward"), icon: <ArrowRight size={ICON_SIZE} />, disabled: !canGoForward, onSelect: () => void window.eco?.browserGoForward?.(browserId) },
@@ -226,6 +248,16 @@ export function BrowserPanel({ active, visible = active, browserId, onOpenTool, 
       active: Boolean(split), disabled: splitBusy ?? false, onSelect: onToggleSplit,
     }] : []),
   ];
+
+  if (inOtherWindow) return (
+    <div className="browser-panel browser-window-placeholder" role="status">
+      <AppWindow size={28} />
+      <p>{t("browser.window.opened")}</p>
+      <button type="button" onClick={() => void window.eco?.browserFocus({ browserId })}>{t("browser.window.focus")}</button>
+      {!instance?.presentationLocked ? <button type="button" disabled={movingWindow} onClick={() => void moveWindow(false)}>{t("browser.window.dock")}</button> : null}
+      {windowError ? <p role="alert">{windowError}</p> : null}
+    </div>
+  );
 
   return (
     <div className="browser-panel" aria-label={t("browser.title")}>
@@ -351,6 +383,7 @@ export function BrowserPanel({ active, visible = active, browserId, onOpenTool, 
           {t("browser.screenshotFailed", { error: screenshotError })}
         </div>
       ) : null}
+      {windowError ? <div className="browser-viewport-error" role="alert">{windowError}</div> : null}
       {visible && (showDownloads || selecting === "element") ? (
         <BrowserPanelOverlay browserId={browserId}>
           {showDownloads ? <BrowserDownloadsPanel browserId={browserId} files={downloads ?? []} onClose={() => setShowDownloads(false)} /> : null}

@@ -61,13 +61,13 @@ export function BrowserWebviewPersistentHost({ browserId }: BrowserWebviewPersis
     (state) => state?.allInstances.find((instance) => instance.id === browserId)?.viewport,
   );
   const loadError = useBrowserStateSelector(
-    (state) => state?.instances.find((instance) => instance.id === browserId)?.loadError,
+    (state) => state?.allInstances.find((instance) => instance.id === browserId)?.loadError,
   );
   const browserUrl = useBrowserStateSelector(
-    (state) => state?.instances.find((instance) => instance.id === browserId)?.url,
+    (state) => state?.allInstances.find((instance) => instance.id === browserId)?.url,
   );
   const browserIsLoading = useBrowserStateSelector(
-    (state) => state?.instances.find((instance) => instance.id === browserId)?.isLoading ?? false,
+    (state) => state?.allInstances.find((instance) => instance.id === browserId)?.isLoading ?? false,
   );
   const showEmptyState = !loadError && !browserIsLoading && (!browserUrl || browserUrl === "about:blank");
   const errorHost = resolveBrowserErrorHost(loadError?.url ?? browserUrl);

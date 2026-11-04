@@ -143,6 +143,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: path.resolve(rootDir, "index.html"),
+        browser: path.resolve(rootDir, "browser.html"),
         accountAssistant: path.resolve(rootDir, "codex-account-assistant.html"),
       },
       external: ["@anthropic-ai/claude-agent-sdk", "electron"],

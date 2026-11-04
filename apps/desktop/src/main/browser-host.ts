@@ -4,7 +4,8 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import type { CodexMcpServerForConfigSync } from "@eco/runtime";
-import type { DownloadItem, WebContents } from "electron";
+import type { BrowserWindow, DownloadItem, Session, WebContents } from "electron";
+import type { AccountBrowserPage } from "./account-browser-page";
 import { session, shell, webContents } from "electron";
 import {
   appendBrowserPrompt,
@@ -128,11 +129,17 @@ export interface SharedBrowserOpenOptions {
    * Default: true for human source, false for agent source.
    */
   updateUiFocus?: boolean;
+  /** Detached windows keep working without switching the main conversation. */
+  updateUiScope?: boolean;
   /** When true, force the renderer to switch the task panel to this browser tab. */
   activate?: boolean;
 }
 
 export interface BrowserHostDeps {
+  openBrowserWindow?: (browserId: string) => Promise<void>;
+  focusBrowserWindow?: (browserId: string) => void;
+  closeBrowserWindow?: (browserId: string) => void;
+  getBrowserWindow?: (browserId: string) => BrowserWindow | undefined;
   getMainWindow: () => import("electron").BrowserWindow | undefined;
   getSettings: () => BrowserSettingsStore;
   broadcast: (state: BrowserViewState) => void;
@@ -147,6 +154,15 @@ export interface BrowserHostDeps {
 }
 
 interface SessionBrowser {
+  attachmentPartition?: string;
+  windowed?: boolean;
+  presentationLocked?: boolean;
+  presentationUpdate?: Promise<BrowserViewState> | undefined;
+  navigationToRestore?: { entries: Electron.NavigationEntry[]; index: number } | undefined;
+  restoringNavigation?: Promise<void> | undefined;
+  account?: { id: string; name: string; session: Session } | undefined;
+  closable?: boolean;
+  closedListeners?: Set<() => void>;
   partition?: string | undefined;
   viewport?: BrowserViewport | undefined;
   /** Includes explicit auto mode, which must survive subsequent Agent opens. */
@@ -193,14 +209,17 @@ export class BrowserHost {
   private readonly referenceCalls = new Map<string, Promise<unknown>>();
   private readonly scopes = new Map<string, ThreadBrowserScope>();
   private uiScopeId: string = ECO_BROWSER_PERSONAL_SCOPE_ID;
+  private uiWorkspacePath: string | undefined;
   /** Task panel is presenting a browser tab (used for soft reveal; not native visibility). */
   private panelVisible = false;
   private disposed = false;
   private revealBrowserId: string | undefined;
   /** Browser id that should force task-panel tab switch (user-initiated opens). */
   private activateBrowserId: string | undefined;
+  private activationRevision = 0;
   private browserMcpGateway: BrowserMcpGateway | undefined;
   private readonly partitionHandlers = new Map<string, () => void>();
+  private readonly accountSessions = new Map<string, Session>();
   private downloadEmitTimer: ReturnType<typeof setTimeout> | undefined;
   private readonly downloadAccessControllers = new Map<string, Set<AbortController>>();
   private readonly downloads = new BrowserDownloads(() => {
@@ -418,12 +437,191 @@ export class BrowserHost {
     this.pendingGuestByBrowserId.set(id, -1);
   }
 
-  consumePendingGuestAttach(webContentsId: number): string | undefined {
+  /** Only main-process account code can supply the session used by a guest. */
+  getAccountGuestSession(browserId: string): Session | undefined {
+    return this.findBrowser(browserId)?.browser.account?.session;
+  }
+
+  getGuestSession(browserId: string): Session | undefined {
+    const found = this.findBrowser(browserId);
+    return found ? found.browser.account?.session ?? session.fromPartition(found.browser.partition ?? found.scope.partition) : undefined;
+  }
+
+  hasNavigationToRestore(browserId: string): boolean {
+    return Boolean(this.findBrowser(browserId)?.browser.navigationToRestore);
+  }
+
+  async openAccountPage(input: {
+    accountId: string; name: string; session: Session; windowed?: boolean; presentationLocked?: boolean;
+  }): Promise<AccountBrowserPage> {
+    let scope = this.ensureScope(this.uiScopeId, this.uiWorkspacePath);
+    const browser = this.createBrowserInScope(scope, "human");
+    browser.account = { id: input.accountId, name: input.name, session: input.session };
+    this.accountSessions.set(input.accountId, input.session);
+    // This opaque key is only a renderer identity. The attach bridge supplies the
+    // existing fromPath session so stored cookies never need to be copied/migrated.
+    browser.partition = `account:${browser.id}`;
+    browser.closedListeners = new Set();
+    browser.windowed = input.windowed ?? false;
+    browser.presentationLocked = input.presentationLocked ?? false;
+    this.ensurePartitionHandlers(`account:${input.accountId}`, input.session);
+    const host = this;
+    const page: AccountBrowserPage = {
+      id: browser.id,
+      get window() { return host.deps.getBrowserWindow?.(browser.id); },
+      get webContents() {
+        const guest = browser.webContents;
+        if (!guest || guest.isDestroyed()) throw new Error("账号浏览器页面尚未就绪或已关闭。");
+        return guest;
+      },
+      isDestroyed: () => !host.findBrowser(browser.id),
+      focus: () => {
+        if (!host.findBrowser(browser.id)) return;
+        if (browser.windowed) {
+          host.deps.focusBrowserWindow?.(browser.id);
+          return;
+        }
+        if (scope.threadId !== host.uiScopeId) {
+          const previous = scope;
+          scope = host.ensureScope(host.uiScopeId, host.uiWorkspacePath);
+          previous.browsers.delete(browser.id);
+          previous.cdp?.notifyTargetDestroyed(browser.id);
+          if (previous.focusedBrowserId === browser.id) {
+            previous.focusedBrowserId = previous.browsers.keys().next().value;
+          }
+          scope.browsers.set(browser.id, browser);
+          scope.cdp?.notifyTargetCreated(browser.id);
+        }
+        scope.focusedBrowserId = browser.id;
+        host.activateBrowserId = browser.id;
+        host.activationRevision += 1;
+        host.revealBrowserId = browser.id;
+        host.emit();
+        host.deps.getMainWindow()?.show();
+        host.deps.getMainWindow()?.focus();
+      },
+      close: async () => {
+        browser.closable = true;
+        await host.closeBrowser(browser.id);
+      },
+      onClosed: listener => {
+        browser.closedListeners!.add(listener);
+        return () => { browser.closedListeners?.delete(listener); };
+      },
+      setClosable: closable => { browser.closable = closable; host.deps.getBrowserWindow?.(browser.id)?.setClosable(closable); host.emit(); },
+    };
+    try {
+      if (browser.windowed) {
+        if (!this.deps.openBrowserWindow) throw new Error("独立浏览器窗口未初始化。");
+        await this.deps.openBrowserWindow(browser.id);
+        this.emit();
+      } else page.focus();
+      await this.waitForGuestWebContents(browser.id);
+      page.focus();
+      return page;
+    } catch (error) {
+      await page.close();
+      throw error;
+    }
+  }
+
+  /** Moving a renderer-owned webview requires a new guest in the same Session. */
+  async setWindowed(browserId: string, windowed: boolean): Promise<BrowserViewState> {
+    const found = this.findBrowser(browserId);
+    if (!found) throw new Error(`Browser not found: ${browserId}`);
+    const { browser } = found;
+    if (browser.presentationUpdate) {
+      await browser.presentationUpdate;
+      return this.setWindowed(browserId, windowed);
+    }
+    if (Boolean(browser.windowed) === windowed) {
+      if (windowed) this.deps.focusBrowserWindow?.(browserId);
+      return this.getState();
+    }
+    if (!windowed && found.scope.threadId !== this.uiScopeId) throw new Error("请切回此页面所属的会话后再移回主窗口。");
+    if (browser.presentationLocked || browser.closable === false) throw new Error("登录期间不能移动授权页面。");
+    const update = this.moveBrowserPresentation(browser, windowed);
+    browser.presentationUpdate = update;
+    try { return await update; }
+    finally { browser.presentationUpdate = undefined; }
+  }
+
+  private async moveBrowserPresentation(browser: SessionBrowser, windowed: boolean): Promise<BrowserViewState> {
+    if (windowed) {
+      if (!this.deps.openBrowserWindow) throw new Error("独立浏览器窗口未初始化。");
+      await this.deps.openBrowserWindow(browser.id);
+    }
+    if (!this.findBrowser(browser.id)) {
+      this.deps.closeBrowserWindow?.(browser.id);
+      throw new Error("浏览器页面已关闭。");
+    }
+    if (browser.guestLoadTimer) clearTimeout(browser.guestLoadTimer);
+    browser.guestLoadTimer = undefined;
+    browser.pendingGuestLoadUrl = undefined;
+    const previous = browser.webContents;
+    if (previous && !previous.isDestroyed()) {
+      const entries = previous.navigationHistory.getAllEntries();
+      if (entries.length && !isBrowserPlaceholderUrl(previous.getURL())) {
+        browser.navigationToRestore = { entries, index: previous.navigationHistory.getActiveIndex() };
+      }
+      browser.detachedUrl = previous.getURL();
+      this.pendingGuestByWebContentsId.delete(previous.id);
+    }
+    browser.webContents = undefined;
+    browser.registeredGuestWebContentsId = undefined;
+    browser.guestEventsWired = false;
+    browser.attachmentPartition = `browser:${browser.id}`;
+    browser.windowed = windowed;
+    previous?.close();
+    this.emit();
+    if (!windowed) this.deps.closeBrowserWindow?.(browser.id);
+    try {
+      await this.waitForGuestWebContents(browser.id);
+      await browser.restoringNavigation;
+    } catch (error) {
+      browser.loadError = { code: -2, description: error instanceof Error ? error.message : String(error) };
+      if (windowed) this.deps.focusBrowserWindow?.(browser.id);
+      this.emit();
+      throw error;
+    }
+    if (windowed) this.deps.focusBrowserWindow?.(browser.id);
+    else {
+      this.activateBrowserId = browser.id;
+      this.activationRevision += 1;
+      this.deps.getMainWindow()?.show();
+      this.deps.getMainWindow()?.focus();
+    }
+    this.emit();
+    return this.getState();
+  }
+
+  async closeAccountPages(accountId: string): Promise<void> {
+    for (const scope of this.scopes.values()) {
+      for (const browser of [...scope.browsers.values()]) {
+        if (browser.account?.id !== accountId) continue;
+        browser.closable = true;
+        await this.closeBrowser(browser.id);
+      }
+    }
+    this.accountSessions.delete(accountId);
+    const key = `account:${accountId}`;
+    this.partitionHandlers.get(key)?.();
+    this.partitionHandlers.delete(key);
+  }
+
+  consumePendingGuestAttach(webContentsId: number, guestSession?: Session): string | undefined {
     const existing = this.pendingGuestByWebContentsId.get(webContentsId);
     if (existing) {
       return existing;
     }
+    // Multiple guests may attach out of order. Account guests must wait for the
+    // renderer's explicit (browserId, webContentsId) registration rather than the
+    // generic FIFO guess, including two tabs belonging to the same account.
+    if (guestSession && [...this.accountSessions.values()].includes(guestSession)) return undefined;
     for (const [browserId, pendingId] of this.pendingGuestByBrowserId) {
+      if (this.findBrowser(browserId)?.browser.windowed) continue;
+      const accountSession = this.getAccountGuestSession(browserId);
+      if (guestSession && accountSession && accountSession !== guestSession) continue;
       if (pendingId === -1 || pendingId === webContentsId) {
         this.pendingGuestByBrowserId.delete(browserId);
         this.pendingGuestByWebContentsId.set(webContentsId, browserId);
@@ -443,6 +641,15 @@ export class BrowserHost {
       throw new Error("Guest WebContents is destroyed.");
     }
     assertBrowserGuestWebContents(guest);
+    if (browser.account ? guest.session !== browser.account.session : [...this.accountSessions.values()].includes(guest.session)) {
+      guest.close();
+      throw new Error("账号浏览器使用了错误的会话，已阻止加载。");
+    }
+    if (this.deps.getBrowserWindow && guest.hostWebContents) {
+      const owner = browser.windowed ? this.deps.getBrowserWindow(browser.id) : this.deps.getMainWindow();
+      if (guest.hostWebContents !== owner?.webContents) throw new Error("浏览器页面所属窗口不匹配。");
+    }
+    this.pendingGuestByBrowserId.delete(browser.id);
     const isSameGuest = browser.registeredGuestWebContentsId === guest.id;
     if (isSameGuest) {
       this.emit();
@@ -457,7 +664,7 @@ export class BrowserHost {
       browser.guestEventsWired = false;
     }
     this.pendingGuestByWebContentsId.set(guest.id, browser.id);
-    this.ensurePartitionHandlers(browser.partition ?? scope.partition);
+    this.ensurePartitionHandlers(browser.account ? `account:${browser.account.id}` : browser.partition ?? scope.partition, browser.account?.session);
     this.wireGuestWebContents(scope, browser);
     if (browser.viewport) {
       void this.queueViewportUpdate(browser, async () => {
@@ -469,6 +676,15 @@ export class BrowserHost {
         }
         this.emit();
       });
+    }
+    if (browser.navigationToRestore) {
+      const navigation = browser.navigationToRestore;
+      browser.navigationToRestore = undefined;
+      browser.pendingUrl = undefined;
+      browser.restoringNavigation = guest.navigationHistory.restore(navigation).finally(() => { this.emit(); });
+      void browser.restoringNavigation.catch(error => console.error("[browser] Window navigation restore failed", error));
+      this.emit();
+      return this.getState();
     }
     let toLoad = browser.pendingUrl?.trim() || undefined;
     browser.pendingUrl = undefined;
@@ -589,12 +805,13 @@ export class BrowserHost {
       ...(resolved.reason ? { agentBrowserUnavailableReason: resolved.reason } : {}),
       ...(revealSurfaced && this.revealBrowserId ? { revealBrowserId: this.revealBrowserId } : {}),
       ...(activateSurfaced && this.activateBrowserId
-        ? { activateBrowserId: this.activateBrowserId }
+        ? { activateBrowserId: this.activateBrowserId, activationRevision: this.activationRevision }
         : {}),
     };
   }
 
   setUiScope(threadId: string | null, workspacePath?: string): BrowserViewState {
+    this.uiWorkspacePath = workspacePath;
     const next = threadId?.trim() ? threadId.trim() : browserPersonalScopeId(workspacePath);
     if (next !== this.uiScopeId) {
       this.uiScopeId = next;
@@ -636,8 +853,14 @@ export class BrowserHost {
           id: browser.id,
           threadId: scope.threadId,
           partition: browser.partition ?? scope.partition,
+          ...(browser.windowed ? { windowed: true } : {}),
+          ...(browser.presentationLocked ? { presentationLocked: true } : {}),
+          ...(browser.account ? { accountId: browser.account.id, accountName: browser.account.name } : {}),
+          ...(browser.closable === false ? { closeBlocked: true } : {}),
           url,
-          title: alive ? wc.getTitle() || "" : "",
+          title: browser.account
+            ? `${browser.account.name} · ${alive ? wc.getTitle() || "ChatGPT" : "ChatGPT"}`
+            : alive ? wc.getTitle() || "" : "",
           ...(faviconUrl ? { faviconUrl } : {}),
           isLoading: Boolean(alive && wc.isLoading()),
           ...(browser.loadError ? { loadError: browser.loadError } : {}),
@@ -662,11 +885,11 @@ export class BrowserHost {
     });
   }
 
-  private listAllGuestInstances(): Array<{ id: string; partition: string }> {
-    const out: Array<{ id: string; partition: string }> = [];
+  private listAllGuestInstances(): Array<{ id: string; partition: string; windowed?: boolean }> {
+    const out: Array<{ id: string; partition: string; windowed?: boolean }> = [];
     for (const scope of this.scopes.values()) {
       for (const browser of scope.browsers.values()) {
-        out.push({ id: browser.id, partition: browser.partition ?? scope.partition });
+        out.push({ id: browser.id, partition: browser.attachmentPartition ?? browser.partition ?? scope.partition, ...(browser.windowed ? { windowed: true } : {}) });
       }
     }
     return out;
@@ -679,7 +902,8 @@ export class BrowserHost {
     }
     return [...scope.browsers.values()].map((browser) => ({
       id: browser.id,
-      partition: browser.partition ?? scope.partition,
+      partition: browser.attachmentPartition ?? browser.partition ?? scope.partition,
+      ...(browser.windowed ? { windowed: true } : {}),
     }));
   }
 
@@ -714,11 +938,11 @@ export class BrowserHost {
     return scope;
   }
 
-  private ensurePartitionHandlers(partition: string): void {
+  private ensurePartitionHandlers(partition: string, accountSession?: Session): void {
     if (this.partitionHandlers.has(partition)) {
       return;
     }
-    const guestSession = session.fromPartition(partition);
+    const guestSession = accountSession ?? session.fromPartition(partition);
     // Website copy buttons use the async Clipboard API, including rich text/images.
     // Handle both Chromium permission paths; clipboard reads remain denied.
     guestSession.setPermissionCheckHandler((_wc, permission) => permission === "clipboard-sanitized-write");
@@ -783,23 +1007,28 @@ export class BrowserHost {
       return;
     }
     browser.guestEventsWired = true;
+    const currentScope = () => this.findBrowser(browser.id)?.scope ?? scope;
+    if (browser.account) wc.setWebRTCIPHandlingPolicy("disable_non_proxied_udp");
 
     wc.setWindowOpenHandler(({ url }) => {
+      // Auth popups need their real opener for postMessage/close callbacks.
+      // Keep those in the account profile rather than replacing them with tabs.
+      if (browser.account) return this.accountPopupOptions(url, browser.account.session);
       if (isBrowserHttpUrl(url)) {
         try {
-          const created = this.createBrowserInScope(scope, browser.source);
+          const created = this.createBrowserInScope(currentScope(), browser.source);
           created.partition = browser.partition;
           if (browser.viewportConfigured) {
             created.viewport = browser.viewport ? { ...browser.viewport } : undefined;
             created.viewportConfigured = true;
           }
-          scope.focusedBrowserId = created.id;
+          currentScope().focusedBrowserId = created.id;
           this.requestReveal(created.id);
           created.pendingUrl = url;
           const guest = created.webContents;
           if (guest && !guest.isDestroyed()) {
             void guest.loadURL(url).then(() => {
-              scope.cdp?.notifyTargetInfoChanged(created.id);
+              currentScope().cdp?.notifyTargetInfoChanged(created.id);
               this.emit();
             });
           } else {
@@ -811,6 +1040,9 @@ export class BrowserHost {
       }
       return { action: "deny" };
     });
+    if (browser.account) {
+      wc.on("did-create-window", popup => this.wireAccountPopup(popup, browser.account!.session));
+    }
 
     const onNav = (_event: unknown, url?: string) => {
       browser.loadError = undefined;
@@ -819,10 +1051,10 @@ export class BrowserHost {
         browser.detachedUrl = target;
         browser.lastLoadedUrl = target;
       }
-      if (isBrowserHttpUrl(target) && scope.focusedBrowserId === browser.id) {
+      if (isBrowserHttpUrl(target) && currentScope().focusedBrowserId === browser.id) {
         this.requestReveal(browser.id);
       }
-      scope.cdp?.notifyTargetInfoChanged(browser.id);
+      currentScope().cdp?.notifyTargetInfoChanged(browser.id);
       this.emit();
     };
 
@@ -831,7 +1063,7 @@ export class BrowserHost {
       this.emit();
     });
     wc.on("did-stop-loading", () => {
-      scope.cdp?.notifyTargetInfoChanged(browser.id);
+      currentScope().cdp?.notifyTargetInfoChanged(browser.id);
       this.emit();
     });
     wc.on("did-start-navigation", (_event, _url, isInPlace, isMainFrame) => {
@@ -845,7 +1077,7 @@ export class BrowserHost {
     wc.on("did-navigate", onNav);
     wc.on("did-navigate-in-page", onNav);
     wc.on("page-title-updated", () => {
-      scope.cdp?.notifyTargetInfoChanged(browser.id);
+      currentScope().cdp?.notifyTargetInfoChanged(browser.id);
       this.emit();
     });
     wc.on("page-favicon-updated", (_event, favicons) => {
@@ -873,7 +1105,7 @@ export class BrowserHost {
       this.pendingGuestByWebContentsId.delete(wc.id);
       // Intentional close unregisters the tab before destroying the guest. Do not
       // advertise it again or queue a replacement guest from this late callback.
-      if (scope.browsers.get(browser.id) !== browser) return;
+      if (currentScope().browsers.get(browser.id) !== browser) return;
       if (browser.webContents?.id === wc.id) {
         try {
           const current = wc.getURL();
@@ -887,8 +1119,29 @@ export class BrowserHost {
         browser.guestEventsWired = false;
         browser.registeredGuestWebContentsId = undefined;
         this.notePendingGuestAttach(browser.id);
+        this.emit();
       }
-      this.emit();
+    });
+  }
+
+  private accountPopupOptions(url: string, accountSession: Session): Electron.WindowOpenHandlerResponse {
+    return isBrowserHttpUrl(url) ? {
+      action: "allow",
+      overrideBrowserWindowOptions: {
+        autoHideMenuBar: true,
+        webPreferences: { session: accountSession, nodeIntegration: false, contextIsolation: true, sandbox: true },
+      },
+    } : { action: "deny" };
+  }
+
+  private wireAccountPopup(window: BrowserWindow, accountSession: Session): void {
+    const wc = window.webContents;
+    wc.setWebRTCIPHandlingPolicy("disable_non_proxied_udp");
+    wc.setWindowOpenHandler(({ url }) => this.accountPopupOptions(url, accountSession));
+    wc.on("did-create-window", popup => this.wireAccountPopup(popup, accountSession));
+    window.on("closed", () => {
+      accountSession.flushStorageData();
+      void accountSession.cookies.flushStore().catch(error => console.error("[browser] Account popup flush failed", error));
     });
   }
 
@@ -897,6 +1150,7 @@ export class BrowserHost {
       return;
     }
     const found = this.findBrowser(browserId);
+    if (found?.browser.windowed) return;
     if (!found || found.scope.threadId !== this.uiScopeId) {
       return;
     }
@@ -947,7 +1201,7 @@ export class BrowserHost {
     }
     const source = options.source ?? "human";
     const updateUiFocus = options.updateUiFocus ?? source === "human";
-    if (source !== "agent") {
+    if (source !== "agent" && options.updateUiScope !== false) {
       if (options.threadId !== undefined) {
         this.uiScopeId = scopeId;
       } else if (scopeId !== this.uiScopeId) {
@@ -994,6 +1248,7 @@ export class BrowserHost {
     }
     if (options.activate) {
       this.activateBrowserId = browser.id;
+      this.activationRevision += 1;
     }
 
     const raw = options.url?.trim();
@@ -1024,6 +1279,10 @@ export class BrowserHost {
     if (!found) {
       throw new Error(`Browser not found: ${browserId}`);
     }
+    if (found.browser.windowed) {
+      if (options?.reveal !== false) this.deps.focusBrowserWindow?.(browserId);
+      return this.getState();
+    }
     if (found.scope.threadId !== this.uiScopeId) {
       throw new Error(`Browser ${browserId} does not belong to the current UI scope`);
     }
@@ -1041,6 +1300,7 @@ export class BrowserHost {
       return this.getState();
     }
     const { scope, browser } = found;
+    if (browser.closable === false) return this.getState();
     this.destroyBrowser(scope, browser);
     scope.cdp?.notifyTargetDestroyed(browserId);
     if (scope.focusedBrowserId === browserId) {
@@ -1065,6 +1325,8 @@ export class BrowserHost {
     // wc.close() can synchronously emit destroyed/loading events. Remove the tab
     // first so every cleanup broadcast already describes the closed state.
     scope.browsers.delete(browser.id);
+    for (const listener of browser.closedListeners ?? []) listener();
+    browser.closedListeners?.clear();
     if (this.activateBrowserId === browser.id) {
       this.activateBrowserId = undefined;
     }
@@ -1109,6 +1371,7 @@ export class BrowserHost {
     browser.pendingUrl = undefined;
     browser.detachedUrl = undefined;
     this.pendingGuestByBrowserId.delete(browser.id);
+    this.deps.closeBrowserWindow?.(browser.id);
   }
 
   setVisible(visible: boolean, browserId?: string): BrowserViewState {
@@ -1209,7 +1472,7 @@ export class BrowserHost {
       if (!found) {
         throw new Error(`Browser not found: ${browserId}`);
       }
-      if (found.scope.threadId !== this.uiScopeId) {
+      if (found.scope.threadId !== this.uiScopeId && !found.browser.windowed) {
         throw new Error(`Browser ${browserId} does not belong to the current UI scope`);
       }
       return found.browser;
@@ -1238,6 +1501,7 @@ export class BrowserHost {
     const started = Date.now();
     while (Date.now() - started < timeoutMs) {
       const found = this.findBrowser(browserId);
+      if (!found) throw new Error(`Browser tab was closed (id=${browserId}).`);
       const wc = found?.browser.webContents;
       if (wc && !wc.isDestroyed()) {
         return wc;
@@ -1466,19 +1730,19 @@ export class BrowserHost {
   /** Human download actions stay scoped to the tab currently exposed by the UI. */
   getDownloadForUi(browserId: string, fileId: string): BrowserDownload & { path: string } {
     const found = this.findBrowser(browserId);
-    if (!found || found.scope.threadId !== this.uiScopeId) throw new Error("Browser is not in the current UI scope.");
+    if (!found || (found.scope.threadId !== this.uiScopeId && !found.browser.windowed)) throw new Error("Browser is not in the current UI scope.");
     return this.downloads.getCompleted(browserId, fileId);
   }
 
   cancelDownloadForUi(browserId: string, fileId: string): void {
     const found = this.findBrowser(browserId);
-    if (!found || found.scope.threadId !== this.uiScopeId) throw new Error("Browser is not in the current UI scope.");
+    if (!found || (found.scope.threadId !== this.uiScopeId && !found.browser.windowed)) throw new Error("Browser is not in the current UI scope.");
     this.downloads.cancel(browserId, fileId);
   }
 
   async removeDownloadForUi(browserId: string, fileId: string): Promise<void> {
     const found = this.findBrowser(browserId);
-    if (!found || found.scope.threadId !== this.uiScopeId) throw new Error("Browser is not in the current UI scope.");
+    if (!found || (found.scope.threadId !== this.uiScopeId && !found.browser.windowed)) throw new Error("Browser is not in the current UI scope.");
     await this.downloads.remove(browserId, fileId);
     this.emit();
   }

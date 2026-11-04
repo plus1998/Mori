@@ -616,6 +616,8 @@ import {
 } from "./billing-runtime-environment";
 import { installBrowserGuestBridge } from "./browser-guest-bridge";
 import { appendBrowserPrompt, BrowserHost } from "./browser-host";
+import { BrowserWindows, isBrowserWindow } from "./browser-windows";
+import { BROWSER_WINDOW_TOOLS, type BrowserWindowAction } from "../shared/browser-window";
 import {
   type BrowserSettingsStore,
   createBrowserSettingsStore,
@@ -661,7 +663,6 @@ import {
 } from "./codex-async-question-bridge";
 import { normalizeCodexAppServerUsage } from "./codex-app-server-usage-billing";
 import { CodexLiveUsageBilling, type CodexLiveUsageInput } from "./codex-live-usage-billing";
-import { isCodexAuthCompletionPageText } from "./codex-browser-login";
 import {
   CodexGatewayUsageDeduplicator,
   resolveCodexGatewayUsageBilling,
@@ -885,6 +886,7 @@ import {
 } from "./notification-settings-store";
 import { OpenAIAccountAssistant } from "./openai-account-assistant";
 import { OpenAIAccountBrowser } from "./openai-account-browser";
+import { installCodexAuthCompletionGuard } from "./codex-auth-completion-guard";
 import type { OpenAIAccount, OpenAIAccountService } from "./openai-account-service";
 import { resolveOrchestrationGuardrails } from "./orchestration-run-budget";
 import { PackageJsonWatcher } from "./package-json-watcher";
@@ -1266,7 +1268,7 @@ const initialDesktopRendererReady = new Promise<void>((resolve) => {
 
 function getMainWindow(): BrowserWindow | undefined {
   return BrowserWindow.getAllWindows().find(
-    (window) => !window.isDestroyed() && !startupSplashWindows.has(window) && !isMoriAssistantWindow(window),
+    (window) => !window.isDestroyed() && !startupSplashWindows.has(window) && !isMoriAssistantWindow(window) && !isBrowserWindow(window),
   );
 }
 
@@ -1296,83 +1298,6 @@ function createOAuthAuthWindow(parent?: BrowserWindow, partition: string | Elect
       contextIsolation: true,
     },
   });
-}
-
-/** Watch for the provider's success page while the local app-server callback is still in flight. */
-function watchCodexAuthCompletionPage(authWindow: BrowserWindow, onDetected: () => void): () => void {
-  let stopped = false;
-  let checking = false;
-  let timer: ReturnType<typeof setInterval> | undefined;
-
-  function stop(): void {
-    if (stopped) return;
-    stopped = true;
-    if (timer) clearInterval(timer);
-    authWindow.webContents.removeListener("dom-ready", check);
-    authWindow.webContents.removeListener("did-finish-load", check);
-    authWindow.webContents.removeListener("did-navigate", check);
-    authWindow.webContents.removeListener("did-navigate-in-page", check);
-  }
-
-  function check(): void {
-    if (stopped || checking || authWindow.isDestroyed()) return;
-    checking = true;
-    void authWindow.webContents
-      .executeJavaScript("document.body?.innerText ?? ''", true)
-      .then((bodyText) => {
-        if (typeof bodyText !== "string" || !isCodexAuthCompletionPageText(bodyText)) return;
-        stop();
-        onDetected();
-      })
-      .catch(() => {
-        // The document can be replaced while OAuth navigates. The next load event retries.
-      })
-      .finally(() => {
-        checking = false;
-      });
-  }
-
-  authWindow.webContents.on("dom-ready", check);
-  authWindow.webContents.on("did-finish-load", check);
-  authWindow.webContents.on("did-navigate", check);
-  authWindow.webContents.on("did-navigate-in-page", check);
-  timer = setInterval(check, 1_000);
-  check();
-  return stop;
-}
-
-/** Keep the OAuth window open after provider-side success until app-server confirms the callback. */
-function installCodexAuthCompletionGuard(
-  authWindow: BrowserWindow,
-  cancelLogin: () => void,
-): {
-  allowClose: () => void;
-  dispose: () => void;
-} {
-  let awaitingCallback = false;
-  const stopWatching = watchCodexAuthCompletionPage(authWindow, () => {
-    if (awaitingCallback || authWindow.isDestroyed()) return;
-    awaitingCallback = true;
-    authWindow.setClosable(false);
-    process.stderr.write("[codex-oauth] provider authorization succeeded; waiting for local callback\n");
-  });
-
-  authWindow.on("close", (event) => {
-    if (awaitingCallback && !isApplicationQuitting()) {
-      event.preventDefault();
-      return;
-    }
-    cancelLogin();
-  });
-
-  return {
-    allowClose: () => {
-      awaitingCallback = false;
-      stopWatching();
-      if (!authWindow.isDestroyed()) authWindow.setClosable(true);
-    },
-    dispose: stopWatching,
-  };
 }
 
 /** Configure the shared embedded OAuth session with the desktop outbound proxy. */
@@ -2989,7 +2914,24 @@ app
     });
     sshBookmarkStore = await createSshBookmarkStore(dbPath, createLocalSecretCodec());
     notificationSettingsStore = await createNotificationSettingsStore(dbPath);
+    const browserWindows = new BrowserWindows({
+      host: requireBrowserHost,
+      preloadPath: path.join(__dirname, "../preload/index.cjs"),
+      reportError: error => console.error("[browser-window]", error),
+      loadRenderer: async (window, browserId) => {
+        const devUrl = process.env.VITE_DEV_SERVER_URL;
+        if (devUrl) {
+          const url = new URL("browser.html", devUrl);
+          url.searchParams.set("browserId", browserId);
+          await window.loadURL(url.href);
+        } else await window.loadFile(path.join(__dirname, "../renderer/browser.html"), { query: { browserId } });
+      },
+    });
     browserHost = new BrowserHost({
+      openBrowserWindow: id => browserWindows.open(id),
+      focusBrowserWindow: id => browserWindows.focus(id),
+      closeBrowserWindow: id => browserWindows.close(id),
+      getBrowserWindow: id => browserWindows.get(id),
       getMainWindow,
       getSettings: () => browserSettingsStore,
       broadcast: (state: BrowserViewState) => {
@@ -8059,12 +8001,24 @@ function registerIpcHandlers(): void {
         proxyMode: account.proxyMode, ...(account.proxyUrl ? { proxyUrl: account.proxyUrl } : {}) };
     },
     configureProxy: async (ses, mode, proxyUrl) => {
-      if (mode === "system") {
-        await ses.setProxy({ mode: "system" });
-        return () => {};
+      if (mode === "manual" && !proxyUrl?.trim()) throw new Error("手动代理模式需要填写代理地址。");
+      const proxy = mode === "system" ? undefined : mode === "direct" ? "direct" : proxyUrl?.replace(/^socks:/u, "socks5:");
+      const controller = new WebChatProxyController(ses);
+      webChatProxyControllers.set(ses, controller);
+      try {
+        await controller.apply(proxy);
+      } catch (error) {
+        webChatProxyControllers.delete(ses);
+        controller.dispose();
+        throw error;
       }
-      return configureChatGptOAuthSessionProxy(ses, mode === "manual" ? proxyUrl : undefined);
+      return () => {
+        if (webChatProxyControllers.get(ses) === controller) webChatProxyControllers.delete(ses);
+        controller.dispose();
+      };
     },
+    openPage: input => requireBrowserHost().openAccountPage(input),
+    closePages: accountId => requireBrowserHost().closeAccountPages(accountId),
     reportError: error => logEcoDiag("openai-account-browser.flush.failed", { error: errorMessage(error) }),
   });
   openaiAccountBrowser = accountBrowser;
@@ -8130,8 +8084,6 @@ function registerIpcHandlers(): void {
 
   registerDesktopCommand(IPC_CHANNELS.openAIAccountsStartLogin, async (payload: { accountId: string; mode?: "external" }) => accountBrowser.run(payload.accountId, async () => {
     const svc = await getOpenAIAccountService();
-    const accounts = await svc.listAccounts();
-    const account = accounts.find((a) => a.id === payload.accountId);
     const authInfo = await svc.startLogin(payload.accountId);
     if (!authInfo) {
       return { success: false, message: "Failed to start login" };
@@ -8150,22 +8102,17 @@ function registerIpcHandlers(): void {
       return { success: true, message: "授权链接已生成", authUrl: authInfo.authUrl, loginId: authInfo.loginId, expiresAt: authInfo.expiresAt };
     }
 
-    let authSession: Electron.Session;
+    let authPage: import("./account-browser-page").AccountBrowserPage;
     try {
-      authSession = await accountBrowser.getSession(payload.accountId);
+      authPage = await accountBrowser.createPage(payload.accountId, true);
     } catch (error) {
       authInfo.cancel();
       return {
         success: false,
-        message: `登录代理配置失败：${error instanceof Error ? error.message : String(error)}`,
+        message: `打开账号浏览器失败：${error instanceof Error ? error.message : String(error)}`,
       };
     }
-    // Keep the OAuth page independent from the main window so it can move
-    // across displays without being constrained by the main window's window group.
-    const authWindow = createOAuthAuthWindow(undefined, authSession);
-    accountBrowser.trackWindow(payload.accountId, authWindow);
-    authWindow.setTitle(`ChatGPT Login · ${account?.name ?? "账号"}`);
-    requireAccountAssistant().attachLogin(payload.accountId, authWindow, authInfo.expiresAt);
+    requireAccountAssistant().attachLogin(payload.accountId, authPage, authInfo.expiresAt);
     let loginCancelled = false;
 
     const cancelLogin = () => {
@@ -8183,22 +8130,15 @@ function registerIpcHandlers(): void {
       });
     };
 
-    // Register before loadURL so closing while the OAuth page is loading still
-    // cancels the CLI process. The shared profile owns its proxy bridge.
-    const completionGuard = installCodexAuthCompletionGuard(authWindow, cancelLogin);
-    authWindow.on("closed", () => {
-      completionGuard.dispose();
-      // `destroy()` and application shutdown may skip the `close` event.
-      cancelLogin();
-    });
-    authWindow.webContents.setWebRTCIPHandlingPolicy("disable_non_proxied_udp");
+    const completionGuard = installCodexAuthCompletionGuard(authPage, cancelLogin);
+    authPage.onClosed(() => { completionGuard.dispose(); cancelLogin(); });
     try {
       await requireAccountAssistant().open(payload.accountId);
-      await authWindow.loadURL(authInfo.authUrl);
+      await authPage.webContents.loadURL(authInfo.authUrl);
     } catch (error) {
       completionGuard.allowClose();
       cancelLogin();
-      if (!authWindow.isDestroyed()) authWindow.destroy();
+      await authPage.close();
       return {
         success: false,
         message: `打开登录页面失败: ${error instanceof Error ? error.message : String(error)}`,
@@ -8212,19 +8152,19 @@ function registerIpcHandlers(): void {
         // login into a cancellation notification.
         loginCancelled = true;
         completionGuard.allowClose();
-        if (!authWindow.isDestroyed()) authWindow.close();
+        await authPage.close();
         BrowserWindow.getAllWindows().forEach((win) => {
           if (!win.isDestroyed()) {
             win.webContents.send("codex-oauth:login-result", { ...res, accountId: payload.accountId });
           }
         });
       })
-      .catch((error) => {
+      .catch(async (error) => {
         if (loginCancelled) return;
         loginCancelled = true;
         authInfo.cancel();
         completionGuard.allowClose();
-        if (!authWindow.isDestroyed()) authWindow.close();
+        await authPage.close();
         console.error(
           `[openai-accounts] Login failed: ${error instanceof Error ? error.message : String(error)}`,
         );
@@ -8239,7 +8179,7 @@ function registerIpcHandlers(): void {
         });
       });
 
-    return { success: true, message: "Login started" };
+    return { success: true, message: "Login started", loginId: authInfo.loginId, expiresAt: authInfo.expiresAt };
   }));
 
   registerDesktopCommand(
@@ -8326,7 +8266,7 @@ function registerIpcHandlers(): void {
     return codexImages.queryQuota(payload.accountId);
   });
 
-  registerDesktopCommand(IPC_CHANNELS.openAIAccountsUpdate, async (payload: OpenAIAccountUpdateInput) => {
+  registerDesktopCommand(IPC_CHANNELS.openAIAccountsUpdate, async (payload: OpenAIAccountUpdateInput) => accountBrowser.run(payload.accountId, async () => {
     const svc = await getOpenAIAccountService();
     const prevAccount = (await svc.listAccounts()).find((a: OpenAIAccount) => a.id === payload.accountId);
     const result = await svc.updateAccount(payload);
@@ -8346,8 +8286,9 @@ function registerIpcHandlers(): void {
       // Proxy env vars are baked into the app-server at spawn time.
       await invalidateCodexAccountRuntimeLifecycle(payload.accountId);
     }
+    await accountBrowser.refreshProxy(payload.accountId);
     return result;
-  });
+  }));
 
   registerDesktopCommand(IPC_CHANNELS.openAIAccountsGetAuthJson, async (payload: { accountId: string }) => {
     const svc = await getOpenAIAccountService();
@@ -9433,11 +9374,13 @@ function registerIpcHandlers(): void {
     if (!request || typeof request.url !== "string") {
       throw new Error("Invalid browser navigate payload.");
     }
+    const windowPage = requireBrowserHost().getState().allInstances.find(instance => instance.id === request.browserId && instance.windowed);
     return requireBrowserHost().openSharedSession({
       url: request.url,
+      ...(windowPage ? { updateUiScope: false, updateUiFocus: false } : {}),
       revealUi: request.reveal !== false,
       ...(typeof request.browserId === "string" ? { browserId: request.browserId } : {}),
-      ...(typeof request.threadId === "string" ? { threadId: request.threadId } : {}),
+      ...(windowPage ? { threadId: windowPage.threadId } : typeof request.threadId === "string" ? { threadId: request.threadId } : {}),
       ...(typeof request.workspacePath === "string" && request.workspacePath.trim()
         ? { workspacePath: request.workspacePath.trim() }
         : {}),
@@ -9486,6 +9429,24 @@ function registerIpcHandlers(): void {
       throw new Error("Invalid browser close payload.");
     }
     return requireBrowserHost().closeBrowser(request.browserId);
+  });
+
+  registerDesktopCommand(IPC_CHANNELS.browserSetWindowed, async (payload: unknown) => {
+    const request = payload as { browserId?: unknown; windowed?: unknown };
+    if (typeof request?.browserId !== "string" || typeof request.windowed !== "boolean") throw new Error("无效的浏览器窗口参数。");
+    return requireBrowserHost().setWindowed(request.browserId, request.windowed);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.browserWindowAction, (event, action: BrowserWindowAction) => {
+    const owner = BrowserWindow.fromWebContents(event.sender);
+    if (!owner || !isBrowserWindow(owner)) throw new Error("浏览器窗口来源无效。");
+    if (!action || !["selection", "screenshot", "tool"].includes(action.kind)) throw new Error("浏览器窗口操作无效。");
+    if (action.kind === "tool" && !BROWSER_WINDOW_TOOLS.includes(action.tool)) throw new Error("浏览器工具无效。");
+    const main = getMainWindow();
+    if (!main) throw new Error("主窗口不可用。");
+    main.webContents.send(IPC_CHANNELS.browserWindowAction, action);
+    main.show();
+    main.focus();
   });
 
   registerDesktopCommand(IPC_CHANNELS.browserSetUiScope, async (payload: unknown) => {

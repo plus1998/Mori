@@ -16,6 +16,7 @@ export type BrowserTaskInstance = {
 export type BrowserWebviewInstance = {
   id: string;
   partition: string;
+  windowed?: boolean;
 };
 
 const EMPTY_BROWSER_WEBVIEW_INSTANCES: readonly BrowserWebviewInstance[] = [];
@@ -213,7 +214,8 @@ function equalWebviewInstances(
       return (
         nextInstance !== undefined &&
         previousInstance.id === nextInstance.id &&
-        previousInstance.partition === nextInstance.partition
+        previousInstance.partition === nextInstance.partition &&
+        previousInstance.windowed === nextInstance.windowed
       );
     })
   );
@@ -224,6 +226,7 @@ function projectWebviewInstances(state: BrowserViewState | undefined): readonly 
     state?.allGuestInstances?.map((instance) => ({
       id: instance.id,
       partition: instance.partition,
+      ...(instance.windowed ? { windowed: true } : {}),
     })) ?? EMPTY_BROWSER_WEBVIEW_INSTANCES
   );
 }

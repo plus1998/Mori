@@ -1,19 +1,22 @@
-import { BrowserWindow, session, type BrowserWindowConstructorOptions, type Session } from "electron";
+import { BrowserWindow, session, type Session } from "electron";
+import type { AccountBrowserPage } from "./account-browser-page";
 import fs from "node:fs/promises";
 
-/** A disk-backed Chromium profile shared by an account's OAuth and ChatGPT windows. */
+/** A disk-backed Chromium profile shared by an account's OAuth and ChatGPT tabs. */
 export class OpenAIAccountBrowser {
   private readonly work = new Map<string, Promise<unknown>>();
   private readonly profiles = new Map<string, { session: Session; proxyKey: string; releaseProxy: () => void }>();
-  private readonly windows = new Map<string, BrowserWindow>();
+  private readonly pages = new Map<string, AccountBrowserPage>();
 
   constructor(private readonly deps: {
     getProfile: (accountId: string) => Promise<{ path: string; name: string; proxyMode: string; proxyUrl?: string }>;
     configureProxy: (session: Session, proxyMode: string, proxyUrl?: string) => Promise<() => void>;
+    openPage: (input: { accountId: string; name: string; session: Session; windowed: boolean; presentationLocked: boolean }) => Promise<AccountBrowserPage>;
+    closePages: (accountId: string) => Promise<void>;
     reportError: (error: unknown) => void;
   }) {}
 
-  /** Serialize profile setup, window creation and deletion for each account. */
+  /** Serialize profile setup, tab creation and deletion for each account. */
   run<T>(accountId: string, action: () => Promise<T>): Promise<T> {
     const previous = this.work.get(accountId) ?? Promise.resolve();
     const next = previous.catch(() => {}).then(action);
@@ -32,7 +35,9 @@ export class OpenAIAccountBrowser {
     await fs.mkdir(profile.path, { recursive: true });
     const ses = existing?.session ?? session.fromPath(profile.path);
     if (existing) {
-      this.profiles.delete(accountId);
+      // Retain the session if configuration fails so a subsequent settings edit
+      // can retry applying the proxy to tabs that are still open.
+      existing.proxyKey = "";
       try { await ses.closeAllConnections(); }
       finally { existing.releaseProxy(); }
     }
@@ -43,47 +48,40 @@ export class OpenAIAccountBrowser {
 
   async open(accountId: string): Promise<void> {
     return this.run(accountId, async () => {
-      const ses = await this.getSession(accountId);
-      const existing = this.windows.get(accountId);
+      await this.getSession(accountId);
+      const existing = this.pages.get(accountId);
       if (existing && !existing.isDestroyed()) {
-        existing.show();
         existing.focus();
         return;
       }
-      const profile = await this.deps.getProfile(accountId);
-      const window = new BrowserWindow({
-        width: 1100, height: 800, title: `ChatGPT · ${profile.name}`, autoHideMenuBar: true,
-        webPreferences: { session: ses, nodeIntegration: false, contextIsolation: true, sandbox: true },
+      const page = await this.createPage(accountId);
+      this.pages.set(accountId, page);
+      page.onClosed(() => {
+        if (this.pages.get(accountId) === page) this.pages.delete(accountId);
       });
-      this.windows.set(accountId, window);
-      window.on("page-title-updated", event => event.preventDefault());
-      window.webContents.setWebRTCIPHandlingPolicy("disable_non_proxied_udp");
-      this.trackWindow(accountId, window);
-      // Keep sign-in popups in the same account profile, without app IPC/preload access.
-      window.webContents.setWindowOpenHandler(({ url }) => ({
-        action: /^https?:\/\//u.test(url) ? "allow" : "deny",
-        overrideBrowserWindowOptions: {
-          autoHideMenuBar: true,
-          webPreferences: { session: ses, nodeIntegration: false, contextIsolation: true, sandbox: true },
-        } satisfies BrowserWindowConstructorOptions,
-      }));
-      window.webContents.on("did-create-window", popup => this.trackWindow(accountId, popup));
       try {
-        await window.loadURL("https://chatgpt.com/");
+        await page.webContents.loadURL("https://chatgpt.com/");
       } catch (error) {
-        if (!window.isDestroyed()) window.destroy();
+        await page.close();
         throw error;
       }
     });
   }
 
-  trackWindow(accountId: string, window: BrowserWindow): void {
-    const ses = window.webContents.session;
-    window.on("closed", () => {
-      if (this.windows.get(accountId) === window) this.windows.delete(accountId);
+  /** Caller serializes this with account deletion and login setup via run(). */
+  async createPage(accountId: string, login = false): Promise<AccountBrowserPage> {
+    const ses = await this.getSession(accountId);
+    const profile = await this.deps.getProfile(accountId);
+    const page = await this.deps.openPage({ accountId, name: profile.name, session: ses, windowed: true, presentationLocked: login });
+    page.onClosed(() => {
       ses.flushStorageData();
       void ses.cookies.flushStore().catch(this.deps.reportError);
     });
+    return page;
+  }
+
+  async refreshProxy(accountId: string): Promise<void> {
+    if (this.profiles.has(accountId)) await this.getSession(accountId);
   }
 
   /** Must run inside run(), before the service removes the account directory. */
@@ -98,6 +96,7 @@ export class OpenAIAccountBrowser {
       }
     }
     const ses = entry?.session ?? session.fromPath(profile.path);
+    await this.deps.closePages(accountId);
     for (const window of BrowserWindow.getAllWindows()) {
       if (!window.isDestroyed() && window.webContents.session === ses) window.destroy();
     }
