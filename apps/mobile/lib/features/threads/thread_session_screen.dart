@@ -1224,10 +1224,17 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
                 });
               },
             );
+      final planId = widget.initialDraft?.planExecutionId;
+      final hasPlanReference =
+          planId != null &&
+          parseComposerPrompt(
+            prompt,
+          ).any((part) => part.kind == 'plan' && part.id == planId);
       final thread = await rpc.startThread(
         workspacePath: workspacePath,
         prompt: prompt,
         coreKind: _coreKind,
+        planExecutionId: hasPlanReference ? planId : null,
         attachments: stagedAttachments,
         runtimeConfig: sendRuntimeConfig,
       );
@@ -1812,7 +1819,10 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
     if (!mounted) return;
     context.push(
       '/threads/new',
-      extra: ThreadSessionRouteExtra(prompt: prompt),
+      extra: ThreadSessionRouteExtra(
+        prompt: prompt,
+        planExecutionId: current.referenceId,
+      ),
     );
   }
 

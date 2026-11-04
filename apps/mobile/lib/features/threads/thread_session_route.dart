@@ -7,11 +7,13 @@ class ThreadSessionRouteExtra {
   const ThreadSessionRouteExtra({
     this.handoff = false,
     this.prompt,
+    this.planExecutionId,
     this.attachments = const [],
   });
 
   final bool handoff;
   final String? prompt;
+  final String? planExecutionId;
   final List<PromptImageAttachment> attachments;
 }
 

@@ -343,7 +343,7 @@ import {
   isBuiltInOpenAiProvider,
   resolveComposerModelAvailability,
 } from "./composer-model-availability";
-import { appendPlanReference } from "./composer-plan-handoff";
+import { appendPlanReference, planHandoffForSend } from "./composer-plan-handoff";
 import {
   applySlashSkillSelection,
   buildSkillMap,
@@ -5626,7 +5626,10 @@ function App() {
     contextKey: string | undefined,
     options?: { releaseAttachments?: boolean },
   ): void {
-    if (contextKey) draftWorktreeBindingsRef.current[contextKey] = null;
+    if (contextKey) {
+      draftWorktreeBindingsRef.current[contextKey] = null;
+      if (options?.releaseAttachments !== false) window.localStorage.removeItem(`plan-handoff:${contextKey}`);
+    }
     clearComposerDraft(composerDraftsByKeyRef.current, contextKey);
     if (!contextKey) {
       return;
@@ -8818,6 +8821,10 @@ function App() {
         : undefined;
     const restorePrompt = messagePrompt;
     const restoreAttachments = [...composerAttachments];
+    const handoffDraftKey = !activeThread ? composerContextKey : undefined;
+    const planExecutionId = handoffDraftKey
+      ? planHandoffForSend(messagePrompt, window.localStorage.getItem(`plan-handoff:${handoffDraftKey}`) ?? undefined)
+      : undefined;
     removeComposerDraft(composerContextKey, { releaseAttachments: false });
     setPrompt("");
     setComposerRewindTarget(undefined);
@@ -8852,11 +8859,13 @@ function App() {
           workspacePath: currentProjectPath,
           prompt: messagePrompt,
           coreKind: newThreadCoreKind,
+          ...(planExecutionId ? { planExecutionId } : {}),
           developmentMode: newThreadWorktree ? "direct" : newThreadDevelopmentMode,
           ...(newThreadWorktree ? { managedWorktreeId: newThreadWorktree.id } : {}),
           runtimeConfig: runtimeConfigForSend,
           ...(attachments && { attachments }),
         });
+        if (handoffDraftKey) window.localStorage.removeItem(`plan-handoff:${handoffDraftKey}`);
         adoptLandingTaskPanelUiRef.current = true;
         setThreads((current) => [
           result.thread,
@@ -11185,7 +11194,8 @@ function App() {
     const leavingThread = Boolean(selectedThreadIdRef.current);
     const editingThreadId = editingFollowUpThreadIdRef.current;
     setComposerRoutePopoverOpen(false);
-    removeComposerDraft(composerContextKeyFromParts(undefined, currentProjectPath));
+    const landingKey = composerContextKeyFromParts(undefined, currentProjectPath);
+    removeComposerDraft(landingKey);
     commitSidebarThreadSelection(undefined);
     applyFeedThreadSelection(undefined, { immediate: true });
     setNewThreadCoreKind(workflowSettings.defaultCoreKind ?? DEFAULT_CORE_KIND);
@@ -11320,6 +11330,7 @@ function App() {
       );
       await window.eco.saveComposerDraft({ contextKey, prompt: nextPrompt, attachments });
       composerDraftsByKeyRef.current[contextKey] = { prompt: nextPrompt, attachments: nextAttachments };
+      window.localStorage.setItem(`plan-handoff:${contextKey}`, current.referenceId);
       ++composerDraftLoadRequestRef.current;
       switchProject(current.workspacePath);
       setNewThreadCoreKind(workflowSettings.defaultCoreKind ?? DEFAULT_CORE_KIND);
