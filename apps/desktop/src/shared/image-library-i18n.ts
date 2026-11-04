@@ -14,7 +14,8 @@ export const imageLibraryTranslations = {
     "imageLibrary.loading": "正在读取图片…",
     "imageLibrary.empty": "没有匹配的图片",
     "imageLibrary.emptyHint": "这里只收录启用图片库之后的新生图。历史图片仍在原会话中查看。",
-    "imageLibrary.count": "{{count}} 张 · {{size}}",
+    "imageLibrary.count_one": "{{count}} 张 · {{size}}",
+    "imageLibrary.count_other": "{{count}} 张 · {{size}}",
     "imageLibrary.selected": "已选 {{count}} 张 · {{size}}",
     "imageLibrary.selectPage": "选择本页",
     "imageLibrary.selectAll": "选择全部匹配",
@@ -25,14 +26,19 @@ export const imageLibraryTranslations = {
     "imageLibrary.purge": "彻底删除",
     "imageLibrary.emptyTrash": "清空回收站",
     "imageLibrary.cancel": "取消",
-    "imageLibrary.confirmTrash":
+    "imageLibrary.confirmTrash_one":
       "将 {{count}} 张图片（{{size}}）移入回收站？可以恢复，此操作不会释放磁盘空间。",
-    "imageLibrary.confirmPurge":
+    "imageLibrary.confirmTrash_other":
+      "将 {{count}} 张图片（{{size}}）移入回收站？可以恢复，此操作不会释放磁盘空间。",
+    "imageLibrary.confirmPurge_one":
+      "彻底删除 {{count}} 张图片（{{size}}）？原图及缩略图将被删除，此操作无法撤销。已导出的文件和临时工作副本保留。",
+    "imageLibrary.confirmPurge_other":
       "彻底删除 {{count}} 张图片（{{size}}）？原图及缩略图将被删除，此操作无法撤销。已导出的文件和临时工作副本保留。",
     "imageLibrary.moved": "已移入回收站，可随时恢复。",
     "imageLibrary.restored": "图片已恢复。",
     "imageLibrary.purged": "已删除，释放 {{size}}。",
-    "imageLibrary.exported": "已保存 {{count}} 张图片。",
+    "imageLibrary.exported_one": "已保存 {{count}} 张图片。",
+    "imageLibrary.exported_other": "已保存 {{count}} 张图片。",
     "imageLibrary.missing": "原图缺失",
     "imageLibrary.deleted": "图片已删除",
     "imageLibrary.trashed": "图片已移入回收站",
@@ -71,7 +77,8 @@ export const imageLibraryTranslations = {
     "imageLibrary.empty": "No matching images",
     "imageLibrary.emptyHint":
       "Only newly generated images appear here. Historical images remain in their original conversations.",
-    "imageLibrary.count": "{{count}} images · {{size}}",
+    "imageLibrary.count_one": "{{count}} image · {{size}}",
+    "imageLibrary.count_other": "{{count}} images · {{size}}",
     "imageLibrary.selected": "{{count}} selected · {{size}}",
     "imageLibrary.selectPage": "Select page",
     "imageLibrary.selectAll": "Select all matching",
@@ -82,14 +89,19 @@ export const imageLibraryTranslations = {
     "imageLibrary.purge": "Delete permanently",
     "imageLibrary.emptyTrash": "Empty trash",
     "imageLibrary.cancel": "Cancel",
-    "imageLibrary.confirmTrash":
+    "imageLibrary.confirmTrash_one":
+      "Move {{count}} image ({{size}}) to trash? It can be restored. This does not free disk space.",
+    "imageLibrary.confirmTrash_other":
       "Move {{count}} images ({{size}}) to trash? They can be restored. This does not free disk space.",
-    "imageLibrary.confirmPurge":
+    "imageLibrary.confirmPurge_one":
+      "Permanently delete {{count}} image ({{size}})? The original and thumbnail will be deleted. This cannot be undone. Exports and temporary working copies are kept.",
+    "imageLibrary.confirmPurge_other":
       "Permanently delete {{count}} images ({{size}})? Originals and thumbnails will be deleted. This cannot be undone. Exports and temporary working copies are kept.",
     "imageLibrary.moved": "Moved to trash. Images can be restored.",
     "imageLibrary.restored": "Images restored.",
     "imageLibrary.purged": "Deleted. Freed {{size}}.",
-    "imageLibrary.exported": "Saved {{count}} images.",
+    "imageLibrary.exported_one": "Saved {{count}} image.",
+    "imageLibrary.exported_other": "Saved {{count}} images.",
     "imageLibrary.missing": "Original missing",
     "imageLibrary.deleted": "Image deleted",
     "imageLibrary.trashed": "Image is in trash",

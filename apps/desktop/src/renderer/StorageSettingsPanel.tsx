@@ -383,6 +383,7 @@ export function StorageSettingsPanel() {
               />
               <span>
                 {t("settings.storage.cleanupProgress", {
+                  count: cleanupProgress.totalCount,
                   processed: cleanupProgress.processedCount,
                   total: cleanupProgress.totalCount,
                 })}
