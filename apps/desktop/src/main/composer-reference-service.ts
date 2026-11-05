@@ -133,7 +133,7 @@ export class ComposerReferenceService {
           type: "plan", planId: plan.id, sourceThreadId: plan.sourceThreadId, version: plan.version,
           title: plan.title, workspacePath: plan.workspacePath,
           plan: Array.from(plan.plan).slice(0, 8000).join(""), planTruncated: Array.from(plan.plan).length > 8000,
-          tool: "eco_context.read_plan",
+          tool: "mori_context.read_plan",
         });
       } else if (ref.kind === "ssh") {
         const ssh = this.deps.listSsh().find((item) => item.id === ref.id);
@@ -161,8 +161,8 @@ export class ComposerReferenceService {
           text: selection.text, context: selection.context, textTruncated: selection.textTruncated,
           frameUrl: selection.frameUrl, selectorPath: selection.selectorPath,
           screenshot: "read_browser_selection(includeScreenshot=true)",
-          tool: "eco_context.read_browser_selection",
-          liveTool: "eco_context.browser_reference (selectionId required; validates original document and element)",
+          tool: "mori_context.read_browser_selection",
+          liveTool: "mori_context.browser_reference (selectionId required; validates original document and element)",
         });
       } else if (ref.kind === "web") {
         const browser = this.deps.listBrowsers().find((item) => item.id === ref.id);
@@ -175,7 +175,7 @@ export class ComposerReferenceService {
           browserId: browser.id,
           title: browser.title,
           url: browser.url,
-          tool: "eco_context.browser_reference",
+          tool: "mori_context.browser_reference",
         });
       } else if (ref.kind === "conversation") {
         const thread = this.requireThread(ref.id);
@@ -184,7 +184,7 @@ export class ComposerReferenceService {
           conversationId: thread.id,
           title: thread.title,
           workspacePath: thread.workspacePath,
-          tool: "eco_context.read_conversation",
+          tool: "mori_context.read_conversation",
         });
       } else {
         const capability = capabilities.find((item) => item.kind === ref.kind && item.id === ref.id);

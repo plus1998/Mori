@@ -82,11 +82,11 @@ the command. For a binary logo, decode `result.content` as base64 when `result.b
 is true and write the bytes to the desired asset file. Source files are the delivered frontend
 files; this does not recover server code or original sources absent source maps.
 
-For user-referenced pages, use `eco_context.browser_reference` with the exact `browserId`,
+For user-referenced pages, use `mori_context.browser_reference` with the exact `browserId`,
 `action:"agent_browser_eval"` or `action:"agent_browser_cdp"`, and the same parameters inside
 `arguments`. Include `selectionId` for element/text references; original-document validation
 still applies. Resource URLs go inside `arguments.params.url`; never substitute another page.
-This reference path is available through `eco_context` even when this thread has no browser
+This reference path is available through `mori_context` even when this thread has no browser
 integration enabled. Report protocol/cache/unavailable-resource errors as returned; do not
 infer file contents from screenshots or silently re-fetch a resource from a different context.
 

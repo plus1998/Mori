@@ -234,3 +234,40 @@ test("context MCP exposes cross-project reads with thread authentication and rev
     await gateway.close();
   }
 });
+
+test("renamed context gateway is discoverable and callable through the MCP Hub", async () => {
+  const { ContextReferenceMcpGateway } = await import("../src/main/context-reference-mcp-gateway");
+  const { McpHubGateway } = await import("../src/main/mcp-hub-gateway");
+  const { CONTEXT_MCP_SERVER, isBuiltinHubServerName } = await import("../src/shared/composer-references");
+  const context = new ContextReferenceMcpGateway(setup());
+  const hub = new McpHubGateway();
+  try {
+    expect(CONTEXT_MCP_SERVER).toBe("mori_context");
+    expect(isBuiltinHubServerName(CONTEXT_MCP_SERVER)).toBe(true);
+    expect(isBuiltinHubServerName("external_context")).toBe(false);
+    const contextEntry = await context.resolveInjection("current");
+    hub.registerThreadServerEntry({ name: CONTEXT_MCP_SERVER, threadId: "current", sdkEntry: contextEntry.sdkEntry });
+    const injection = await hub.prepareThreadFromSdkConfig({
+      threadId: "current",
+      config: { mcpServers: {}, allowedTools: [] },
+      allowedServers: [CONTEXT_MCP_SERVER],
+    });
+    const headers = { ...(injection.sdkEntry.headers as Record<string, string>), "content-type": "application/json" };
+    const send = async (body: object, sessionId?: string) => {
+      const response = await fetch(injection.sdkEntry.url as string, {
+        method: "POST", headers: { ...headers, ...(sessionId ? { "mcp-session-id": sessionId } : {}) }, body: JSON.stringify(body),
+      });
+      return { response, body: await response.json().catch(() => ({})) as any };
+    };
+    const init = await send({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "test", version: "1" } } });
+    const sessionId = init.response.headers.get("mcp-session-id")!;
+    await send({ jsonrpc: "2.0", method: "notifications/initialized" }, sessionId);
+    const search = await send({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "search_tools", arguments: { query: "mori_context read_conversation" } } }, sessionId);
+    expect(search.body.result.structuredContent.tools.map((item: { name: string }) => item.name)).toContain("mori_context:read_conversation");
+    const result = await send({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "call_tool", arguments: { name: "mori_context:read_conversation", arguments: { conversationId: "b" } } } }, sessionId);
+    expect(JSON.parse(result.body.result.content[0].text)).toMatchObject({ conversationId: "b", workspacePath: "/project/b" });
+  } finally {
+    await hub.close();
+    await context.close();
+  }
+});

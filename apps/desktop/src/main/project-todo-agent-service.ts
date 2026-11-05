@@ -34,8 +34,8 @@ export class ProjectTodoAgentService {
     return {
       type: "todo",
       ...this.summary(todo),
-      readTool: "eco_context.read_todo",
-      statusTool: "eco_context.update_todo_status",
+      readTool: "mori_context.read_todo",
+      statusTool: "mori_context.update_todo_status",
     };
   }
 

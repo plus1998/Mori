@@ -36,6 +36,7 @@ import { promisify } from "node:util";
 import { buildComposerCapabilityReferences } from "../shared/composer-capability-references";
 import {
   CONTEXT_MCP_SERVER,
+  isBuiltinHubServerName,
   CONTEXT_REFERENCE_PROMPT,
   type ComposerReferenceSearchRequest,
 } from "../shared/composer-references";
@@ -12968,7 +12969,7 @@ async function startCodexThreadRun(
             const configuredMcp = mcpStore.buildSdkConfig();
             const threadMcpKeys = resolveCodexThreadMcpServerKeys(input.thread.id);
             const hubMcpKeys = threadMcpKeys.filter(
-              (key) => Object.hasOwn(configuredMcp.mcpServers, key) && !key.startsWith("eco_"),
+              (key) => Object.hasOwn(configuredMcp.mcpServers, key) && !isBuiltinHubServerName(key),
             );
             const codexHubName = codexHubServerName(input.thread.id);
             const builtinHubServers: string[] = [];
@@ -13089,7 +13090,7 @@ async function startCodexThreadRun(
             if (hasCodexHub && !keys.includes(codexHubName)) {
               keys.push(codexHubName);
             }
-            return keys.filter((key) => !key.startsWith("eco_") || key === codexHubName);
+            return keys.filter((key) => !isBuiltinHubServerName(key) || key === codexHubName);
           },
           resolveSkillConfig: () => {
             const base = codexSkills.map(({ skill, enabled }) => ({
@@ -13491,10 +13492,10 @@ async function resolvePiSessionResourcesForThread(
   mcpSession.appendSystemPrompt.push(SCHEDULING_PROMPT);
   const globalMcpConfig = mcpStore.buildSdkConfig();
   const hubServerKeys = enabledMcpServers.filter(
-    (key) => Object.hasOwn(globalMcpConfig.mcpServers, key) && !key.startsWith("eco_"),
+    (key) => Object.hasOwn(globalMcpConfig.mcpServers, key) && !isBuiltinHubServerName(key),
   );
   const hubBuiltinKeys = Object.keys(mcpSession.mcpServers).filter(
-    (key) => key.startsWith("eco_") && key !== "eco_mcp",
+    (key) => isBuiltinHubServerName(key) && key !== "eco_mcp",
   );
   for (const key of hubBuiltinKeys) {
     const entry = mcpSession.mcpServers[key];
@@ -19511,7 +19512,7 @@ async function buildSdkSessionOptions(
     ),
   );
   const hubServerKeys = enabledMcpServers.filter(
-    (key) => Object.hasOwn(mcp.mcpServers, key) && !key.startsWith("eco_"),
+    (key) => Object.hasOwn(mcp.mcpServers, key) && !isBuiltinHubServerName(key),
   );
   const withBrowserMcp = requireBrowserHost().mergeIntoSdkMcpConfig(filteredMcp, browserInject);
   const withComputerUseMcp = computerUseGateway.mergeIntoSdkConfig(withBrowserMcp, computerUseInject);
@@ -19537,7 +19538,7 @@ async function buildSdkSessionOptions(
     await modelManagementGateway.resolveInjection(threadId)
   ).sdkEntry;
   const hubBuiltinKeys = Object.keys(withWechatMcp.mcpServers).filter(
-    (key) => key.startsWith("eco_") && key !== "eco_mcp",
+    (key) => isBuiltinHubServerName(key) && key !== "eco_mcp",
   );
   for (const key of hubBuiltinKeys) {
     const entry = withWechatMcp.mcpServers[key];

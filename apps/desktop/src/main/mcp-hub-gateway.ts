@@ -7,6 +7,7 @@ import {
   StreamableHTTPError,
 } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { McpSdkConfig } from "../shared/mcp";
+import { isBuiltinHubServerName } from "../shared/composer-references";
 import { buildEcoMcpHubDirectoryPrompt } from "../shared/mcp-hub-tool-usage";
 import {
   ECO_IMAGE_GENERATION_MCP_SERVER,
@@ -101,8 +102,8 @@ export class McpHubGateway {
   }): void {
     const name = normalizeServerName(input.name);
     const threadId = input.threadId.trim();
-    if (!name.startsWith("eco_")) {
-      throw new Error("线程级 Hub 代理只允许 eco_* 内置网关");
+    if (!isBuiltinHubServerName(name)) {
+      throw new Error("线程级 Hub 代理只允许内置网关");
     }
     if (!threadId) throw new Error("MCP Hub thread id is required");
     const existing = this.servers.get(name);
@@ -130,7 +131,7 @@ export class McpHubGateway {
 
   /**
    * Synchronize the user MCP config into Hub adapters.
-   * Built-in `eco_*` entries are skipped because their dedicated gateway owns
+   * Built-in gateway entries are skipped because their dedicated gateway owns
    * approval and thread routing. Unsupported SSE entries are returned to the
    * caller instead of silently disappearing.
    */
@@ -140,7 +141,7 @@ export class McpHubGateway {
     const desired = new Set<string>();
     for (const [rawName, rawEntry] of Object.entries(config.mcpServers)) {
       const name = normalizeServerName(rawName);
-      if (!name || name.startsWith("eco_")) continue;
+      if (!name || isBuiltinHubServerName(name)) continue;
       desired.add(name);
       const entry = isRecord(rawEntry) ? rawEntry : undefined;
       if (!entry) {
@@ -250,7 +251,7 @@ export class McpHubGateway {
     });
     const directory = await this.hub.listServiceDirectory({
       token: injection.token,
-      servers: allowedServers.filter((name) => !name.startsWith("eco_")),
+      servers: allowedServers.filter((name) => !isBuiltinHubServerName(name)),
     });
     const promptAppend = buildEcoMcpHubDirectoryPrompt(directory);
     if (promptAppend) this.threadPromptAppends.set(input.threadId.trim(), promptAppend);

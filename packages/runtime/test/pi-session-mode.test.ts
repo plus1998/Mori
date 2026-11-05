@@ -249,7 +249,7 @@ test("piSystemPromptForSessionMode differs by mode", () => {
 for (const toolName of [
   "Bash",
   ...PI_MCP_HUB_TOOL_NAMES,
-  "mcp__eco_context__read_todo",
+  "mcp__mori_context__read_todo",
   "mcp__eco_web_search__search",
 ]) {
   for (const behavior of ["allow", "deny"] as const) {
