@@ -4,6 +4,7 @@ import { createWorktreeSettingsStore, type WorktreeSettingsStore } from "./workt
 import type { ThreadWorktreeActionRequest, ThreadWorkLocationRequest } from "../shared/thread-worktree";
 import { APP_MENU_COMMANDS } from "../shared/ipc";
 import { KeyboardShortcutsStore } from "./keyboard-shortcuts-store";
+import { checkGlobalShortcutConflicts } from "./global-shortcut-binding";
 import { matchesShortcut, validateShortcutBindings, type ShortcutBindings } from "../shared/keyboard-shortcuts";
 import { MoriComputerUse } from "./mori-computer-use";
 import { recordProviderUsage } from "./provider-usage-recorder";
@@ -1466,6 +1467,14 @@ let keyboardShortcutsStore: KeyboardShortcutsStore;
 let shortcutRecordingWindow: BrowserWindow | undefined;
 let currentShortcutBindings: ShortcutBindings | undefined;
 let registeredDisplayRestoreShortcut: string | undefined;
+function broadcastKeyboardShortcuts(): void {
+  const snapshot = keyboardShortcutsStore.snapshot();
+  for (const window of BrowserWindow.getAllWindows())
+    sendToLiveRenderer(window, IPC_CHANNELS.keyboardShortcutsChanged, snapshot);
+}
+function recordKeyboardShortcutConflict(id: string, accelerator: string): void {
+  if (keyboardShortcutsStore.clearConflictingBinding(id, accelerator)) broadcastKeyboardShortcuts();
+}
 function applyApplicationShortcuts(bindings: ShortcutBindings): void {
   Menu.setApplicationMenu(
     Menu.buildFromTemplate(
@@ -1497,7 +1506,10 @@ const displayControl: DisplayControl = new DisplayControl(
         void displayControl.set({ control: "dimmed", enabled: false }).catch((error) => {
           process.stderr.write(`[eco] display restoration failed: ${String(error)}\n`);
         });
-      })) throw new Error("恢复屏幕亮度的快捷键已被占用，请在键盘快捷键设置中更换。");
+      })) {
+        recordKeyboardShortcutConflict("restore-display", accelerator);
+        throw new Error("恢复屏幕亮度的快捷键冲突，已清空，请在键盘快捷键设置中更换。");
+      }
       registeredDisplayRestoreShortcut = accelerator;
     },
     unregister: () => {
@@ -2710,6 +2722,8 @@ app
     }
     keyboardShortcutsStore = new KeyboardShortcutsStore(path.join(app.getPath("userData"), "keyboard-shortcuts.json"), process.platform);
     keyboardShortcutsStore.load();
+    const checkedShortcuts = checkGlobalShortcutConflicts(keyboardShortcutsStore.snapshot(), globalShortcut);
+    keyboardShortcutsStore.save(checkedShortcuts.bindings, checkedShortcuts.conflicts);
     applyApplicationShortcuts(keyboardShortcutsStore.get());
     const isLocalRendererWebContents = (webContents: Electron.WebContents | null): boolean => {
       if (!webContents) {
@@ -6020,11 +6034,13 @@ function registerIpcHandlers(): void {
     shortcutRecordingCleanup?.();
     shortcutRecordingCleanup = undefined;
     if (owner && !owner.webContents.isDestroyed()) owner.webContents.setIgnoreMenuShortcuts(false);
-    if (moriAssistantHost)
-      await moriAssistantHost.windows.setShortcutSuspended(false, {
+    if (moriAssistantHost) {
+      const conflict = await moriAssistantHost.windows.setShortcutSuspended(false, {
         ...moriAssistantHost.service.settings,
         shortcut: keyboardShortcutsStore.get()["mori-floating"]?.[0] ?? "",
       });
+      if (conflict) recordKeyboardShortcutConflict("mori-floating", conflict);
+    }
   };
   ipcMain.handle(IPC_CHANNELS.keyboardShortcutsRecording, async (event, active: unknown) => {
     const owner = BrowserWindow.fromWebContents(event.sender);
@@ -6061,50 +6077,43 @@ function registerIpcHandlers(): void {
     }
   });
 
-  registerDesktopCommand(IPC_CHANNELS.keyboardShortcutsGet, async () => ({
-    bindings: keyboardShortcutsStore.get(),
-  }));
+  registerDesktopCommand(IPC_CHANNELS.keyboardShortcutsGet, async () => keyboardShortcutsStore.snapshot());
   let shortcutSettingsWrite: Promise<unknown> = Promise.resolve();
   registerDesktopCommand(IPC_CHANNELS.keyboardShortcutsSave, (value: unknown) => {
     const operation = shortcutSettingsWrite.then(async () => {
-      const next = validateShortcutBindings(value, process.platform);
-      const previous = keyboardShortcutsStore.get();
+      const requested = validateShortcutBindings(value, process.platform);
+      const previous = keyboardShortcutsStore.snapshot();
       if (
         registeredDisplayRestoreShortcut &&
-        JSON.stringify(next["restore-display"]) !== JSON.stringify(previous["restore-display"])
+        JSON.stringify(requested["restore-display"]) !== JSON.stringify(previous.bindings["restore-display"])
       )
         throw new Error("请先恢复屏幕亮度，再修改恢复屏幕的快捷键。");
-      const moriKey = next["mori-floating"]?.[0];
-      if (
-        shortcutRecordingWindow &&
-        moriAssistantHost?.service.settings.enabled &&
-        moriKey &&
-        JSON.stringify(next["mori-floating"]) !== JSON.stringify(previous["mori-floating"])
-      ) {
-        if (!globalShortcut.register(moriKey, () => {}))
-          throw new Error("Mori 呼出快捷键已被系统或其他应用占用，请更换组合键。");
-        globalShortcut.unregister(moriKey);
-      }
+      const checked = checkGlobalShortcutConflicts({ ...previous, bindings: requested }, globalShortcut);
+      const next = checked.bindings;
+      const conflicts = { ...checked.conflicts };
       const applyMori = async (bindings: ShortcutBindings) => {
         if (moriAssistantHost)
-          await moriAssistantHost.windows.apply({
+          return moriAssistantHost.windows.apply({
             ...moriAssistantHost.service.settings,
             shortcut: bindings["mori-floating"]?.[0] ?? "",
           });
       };
       try {
-        await applyMori(next);
+        const conflict = await applyMori(next);
+        if (conflict) {
+          next["mori-floating"] = [];
+          conflicts["mori-floating"] = conflict;
+        }
         applyApplicationShortcuts(next);
-        keyboardShortcutsStore.save(next);
+        keyboardShortcutsStore.save(next, conflicts);
       } catch (error) {
-        await applyMori(previous);
-        applyApplicationShortcuts(previous);
+        const conflict = await applyMori(previous.bindings);
+        if (conflict) recordKeyboardShortcutConflict("mori-floating", conflict);
+        applyApplicationShortcuts(keyboardShortcutsStore.get());
         throw error;
       }
-      const snapshot = { bindings: keyboardShortcutsStore.get() };
-      for (const window of BrowserWindow.getAllWindows())
-        sendToLiveRenderer(window, IPC_CHANNELS.keyboardShortcutsChanged, snapshot);
-      return snapshot;
+      broadcastKeyboardShortcuts();
+      return keyboardShortcutsStore.snapshot();
     });
     shortcutSettingsWrite = operation.catch(() => {});
     return operation;
@@ -7907,6 +7916,7 @@ function registerIpcHandlers(): void {
     schedules: schedulingService.store,
     notifyScheduled: notifyMoriSchedule,
     moriShortcut: () => keyboardShortcutsStore.get()["mori-floating"]?.[0] ?? "",
+    moriShortcutConflict: (accelerator) => recordKeyboardShortcutConflict("mori-floating", accelerator),
     dataDir: app.getPath("userData"), conversations: conversationStore,
     accounts: getOpenAIAccountService, executable: resolveCodexExecutable, onUsage: recordAccountUsage,
     resolveSystemProxy: resolveSystemProxyResolution,

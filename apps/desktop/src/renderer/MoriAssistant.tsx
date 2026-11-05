@@ -112,7 +112,7 @@ export function MoriAssistantSettingsPanel({
   onOpenComputerUse?: () => void;
 }) {
   const { t } = useTranslation();
-  useKeyboardShortcuts();
+  const { conflicts: shortcutConflicts } = useKeyboardShortcuts();
   const { snapshot, error, setError, refresh } = useAssistant();
   const [settings, setSettings] = useState<MoriAssistantSettings>();
   const [tab, setTab] = useState<"conversation" | "desktop" | "wechat">("conversation");
@@ -647,6 +647,11 @@ export function MoriAssistantSettingsPanel({
         ) : null}
       </fieldset>
       <div className="mori-settings-savebar">
+        {shortcutConflicts?.["mori-floating"] ? (
+          <p className="mori-error" role="status">
+            {t("moriUi.moriAssistant.shortcutConflict")}
+          </p>
+        ) : null}
         {error ? (
           <p className="mori-error" role="alert">
             {error}

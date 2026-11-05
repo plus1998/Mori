@@ -12,6 +12,8 @@ import { ModelManagementService } from "../src/main/model-management-service";
 import { MoriAssistantService, type MoriAssistantDeps } from "../src/main/mori-assistant-service";
 import { MoriScheduledActions } from "../src/main/mori-scheduled-actions";
 import { MoriAssistantStore, parseAssistantSettings } from "../src/main/mori-assistant-store";
+import { KeyboardShortcutsStore } from "../src/main/keyboard-shortcuts-store";
+import { GlobalShortcutBinding } from "../src/main/global-shortcut-binding";
 import { SchedulingService } from "../src/main/scheduling-service";
 import { SchedulingStore } from "../src/main/scheduling-store";
 import { previewSchedule } from "../src/main/schedule-time";
@@ -135,6 +137,7 @@ async function fixture(options: {
   realTaskMessages?: boolean;
   viewScreenshot?: MoriAssistantDeps["computerUse"]["viewScreenshot"];
   defaultRuntimeConfig?: MoriAssistantDeps["defaultRuntimeConfig"];
+  settingsChanged?: MoriAssistantDeps["settingsChanged"];
 } = {}) {
   const root = await fs.realpath(await temp());
   const executable = path.join(root, "fake-codex");
@@ -366,7 +369,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
     },
     openThread: async () => {},
     changed: () => {},
-    settingsChanged: async () => {},
+    settingsChanged: options.settingsChanged ?? (async () => {}),
   });
   await service.initialize();
   await service.saveSettings({
@@ -404,6 +407,35 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
     },
   };
 }
+
+test("global shortcut conflicts do not prevent assistant settings from being saved", async () => {
+  const shortcuts = new KeyboardShortcutsStore(path.join(await temp(), "keyboard-shortcuts.json"), "win32");
+  let attempts = 0;
+  const binding = new GlobalShortcutBinding({
+    register: () => { attempts++; return false; },
+    unregister: () => {},
+  }, () => {});
+  const f = await fixture({
+    settingsChanged: async (settings) => {
+      const accelerator = settings.enabled ? shortcuts.get()["mori-floating"]?.[0] ?? "" : "";
+      if (!binding.set(accelerator)) shortcuts.clearConflictingBinding("mori-floating", accelerator);
+    },
+  });
+  try {
+    expect(attempts).toBe(1);
+    expect(shortcuts.get()["mori-floating"]).toEqual([]);
+    expect(shortcuts.snapshot().conflicts?.["mori-floating"]).toBe("CommandOrControl+Shift+M");
+    await f.service.saveSettings({ ...f.service.settings, name: "Mori 参数已保存", instructions: "自定义助手说明" });
+    expect(f.service.settings.name).toBe("Mori 参数已保存");
+    const persisted = JSON.parse(await fs.readFile(path.join(f.root, "mori-assistant.json"), "utf8"));
+    expect(persisted.settings.name).toBe("Mori 参数已保存");
+    expect(persisted.settings.instructions).toBe("自定义助手说明");
+    expect(attempts).toBe(1);
+  } finally {
+    await f.service.close();
+    f.db.close();
+  }
+});
 
 test("resumed Mori conversation manages providers and models via its own MCP endpoint without persisting keys", async () => {
   const f = await fixture();

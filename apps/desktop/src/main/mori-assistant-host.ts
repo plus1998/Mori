@@ -21,6 +21,7 @@ export class MoriAssistantHost {
   constructor(
     deps: Omit<MoriAssistantDeps, "changed" | "settingsChanged"> & {
       moriShortcut(): string;
+      moriShortcutConflict(accelerator: string): void;
       preload: string;
       renderer: string;
       icon?: NativeImage;
@@ -49,7 +50,8 @@ export class MoriAssistantHost {
       ...deps,
       changed,
       settingsChanged: async (settings) => {
-        await this.windows.apply({ ...settings, shortcut: deps.moriShortcut() });
+        const conflict = await this.windows.apply({ ...settings, shortcut: deps.moriShortcut() });
+        if (conflict) deps.moriShortcutConflict(conflict);
         await this.wechat.setEnabled(settings.enabled && settings.wechatEnabled);
       },
     });

@@ -13,6 +13,7 @@ import {
   resizeMoriPetBounds,
 } from "../shared/mori-pet";
 import type { MoriAssistantStore } from "./mori-assistant-store";
+import { GlobalShortcutBinding } from "./global-shortcut-binding";
 
 type MoriNotice = { title: string; body: string; threadId: string };
 
@@ -30,7 +31,9 @@ export class MoriAssistantWindows {
   private noticeTimer: ReturnType<typeof setTimeout> | undefined;
   private noticeCreation: Promise<void> | undefined;
   private tray: Tray | undefined;
-  private shortcut: string | undefined;
+  private readonly shortcut = new GlobalShortcutBinding(globalShortcut, () => {
+    void this.showPanel().catch(this.options.reportError);
+  });
   private shortcutSuspended = false;
   private moveTimer: ReturnType<typeof setTimeout> | undefined;
   private lookTimer: ReturnType<typeof setInterval> | undefined;
@@ -49,23 +52,14 @@ export class MoriAssistantWindows {
     },
   ) {}
 
-  async setShortcutSuspended(suspended: boolean, settings: MoriAssistantSettings): Promise<void> {
+  async setShortcutSuspended(suspended: boolean, settings: MoriAssistantSettings): Promise<string | undefined> {
     this.shortcutSuspended = suspended;
-    await this.apply(settings);
+    return this.apply(settings);
   }
 
-  async apply(settings: MoriAssistantSettings): Promise<void> {
+  async apply(settings: MoriAssistantSettings): Promise<string | undefined> {
     const shortcut = !this.shortcutSuspended && settings.enabled ? settings.shortcut : "";
-    if (shortcut && shortcut !== this.shortcut) {
-      if (
-        !globalShortcut.register(shortcut, () => {
-          void this.showPanel().catch(this.options.reportError);
-        })
-      )
-        throw new Error("助手快捷键不可用或已被占用，请更换快捷键。");
-    }
-    if (this.shortcut && this.shortcut !== shortcut) globalShortcut.unregister(this.shortcut);
-    this.shortcut = shortcut || undefined;
+    const conflict = this.shortcut.set(shortcut) ? undefined : shortcut;
     if (settings.enabled && settings.floatingEnabled) await this.showBall(moriPetSize(settings));
     else {
       this.ball?.destroy();
@@ -111,6 +105,7 @@ export class MoriAssistantWindows {
       this.panel?.destroy();
       this.panel = undefined;
     }
+    return conflict;
   }
 
   private async create(mode: "ball" | "panel" | "notice", ballSize = 64): Promise<BrowserWindow> {
@@ -455,7 +450,7 @@ export class MoriAssistantWindows {
   }
 
   close(): void {
-    if (this.shortcut) globalShortcut.unregister(this.shortcut);
+    this.shortcut.set("");
     if (this.moveTimer) clearTimeout(this.moveTimer);
     if (this.lookTimer) clearInterval(this.lookTimer);
     if (this.hitTimer) clearInterval(this.hitTimer);

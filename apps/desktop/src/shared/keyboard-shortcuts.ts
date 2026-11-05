@@ -85,6 +85,7 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
 export type ShortcutBindings = Record<string, string[]>;
 export interface KeyboardShortcutsSnapshot {
   bindings: ShortcutBindings;
+  conflicts?: Record<string, string>;
 }
 export function defaultShortcutBindings(platform: string): ShortcutBindings {
   return Object.fromEntries(

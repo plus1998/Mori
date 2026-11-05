@@ -15,7 +15,7 @@ import "./keyboard-shortcuts.css";
 
 export function KeyboardShortcutsSettings() {
   const { t } = useTranslation();
-  const { bindings, loaded, error: loadError } = useKeyboardShortcuts();
+  const { bindings, conflicts, loaded, error: loadError } = useKeyboardShortcuts();
   const platform = window.eco?.platform ?? "darwin";
   const [query, setQuery] = useState("");
   const [editing, setEditing] = useState<{ definition: ShortcutDefinition; index: number; value: string }>();
@@ -240,7 +240,8 @@ export function KeyboardShortcutsSettings() {
                 ) : (
                   <button
                     type="button"
-                    className="keyboard-edit is-unassigned"
+                    className={`keyboard-edit is-unassigned${conflicts?.[definition.id] ? " is-conflict" : ""}`}
+                    title={conflicts?.[definition.id] ? t("moriUi.keyboardShortcutsSettings.conflictHint") : undefined}
                     disabled={busy || !loaded}
                     aria-label={`设置${definition.label}快捷键`}
                     onClick={() => {
@@ -248,7 +249,7 @@ export function KeyboardShortcutsSettings() {
                       setEditing({ definition, index: 0, value: "" });
                     }}
                   >
-                    {t("moriUi.keyboardShortcutsSettings.unassigned")}
+                    {t(conflicts?.[definition.id] ? "moriUi.keyboardShortcutsSettings.conflict" : "moriUi.keyboardShortcutsSettings.unassigned")}
                     <Pencil size={14} />
                   </button>
                 )}

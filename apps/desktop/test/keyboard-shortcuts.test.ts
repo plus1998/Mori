@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { KeyboardShortcutsStore } from "../src/main/keyboard-shortcuts-store";
+import { checkGlobalShortcutConflicts, GlobalShortcutBinding } from "../src/main/global-shortcut-binding";
 import {
   acceleratorFromEvent,
   defaultShortcutBindings,
@@ -127,4 +128,100 @@ test("cleared bindings persist and legacy Mori shortcut migrates without adding 
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test("Windows global conflicts clear only unavailable bindings and persist across reloads", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "mori-shortcut-conflict-"));
+  try {
+    const file = path.join(directory, "keyboard-shortcuts.json");
+    const store = new KeyboardShortcutsStore(file, "win32");
+    const defaults = store.get();
+    const unavailable = defaults["mori-floating"]![0]!;
+    const released: string[] = [];
+    const checked = checkGlobalShortcutConflicts(store.snapshot(), {
+      isRegistered: () => false,
+      register: (key) => key !== unavailable,
+      unregister: (key) => { released.push(key); },
+    });
+    expect(checked.bindings["mori-floating"]).toEqual([]);
+    expect(checked.bindings["restore-display"]).toEqual(defaults["restore-display"]);
+    expect(checked.bindings["new-chat"]).toEqual(defaults["new-chat"]);
+    expect(checked.conflicts).toEqual({ "mori-floating": unavailable });
+    expect(released).toEqual(defaults["restore-display"]!);
+    expect(defaults["mori-floating"]).toEqual([unavailable]);
+    store.save(checked.bindings, checked.conflicts);
+    const reloaded = new KeyboardShortcutsStore(file, "win32");
+    reloaded.load();
+    expect(reloaded.snapshot()).toEqual(store.snapshot());
+    reloaded.save({ ...reloaded.get(), "new-chat": ["Alt+N"] });
+    expect(reloaded.snapshot().conflicts).toEqual({ "mori-floating": unavailable });
+    reloaded.save({ ...reloaded.get(), "mori-floating": ["Alt+Shift+M"] });
+    expect(reloaded.snapshot().conflicts).toEqual({});
+    expect(reloaded.clearConflictingBinding("mori-floating", unavailable)).toBe(false);
+    expect(reloaded.clearConflictingBinding("mori-floating", "Alt+Shift+M")).toBe(true);
+    reloaded.load();
+    expect(reloaded.get()["mori-floating"]).toEqual([]);
+    expect(reloaded.snapshot().conflicts).toEqual({ "mori-floating": "Alt+Shift+M" });
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("probing preserves owned registrations and clears all unavailable global keys", () => {
+  const snapshot = { bindings: defaultShortcutBindings("win32") };
+  const owned = snapshot.bindings["mori-floating"]![0]!;
+  const attempted: string[] = [];
+  const checked = checkGlobalShortcutConflicts(snapshot, {
+    isRegistered: (key) => key === owned,
+    register: (key) => { attempted.push(key); return false; },
+    unregister: () => { throw new Error("must not unregister an owned or failed key"); },
+  });
+  expect(attempted).toEqual(snapshot.bindings["restore-display"]!);
+  expect(checked.bindings["mori-floating"]).toEqual([owned]);
+  expect(checked.bindings["restore-display"]).toEqual([]);
+  const allConflicted = checkGlobalShortcutConflicts(snapshot, {
+    isRegistered: () => false,
+    register: () => false,
+    unregister: () => {},
+  });
+  expect(allConflicted.conflicts).toEqual({
+    "mori-floating": owned,
+    "restore-display": snapshot.bindings["restore-display"]![0]!,
+  });
+});
+
+test("registration conflicts release the old binding and do not block later settings applications", () => {
+  const registered = new Set<string>();
+  let available = true;
+  const binding = new GlobalShortcutBinding({
+    register: (key) => {
+      if (!available) return false;
+      if (registered.has(key)) throw new Error("duplicate registration");
+      registered.add(key);
+      return true;
+    },
+    unregister: (key) => { registered.delete(key); },
+  }, () => {});
+  expect(binding.set("Control+Shift+M")).toBe(true);
+  expect(binding.set("Control+Shift+M")).toBe(true);
+  available = false;
+  expect(binding.set("Control+Shift+P")).toBe(false);
+  expect(registered.size).toBe(0);
+  expect(binding.set("")).toBe(true);
+  available = true;
+  expect(binding.set("Control+Shift+P")).toBe(true);
+  binding.set(""); // Shortcut recording suspends the current registration.
+  available = false;
+  expect(binding.set("Control+Shift+P")).toBe(false);
+  expect(binding.set("")).toBe(true);
+  expect(registered.size).toBe(0);
+});
+
+test("unexpected registration errors remain visible", () => {
+  const register = () => { throw new Error("registration failed unexpectedly"); };
+  expect(() => checkGlobalShortcutConflicts({ bindings: defaultShortcutBindings("win32") }, {
+    isRegistered: () => false, register, unregister: () => {},
+  })).toThrow("registration failed unexpectedly");
+  expect(() => new GlobalShortcutBinding({ register, unregister: () => {} }, () => {}).set("Control+M"))
+    .toThrow("registration failed unexpectedly");
 });

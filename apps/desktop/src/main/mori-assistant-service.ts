@@ -384,7 +384,7 @@ export class MoriAssistantService {
     }
     const previous = this.store.state.settings;
     try {
-      await this.deps.settingsChanged(settings); // Reject unavailable shortcuts before persisting.
+      await this.deps.settingsChanged(settings);
       this.store.state.settings = settings;
       await this.store.save();
     } catch (error) {
