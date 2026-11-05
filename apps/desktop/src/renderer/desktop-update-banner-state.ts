@@ -5,6 +5,7 @@ export type SidebarUpdateActionKind =
   | "checking"
   | "download"
   | "progress"
+  | "preparing"
   | "restart"
   | "installing"
   | "error"
@@ -60,6 +61,8 @@ export function resolveSidebarUpdateAction(state: DesktopUpdateState | undefined
         currentVersion,
         ...(state.availableVersion ? { availableVersion: state.availableVersion } : {}),
       };
+    case "preparing":
+      return { kind: "preparing", currentVersion };
     case "installing":
       return {
         kind: "installing",

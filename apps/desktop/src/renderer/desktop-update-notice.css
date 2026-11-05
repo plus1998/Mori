@@ -1,0 +1,24 @@
+.desktop-update-notice {
+  position: fixed;
+  bottom: 64px;
+  left: 12px;
+  width: min(300px, calc(100vw - 24px));
+  z-index: 210;
+  padding: 16px;
+  border: 1px solid var(--border-color, #8884);
+  border-radius: 12px;
+  background: var(--bg-elevated, var(--bg-primary, #222));
+  color: var(--text-primary);
+  box-shadow: 0 8px 28px #0002;
+  font-size: 12px;
+}
+.desktop-update-notice-heading { display: flex; gap: 8px; align-items: center; }
+.desktop-update-notice-heading strong { font-size: 13px; font-weight: 600; }
+.desktop-update-notice-heading svg { flex-shrink: 0; }
+.desktop-update-notice progress { width: 100%; height: 5px; margin: 14px 0 8px; accent-color: var(--text-primary); }
+.desktop-update-notice-transfer { display: flex; justify-content: space-between; gap: 12px; font-variant-numeric: tabular-nums; }
+.desktop-update-notice p { margin: 8px 0 0; line-height: 1.6; overflow-wrap: anywhere; }
+.desktop-update-notice-elapsed { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.desktop-update-notice-error { color: var(--status-deny-text, #e66); }
+.desktop-update-notice-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.desktop-update-notice-actions button { padding: 6px 10px; border-radius: 6px; background: var(--bg-hover, #8882); cursor: pointer; }

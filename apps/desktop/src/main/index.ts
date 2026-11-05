@@ -781,6 +781,7 @@ import { listDiscoveredCursorAgents } from "./cursor-agents-discovery";
 import { DesktopNotificationRetainer } from "./desktop-notification-retainer";
 import { presentDesktopWindow } from "./desktop-single-instance";
 import { DesktopUpdateService } from "./desktop-update-service";
+import { DesktopUpdateInstallMonitor } from "./desktop-update-install-monitor";
 import { resolveStartupWindowSizing } from "./desktop-window-placement";
 import {
   createDesktopWindowStateStore,
@@ -1235,10 +1236,22 @@ function broadcastDesktopUpdateState(state: DesktopUpdateState): void {
   });
 }
 
+const desktopUpdateInstallMonitor = new DesktopUpdateInstallMonitor({
+  userDataPath: () => app.getPath("userData"),
+  locale: currentAppLocale,
+});
+app.on("will-quit", () => {
+  try {
+    desktopUpdateInstallMonitor.installing();
+  } catch (error) {
+    process.stderr.write(`[eco-updater] Could not notify update monitor: ${errorMessage(error)}\n`);
+  }
+});
 const desktopUpdateService = new DesktopUpdateService({
   manifestPath: path.join(__dirname, "../release-manifest.json"),
   onStateChange: broadcastDesktopUpdateState,
   getOutboundProxyUrl: () => resolveOutboundProxyUrl(proxyBridgeSettingsStore.get()),
+  installMonitor: desktopUpdateInstallMonitor,
 });
 
 configureDesktopIdentity();
@@ -4127,6 +4140,13 @@ app
       });
     }
     desktopInitializationComplete = true;
+    void initialDesktopRendererReady.then(() => {
+      try {
+        desktopUpdateInstallMonitor.complete(app.getVersion());
+      } catch (error) {
+        process.stderr.write(`[eco-updater] Could not notify update monitor: ${errorMessage(error)}\n`);
+      }
+    });
 
     // On Windows/Linux a deep link that cold-started the app arrives via argv
     // (the "open-url" event only fires for an already-running instance). Seed

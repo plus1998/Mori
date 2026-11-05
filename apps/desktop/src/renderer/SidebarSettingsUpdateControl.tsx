@@ -34,6 +34,8 @@ export function SidebarSettingsUpdateControl({
         return t("update.downloaded", { version: action.availableVersion ?? "" });
       case "installing":
         return t("update.installing");
+      case "preparing":
+        return t("update.preparing");
       case "error":
         if (action.error === "CHANNEL_FILE_NOT_FOUND") {
           return t("update.errorChannelMissing");
@@ -67,7 +69,7 @@ export function SidebarSettingsUpdateControl({
     );
   }
 
-  if (action.kind === "checking" || action.kind === "installing") {
+  if (action.kind === "checking" || action.kind === "installing" || action.kind === "preparing") {
     return (
       <ComposerHoverTooltip content={tooltip}>
         <span

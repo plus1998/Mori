@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { app, net, powerMonitor, session, shell } from "electron";
+import { app, autoUpdater as nativeAutoUpdater, net, powerMonitor, session, shell } from "electron";
 import electronUpdater from "electron-updater";
 import {
   canRunAutomaticUpdateCheck,
@@ -24,6 +24,10 @@ interface DesktopUpdateServiceOptions {
   onStateChange: (state: DesktopUpdateState) => void;
   /** Outbound proxy URL (http/https/socks5/socks); routes update check/download through it. */
   getOutboundProxyUrl?: (() => string | undefined) | undefined;
+  installMonitor?: {
+    start: (version: string) => Promise<void>;
+    failed: (error: string) => void;
+  };
 }
 
 export class DesktopUpdateService {
@@ -38,6 +42,10 @@ export class DesktopUpdateService {
   private startupTimer: ReturnType<typeof setTimeout> | undefined;
   private periodicTimer: ReturnType<typeof setInterval> | undefined;
   private lastAutoCheckAt = 0;
+  private readonly installMonitor: DesktopUpdateServiceOptions["installMonitor"];
+  private readonly onNativeUpdateDownloaded = (): void => {
+    if (this.state.phase === "preparing") this.setState({ phase: "downloaded" });
+  };
   private readonly onPowerResume = (): void => {
     void this.checkForUpdates(false, { throttle: true });
   };
@@ -46,6 +54,7 @@ export class DesktopUpdateService {
     this.manifestPath = options.manifestPath;
     this.onStateChange = options.onStateChange;
     this.getOutboundProxyUrl = options.getOutboundProxyUrl;
+    this.installMonitor = options.installMonitor;
     this.currentVersion = app.getVersion();
     this.manifest = this.readManifest();
     this.state = this.resolveInitialState();
@@ -82,6 +91,9 @@ export class DesktopUpdateService {
    */
   async checkForUpdates(explicit = true, options?: { throttle?: boolean }): Promise<DesktopUpdateState> {
     if (this.state.capability !== "auto") {
+      return this.state;
+    }
+    if (["downloading", "preparing", "downloaded", "installing"].includes(this.state.phase)) {
       return this.state;
     }
     if (this.checkPromise) {
@@ -162,14 +174,22 @@ export class DesktopUpdateService {
     }
   }
 
-  installUpdate(): DesktopUpdateState {
+  async installUpdate(): Promise<DesktopUpdateState> {
     if (this.state.phase !== "downloaded") {
       throw new Error("No downloaded update is ready to install.");
     }
-    this.setState({ phase: "installing" });
-    // Silent NSIS update; isForceRunAfter relaunches the app after /S install.
-    setApplicationQuitBypassConfirmation(true);
-    autoUpdater.quitAndInstall(true, true);
+    this.setState({ phase: "installing", error: undefined });
+    try {
+      await this.installMonitor?.start(this.state.availableVersion ?? "");
+      // Silent NSIS update; isForceRunAfter relaunches the app after /S install.
+      setApplicationQuitBypassConfirmation(true);
+      autoUpdater.quitAndInstall(true, true);
+    } catch (error) {
+      setApplicationQuitBypassConfirmation(false);
+      const message = formatDesktopUpdateError(error);
+      this.installMonitor?.failed(message);
+      this.setState({ phase: "downloaded", error: message });
+    }
     return this.state;
   }
 
@@ -192,6 +212,9 @@ export class DesktopUpdateService {
       this.periodicTimer = undefined;
     }
     powerMonitor.removeListener("resume", this.onPowerResume);
+    if (process.platform === "darwin") {
+      nativeAutoUpdater.removeListener("update-downloaded", this.onNativeUpdateDownloaded);
+    }
   }
 
   private configureUpdater(): void {
@@ -232,17 +255,21 @@ export class DesktopUpdateService {
         total: progress.total,
         bytesPerSecond: progress.bytesPerSecond,
       };
-      this.setState({ phase: "downloading", progress: updateProgress });
+      this.setState({ phase: "downloading", progress: updateProgress, progressUpdatedAt: Date.now() });
     });
     autoUpdater.on("update-downloaded", (info) => {
       this.setState({
-        phase: "downloaded",
+        // MacUpdater emits this before Squirrel finishes unzipping / validation.
+        phase: process.platform === "darwin" ? "preparing" : "downloaded",
         availableVersion: info.version,
         progress: { percent: 100, transferred: 0, total: 0, bytesPerSecond: 0 },
         error: undefined,
         reason: undefined,
       });
     });
+    if (process.platform === "darwin") {
+      nativeAutoUpdater.on("update-downloaded", this.onNativeUpdateDownloaded);
+    }
     autoUpdater.on("update-not-available", () => {
       this.setState({
         phase: "idle",
@@ -252,6 +279,10 @@ export class DesktopUpdateService {
       });
     });
     autoUpdater.on("error", (error) => {
+      if (this.state.phase === "installing") {
+        setApplicationQuitBypassConfirmation(false);
+        this.installMonitor?.failed(formatDesktopUpdateError(error));
+      }
       this.setState({
         phase: "error",
         reason: "download-failed",
@@ -337,6 +368,9 @@ export class DesktopUpdateService {
 
   private setState(patch: DesktopUpdateStatePatch): void {
     const next: DesktopUpdateState = { ...this.state, phase: patch.phase };
+    if (patch.phase !== this.state.phase) next.phaseStartedAt = Date.now();
+    if (patch.progressUpdatedAt !== undefined) next.progressUpdatedAt = patch.progressUpdatedAt;
+    else if (patch.phase !== "downloading") delete next.progressUpdatedAt;
     if ("availableVersion" in patch) {
       if (patch.availableVersion === undefined) delete next.availableVersion;
       else next.availableVersion = patch.availableVersion;
@@ -373,6 +407,7 @@ type DesktopUpdateStatePatch = {
   progress?: DesktopUpdateState["progress"] | undefined;
   reason?: DesktopUpdateState["reason"] | undefined;
   error?: DesktopUpdateState["error"] | undefined;
+  progressUpdatedAt?: number;
 };
 
 function isReleaseManifest(value: unknown): value is DesktopReleaseManifest {

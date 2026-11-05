@@ -111,6 +111,7 @@ import {
 import { deriveSkillsEnabled, type ProjectSkillsSettingsSnapshot } from "../shared/composer-skills-settings";
 import type { ComputerUseSettingsSnapshot } from "../shared/computer-use";
 import type { DesktopUpdateState } from "../shared/desktop-update";
+import { DesktopUpdateNotice } from "./DesktopUpdateNotice";
 import {
   HOME_PROJECT_DISPLAY_NAME,
   HOME_PROJECT_IMPORTED_AT,
@@ -13088,6 +13089,13 @@ function App() {
           </div>
         </div>
       </aside>
+
+      <DesktopUpdateNotice
+        state={desktopUpdateState}
+        onInstall={() => { void window.eco?.installDesktopUpdate(); }}
+        onRetry={() => { void window.eco?.checkDesktopForUpdates(); }}
+        onOpenRelease={() => { void window.eco?.openDesktopReleasePage(); }}
+      />
 
       <SidebarSearchDialog
         open={sidebarSearchOpen}

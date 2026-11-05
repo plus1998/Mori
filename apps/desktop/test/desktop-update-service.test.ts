@@ -24,20 +24,24 @@ const updater = Object.assign(new EventEmitter(), {
     updater.emit("update-available", { version: checkedVersion });
     return { isUpdateAvailable: true };
   }),
+  quitAndInstall: mock(() => {}),
   downloadUpdate: mock(async () => {
     operations.push(`download:${checkedVersion}`);
     if (downloadError) throw downloadError;
     updater.emit("update-downloaded", { version: checkedVersion });
+    nativeAutoUpdater.emit("update-downloaded");
     return [];
   }),
 });
 const setProxy = mock(async () => {});
 const powerMonitor = new EventEmitter();
+const nativeAutoUpdater = new EventEmitter();
 
 mock.module("electron", () => ({
   app: { isPackaged: true, getVersion: () => "1.0.0" },
   net: { isOnline: () => true },
   powerMonitor,
+  autoUpdater: nativeAutoUpdater,
   session: { fromPartition: () => ({ setProxy }) },
   shell: { openExternal: async () => {} },
 }));
@@ -185,4 +189,54 @@ test("self-signed releases automatically check on resume without downloading", a
   });
   expect(updater.checkForUpdates).toHaveBeenCalledTimes(1);
   expect(updater.downloadUpdate).not.toHaveBeenCalled();
+});
+
+test.skipIf(process.platform !== "darwin")("macOS waits for native unpacking and validation before offering restart", async () => {
+  updater.emit("download-progress", { percent: 100, transferred: 100, total: 100, bytesPerSecond: 10 });
+  updater.emit("update-downloaded", { version: "1.1.0" });
+  expect(service.getState().phase).toBe("preparing");
+  await service.checkForUpdates();
+  expect(updater.checkForUpdates).not.toHaveBeenCalled();
+  nativeAutoUpdater.emit("update-downloaded");
+  expect(service.getState().phase).toBe("downloaded");
+});
+
+test("manual checks cannot overwrite an active download", async () => {
+  updater.emit("download-progress", { percent: 40, transferred: 40, total: 100, bytesPerSecond: 10 });
+  const state = await service.checkForUpdates();
+  expect(state.phase).toBe("downloading");
+  expect(state.progressUpdatedAt).toBeGreaterThan(0);
+  expect(updater.checkForUpdates).not.toHaveBeenCalled();
+});
+
+test("installation waits for the independent window to open before quitting", async () => {
+  service.dispose();
+  updater.removeAllListeners();
+  let ready!: () => void;
+  const monitor = { start: mock(() => new Promise<void>(resolve => { ready = resolve; })), failed: mock(() => {}) };
+  service = new DesktopUpdateService({ manifestPath: join(manifestDirectory, "release.json"), onStateChange: () => {}, installMonitor: monitor });
+  service.start();
+  await service.checkForUpdates();
+  await service.downloadUpdate();
+  updater.quitAndInstall.mockClear();
+  const installing = service.installUpdate();
+  expect(service.getState().phase).toBe("installing");
+  expect(updater.quitAndInstall).not.toHaveBeenCalled();
+  ready();
+  await installing;
+  expect(updater.quitAndInstall).toHaveBeenCalledTimes(1);
+});
+
+test("a failed progress window leaves the downloaded update available for retry", async () => {
+  service.dispose();
+  updater.removeAllListeners();
+  const monitor = { start: mock(async () => { throw new Error("Progress window launch failed"); }), failed: mock(() => {}) };
+  service = new DesktopUpdateService({ manifestPath: join(manifestDirectory, "release.json"), onStateChange: () => {}, installMonitor: monitor });
+  service.start();
+  await service.checkForUpdates();
+  await service.downloadUpdate();
+  updater.quitAndInstall.mockClear();
+  expect(await service.installUpdate()).toMatchObject({ phase: "downloaded", error: "Progress window launch failed" });
+  expect(updater.quitAndInstall).not.toHaveBeenCalled();
+  expect(monitor.failed).toHaveBeenCalledWith("Progress window launch failed");
 });

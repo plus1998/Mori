@@ -10,6 +10,7 @@ export type DesktopUpdatePhase =
   | "checking"
   | "available"
   | "downloading"
+  | "preparing"
   | "downloaded"
   | "installing"
   | "error";
@@ -36,6 +37,8 @@ export interface DesktopUpdateState {
   channel?: DesktopUpdateChannel;
   availableVersion?: string;
   progress?: DesktopUpdateProgress;
+  phaseStartedAt?: number;
+  progressUpdatedAt?: number;
   reason?: DesktopUpdateDisabledReason | "up-to-date" | "download-failed";
   error?: string;
   releaseUrl?: string;
