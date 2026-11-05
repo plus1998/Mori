@@ -314,7 +314,7 @@
   --workspace-panel-scrollbar-thumb-hover: rgba(0, 0, 0, 0.28);
   --composer-chat-bg: #ffffff;
   --composer-chat-border: #e7e7e7;
-  --composer-surface-bg: #f9f9f9;
+  --composer-surface-bg: #ffffff;
   --composer-outer-radius: 20px;
   --composer-inner-bottom-radius: 16px;
   --composer-shell-gap: 10px;
@@ -330,7 +330,7 @@
   --composer-pill-hover-bg: #e8e8ed;
   --composer-pill-hover-border: #d1d1d6;
   --composer-pill-hover-text: #1d1d1f;
-  --composer-context-bg: #f3f3f3;
+  --composer-context-bg: #f6f6f6;
   --composer-context-text: #666666;
   --composer-context-icon: #767676;
   --composer-context-placeholder: #767676;

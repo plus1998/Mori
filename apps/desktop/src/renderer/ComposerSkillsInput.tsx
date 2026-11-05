@@ -241,11 +241,11 @@ export const ComposerSkillsInput = forwardRef<ComposerSkillsInputHandle, Compose
           return;
         }
         const serialized = serializeEditable(editor);
-        const hasChipTokens = parsePromptSegments(value).some(segment => segment.type !== "text");
-        const domHasChips = Boolean(editor.querySelector("[data-skill], [data-file-path], [data-reference-token]"));
-        // Plain-text token strings can serialize equal to `value` while chips are
-        // still missing (e.g. Playwright fill / paste of `@file{...}`).
-        if (serialized === value && !(hasChipTokens && !domHasChips)) {
+        const chipCount = parsePromptSegments(value).filter(segment => segment.type !== "text").length;
+        const domChipCount = editor.querySelectorAll("[data-skill], [data-file-path], [data-reference-token]").length;
+        // Equal serialized text can still mix chips with raw tokens. Check every
+        // expected chip so an existing reference cannot hide a missing second one.
+        if (serialized === value && chipCount === domChipCount) {
           return;
         }
         const selection = restoreCursor ? getSelectionOffsets(editor) : null;

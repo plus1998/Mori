@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { AccountUsageTotals, UsageOverview, UsageOverviewQuery } from "../shared/account-usage";
@@ -8,7 +8,7 @@ const PERIODS = ["5h", "day", "week", "month", "all"] as const;
 
 export function UsageSettingsPanel() {
   const { t, i18n } = useTranslation();
-  const [query, setQuery] = useState<UsageOverviewQuery>({ period: "month" });
+  const [query, setQuery] = useState<UsageOverviewQuery>({ period: "day" });
   const [data, setData] = useState<UsageOverview | null>(null);
   const [dimensions, setDimensions] = useState<UsageOverview["dimensions"]>([]);
   const [busy, setBusy] = useState(false);
@@ -91,34 +91,40 @@ export function UsageSettingsPanel() {
       <div className="usage-filters">
         <label>
           {t("usageOverview.provider")}
-          <select
-            value={query.providerKey ?? ""}
-            onChange={(e) =>
-              setQuery((q) => ({ ...q, providerKey: e.target.value || undefined, modelId: undefined }))
-            }
-          >
-            <option value="">{t("usageOverview.allProviders")}</option>
-            {providers.map(([key, name]) => (
-              <option key={key} value={key}>
-                {name}
-                {providers.some(([other, label]) => other !== key && label === name) ? ` · ${key}` : ""}
-              </option>
-            ))}
-          </select>
+          <span className="usage-select">
+            <select
+              value={query.providerKey ?? ""}
+              onChange={(e) =>
+                setQuery((q) => ({ ...q, providerKey: e.target.value || undefined, modelId: undefined }))
+              }
+            >
+              <option value="">{t("usageOverview.allProviders")}</option>
+              {providers.map(([key, name]) => (
+                <option key={key} value={key}>
+                  {name}
+                  {providers.some(([other, label]) => other !== key && label === name) ? ` · ${key}` : ""}
+                </option>
+              ))}
+            </select>
+            <ChevronDown size={14} aria-hidden="true" />
+          </span>
         </label>
         <label>
           {t("usageOverview.model")}
-          <select
-            value={query.modelId ?? ""}
-            onChange={(e) => setQuery((q) => ({ ...q, modelId: e.target.value || undefined }))}
-          >
-            <option value="">{t("usageOverview.allModels")}</option>
-            {models.map((model) => (
-              <option key={model} value={model}>
-                {model}
-              </option>
-            ))}
-          </select>
+          <span className="usage-select">
+            <select
+              value={query.modelId ?? ""}
+              onChange={(e) => setQuery((q) => ({ ...q, modelId: e.target.value || undefined }))}
+            >
+              <option value="">{t("usageOverview.allModels")}</option>
+              {models.map((model) => (
+                <option key={model} value={model}>
+                  {model}
+                </option>
+              ))}
+            </select>
+            <ChevronDown size={14} aria-hidden="true" />
+          </span>
         </label>
       </div>
       <fieldset className="usage-periods" aria-label={t("accountUsage.period")}>
@@ -134,11 +140,13 @@ export function UsageSettingsPanel() {
         ))}
       </fieldset>
       <div className="usage-window">
-        <span>
+        <span className="usage-window-label">
           {data &&
             (data.startAt == null || data.endAt == null
               ? t("usageOverview.all")
-              : `${date.format(data.startAt)} — ${date.format(query.period === "5h" ? data.endAt : data.endAt - 1)}`)}
+              : query.period === "day"
+                ? date.format(data.startAt)
+                : `${date.format(data.startAt)} — ${date.format(query.period === "5h" ? data.endAt : data.endAt - 1)}`)}
         </span>
         {query.period !== "all" && (
           <div>
@@ -210,7 +218,7 @@ export function UsageSettingsPanel() {
               {t("usageOverview.failures", { count: data.recordingFailures })}
             </p>
           )}
-          <div className="usage-table-scroll">
+          <div className="usage-table-scroll" role="region" aria-label={t("usageOverview.breakdown")} tabIndex={0}>
             <table className="usage-table">
               <caption>{t("usageOverview.breakdown")}</caption>
               <thead>

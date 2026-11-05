@@ -33,6 +33,11 @@ export function KeyboardShortcutsSettings() {
         .toLowerCase()
         .includes(query.toLowerCase()),
   );
+  const groups = [
+    { id: "app", label: t("moriUi.keyboardShortcutsSettings.application"), definitions: definitions.filter((d) => d.scope === "app") },
+    { id: "global", label: t("moriUi.keyboardShortcutsSettings.globalGroup"), definitions: definitions.filter((d) => d.scope === "global") },
+    { id: "editing", label: t("moriUi.keyboardShortcutsSettings.editingGroup"), definitions: definitions.filter((d) => d.scope !== "app" && d.scope !== "global") },
+  ].filter((group) => group.definitions.length > 0);
 
   const isEditing = Boolean(editing);
   const captureReady = useRef(false);
@@ -172,7 +177,7 @@ export function KeyboardShortcutsSettings() {
         </button>
       </div>
       <label className="keyboard-search">
-        <Search size={17} />
+        <Search size={16} aria-hidden="true" />
         <input
           type="search"
           value={query}
@@ -180,7 +185,6 @@ export function KeyboardShortcutsSettings() {
           placeholder={t("moriUi.keyboardShortcutsSettings.search")}
           aria-label={t("moriUi.keyboardShortcutsSettings.search")}
         />
-        <Keyboard size={16} />
       </label>
       <p className="keyboard-settings-note">
         {t("moriUi.keyboardShortcutsSettings.hint")}
@@ -194,82 +198,89 @@ export function KeyboardShortcutsSettings() {
           {t("moriUi.keyboardShortcutsSettings.loading")}
         </p>
       ) : null}
-      <div className="keyboard-list">
-        {definitions.map((definition) => {
-          const keys = bindings[definition.id] ?? [];
-          return (
-            <div className="keyboard-row" key={definition.id}>
-              <div className="keyboard-row-copy">
-                <strong>
-                  {definition.label}
-                  {definition.scope === "global" ? <span>{t("moriUi.keyboardShortcutsSettings.global")}</span> : null}
-                </strong>
-                <small>{definition.description}</small>
-              </div>
-              <div className="keyboard-row-bindings">
-                {keys.length ? (
-                  keys.map((key, index) => (
-                    <div className="keyboard-binding" key={key}>
-                      <button
-                        type="button"
-                        className="keyboard-edit"
-                        aria-label={`修改${definition.label}快捷键 ${formatAccelerator(key, platform)}`}
-                        disabled={busy || !loaded}
-                        onClick={() => {
-                          setEditError("");
-                          setEditing({ definition, index, value: key });
-                        }}
-                      >
-                        <kbd>{formatAccelerator(key, platform)}</kbd>
-                        <Pencil size={14} />
-                      </button>
-                      <button
-                        type="button"
-                        className="keyboard-icon"
-                        title={t("moriUi.keyboardShortcutsSettings.clear")}
-                        aria-label={`清除${definition.label}快捷键 ${formatAccelerator(key, platform)}`}
-                        disabled={busy || !loaded}
-                        onClick={() =>
-                          void persist({ ...bindings, [definition.id]: keys.filter((_, i) => i !== index) })
-                        }
-                      >
-                        <Trash2 size={14} />
-                      </button>
+      <div className="keyboard-groups">
+        {groups.map((group) => (
+          <section className="keyboard-group" key={group.id} aria-labelledby={`keyboard-group-${group.id}`}>
+            <h2 id={`keyboard-group-${group.id}`}>{group.label}</h2>
+            <div className="keyboard-list">
+              {group.definitions.map((definition) => {
+                const keys = bindings[definition.id] ?? [];
+                return (
+                  <div className="keyboard-row" key={definition.id}>
+                    <div className="keyboard-row-copy">
+                      <strong>
+                        {definition.label}
+                        {definition.scope === "global" ? <span>{t("moriUi.keyboardShortcutsSettings.global")}</span> : null}
+                      </strong>
+                      <small>{definition.description}</small>
                     </div>
-                  ))
-                ) : (
-                  <button
-                    type="button"
-                    className={`keyboard-edit is-unassigned${conflicts?.[definition.id] ? " is-conflict" : ""}`}
-                    title={conflicts?.[definition.id] ? t("moriUi.keyboardShortcutsSettings.conflictHint") : undefined}
-                    disabled={busy || !loaded}
-                    aria-label={`设置${definition.label}快捷键`}
-                    onClick={() => {
-                      setEditError("");
-                      setEditing({ definition, index: 0, value: "" });
-                    }}
-                  >
-                    {t(conflicts?.[definition.id] ? "moriUi.keyboardShortcutsSettings.conflict" : "moriUi.keyboardShortcutsSettings.unassigned")}
-                    <Pencil size={14} />
-                  </button>
-                )}
-              </div>
-              <button
-                type="button"
-                className="keyboard-icon keyboard-add"
-                aria-label={`添加${definition.label}快捷键`}
-                title={t("moriUi.keyboardShortcutsSettings.add")}
-                disabled={busy || !loaded || keys.length >= (definition.scope === "global" ? 1 : 4)}
-                onClick={() => {
-                  setEditError("");
-                  setEditing({ definition, index: keys.length, value: "" });
-                }}
-              >
-                <Plus size={14} />
-              </button>
+                    <div className="keyboard-row-bindings">
+                      {keys.length ? (
+                        keys.map((key, index) => (
+                          <div className="keyboard-binding" key={key}>
+                            <button
+                              type="button"
+                              className="keyboard-edit"
+                              aria-label={`修改${definition.label}快捷键 ${formatAccelerator(key, platform)}`}
+                              disabled={busy || !loaded}
+                              onClick={() => {
+                                setEditError("");
+                                setEditing({ definition, index, value: key });
+                              }}
+                            >
+                              <kbd>{formatAccelerator(key, platform)}</kbd>
+                              <Pencil size={14} />
+                            </button>
+                            <button
+                              type="button"
+                              className="keyboard-icon"
+                              title={t("moriUi.keyboardShortcutsSettings.clear")}
+                              aria-label={`清除${definition.label}快捷键 ${formatAccelerator(key, platform)}`}
+                              disabled={busy || !loaded}
+                              onClick={() =>
+                                void persist({ ...bindings, [definition.id]: keys.filter((_, i) => i !== index) })
+                              }
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        ))
+                      ) : (
+                        <button
+                          type="button"
+                          className={`keyboard-edit is-unassigned${conflicts?.[definition.id] ? " is-conflict" : ""}`}
+                          title={conflicts?.[definition.id] ? t("moriUi.keyboardShortcutsSettings.conflictHint") : undefined}
+                          disabled={busy || !loaded}
+                          aria-label={`设置${definition.label}快捷键`}
+                          onClick={() => {
+                            setEditError("");
+                            setEditing({ definition, index: 0, value: "" });
+                          }}
+                        >
+                          {t(conflicts?.[definition.id] ? "moriUi.keyboardShortcutsSettings.conflict" : "moriUi.keyboardShortcutsSettings.unassigned")}
+                          <Pencil size={14} />
+                        </button>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      className="keyboard-icon keyboard-add"
+                      aria-label={`添加${definition.label}快捷键`}
+                      title={t("moriUi.keyboardShortcutsSettings.add")}
+                      disabled={busy || !loaded || keys.length >= (definition.scope === "global" ? 1 : 4)}
+                      onClick={() => {
+                        setEditError("");
+                        setEditing({ definition, index: keys.length, value: "" });
+                      }}
+                    >
+                      <Plus size={14} />
+                    </button>
+                  </div>
+                );
+              })}
             </div>
-          );
-        })}
+          </section>
+        ))}
         {!definitions.length ? <div className="keyboard-empty">{t("moriUi.keyboardShortcutsSettings.noMatches")}</div> : null}
       </div>
       {editing || resetConfirm
