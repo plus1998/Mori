@@ -12324,12 +12324,14 @@ function App() {
           selectedComposerMainModel.accountId ? { accountId: selectedComposerMainModel.accountId } : {}),
       }
     : selectedComposerMainModel;
+  const composerModelReadOnly = activeThread?.status === "running" || activeThread?.status === "queued";
   const renderComposerModelControl = () =>
     composerModelAvailability === "acp" ? (
       <ComposerAcpModelTrigger
         models={cursorModels}
         {...(composerAcpSelectedModelId ? { selectedModelId: composerAcpSelectedModelId } : {})}
-        disabled={!canEditComposerConfig || isSavingSettings}
+        disabled={isSavingSettings || (!canEditComposerConfig && !composerModelReadOnly)}
+        readOnly={!canEditComposerConfig}
         loading={cursorModelsLoading}
         {...(cursorModelsError ? { error: cursorModelsError } : {})}
         onOpen={refreshCursorModels}
@@ -12341,7 +12343,8 @@ function App() {
         model={composerPickerModel}
         openRequest={modelPickerOpenRequest}
         coreKind={composerCoreKind}
-        disabled={!canEditComposerConfig || isSavingSettings}
+        disabled={isSavingSettings || (!canEditComposerConfig && !composerModelReadOnly)}
+        readOnly={!canEditComposerConfig}
         onSelect={selectComposerMainModel}
         onAddProvider={openProviderSettings}
       />

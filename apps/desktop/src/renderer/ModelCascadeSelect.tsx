@@ -57,6 +57,8 @@ interface ModelCascadeSelectProps {
   loading?: boolean | undefined;
   error?: string | undefined;
   disabled?: boolean | undefined;
+  /** Allow browsing without changing the selection. */
+  readOnly?: boolean | undefined;
   /** Show a "clear" row (auto / restore default). */
   clearable?: boolean | undefined;
   /**
@@ -210,6 +212,7 @@ export function ModelCascadeSelect({
   loading,
   error,
   disabled,
+  readOnly = false,
   clearable,
   clearLabel,
   placeholder,
@@ -467,6 +470,7 @@ export function ModelCascadeSelect({
   }
 
   function commitModel(option: ModelCascadeOption) {
+    if (readOnly) return;
     onChange({ key: option.key, providerId: option.providerId, modelId: option.modelId });
     if (!inline) {
       closePanel(true);
@@ -474,6 +478,7 @@ export function ModelCascadeSelect({
   }
 
   function clearSelection() {
+    if (readOnly) return;
     onChange(undefined);
     if (!inline) {
       closePanel(true);
@@ -593,7 +598,7 @@ export function ModelCascadeSelect({
         <button
           type="button"
           className={`model-cascade-clear${!value ? " is-active" : ""}`}
-          disabled={disabled}
+          disabled={disabled || readOnly}
           onClick={clearSelection}
         >
           <span className="model-cascade-clear-label">{clearText}</span>
@@ -670,7 +675,7 @@ export function ModelCascadeSelect({
                       }
                       tabIndex={focusedModelIndex === index ? 0 : -1}
                       title={`${option.providerName} · ${option.modelId}`}
-                      disabled={disabled}
+                      disabled={disabled || readOnly}
                       onKeyDown={(event) => handleModelKeyDown(event, index)}
                       onClick={() => commitModel(option)}
                     >

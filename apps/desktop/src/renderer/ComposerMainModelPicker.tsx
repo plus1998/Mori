@@ -156,6 +156,7 @@ export function ComposerMainModelPicker({
   model,
   coreKind,
   disabled,
+  readOnly = false,
   invalid = false,
   invalidLabel,
   onSelect,
@@ -167,6 +168,7 @@ export function ComposerMainModelPicker({
   coreKind: string;
   openRequest?: number;
   disabled?: boolean | undefined;
+  readOnly?: boolean | undefined;
   invalid?: boolean | undefined;
   invalidLabel?: string | undefined;
   onSelect: (model: ModelRef) => void | Promise<void>;
@@ -347,6 +349,7 @@ export function ComposerMainModelPicker({
   };
 
   const chooseModel = (entry: PickerModel) => {
+    if (readOnly) return;
     const providerId = source === "login" ? "openai" : source === "oauth"
       ? "eco-coding-chatgpt" : source;
     if (!providerId || (accountSource && !accountId)) return;
@@ -364,6 +367,7 @@ export function ComposerMainModelPicker({
 
   const chooseAccount = (nextAccountId: string) => {
     if (nextAccountId === accountId) return;
+    if (readOnly) { setAccountId(nextAccountId); return; }
     const providerId = source === "login" ? "openai" : "eco-coding-chatgpt";
     const currentChoice = activeChoice?.providerId === providerId ? activeChoice
       : model?.providerId === providerId ? model : undefined;
@@ -378,6 +382,7 @@ export function ComposerMainModelPicker({
   };
 
   const chooseEffort = (effort: ThinkingEffort) => {
+    if (readOnly) return;
     setPreferredEffort(effort);
     if (!activeChoice || !activeModel || sliderDisabled || !supportedEfforts.includes(effort)) return;
     const choice: ModelRef = { ...activeChoice, thinkingEffort: effort };
@@ -386,14 +391,14 @@ export function ComposerMainModelPicker({
   };
 
   useEffect(() => {
-    if (!open || !activeModel || !activeChoice || activeChoice.thinkingEffort || capabilitiesLoading) return;
+    if (readOnly || !open || !activeModel || !activeChoice || activeChoice.thinkingEffort || capabilitiesLoading) return;
     const effort = resolvePickerThinkingEffort(preferredEffort, supportedEfforts);
     if (effort) {
       setActiveChoice({ ...activeChoice, thinkingEffort: effort });
       setPreferredEffort(effort);
       void saveChoice({ ...activeChoice, thinkingEffort: effort });
     }
-  }, [open, activeModel?.id, activeChoice?.thinkingEffort, preferredEffort, supportedEfforts, capabilitiesLoading]);
+  }, [readOnly, open, activeModel?.id, activeChoice?.thinkingEffort, preferredEffort, supportedEfforts, capabilitiesLoading]);
 
   return <span className="composer-model-selector">
     <button ref={triggerRef} type="button"
@@ -422,7 +427,7 @@ export function ComposerMainModelPicker({
             {visibleProviders.map((provider) => <button key={provider.id} type="button"
               className={provider.id === source ? "is-selected" : ""}
               aria-pressed={provider.id === source}
-              onClick={() => { setSource(provider.id); setAccountId(""); setActiveChoice(undefined); }}>
+              onClick={() => { setSource(provider.id); setAccountId(""); if (!readOnly) setActiveChoice(undefined); }}>
               {provider.icon ? <img className="composer-main-model-picker-provider-icon"
                 src={provider.icon} alt="" aria-hidden />
                 : <span className="composer-main-model-picker-provider-dot"
@@ -498,7 +503,7 @@ export function ComposerMainModelPicker({
                       (!entry.candidateModelId || activeChoice.candidateModelId === entry.candidateModelId);
                     return <button key={entry.candidateModelId ?? entry.id} type="button"
                       className={selected ? "is-selected" : ""} aria-pressed={selected}
-                      title={entry.name} onClick={() => chooseModel(entry)}>
+                      title={entry.name} disabled={readOnly} onClick={() => chooseModel(entry)}>
                       <span>{entry.name}</span>{selected ? <Check size={14} aria-hidden /> : null}
                     </button>;
                   })}
@@ -512,7 +517,7 @@ export function ComposerMainModelPicker({
             </div>
             <ThinkingEffortSlider key={`${source}:${accountId}:${activeModel?.candidateModelId ?? activeModel?.id ?? "none"}`}
               efforts={sliderEfforts} value={activeChoice?.thinkingEffort ?? preferredEffort}
-              disabled={sliderDisabled}
+              disabled={readOnly || sliderDisabled}
               {...(capabilitiesLoading ? { statusLabel: t("composer.mainPicker.loading") }
                 : activeModel?.reasoningUnknown
                   ? { statusLabel: t("composer.mainPicker.unknownThinkingEfforts") }
@@ -525,7 +530,7 @@ export function ComposerMainModelPicker({
           </div>
         </div>
       </div>
-      {!loadingData.has("custom") && candidates.length === 0 ? <button type="button"
+      {!readOnly && !loadingData.has("custom") && candidates.length === 0 ? <button type="button"
         className="composer-main-model-picker-add-provider"
         onClick={() => { setOpen(false); onAddProvider(); }}>
         {t("composer.model.addProvider")}

@@ -1,5 +1,6 @@
 import { useRef } from "react";
 import { createRoot } from "react-dom/client";
+import { ComposerAcpModelTrigger } from "../../src/renderer/ComposerAcpModelTrigger";
 import { ComposerMainModelPicker } from "../../src/renderer/ComposerMainModelPicker";
 import { i18n } from "../../src/renderer/i18n";
 import type { CodexModelCatalogSnapshot } from "../../src/shared/models";
@@ -9,6 +10,8 @@ const pending = new URLSearchParams(location.search).get("pending");
 let rejectOauthCatalog: ((error: Error) => void) | undefined;
 let holdCatalogs = false;
 let remoteModelReads = 0;
+let selections = 0;
+const readOnly = new URLSearchParams(location.search).has("readOnly");
 const never = () => new Promise<never>(() => {});
 const catalog = (modelId: string): CodexModelCatalogSnapshot => ({
   models: [{ modelId, displayName: modelId, hidden: false, origin: "remote", reasoningEfforts: ["low", "high"] }],
@@ -44,6 +47,7 @@ Object.assign(window, {
     async openAIAccountsQueryQuota() { return never(); },
   },
   pickerRemoteModelReads: () => remoteModelReads,
+  pickerSelections: () => selections,
 });
 
 await i18n.changeLanguage("en-US");
@@ -54,8 +58,12 @@ function Fixture() {
     <div ref={anchorRef} style={{ position: "fixed", bottom: 20, left: 20, width: 900 }}>
       <ComposerMainModelPicker anchorRef={anchorRef} coreKind="codex"
         model={{ providerId: "openai", modelId: "Login local model", accountId: "login-account" }}
-        onSelect={() => {}} onAddProvider={() => {}} />
+        readOnly={readOnly}
+        onSelect={() => { selections += 1; }} onAddProvider={() => {}} />
     </div>
+    {new URLSearchParams(location.search).has("acp") ? <ComposerAcpModelTrigger
+      models={[{ id: "gpt-test", displayName: "GPT test" }]}
+      selectedModelId="gpt-test" readOnly={readOnly} onChange={() => { selections += 1; }} /> : null}
     <button type="button" onClick={() => rejectOauthCatalog?.(new Error("OAuth catalog read failed"))}>
       Fail OAuth catalog
     </button>

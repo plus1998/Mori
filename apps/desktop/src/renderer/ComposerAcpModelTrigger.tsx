@@ -8,6 +8,7 @@ export interface ComposerAcpModelTriggerProps {
   models: readonly AcpModelOption[];
   selectedModelId?: string;
   disabled?: boolean;
+  readOnly?: boolean;
   loading?: boolean;
   error?: string;
   onOpen?: () => void;
@@ -29,6 +30,7 @@ export function ComposerAcpModelTrigger({
   models,
   selectedModelId,
   disabled,
+  readOnly,
   loading,
   error,
   onOpen,
@@ -54,6 +56,7 @@ export function ComposerAcpModelTrigger({
         loading={loading}
         error={error}
         disabled={disabled}
+        readOnly={readOnly}
         clearable
         clearLabel={t("settings.acpModel.default")}
         placeholder={selectedModel?.displayName ?? t("settings.acpModel.default")}
