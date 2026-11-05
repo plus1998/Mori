@@ -1574,7 +1574,19 @@ export interface CursorApiKeyImportResult {
   accounts: CursorApiKeyView[];
 }
 
+/** Additional supplier-owned endpoints. An omitted baseUrl follows the supplier address. */
+export interface ProviderEndpoint {
+  id: string;
+  name: string;
+  baseUrl?: string;
+  requestPath: string;
+  version: string;
+  apiCompat: UpstreamApiCompat;
+  tokenCountMode?: ProviderTokenCountMode;
+}
+
 export interface ProviderConfigInput {
+  endpoints?: ProviderEndpoint[];
   id?: string;
   name: string;
   baseUrl: string;
@@ -1606,6 +1618,7 @@ export interface ProviderConfigInput {
 }
 
 export interface ProviderConfigView {
+  endpoints?: ProviderEndpoint[];
   id: string;
   name: string;
   baseUrl: string;
@@ -1678,10 +1691,12 @@ export interface RouteManualSpec {
 }
 
 export interface CandidateModelInput {
+  /** Supplier endpoint reference; "default" follows its default endpoint. */
+  endpointId?: string;
   id?: string;
   providerId: string;
   modelId: string;
-  /** Concrete upstream API for this model. Omitted fields preserve the saved value. */
+  /** Legacy import fields, normalized into a supplier endpoint. New writes use endpointId. */
   baseUrl?: string;
   requestPath?: string;
   version?: string;
@@ -1694,10 +1709,11 @@ export interface CandidateModelInput {
 }
 
 export interface CandidateModelView {
+  endpointId?: string;
   id: string;
   providerId: string;
   modelId: string;
-  /** Account catalogs use managed endpoints and leave these fields unset. */
+  /** Derived from the referenced supplier endpoint; never stored as model address copies. Account catalogs leave them unset. */
   baseUrl?: string;
   requestPath?: string;
   version?: string;

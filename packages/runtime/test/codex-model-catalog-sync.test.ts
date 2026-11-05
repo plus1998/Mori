@@ -538,3 +538,29 @@ test("syncEcoCodexModelCatalog fails when freeform template is missing", async (
     }),
   ).rejects.toThrow(/freeform/i);
 });
+
+test("candidate ID is the catalog slug across provider and effective route metadata", () => {
+  const routes = collectCodexGatewayCatalogRoutes({
+    providers: [
+      {
+        id: "vendor",
+        defaultModel: "gpt-5.4",
+        apiCompat: "openai_responses",
+        models: [{ candidateModelId: "cand-vendor-stable", modelId: "gpt-5.4", apiCompat: "anthropic" }],
+      },
+    ],
+    effectiveRoutes: [
+      {
+        candidateModelId: "cand-vendor-stable",
+        providerId: "vendor",
+        modelId: "gpt-5.4",
+        apiCompat: "anthropic",
+        manualSpec: { contextTokens: 200_000 },
+      },
+    ],
+  });
+  expect(routes).toHaveLength(1);
+  const document = buildEcoCodexModelCatalogDocument(nativeModelsFixture(), routes);
+  expect(document.models.find((model) => model.slug === "cand-vendor-stable")?.context_window).toBe(200_000);
+  expect(document.models.some((model) => model.slug.startsWith("eco_route_v1."))).toBe(false);
+});

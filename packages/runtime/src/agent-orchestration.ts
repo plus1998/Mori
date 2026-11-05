@@ -24,6 +24,7 @@ export {
 export type EcoAgentConfigSource = "built_in" | "user" | "project" | "derived";
 
 export interface EcoModelRef {
+  candidateModelId?: string;
   providerId: string;
   modelId: string;
   apiCompat?: string;

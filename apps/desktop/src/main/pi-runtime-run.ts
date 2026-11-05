@@ -263,6 +263,7 @@ export function getPiCodingAgentDriver(ecoDataDir: string): PiCodingAgentDriver 
         ) as EcoApiCompat;
         const headers = buildPiGatewayRequestHeaders({
           bindingId: armed.binding.bindingId,
+          role: bindingRoute.role,
           threadId,
           ...(armed.runAttemptId ? { runAttemptId: armed.runAttemptId } : {}),
           providerId: bindingRoute.provider.id,
@@ -276,6 +277,7 @@ export function getPiCodingAgentDriver(ecoDataDir: string): PiCodingAgentDriver 
           agentDir: armed.agentDir,
           apiCompat,
           bindingId: armed.binding.bindingId,
+          role: bindingRoute.role,
           providerId: bindingRoute.provider.id,
           headers,
           ...(bindingRoute.supportsImageInput !== undefined && {

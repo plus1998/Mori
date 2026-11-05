@@ -60,6 +60,7 @@ export function resolveThreadRuntimeConfig(
       role: route.role,
       provider: resolvedProvider,
       modelId: route.modelId,
+      ...(route.candidateModelId ? { candidateModelId: route.candidateModelId } : {}),
       apiCompat: resolveUpstreamApiCompat(route.apiCompat, resolvedProvider.apiCompat),
       ...(route.thinkingEffort && { thinkingEffort: route.thinkingEffort }),
       ...(route.modelsDevMapping && { modelsDevMapping: route.modelsDevMapping }),
@@ -107,6 +108,7 @@ export function roleRoutesFromRuntime(routes: readonly RuntimeRoute[]): RuntimeR
     role: route.role,
     providerId: route.provider.id,
     modelId: route.modelId,
+    ...(route.candidateModelId ? { candidateModelId: route.candidateModelId } : {}),
     apiCompat: resolveUpstreamApiCompat(route.apiCompat, route.provider.apiCompat),
     ...(route.thinkingEffort && { thinkingEffort: route.thinkingEffort }),
     ...(route.modelsDevMapping && { modelsDevMapping: route.modelsDevMapping }),
@@ -118,6 +120,7 @@ export function buildDriverRoutes(routes: readonly AnthropicProxyResolvedRoute[]
   return routes.map((route) => ({
     role: route.role,
     upstreamModelId: route.modelId,
+    ...(route.candidateModelId ? { candidateModelId: route.candidateModelId } : {}),
     primary: {
       id: `${route.role}:${route.provider.id}`,
       provider: "custom",
@@ -163,12 +166,14 @@ export function buildDriverRoutesFromRuntime(
   contextTokensByRole?: Partial<Record<RuntimeAgentRole, number>>,
 ): ResolvedModelRoute[] {
   return routes.map((route) => {
-    const baseAlias = createModelAlias(route.role, route.provider.id, route.modelId);
+    const baseAlias =
+      route.candidateModelId || createModelAlias(route.role, route.provider.id, route.modelId);
     const contextWindow = contextTokensByRole?.[route.role];
     const aliasModelId = toSdkModelAlias(baseAlias, contextWindow);
     return {
       role: route.role,
       upstreamModelId: route.modelId,
+      ...(route.candidateModelId ? { candidateModelId: route.candidateModelId } : {}),
       providerId: route.provider.id,
       apiCompat: resolveUpstreamApiCompat(route.apiCompat, route.provider.apiCompat),
       primary: {

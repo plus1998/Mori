@@ -152,7 +152,10 @@ export function createUpstreamFetchController(initialProxyUrl?: string): Upstrea
   const controlledFetch: typeof fetch = async (input, init) => {
     const requestInit = init as (RequestInit & { [UPSTREAM_PROXY_URL]?: string }) | undefined;
     const explicitProxy = requestInit?.[UPSTREAM_PROXY_URL];
-    const activeProxy = explicitProxy ? parseUpstreamProxyUrl(explicitProxy) : resolveProxyForInput(input);
+    const activeProxy =
+      requestInit && UPSTREAM_PROXY_URL in requestInit
+        ? parseUpstreamProxyUrl(explicitProxy)
+        : resolveProxyForInput(input);
     if (requestInit && UPSTREAM_PROXY_URL in requestInit) {
       const sanitized = { ...requestInit } as RequestInit & { [UPSTREAM_PROXY_URL]?: string };
       delete sanitized[UPSTREAM_PROXY_URL];

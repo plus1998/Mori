@@ -187,6 +187,7 @@ export function withCodexNativeImageView(
 }
 
 export interface SyncedCodexRole {
+  candidateModelId?: string;
   agentKey: string;
   roleId: string;
   rolePath: string;
@@ -358,6 +359,7 @@ export async function syncOrchestrationAgentsToCodexRoles(
       description: draft.description,
       configFile: rolePath,
       modelId: draft.modelId,
+      ...(draft.candidateModelId ? { candidateModelId: draft.candidateModelId } : {}),
       providerId: draft.providerId,
       ...(draft.apiCompat && { apiCompat: draft.apiCompat }),
       sandboxMode: draft.sandboxMode,
@@ -675,6 +677,7 @@ function isNodeError(error: unknown): error is NodeJS.ErrnoException {
 }
 
 export function buildCodexRoleToml(input: {
+  candidateModelId?: string;
   roleId: string;
   description: string;
   developerInstructions: string;
@@ -691,7 +694,7 @@ export function buildCodexRoleToml(input: {
   const isBuiltInOpenAi = input.providerId === CODEX_BUILT_IN_OPENAI_PROVIDER_ID;
   const modelValue = isBuiltInOpenAi
     ? input.modelId
-    : buildCodexGatewayModelAlias(input.providerId, input.modelId, input.apiCompat);
+    : buildCodexGatewayModelAlias(input.providerId, input.modelId, input.apiCompat, input.candidateModelId);
   // Role configs inherit config.toml's global `model_provider = "eco_*"` default, so the
   // built-in OpenAI route must be pinned to Codex's own provider here too — otherwise the
   // role's official-subscription model would be sent to eco-gateway as a route miss (404).
@@ -764,6 +767,7 @@ export function codexRoleSyncContainsSecret(value: string, secrets: readonly str
 }
 
 interface BuiltCodexRole {
+  candidateModelId?: string;
   description: string;
   toml: string;
   modelId: string;
@@ -796,12 +800,14 @@ function buildCodexRole(
     toolPolicy: cloneEcoToolPolicy(toolPolicy),
     description,
     modelId,
+    ...(agent.modelRef.candidateModelId ? { candidateModelId: agent.modelRef.candidateModelId } : {}),
     providerId,
     ...(apiCompat && { apiCompat }),
     toml: buildCodexRoleToml({
       roleId,
       description,
       developerInstructions,
+      ...(agent.modelRef.candidateModelId ? { candidateModelId: agent.modelRef.candidateModelId } : {}),
       modelId: redactKnownSecrets(modelId, secretsToRedact),
       providerId: redactKnownSecrets(providerId, secretsToRedact),
       ...(apiCompat && { apiCompat }),
@@ -826,21 +832,20 @@ function buildExploreCodexRole(
   const providerId = requireProviderId(modelRef.providerId, CODEX_EXPLORE_ROLE_ID);
   const apiCompat = resolveCodexRoleApiCompat(modelRef.apiCompat, CODEX_EXPLORE_ROLE_ID);
   const description = redactKnownSecrets(exploreAgentDescription, secretsToRedact);
-  const developerInstructions = redactKnownSecrets(
-    exploreAgentPrompt,
-    secretsToRedact,
-  );
+  const developerInstructions = redactKnownSecrets(exploreAgentPrompt, secretsToRedact);
   return {
     sandboxMode: toolPolicy.sandboxMode,
     toolPolicy: cloneEcoToolPolicy(toolPolicy),
     description,
     modelId,
+    ...(modelRef.candidateModelId ? { candidateModelId: modelRef.candidateModelId } : {}),
     providerId,
     ...(apiCompat && { apiCompat }),
     toml: buildCodexRoleToml({
       roleId: CODEX_EXPLORE_ROLE_ID,
       description,
       developerInstructions,
+      ...(modelRef.candidateModelId ? { candidateModelId: modelRef.candidateModelId } : {}),
       modelId: redactKnownSecrets(modelId, secretsToRedact),
       providerId: redactKnownSecrets(providerId, secretsToRedact),
       ...(apiCompat && { apiCompat }),

@@ -61,89 +61,150 @@ test("providers domain covers both provider and provider-proxy secret kinds", ()
   ).toEqual(["p1"]);
 });
 
-test.skipIf(!sqliteAvailable)("desktop sync hooks sync provider proxies and independent Cursor key lists", async () => {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "eco-provider-proxy-sync-"));
-  const dbPath = path.join(dir, "eco-coding.sqlite");
-  const codec = createLocalSecretCodec();
-  const providerStore = await createProviderStore(dbPath);
-  const cursorApiKeyStore = await createCursorApiKeyStore(dbPath);
-  const cursorKey = cursorApiKeyStore.save({ name: "Work", apiKey: "cursor-key", enabled: false });
-  const hooks = createDesktopSettingsSyncHooks({
-    providerStore,
-    cursorApiKeyStore,
-    asrSettingsStore: await createAsrSettingsStore(dbPath),
-    imageGenerationStore: await createImageGenerationStore(dbPath),
-    workflowSettingsStore: await createWorkflowSettingsStore(dbPath),
-    agentOrchestrationStore: await createAgentOrchestrationStore(dbPath),
-    proxyBridgeSettingsStore: await createProxyBridgeSettingsStore(dbPath),
-    integratedWebSearchSettingsStore: await createIntegratedWebSearchSettingsStore(dbPath, codec),
-    gitSettingsStore: await createGitSettingsStore(dbPath),
-    personalizationSettingsStore: await createPersonalizationSettingsStore(dbPath),
-    packageScriptArgsStore: createPackageScriptArgsStore(path.join(dir, "package-script-args.json")),
-    sshBookmarkStore: await createSshBookmarkStore(dbPath, codec),
-  });
+test.skipIf(!sqliteAvailable)(
+  "desktop sync hooks sync provider proxies and independent Cursor key lists",
+  async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "eco-provider-proxy-sync-"));
+    const dbPath = path.join(dir, "eco-coding.sqlite");
+    const codec = createLocalSecretCodec();
+    const providerStore = await createProviderStore(dbPath);
+    const cursorApiKeyStore = await createCursorApiKeyStore(dbPath);
+    const cursorKey = cursorApiKeyStore.save({ name: "Work", apiKey: "cursor-key", enabled: false });
+    const hooks = createDesktopSettingsSyncHooks({
+      providerStore,
+      cursorApiKeyStore,
+      asrSettingsStore: await createAsrSettingsStore(dbPath),
+      imageGenerationStore: await createImageGenerationStore(dbPath),
+      workflowSettingsStore: await createWorkflowSettingsStore(dbPath),
+      agentOrchestrationStore: await createAgentOrchestrationStore(dbPath),
+      proxyBridgeSettingsStore: await createProxyBridgeSettingsStore(dbPath),
+      integratedWebSearchSettingsStore: await createIntegratedWebSearchSettingsStore(dbPath, codec),
+      gitSettingsStore: await createGitSettingsStore(dbPath),
+      personalizationSettingsStore: await createPersonalizationSettingsStore(dbPath),
+      packageScriptArgsStore: createPackageScriptArgsStore(path.join(dir, "package-script-args.json")),
+      sshBookmarkStore: await createSshBookmarkStore(dbPath, codec),
+    });
 
-  const provider = providerStore.saveProvider({
-    name: "Proxied",
-    baseUrl: "https://api.example.com",
-    apiKey: "k",
-    upstreamProxyUrl: "socks5://p.example:7890",
-    defaultModel: "m1",
-    enabled: true,
-  });
+    const provider = providerStore.saveProvider({
+      name: "Proxied",
+      baseUrl: "https://api.example.com",
+      apiKey: "k",
+      upstreamProxyUrl: "socks5://p.example:7890",
+      defaultModel: "m1",
+      enabled: true,
+    });
 
-  // Collect: provider key + provider-proxy secret.
-  const secrets = hooks.collectPlainSecrets();
-  const cursorSecret = secrets.find((secret) => secret.key === ECO_CURSOR_API_KEYS_SECRET)!;
-  expect(cursorSecret.kind).toBe("workflow");
-  expect(JSON.parse(cursorSecret.value)[0]).toMatchObject({ id: cursorKey.id, name: "Work", apiKey: "cursor-key", enabled: false });
-  expect(JSON.stringify(hooks.collectSettingsPayload())).not.toContain("cursor-key");
-  cursorApiKeyStore.remove(cursorKey.id);
-  hooks.applyDomainPlainSecrets(secrets, "providers");
-  expect(cursorApiKeyStore.listWithSecrets()[0]).toMatchObject({ id: cursorKey.id, apiKey: "cursor-key", enabled: false });
-  hooks.applyDomainPlainSecrets([], "providers");
-  expect(cursorApiKeyStore.list()).toHaveLength(1);
-  hooks.applyDomainPlainSecrets([{ kind: "workflow", key: "acp_cursor_api_key", value: "legacy-cursor-key" }], "defaultAgent");
-  expect(cursorApiKeyStore.listWithSecrets().some((key) => key.apiKey === "legacy-cursor-key")).toBe(true);
-  const fullSnapshot = [...secrets, { kind: "workflow" as const, key: "acp_cursor_api_key", value: "legacy-cursor-key" }];
-  hooks.applyPlainSecrets(fullSnapshot);
-  expect(cursorApiKeyStore.listWithSecrets().map((key) => key.apiKey)).toEqual(["cursor-key"]);
-  hooks.applyPlainSecrets(fullSnapshot.map((secret) => secret.key === ECO_CURSOR_API_KEYS_SECRET ? { ...secret, value: "[]" } : secret));
-  expect(cursorApiKeyStore.list()).toEqual([]);
-  expect(secrets).toContainEqual({
-    kind: "provider",
-    key: provider.id,
-    value: "k",
-  });
-  expect(secrets).toContainEqual({
-    kind: "provider-proxy",
-    key: provider.id,
-    value: "socks5://p.example:7890",
-  });
+    providerStore.saveProvider({
+      ...provider,
+      endpoints: [
+        {
+          id: "messages",
+          name: "Messages",
+          requestPath: "/anthropic",
+          version: "v1",
+          apiCompat: "anthropic",
+        },
+      ],
+    });
+    const candidate = providerStore.saveCandidateModel({
+      providerId: provider.id,
+      modelId: "m1",
+      endpointId: "messages",
+    });
+    const endpointPayload = hooks.collectSettingsPayload();
+    expect(endpointPayload.providers[0]?.endpoints?.[0]?.id).toBe("messages");
+    expect(endpointPayload.candidateModels?.[0]).toMatchObject({ id: candidate.id, endpointId: "messages" });
+    expect(endpointPayload.candidateModels?.[0]?.baseUrl).toBeUndefined();
+    expect(endpointPayload.candidateModels?.[0]?.apiCompat).toBeUndefined();
+    await hooks.applySettingsPayload({
+      ...endpointPayload,
+      providers: endpointPayload.providers.map((row) => ({ ...row, baseUrl: "https://cloud.test" })),
+    });
+    expect(providerStore.getCandidateModel(candidate.id)).toMatchObject({
+      baseUrl: "https://cloud.test",
+      apiCompat: "anthropic",
+      requestPath: "/anthropic",
+    });
+    await hooks.applySettingsPayload({
+      ...endpointPayload,
+      providers: endpointPayload.providers.map((row) => ({ ...row, endpoints: [] })),
+      candidateModels: endpointPayload.candidateModels!.map((row) => ({ ...row, endpointId: "default" })),
+    });
+    expect(providerStore.getCandidateModel(candidate.id)?.endpointId).toBe("default");
+    expect(providerStore.listProviders()[0]?.endpoints).toEqual([]);
 
-  // Apply without the provider-proxy secret: local proxy cleared, API key intact.
-  hooks.applyDomainPlainSecrets(
-    secrets.filter((secret) => !(secret.kind === "provider-proxy" && secret.key === provider.id)),
-    "providers",
-  );
-  let withSecret = providerStore.getProviderWithSecret(provider.id)!;
-  expect(withSecret.upstreamProxyUrl).toBeUndefined();
-  expect(withSecret.apiKey).toBe("k");
-
-  // Apply with the provider-proxy secret: local proxy restored.
-  hooks.applyDomainPlainSecrets(secrets, "providers");
-  withSecret = providerStore.getProviderWithSecret(provider.id)!;
-  expect(withSecret.upstreamProxyUrl).toBe("socks5://p.example:7890");
-  expect(withSecret.apiKey).toBe("k");
-
-  // Unknown provider reference for provider-proxy is rejected.
-  expect(() =>
+    // Collect: provider key + provider-proxy secret.
+    const secrets = hooks.collectPlainSecrets();
+    const cursorSecret = secrets.find((secret) => secret.key === ECO_CURSOR_API_KEYS_SECRET)!;
+    expect(cursorSecret.kind).toBe("workflow");
+    expect(JSON.parse(cursorSecret.value)[0]).toMatchObject({
+      id: cursorKey.id,
+      name: "Work",
+      apiKey: "cursor-key",
+      enabled: false,
+    });
+    expect(JSON.stringify(hooks.collectSettingsPayload())).not.toContain("cursor-key");
+    cursorApiKeyStore.remove(cursorKey.id);
+    hooks.applyDomainPlainSecrets(secrets, "providers");
+    expect(cursorApiKeyStore.listWithSecrets()[0]).toMatchObject({
+      id: cursorKey.id,
+      apiKey: "cursor-key",
+      enabled: false,
+    });
+    hooks.applyDomainPlainSecrets([], "providers");
+    expect(cursorApiKeyStore.list()).toHaveLength(1);
     hooks.applyDomainPlainSecrets(
-      [{ kind: "provider-proxy", key: "missing", value: "socks5://x:1080" }],
+      [{ kind: "workflow", key: "acp_cursor_api_key", value: "legacy-cursor-key" }],
+      "defaultAgent",
+    );
+    expect(cursorApiKeyStore.listWithSecrets().some((key) => key.apiKey === "legacy-cursor-key")).toBe(true);
+    const fullSnapshot = [
+      ...secrets,
+      { kind: "workflow" as const, key: "acp_cursor_api_key", value: "legacy-cursor-key" },
+    ];
+    hooks.applyPlainSecrets(fullSnapshot);
+    expect(cursorApiKeyStore.listWithSecrets().map((key) => key.apiKey)).toEqual(["cursor-key"]);
+    hooks.applyPlainSecrets(
+      fullSnapshot.map((secret) =>
+        secret.key === ECO_CURSOR_API_KEYS_SECRET ? { ...secret, value: "[]" } : secret,
+      ),
+    );
+    expect(cursorApiKeyStore.list()).toEqual([]);
+    expect(secrets).toContainEqual({
+      kind: "provider",
+      key: provider.id,
+      value: "k",
+    });
+    expect(secrets).toContainEqual({
+      kind: "provider-proxy",
+      key: provider.id,
+      value: "socks5://p.example:7890",
+    });
+
+    // Apply without the provider-proxy secret: local proxy cleared, API key intact.
+    hooks.applyDomainPlainSecrets(
+      secrets.filter((secret) => !(secret.kind === "provider-proxy" && secret.key === provider.id)),
       "providers",
-    ),
-  ).toThrow("Cloud provider proxy secret references missing provider: missing");
-});
+    );
+    let withSecret = providerStore.getProviderWithSecret(provider.id)!;
+    expect(withSecret.upstreamProxyUrl).toBeUndefined();
+    expect(withSecret.apiKey).toBe("k");
+
+    // Apply with the provider-proxy secret: local proxy restored.
+    hooks.applyDomainPlainSecrets(secrets, "providers");
+    withSecret = providerStore.getProviderWithSecret(provider.id)!;
+    expect(withSecret.upstreamProxyUrl).toBe("socks5://p.example:7890");
+    expect(withSecret.apiKey).toBe("k");
+
+    // Unknown provider reference for provider-proxy is rejected.
+    expect(() =>
+      hooks.applyDomainPlainSecrets(
+        [{ kind: "provider-proxy", key: "missing", value: "socks5://x:1080" }],
+        "providers",
+      ),
+    ).toThrow("Cloud provider proxy secret references missing provider: missing");
+  },
+);
 
 test("provider and default-agent sync preserve each other's Cursor secrets", () => {
   const legacy = { kind: "workflow" as const, key: "acp_cursor_api_key", value: "legacy-key" };

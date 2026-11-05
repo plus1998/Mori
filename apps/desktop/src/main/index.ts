@@ -1,3 +1,5 @@
+import { resolveAppliedMaxOutputTokens } from "@eco/runtime";
+import { resolveCandidateModelRequestRoute } from "./candidate-model-request-route";
 import { buildThreadWorkLocationPrompt } from "./thread-work-location-context";
 import { ThreadWorktreeService } from "./thread-worktree-service";
 import { createWorktreeSettingsStore, type WorktreeSettingsStore } from "./worktree-settings-store";
@@ -3198,7 +3200,30 @@ app
     // Provider probes / model lists run outside the gateway: give them the same fallback.
     setDefaultUpstreamUserAgent(defaultUpstreamUserAgent);
     configureEcoGatewayLifecycle({
+      resolveLegacyCandidateId: (providerId, modelId) => {
+        const provider = providerStore.getProviderWithSecret(providerId);
+        if (!provider) throw new Error(`供应商 ${providerId} 已不存在。`);
+        if (provider.authMethod === "chatgpt_subscription") return undefined;
+        const candidate = providerStore.listCandidateModels(providerId).find((model) => model.modelId === modelId);
+        if (!candidate) throw new Error(`候选模型 ${providerId}/${modelId} 已不存在，请重新选择。`);
+        return candidate.id;
+      },
       ecoDataDir: app.getPath("userData"),
+      resolveCandidateModel: async (id) => {
+        const snapshot = resolveCandidateModelRequestRoute(providerStore, id);
+        const { candidate, gatewayProvider } = snapshot;
+        const resolved = await pricingCache.resolveContextLimit(candidate.baseUrl!, candidate.modelId, candidate.modelsDevMapping,
+          candidate.manualSpec?.contextTokens, candidate.manualSpec?.maxOutputTokens);
+        const maxOutputTokens = resolveAppliedMaxOutputTokens({
+          ...(resolved.maxOutputTokens !== undefined ? { modelMaxOutputTokens: resolved.maxOutputTokens } : {}),
+          globalMaxOutputTokens: workflowSettingsStore.get().maxOutputLimitTokens,
+        });
+        if (maxOutputTokens !== undefined) gatewayProvider.modelMaxOutputTokens = { [candidate.modelId]: maxOutputTokens };
+        if (workflowSettingsStore.get().maxOutputLimitTokens === "dynamic") {
+          gatewayProvider.modelContextTokens = { [candidate.modelId]: resolveEffectiveContextLimit(resolved.limit, workflowSettingsStore.get().contextWindowLimitTokens) };
+        }
+        return snapshot;
+      },
       listProviders: async () => {
         // The built-in ChatGPT provider may have been persisted by an older
         // version. Migrate it before every Gateway sync so stale auth metadata
@@ -3308,13 +3333,14 @@ app
       onToolWriteStarted: (observation) => {
         emitCodexToolWriteActivity(observation);
       },
-      prepareClaudeMessages: async ({ path, body, model, headers }) => {
+      prepareClaudeMessages: async ({ path, body, model, headers, candidateRoute }) => {
         const { prepareClaudeBridgeMessagesRequest } = await import("./anthropic-proxy");
         return prepareClaudeBridgeMessagesRequest({
           path,
           body,
           requestedModel: model,
           headers,
+          candidateRoute,
         });
       },
       resolveMessagesRoute: ({ model, headers }) => {
@@ -3488,6 +3514,11 @@ app
       onStderr: (chunk) => process.stderr.write(chunk.endsWith("\n") ? chunk : `${chunk}\n`),
     });
     configureCodexRuntimeRun({
+      resolveCandidateModel: (id) => {
+        const candidate = providerStore.getCandidateModel(id);
+        if (!candidate || !candidate.apiCompat || candidate.apiCompat === "system_one") return undefined;
+        return { providerId: candidate.providerId, upstreamModelId: candidate.modelId, apiCompat: candidate.apiCompat };
+      },
       ecoDataDir: app.getPath("userData"),
       ensureAccountReady: async (accountId) => {
         if (!openaiAccountService) throw new Error("ChatGPT Login 账号服务尚未初始化，请稍后重试。");
@@ -3501,7 +3532,9 @@ app
         const providers = providerStore.listProviders();
         const byId = new Map(providers.map((provider) => [provider.id, provider]));
         const enriched: CodexGatewayCatalogRoute[] = [];
-        for (const route of routes) {
+        for (const originalRoute of routes) {
+          const candidateIdentity = providerStore.listCandidateModels(originalRoute.providerId).find((model) => originalRoute.candidateModelId ? model.id === originalRoute.candidateModelId : model.modelId === originalRoute.modelId);
+          const route = candidateIdentity ? { ...originalRoute, candidateModelId: candidateIdentity.id } : originalRoute;
           if (typeof route.manualSpec?.contextTokens === "number" && route.manualSpec.contextTokens > 0) {
             enriched.push(route);
             continue;
@@ -3552,7 +3585,9 @@ app
             enabled: provider.enabled,
             apiCompat: resolveUpstreamApiCompat(undefined, provider.apiCompat),
             defaultModel: provider.defaultModel,
-            models: providerStore.listCandidateModels(provider.id).map((model) => ({
+            models: providerStore.listCandidateModels(provider.id).filter((model) => model.apiCompat !== "system_one").map((model) => ({
+              candidateModelId: model.id,
+              ...(model.apiCompat ? { apiCompat: resolveUpstreamApiCompat(undefined, model.apiCompat) } : {}),
               modelId: model.modelId,
               ...(model.displayName ? { displayName: model.displayName } : {}),
               ...(model.manualSpec
@@ -4529,9 +4564,9 @@ function collectCodexCatalogRoutesFromModelRefs(
   const providerById = new Map(providers.map((provider) => [provider.id, provider]));
   return refs.flatMap((ref) => {
     const providerId = ref.providerId.trim();
-    const candidate = ref.candidateModelId
-      ? providerStore.listCandidateModels(providerId).find((model) => model.id === ref.candidateModelId)
-      : undefined;
+    const candidate = providerStore.listCandidateModels(providerId).find((model) =>
+      ref.candidateModelId ? model.id === ref.candidateModelId : model.modelId === ref.modelId);
+    if (ref.candidateModelId && !candidate && !isBuiltInCodexCatalogProvider(providerId) && providerId !== "eco-coding-chatgpt") return [];
     const modelId = (candidate?.modelId || ref.modelId).trim();
     const manualSpec = mergeRouteManualSpec(candidate?.manualSpec, ref.manualSpec);
     const provider = providerById.get(providerId);
@@ -4542,7 +4577,8 @@ function collectCodexCatalogRoutesFromModelRefs(
       {
         providerId,
         modelId,
-        apiCompat: resolveUpstreamApiCompat(ref.apiCompat, provider.apiCompat),
+        ...(candidate ? { candidateModelId: candidate.id } : {}),
+        apiCompat: resolveUpstreamApiCompat(candidate?.apiCompat ?? ref.apiCompat, provider.apiCompat),
         displayName: `${provider.name} / ${modelId}`,
         ...(manualSpec
           ? {
@@ -4835,7 +4871,20 @@ function resolveAgentRuntimeConfigForThread(thread: ThreadSummary): EcoAgentRunt
   }
   assertThreadCodexLoginSubagents(thread.coreKind, settings, runtimeConfig);
   const systemPromptPreset = resolveMainAgentSystemPromptPreset(snapshot, runtimeConfig);
-  const config = orchestrationConfigFromSnapshot(snapshot);
+  const savedConfig = orchestrationConfigFromSnapshot(snapshot);
+  const resolveModelRef = (modelRef: import("../shared/agent-orchestration").ModelRef, role: RuntimeAgentRole): import("../shared/agent-orchestration").ModelRef => {
+    const route = resolveCandidateModelDefaults([{ ...modelRef, role }])[0]!;
+    const { candidateModelId: _savedCandidateId, ...ref } = modelRef;
+    return { ...ref, modelId: route.modelId,
+      ...(route.candidateModelId ? { candidateModelId: route.candidateModelId } : {}),
+      ...(route.apiCompat ? { apiCompat: route.apiCompat } : {}),
+    };
+  };
+  const config = {
+    ...savedConfig,
+    mainAgent: { ...savedConfig.mainAgent, modelRef: resolveModelRef(savedConfig.mainAgent.modelRef, "main") },
+    agents: savedConfig.agents.map((agent) => ({ ...agent, modelRef: resolveModelRef(agent.modelRef, agent.agentKey) })),
+  };
   const resolved: EcoAgentRuntimeConfig = {
     templates: settings.agentTemplates,
     orchestration:
@@ -7977,7 +8026,9 @@ function registerIpcHandlers(): void {
       if (!provider?.enabled || provider.apiCompat === "system_one" || providerId === "openai")
         throw new Error("选择的自定义模型服务商已删除、禁用或不支持对话，请重新选择。");
       await ensureGlobalEcoGateway({ requiredProviderIds: [providerId] });
-      return { providerId, apiCompat: provider.apiCompat, gatewayBaseUrl: `${getGlobalEcoBridgeBaseUrl()}/v1` };
+      return { providerId, apiCompat: provider.apiCompat, gatewayBaseUrl: `${getGlobalEcoBridgeBaseUrl()}/v1`,
+        ...(provider.authMethod !== "chatgpt_subscription" ? { candidateModelIds: Object.fromEntries(providerStore.listCandidateModels(providerId).map((model) => [model.modelId, model.id])) } : {}),
+      };
     },
     invoke: async (channel, args) => {
       const response = await desktopEventCenter.handleJsonRpcMessage({ jsonrpc: "2.0", id: randomUUID(), method: "eco.invoke", params: { channel, args } });
@@ -22433,6 +22484,10 @@ function startRuntimeProxy(
     const threadId = context?.threadId?.trim();
     const runAttemptId = context?.runAttemptId?.trim() || proxyThreadOptions?.runAttemptId?.trim();
     const options: AnthropicProxyStartOptions = {
+      ...(threadId ? { resolveRequestRole: (headers: Headers) => {
+        const agentId = headers.get("x-claude-code-agent-id")?.trim() || headers.get("x-eco-agent-id")?.trim();
+        return agentId ? subagentMetricsRegistry.roleForAgentId(threadId, agentId) : undefined;
+      } } : {}),
       ...(threadId && { threadId }),
       ...(runAttemptId && { runAttemptId }),
       ...(upstreamUserAgent && { upstreamUserAgent }),

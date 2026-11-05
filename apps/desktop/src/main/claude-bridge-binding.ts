@@ -13,6 +13,7 @@ export const LOCAL_PROXY_API_KEY = "eco-local-model-router";
 export type ClaudeBridgeBindingState = "active" | "closing";
 
 export interface ClaudeBridgeBindingRoute {
+  candidateModelId?: string;
   role: RuntimeAgentRole;
   provider: ProviderConfigSecret;
   modelId: string;
@@ -61,6 +62,7 @@ export function readClaudeBridgeMessagesRequestLogicalId(
 }
 
 export interface ClaudeBridgeBindingCallbacks {
+  resolveRequestRole?: (headers: Headers) => RuntimeAgentRole | undefined;
   onMessagesRequest?: ClaudeBridgeMessagesRequestCallback;
   onUsage?: (info: ClaudeBridgeBindingUsageInfo) => void | Promise<unknown>;
   resolveCountTokensInput?: (input: {
@@ -86,6 +88,8 @@ export interface ClaudeBridgeBinding {
   /** Upstream provider request ids adopted per logical request for this binding. */
   adoptedUpstreamRequestIdsByLogical: Map<string, Set<string>>;
   compactionLogicalRequestIds: Set<string>;
+  /** Retained through late usage/lifecycle settles, then cleared with the attempt binding. */
+  requestRoutes: Map<string, ClaudeBridgeBindingRoute>;
 }
 
 export interface CreateClaudeBridgeBindingInput {
@@ -128,6 +132,7 @@ export class ClaudeBridgeBindingRegistry {
       pendingSettles: new Set(),
       adoptedUpstreamRequestIdsByLogical: new Map(),
       compactionLogicalRequestIds: new Set(),
+      requestRoutes: new Map(),
     };
     this.byCredential.set(credential, binding);
     this.byBindingId.set(bindingId, binding);
@@ -223,6 +228,7 @@ export class ClaudeBridgeBindingRegistry {
       await new Promise<void>((resolve) => setTimeout(resolve, 0));
       await waitForBindingIdle(binding);
     } finally {
+      binding.requestRoutes.clear();
       this.byCredential.delete(binding.credential);
       this.byBindingId.delete(binding.bindingId);
     }

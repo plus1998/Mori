@@ -1,7 +1,4 @@
-import type {
-  GatewayRequestLifecycleEvent,
-  GatewayUpstreamErrorInfo,
-} from "@eco/gateway";
+import type { GatewayRequestLifecycleEvent, GatewayUpstreamErrorInfo } from "@eco/gateway";
 import type { RuntimeAgentRole } from "../shared/ipc";
 import type { ClaudeBridgeBindingRoute } from "./claude-bridge-binding";
 import { globalClaudeBridgeBindingRegistry } from "./claude-bridge-binding";
@@ -61,6 +58,12 @@ function resolveBindingRole(
   if (!binding) {
     return undefined;
   }
+  const snapshot = binding.requestRoutes.get(event.logicalRequestId);
+  if (snapshot)
+    return snapshot.provider.id === event.providerId && snapshot.modelId === event.upstreamModelId
+      ? snapshot.role
+      : undefined;
+  if (event.requestedModel.startsWith("cand-")) return undefined;
   return resolveBindingRoleForRoutes(binding.routes, event);
 }
 
@@ -143,9 +146,7 @@ export function handleGatewayRequestLifecycleEvent(
   handlers: GatewayRequestLifecycleHandlers,
 ): void {
   const bindingId = event.bridgeBindingId?.trim();
-  const binding = bindingId
-    ? globalClaudeBridgeBindingRegistry.getByBindingId(bindingId)
-    : undefined;
+  const binding = bindingId ? globalClaudeBridgeBindingRegistry.getByBindingId(bindingId) : undefined;
   // A bind-marked event with no live binding is stale or forged. Treating it
   // as a direct Codex request would guess a role and could interrupt the wrong run.
   if (bindingId && !binding) {

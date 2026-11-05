@@ -28,7 +28,9 @@ export function buildCodexGatewayModelAlias(
   providerId: string,
   upstreamModelId: string,
   apiCompat?: CodexGatewayApiCompat,
+  candidateModelId?: string,
 ): string {
+  if (candidateModelId?.trim()) return candidateModelId.trim();
   const provider = requireAliasPart(providerId, "Provider id");
   const model = requireAliasPart(upstreamModelId, "Upstream model id");
   if (!apiCompat) {
@@ -188,4 +190,9 @@ function decodeBase64Url(encoded: string, alias: string, label: string): string 
     throw new InvalidCodexGatewayModelAliasError(alias, `${label} is not canonical base64url`);
   }
   return decoded;
+}
+
+/** Candidate identities are opaque database keys; never decode them into routing data. */
+export function isCandidateModelId(value: string | undefined): boolean {
+  return Boolean(value?.trim().startsWith("cand-"));
 }

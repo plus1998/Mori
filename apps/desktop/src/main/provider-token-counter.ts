@@ -3,6 +3,7 @@ import {
   GATEWAY_PROVIDER_ID_HEADER,
   GATEWAY_UPSTREAM_KIND_HEADER,
   type GatewayConfig,
+  type GatewayProvider,
 } from "@eco/gateway";
 import {
   type AnthropicRequest,
@@ -166,6 +167,7 @@ export interface ProviderTokenCountResult {
 }
 
 export interface CountProviderInputTokensRequest {
+  gatewayProvider?: GatewayProvider;
   mode: ProviderTokenCountMode;
   provider: ProviderConfigSecret;
   /** Route override, when it differs from the provider's default wire protocol. */
@@ -241,7 +243,7 @@ async function countViaEcoBridgeAnthropic(
     body: JSON.stringify(request),
     duplex: "half",
   } as RequestInit);
-  const response = await handleGlobalEcoGatewayRequest(gatewayRequest);
+  const response = await handleGlobalEcoGatewayRequest(gatewayRequest, input.gatewayProvider);
   if (!response.ok) {
     const text = await response.text();
     throw new InputTokenCountUpstreamError(response.status, text, response.headers);

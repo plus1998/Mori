@@ -164,7 +164,9 @@ export function buildCodexGatewayModelAlias(
   providerId: string,
   upstreamModelId: string,
   apiCompat?: CodexGatewayApiCompat,
+  candidateModelId?: string,
 ): string {
+  if (candidateModelId?.trim()) return candidateModelId.trim();
   return buildSharedCodexGatewayModelAlias(providerId, upstreamModelId, apiCompat);
 }
 

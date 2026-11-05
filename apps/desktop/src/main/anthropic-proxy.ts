@@ -36,6 +36,7 @@ import {
   unauthorizedClaudeBridgeResponse,
 } from "./claude-bridge-binding";
 import { ensureGlobalEcoGateway, getGlobalEcoBridgeBaseUrl } from "./eco-gateway-lifecycle";
+import type { CandidateModelRequestRoute } from "./candidate-model-request-route";
 import type { BridgeRouteResolution } from "./eco-sdk-bridge";
 import { dedupeUpstreamModels, fetchUpstreamModelsFromCredentials } from "./provider-models";
 import type { ProviderConfigSecret } from "./provider-store";
@@ -74,6 +75,7 @@ export interface ClaudeMessagesRouteEntry {
   bindingId: string;
 }
 export interface AnthropicProxyRoute {
+  candidateModelId?: string;
   role: RuntimeAgentRole;
   provider: ProviderConfigSecret;
   modelId: string;
@@ -89,6 +91,7 @@ export interface AnthropicProxyRoute {
 }
 
 export interface RuntimeRouteProxySource {
+  candidateModelId?: string;
   role: RuntimeAgentRole;
   provider: ProviderConfigSecret;
   modelId: string;
@@ -154,6 +157,7 @@ export function runtimeRouteToProxyRoute(
     role: route.role,
     provider: route.provider,
     modelId: route.modelId,
+    ...(route.candidateModelId ? { candidateModelId: route.candidateModelId } : {}),
     ...(route.apiCompat && { apiCompat: route.apiCompat }),
     ...(route.thinkingEffort && { thinkingEffort: route.thinkingEffort }),
     maxOutputTokens,
@@ -190,7 +194,10 @@ export function resolveGatewayBindingModelLimits(route: ResolvedProviderRoute):
   if (!route.bridgeBindingId) return undefined;
   const binding = globalClaudeBridgeBindingRegistry.getByBindingId(route.bridgeBindingId);
   if (!binding) throw new Error(`Missing model-limit binding for ${route.requestedModel}.`);
-  const boundRoute = resolveProxyRoute(binding.routes, route.requestedModel);
+  const snapshot = route.logicalRequestId ? binding.requestRoutes.get(route.logicalRequestId) : undefined;
+  if (route.requestedModel.startsWith("cand-") && !snapshot)
+    throw new Error(`Missing request model-limit snapshot for ${route.requestedModel}.`);
+  const boundRoute = snapshot ?? resolveProxyRoute(binding.routes, route.requestedModel);
   if (
     !boundRoute ||
     boundRoute.provider.id !== route.provider.id ||
@@ -256,6 +263,7 @@ export type AnthropicProxyUsageHandler = (info: AnthropicProxyUsageInfo) => void
 export interface AnthropicProxyStartOptions {
   threadId?: string;
   runAttemptId?: string;
+  resolveRequestRole?: (headers: Headers) => RuntimeAgentRole | undefined;
   pendingImages?: readonly PromptImageAttachment[];
   resolveCountTokensInput?: (input: {
     role: RuntimeAgentRole;
@@ -294,9 +302,10 @@ export async function startAnthropicModelProxy(
     role: route.role,
     provider: route.provider,
     modelId: route.modelId,
+    ...(route.candidateModelId ? { candidateModelId: route.candidateModelId } : {}),
     apiCompat: resolveUpstreamApiCompat(route.apiCompat, route.provider.apiCompat),
     aliasModelId: toSdkModelAlias(
-      createModelAlias(route.role, route.provider.id, route.modelId),
+      route.candidateModelId || createModelAlias(route.role, route.provider.id, route.modelId),
       route.contextTokens,
     ),
     ...(route.thinkingEffort && { thinkingEffort: route.thinkingEffort }),
@@ -313,6 +322,7 @@ export async function startAnthropicModelProxy(
     role: route.role,
     provider: route.provider,
     modelId: route.modelId,
+    ...(route.candidateModelId ? { candidateModelId: route.candidateModelId } : {}),
     aliasModelId: route.aliasModelId,
     apiCompat: route.apiCompat,
     ...(route.thinkingEffort ? { thinkingEffort: route.thinkingEffort } : {}),
@@ -330,6 +340,7 @@ export async function startAnthropicModelProxy(
     ...(options?.threadId?.trim() ? { threadId: options.threadId.trim() } : {}),
     ...(options?.runAttemptId?.trim() ? { runAttemptId: options.runAttemptId.trim() } : {}),
     callbacks: {
+      ...(options?.resolveRequestRole ? { resolveRequestRole: options.resolveRequestRole } : {}),
       ...(options?.resolveCountTokensInput
         ? { resolveCountTokensInput: options.resolveCountTokensInput }
         : {}),
@@ -398,6 +409,7 @@ export async function prepareClaudeBridgeMessagesRequest(input: {
   body: Record<string, unknown>;
   requestedModel: string | undefined;
   headers?: Headers;
+  candidateRoute?: CandidateModelRequestRoute | undefined;
 }): Promise<
   | { kind: "response"; response: Response }
   | {
@@ -452,6 +464,7 @@ export async function prepareClaudeBridgeMessagesRequest(input: {
         path: input.path,
         body: input.body,
         requestedModel: input.requestedModel,
+        ...(input.candidateRoute ? { candidateRoute: input.candidateRoute } : {}),
         ...(input.headers ? { headers: input.headers } : {}),
       },
       releaseLease,
@@ -472,6 +485,7 @@ export async function prepareGatewayBindingForwardRequest(input: {
   body: Record<string, unknown>;
   requestedModel: string | undefined;
   headers?: Headers;
+  candidateRoute?: CandidateModelRequestRoute | undefined;
 }): Promise<
   | { kind: "response"; response: Response }
   | {
@@ -516,7 +530,13 @@ export async function prepareGatewayBindingForwardRequest(input: {
 
   try {
     const sessionRoutes = binding.routes as AnthropicProxyResolvedRoute[];
-    const route = resolveProxyRoute(sessionRoutes, input.requestedModel);
+    const boundRoute = resolveRequestBindingRoute(
+      binding,
+      sessionRoutes,
+      input.requestedModel,
+      input.headers,
+    );
+    const route = boundRoute ? refreshCandidateBindingRoute(boundRoute, input.candidateRoute) : undefined;
     if (!route) {
       releaseLease();
       return {
@@ -565,11 +585,14 @@ export async function prepareGatewayBindingForwardRequest(input: {
       const result = onMessagesRequest({
         role: route.role,
         modelId: route.modelId,
+        ...(route.candidateModelId ? { candidateModelId: route.candidateModelId } : {}),
         ...(input.headers ? { requestHeaders: input.headers } : {}),
       });
       logicalRequestId = readClaudeBridgeMessagesRequestLogicalId(result);
     }
 
+    if (input.candidateRoute || route.candidateModelId) logicalRequestId ??= `request_${randomUUID()}`;
+    if (logicalRequestId) binding.requestRoutes.set(logicalRequestId, route);
     return {
       kind: "forward",
       resolution: {
@@ -599,6 +622,7 @@ async function prepareAgainstBinding(
     body: Record<string, unknown>;
     requestedModel: string | undefined;
     headers?: Headers;
+    candidateRoute?: CandidateModelRequestRoute | undefined;
   },
   releaseLease: () => void,
 ): Promise<
@@ -623,7 +647,8 @@ async function prepareAgainstBinding(
     return { kind: "response", response };
   }
 
-  const route = resolveProxyRoute(sessionRoutes, input.requestedModel);
+  const boundRoute = resolveRequestBindingRoute(binding, sessionRoutes, input.requestedModel, input.headers);
+  const route = boundRoute ? refreshCandidateBindingRoute(boundRoute, input.candidateRoute) : undefined;
   if (!route) {
     releaseLease();
     return {
@@ -692,7 +717,11 @@ async function prepareAgainstBinding(
 
   if (countTokens) {
     try {
-      const override = resolveCountTokensOverride(body, route.role, binding.callbacks.resolveCountTokensInput);
+      const override = resolveCountTokensOverride(
+        body,
+        route.role,
+        binding.callbacks.resolveCountTokensInput,
+      );
       const tokenCount =
         override !== undefined
           ? {
@@ -705,6 +734,7 @@ async function prepareAgainstBinding(
               provider: route.provider,
               apiCompat: resolveUpstreamApiCompat(route.apiCompat, route.provider.apiCompat),
               modelId: route.modelId,
+              ...(input.candidateRoute ? { gatewayProvider: input.candidateRoute.gatewayProvider } : {}),
               anthropicBody: body,
             });
       return {
@@ -726,6 +756,7 @@ async function prepareAgainstBinding(
     const result = binding.callbacks.onMessagesRequest({
       role: route.role,
       modelId: route.modelId,
+      ...(route.candidateModelId ? { candidateModelId: route.candidateModelId } : {}),
       ...(input.headers ? { requestHeaders: input.headers } : {}),
     });
     logicalRequestId = readClaudeBridgeMessagesRequestLogicalId(result);
@@ -770,6 +801,8 @@ async function prepareAgainstBinding(
     logicalRequestId ??= `compact_${randomUUID()}`;
     binding.compactionLogicalRequestIds.add(logicalRequestId);
   }
+  if (input.candidateRoute || route.candidateModelId) logicalRequestId ??= `request_${randomUUID()}`;
+  if (logicalRequestId) binding.requestRoutes.set(logicalRequestId, route);
   const compactRequestId = compact ? logicalRequestId : undefined;
   return {
     kind: "forward",
@@ -795,6 +828,7 @@ async function prepareAgainstBinding(
       providerBaseUrl: route.provider.baseUrl,
       providerName: route.provider.name,
       modelId: route.modelId,
+      ...(route.candidateModelId ? { candidateModelId: route.candidateModelId } : {}),
       aliasModelId: route.aliasModelId,
       apiCompat: route.apiCompat,
       bindingId: binding.bindingId,
@@ -834,7 +868,11 @@ export async function emitClaudeGatewayUsageIfSession(input: {
   }
   // Closing bindings still accept late usage until removed from the registry.
   const routes = binding.routes as AnthropicProxyResolvedRoute[];
-  const route = resolveClaudeSessionUsageRoute(routes, input);
+  const snapshot = input.logicalRequestId ? binding.requestRoutes.get(input.logicalRequestId) : undefined;
+  if (snapshot && (snapshot.provider.id !== input.providerId || snapshot.modelId !== input.upstreamModelId))
+    return false;
+  if (input.requestedModel.startsWith("cand-") && !snapshot) return false;
+  const route = snapshot ?? resolveClaudeSessionUsageRoute(routes, input);
   if (!route) {
     return false;
   }
@@ -845,6 +883,7 @@ export async function emitClaudeGatewayUsageIfSession(input: {
       providerName: route.provider.name,
       providerBaseUrl: route.provider.baseUrl,
       modelId: route.modelId,
+      ...(route.candidateModelId ? { candidateModelId: route.candidateModelId } : {}),
       apiCompat: route.apiCompat,
       aliasModelId: route.aliasModelId,
       requestedModel: input.requestedModel,
@@ -1075,6 +1114,7 @@ export function resolveClaudeBridgeRoute(
       providerBaseUrl: route.provider.baseUrl,
       providerName: route.provider.name,
       modelId: route.modelId,
+      ...(route.candidateModelId ? { candidateModelId: route.candidateModelId } : {}),
       aliasModelId: route.aliasModelId,
       apiCompat: route.apiCompat,
       bindingId: binding.bindingId,
@@ -1122,4 +1162,55 @@ function normalizePendingImages(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function refreshCandidateBindingRoute(
+  route: AnthropicProxyResolvedRoute,
+  fresh?: CandidateModelRequestRoute,
+): AnthropicProxyResolvedRoute {
+  if (!fresh) return route;
+  if (
+    (route.candidateModelId
+      ? route.candidateModelId !== fresh.candidate.id
+      : route.modelId !== fresh.candidate.modelId) ||
+    route.provider.id !== fresh.provider.id
+  ) {
+    throw new Error(`候选模型 ${fresh.candidate.id} 不属于当前请求绑定。`);
+  }
+  return {
+    ...route,
+    provider: fresh.provider,
+    modelId: fresh.candidate.modelId,
+    apiCompat: fresh.provider.apiCompat,
+    ...(fresh.candidate.manualSpec?.supportsImageInput !== undefined
+      ? { supportsImageInput: fresh.candidate.manualSpec.supportsImageInput }
+      : {}),
+  };
+}
+
+function resolveRequestBindingRoute(
+  binding: ClaudeBridgeBinding,
+  routes: readonly AnthropicProxyResolvedRoute[],
+  requestedModel: string | undefined,
+  headers?: Headers,
+): AnthropicProxyResolvedRoute | undefined {
+  const candidates = routes.filter(
+    (route) =>
+      stripExtendedContextModelSuffix(route.aliasModelId) ===
+      stripExtendedContextModelSuffix(requestedModel ?? ""),
+  );
+  if (candidates.length < 2) return resolveProxyRoute(routes, requestedModel);
+  const role =
+    headers?.get("x-eco-route-role")?.trim() ||
+    (headers ? binding.callbacks.resolveRequestRole?.(headers) : undefined);
+  if (role) {
+    const match = candidates.find((route) => route.role === role);
+    if (!match) throw new Error(`模型 ${requestedModel} 没有角色 ${role} 的请求绑定。`);
+    return match;
+  }
+  if (!headers?.get("x-claude-code-agent-id")) {
+    const main = candidates.find((route) => route.role === "main");
+    if (main) return main;
+  }
+  throw new Error(`模型 ${requestedModel} 被多个角色使用，请求缺少可解析的角色标识。`);
 }

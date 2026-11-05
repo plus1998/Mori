@@ -11,6 +11,7 @@ import {
 export type RouteThinkingEffort = "off" | "low" | "medium" | "high" | "xhigh" | "max";
 
 export interface ResolvedModelRoute {
+  candidateModelId?: string;
   role: RuntimeAgentRole;
   /** Upstream provider model id; SDK must use primary.modelId (eco alias) instead. */
   upstreamModelId?: string;

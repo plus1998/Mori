@@ -170,6 +170,7 @@ export interface CodexAsyncQuestionsInput {
 }
 
 export interface CodexEventAdapterOptions {
+  resolveCandidateModel?: (id: string) => { providerId: string; upstreamModelId: string; apiCompat?: "anthropic" | "openai_responses" | "openai_chat_completions" } | undefined;
   /** Map Codex `threadId` from notifications to Eco thread id. */
   resolveEcoThreadId: (codexThreadId: string) => string;
   recordThreadRunEvent: (event: CodexThreadRunEventInput) => void;
@@ -695,7 +696,7 @@ function handleTokenUsageUpdated(ctx: AdapterContext, params: Record<string, unk
   const resolution = resolveCodexContextFromNotification(params, {
     resolveEcoThreadId: ctx.resolveEcoThreadId,
     ...(ctx.resolveThreadAttribution && { resolveThreadAttribution: ctx.resolveThreadAttribution }),
-    ...(turnRoute && { modelId: turnRoute.aliasModelId }),
+    ...(turnRoute && { modelId: turnRoute.upstreamModelId }),
   });
   if (resolution) {
     ctx.onTokenUsageUpdated(resolution);
@@ -2138,7 +2139,9 @@ function handleSubAgentActivityLifecycle(
   if (kind === "started") {
     const model = readString(item, "model");
     if (model) {
-      const gateway = parseCodexGatewayModelAlias(model);
+      const candidate = model.startsWith("cand-") ? ctx.resolveCandidateModel?.(model) : undefined;
+      if (model.startsWith("cand-") && !candidate) throw new Error(`Candidate model ${model} is unavailable for child attribution.`);
+      const gateway = candidate ?? parseCodexGatewayModelAlias(model);
       ctx.nativeChildRoutes.set(agentThreadId, {
         aliasModelId: model,
         providerId: gateway?.providerId ?? "openai",

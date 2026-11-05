@@ -1,3 +1,4 @@
+import { ProviderEndpointEditor } from "./ProviderEndpointEditor";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { LazyOpenAIAccountsPanel } from "./lazy-app-panels";
 import { MainModelControl } from "./ComposerRoutePopover";
@@ -1468,6 +1469,8 @@ function ProviderEditorModal({
                   />
                   <span className="mcp-field-hint">{t("settings.models.provider.versionHint")}</span>
                 </label>
+                <ProviderEndpointEditor endpoints={form.endpoints ?? []} baseUrl={form.baseUrl} disabled={Boolean(busy)}
+                  onChange={(endpoints) => setForm((current) => ({ ...current, endpoints }))} />
                 </>
               )}
             </section>
@@ -1562,7 +1565,15 @@ function ProviderEditorModal({
               key={editingCandidate.id}
               ref={candidateEditorRef}
               providerId={form.id}
+              beforeSave={async () => {
+                const saved = await onSave({ closeOnSuccess: false });
+                if (!saved) throw new Error(t("settings.models.saveFailed"));
+              }}
               candidate={editingCandidate}
+              endpoints={[
+                { id: "default", name: t("candidateModels.defaultEndpoint"), baseUrl: form.baseUrl, requestPath: form.requestPath ?? "", version: form.version ?? "v1", apiCompat: form.apiCompat ?? "anthropic", ...(form.tokenCountMode ? { tokenCountMode: form.tokenCountMode } : {}) },
+                ...(form.endpoints ?? []).map((endpoint) => ({ ...endpoint, baseUrl: endpoint.baseUrl || form.baseUrl })),
+              ]}
               modelsDevOptions={modelsDevOptions}
               modelsDevLoading={modelsDevLoading}
               busy={busy}
@@ -1587,17 +1598,10 @@ function ProviderEditorModal({
               onTestModel={onTestCandidate}
               onEditCandidate={(candidate) => {
                 setCandidateSaveError(undefined);
-                if (!editingCandidate) {
+                void (async () => {
+                  await candidateEditorRef.current?.savePendingEdits();
                   setEditingCandidate(candidate);
-                  return;
-                }
-                // 切换编辑对象前先把当前编辑区的修改落盘，避免静默丢改动。
-                void candidateEditorRef.current
-                  ?.savePendingEdits()
-                  .catch((error) => {
-                    setCandidateSaveError(error instanceof Error ? error.message : String(error));
-                  })
-                  .finally(() => setEditingCandidate(candidate));
+                })().catch((error) => setCandidateSaveError(error instanceof Error ? error.message : String(error)));
               }}
               onCandidateDeleted={(candidateId) => {
                 setEditingCandidate((current) => (current?.id === candidateId ? null : current));
@@ -1676,6 +1680,7 @@ function localizeProviderRequestError(
 
 function providerToForm(provider?: ProviderConfigView): ProviderConfigInput {
   const form: ProviderConfigInput = {
+    endpoints: provider?.endpoints ?? [],
     name: provider?.name ?? "Anthropic compatible",
     baseUrl: provider?.baseUrl ?? "https://api.anthropic.com",
     requestPath: provider?.requestPath ?? "",

@@ -11,6 +11,7 @@ import {
   type CandidateModelView,
   type ModelSettingsSnapshot,
   type ProviderConfigInput,
+  type ProviderEndpoint,
   type ProviderConfigView,
   type RoleRouteConfig,
   type RouteManualSpec,
@@ -23,6 +24,7 @@ import { normalizeProviderTokenCountMode } from "../shared/provider-token-count"
 import { normalizeApiVersion, normalizeRequestPath, splitBaseUrlAndRequestPath } from "./provider-models";
 
 interface ProviderRow {
+  endpoints_json: string;
   id: string;
   name: string;
   base_url: string;
@@ -73,6 +75,7 @@ interface LegacyRouteRow {
 }
 
 interface CandidateModelRow {
+  endpoint_id: string | null;
   id: string;
   provider_id: string;
   model_id: string;
@@ -162,6 +165,7 @@ export class ProviderStore {
     this.migrateLegacyOpenaiApiCompatValues();
     this.migrateCandidateModelsTable();
     this.migrateCandidateModelEndpoints();
+    this.migrateCandidateEndpointReferences();
     this.migrateManualPriceMultiplier();
   }
 
@@ -226,47 +230,73 @@ export class ProviderStore {
     const apiKey = input.apiKey && input.apiKey.length > 0 ? input.apiKey : (existing?.api_key ?? "");
     const createdAt = existing?.created_at ?? now;
 
-    this.db
-      .prepare(`
-        INSERT INTO provider_configs (
-          id, name, base_url, request_path, version, api_compat, token_count_mode,
-          api_key, auth_method, credential_pool_id, upstream_proxy_url, default_model, enabled, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET
-          name = excluded.name,
-          base_url = excluded.base_url,
-          request_path = excluded.request_path,
-          version = excluded.version,
-          api_compat = excluded.api_compat,
-          token_count_mode = excluded.token_count_mode,
-          api_key = excluded.api_key,
-          auth_method = excluded.auth_method,
-          credential_pool_id = excluded.credential_pool_id,
-          upstream_proxy_url = excluded.upstream_proxy_url,
-          default_model = excluded.default_model,
-          enabled = excluded.enabled,
-          updated_at = excluded.updated_at
-      `)
-      .run(
-        id,
-        input.name.trim(),
-        input.baseUrl.trim(),
-        normalizeRequestPath(input.requestPath),
-        normalizeApiVersion(input.version ?? existing?.version),
-        normalizeUpstreamApiCompat(input.apiCompat ?? existing?.api_compat),
-        normalizeProviderTokenCountMode(input.tokenCountMode ?? existing?.token_count_mode),
-        apiKey,
-        input.authMethod ?? existing?.auth_method ?? "api_key",
-        input.credentialPoolId?.trim() ?? existing?.credential_pool_id ?? "",
-        normalizeProviderUpstreamProxyUrl(input.upstreamProxyUrl ?? existing?.upstream_proxy_url ?? ""),
-        input.defaultModel.trim(),
-        input.enabled ? 1 : 0,
-        createdAt,
-        now,
-      );
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      this.db
+        .prepare(`
+          INSERT INTO provider_configs (
+            id, name, base_url, request_path, version, api_compat, token_count_mode,
+            api_key, auth_method, credential_pool_id, upstream_proxy_url, default_model, enabled, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET
+            name = excluded.name,
+            base_url = excluded.base_url,
+            request_path = excluded.request_path,
+            version = excluded.version,
+            api_compat = excluded.api_compat,
+            token_count_mode = excluded.token_count_mode,
+            api_key = excluded.api_key,
+            auth_method = excluded.auth_method,
+            credential_pool_id = excluded.credential_pool_id,
+            upstream_proxy_url = excluded.upstream_proxy_url,
+            default_model = excluded.default_model,
+            enabled = excluded.enabled,
+            updated_at = excluded.updated_at
+        `)
+        .run(
+          id,
+          input.name.trim(),
+          input.baseUrl.trim(),
+          normalizeRequestPath(input.requestPath),
+          normalizeApiVersion(input.version ?? existing?.version),
+          normalizeUpstreamApiCompat(input.apiCompat ?? existing?.api_compat),
+          normalizeProviderTokenCountMode(input.tokenCountMode ?? existing?.token_count_mode),
+          apiKey,
+          input.authMethod ?? existing?.auth_method ?? "api_key",
+          input.credentialPoolId?.trim() ?? existing?.credential_pool_id ?? "",
+          normalizeProviderUpstreamProxyUrl(input.upstreamProxyUrl ?? existing?.upstream_proxy_url ?? ""),
+          input.defaultModel.trim(),
+          input.enabled ? 1 : 0,
+          createdAt,
+          now,
+        );
 
-    this.syncDefaultModelFromCandidates(id);
-    return providerRowToView(this.getProviderRow(id) ?? fail(`Provider ${id} was not saved`));
+      if (input.endpoints !== undefined) {
+        const endpoints = normalizeEndpoints(input.endpoints);
+        const used = this.db
+          .prepare("SELECT DISTINCT endpoint_id FROM provider_candidate_models WHERE provider_id = ?")
+          .all(id) as Array<{ endpoint_id: string }>;
+        for (const row of used) {
+          if (
+            row.endpoint_id &&
+            row.endpoint_id !== "default" &&
+            !endpoints.some((endpoint) => endpoint.id === row.endpoint_id)
+          ) {
+            throw new Error(`端点 ${row.endpoint_id} 仍被候选模型引用，请先修改模型端点。`);
+          }
+        }
+        this.db
+          .prepare("UPDATE provider_configs SET endpoints_json = ? WHERE id = ?")
+          .run(JSON.stringify(endpoints), id);
+      }
+      this.syncDefaultModelFromCandidates(id);
+      const provider = providerRowToView(this.getProviderRow(id) ?? fail(`Provider ${id} was not saved`));
+      this.db.exec("COMMIT");
+      return provider;
+    } catch (error) {
+      rollbackProviderTransaction(this.db);
+      throw error;
+    }
   }
 
   deleteProvider(id: string): void {
@@ -623,7 +653,7 @@ export class ProviderStore {
   private listProviderRows(): ProviderRow[] {
     return this.db
       .prepare(`
-        SELECT id, name, base_url, request_path, version, api_compat, token_count_mode,
+        SELECT endpoints_json, id, name, base_url, request_path, version, api_compat, token_count_mode,
                api_key, auth_method, credential_pool_id, upstream_proxy_url, default_model, enabled, created_at, updated_at
         FROM provider_configs
         ORDER BY updated_at DESC, name ASC
@@ -648,7 +678,7 @@ export class ProviderStore {
   private getProviderRow(id: string): ProviderRow | undefined {
     return this.db
       .prepare(`
-        SELECT id, name, base_url, request_path, version, api_compat, token_count_mode,
+        SELECT endpoints_json, id, name, base_url, request_path, version, api_compat, token_count_mode,
                api_key, auth_method, credential_pool_id, upstream_proxy_url, default_model, enabled, created_at, updated_at
         FROM provider_configs
         WHERE id = ?
@@ -746,7 +776,15 @@ export class ProviderStore {
   }
 
   private migrateCandidateModelEndpoints(): void {
-    const columns = new Set((this.db.prepare("PRAGMA table_info(provider_candidate_models)").all() as Array<{ name: string }>).map((column) => column.name));
+    const migrated = (
+      this.db.prepare("PRAGMA table_info(provider_candidate_models)").all() as Array<{ name: string }>
+    ).some((column) => column.name === "endpoint_id");
+    if (migrated) return;
+    const columns = new Set(
+      (this.db.prepare("PRAGMA table_info(provider_candidate_models)").all() as Array<{ name: string }>).map(
+        (column) => column.name,
+      ),
+    );
     for (const [name, type] of [
       ["base_url", "TEXT"],
       ["request_path", "TEXT"],
@@ -754,10 +792,10 @@ export class ProviderStore {
       ["api_compat", "TEXT"],
       ["token_count_mode", "TEXT"],
     ] as const) {
-      if (!columns.has(name)) this.db.exec(`ALTER TABLE provider_candidate_models ADD COLUMN ${name} ${type}`);
+      if (!columns.has(name))
+        this.db.exec(`ALTER TABLE provider_candidate_models ADD COLUMN ${name} ${type}`);
     }
-    // A pre-existing model inherits its former provider route exactly once. Later provider
-    // edits cannot silently change the model's upstream protocol or endpoint.
+    // Materialize legacy defaults without changing existing model overrides or protocols.
     this.db.exec(`
       UPDATE provider_candidate_models
       SET base_url = COALESCE(base_url, (SELECT base_url FROM provider_configs WHERE id = provider_id)),
@@ -778,10 +816,132 @@ export class ProviderStore {
     `);
   }
 
+  private migrateCandidateEndpointReferences(): void {
+    const providerColumns = this.db.prepare("PRAGMA table_info(provider_configs)").all() as Array<{
+      name: string;
+    }>;
+    if (!providerColumns.some((column) => column.name === "endpoints_json")) {
+      this.db.exec("ALTER TABLE provider_configs ADD COLUMN endpoints_json TEXT NOT NULL DEFAULT '[]'");
+    }
+    const columns = this.db.prepare("PRAGMA table_info(provider_candidate_models)").all() as Array<{
+      name: string;
+    }>;
+    if (columns.some((column) => column.name === "endpoint_id")) return;
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      this.db.exec(
+        "ALTER TABLE provider_candidate_models ADD COLUMN endpoint_id TEXT NOT NULL DEFAULT 'default'",
+      );
+      const rows = this.db
+        .prepare("SELECT * FROM provider_candidate_models")
+        .all() as unknown as CandidateModelRow[];
+      for (const row of rows) {
+        const provider = this.getProviderRow(row.provider_id);
+        if (!provider) throw new Error(`候选模型 ${row.id} 的供应商不存在。`);
+        const endpointId = this.ensureProviderEndpoint(provider, {
+          baseUrl: row.base_url ?? provider.base_url,
+          requestPath: row.request_path ?? provider.request_path,
+          version: row.version ?? provider.version,
+          apiCompat:
+            row.api_compat === ""
+              ? undefined
+              : normalizeUpstreamApiCompat(row.api_compat ?? provider.api_compat),
+          tokenCountMode: normalizeProviderTokenCountMode(row.token_count_mode ?? provider.token_count_mode),
+        });
+        // Ambiguous legacy protocols remain visibly unresolved until explicitly selected.
+        this.db
+          .prepare(
+            "UPDATE provider_candidate_models SET endpoint_id = ?, base_url = NULL, request_path = NULL, version = NULL, api_compat = ?, token_count_mode = NULL WHERE id = ?",
+          )
+          .run(endpointId, row.api_compat === "" ? "" : null, row.id);
+      }
+      this.db.exec("COMMIT");
+    } catch (error) {
+      rollbackProviderTransaction(this.db);
+      throw error;
+    }
+  }
+
+  private resolveEndpoint(provider: ProviderRow, endpointId: string): ProviderEndpoint {
+    if (endpointId === "default")
+      return {
+        id: "default",
+        name: "Default",
+        baseUrl: provider.base_url,
+        requestPath: provider.request_path,
+        version: normalizeApiVersion(provider.version),
+        apiCompat: normalizeUpstreamApiCompat(provider.api_compat),
+        tokenCountMode: normalizeProviderTokenCountMode(provider.token_count_mode),
+      };
+    const endpoint = (JSON.parse(provider.endpoints_json || "[]") as ProviderEndpoint[]).find(
+      (entry) => entry.id === endpointId,
+    );
+    if (!endpoint) throw new Error(`供应商 ${provider.name} 的端点 ${endpointId} 不存在。`);
+    return { ...endpoint, baseUrl: endpoint.baseUrl || provider.base_url };
+  }
+
+  private ensureProviderEndpoint(
+    provider: ProviderRow,
+    input: { [Key in keyof ProviderEndpoint]?: ProviderEndpoint[Key] | undefined },
+  ): string {
+    const target = {
+      requestPath: normalizeRequestPath(input.requestPath),
+      version: normalizeApiVersion(input.version),
+      apiCompat: input.apiCompat ?? normalizeUpstreamApiCompat(provider.api_compat),
+      tokenCountMode: normalizeProviderTokenCountMode(input.tokenCountMode ?? provider.token_count_mode),
+    };
+    const baseUrl = input.baseUrl?.trim() || provider.base_url;
+    if (!/^https?:\/\//.test(baseUrl)) throw new Error("端点地址须以 http:// 或 https:// 开头。");
+    const matches = (endpoint: ProviderEndpoint) =>
+      (endpoint.baseUrl || provider.base_url) === baseUrl &&
+      endpoint.requestPath === target.requestPath &&
+      endpoint.version === target.version &&
+      endpoint.apiCompat === target.apiCompat &&
+      normalizeProviderTokenCountMode(endpoint.tokenCountMode) === target.tokenCountMode;
+    if (matches(this.resolveEndpoint(provider, "default"))) return "default";
+    const latest = this.getProviderRow(provider.id)!;
+    const endpoints = JSON.parse(latest.endpoints_json || "[]") as ProviderEndpoint[];
+    const existing = endpoints.find(matches);
+    if (existing) return existing.id;
+    const endpoint: ProviderEndpoint = {
+      ...target,
+      id: `endpoint-${crypto.randomUUID()}`,
+      name: `${target.apiCompat} ${target.requestPath || "/"}`,
+      ...(baseUrl !== provider.base_url ? { baseUrl } : {}),
+    };
+    endpoints.push(endpoint);
+    this.db
+      .prepare("UPDATE provider_configs SET endpoints_json = ? WHERE id = ?")
+      .run(JSON.stringify(endpoints), provider.id);
+    return endpoint.id;
+  }
+
+  private candidateToView(row: CandidateModelRow): CandidateModelView {
+    const provider = this.getProviderRow(row.provider_id);
+    if (!provider) throw new Error(`候选模型 ${row.id} 的供应商不存在。`);
+    const endpoint = this.resolveEndpoint(provider, row.endpoint_id || "default");
+    return {
+      ...candidateRowToView(row),
+      endpointId: endpoint.id,
+      baseUrl: endpoint.baseUrl!,
+      requestPath: endpoint.requestPath,
+      version: endpoint.version,
+      ...(row.api_compat !== "" ? { apiCompat: endpoint.apiCompat } : {}),
+      tokenCountMode: normalizeProviderTokenCountMode(endpoint.tokenCountMode),
+    };
+  }
+
+  getCandidateModel(id: string): CandidateModelView | undefined {
+    const row = this.db.prepare("SELECT * FROM provider_candidate_models WHERE id = ?").get(id) as
+      | CandidateModelRow
+      | undefined;
+    return row ? this.candidateToView(row) : undefined;
+  }
+
   listCandidateModels(providerId: string): CandidateModelView[] {
     return this.db
       .prepare(`
-        SELECT id, provider_id, model_id, base_url, request_path, version, api_compat, token_count_mode, display_name,
+        SELECT endpoint_id, id, provider_id, model_id, base_url, request_path, version, api_compat, token_count_mode, display_name,
                models_dev_provider_key, models_dev_model_id,
                manual_context_tokens, manual_max_output_tokens,
                manual_supports_image_input, manual_supports_reasoning,
@@ -795,7 +955,7 @@ export class ProviderStore {
         ORDER BY sort_order ASC, model_id ASC
       `)
       .all(providerId)
-      .map((row) => candidateRowToView(row as unknown as CandidateModelRow));
+      .map((row) => this.candidateToView(row as unknown as CandidateModelRow));
   }
 
   saveCandidateModel(input: CandidateModelInput): CandidateModelView {
@@ -808,19 +968,40 @@ export class ProviderStore {
     const requestedId = input.id ?? createCandidateModelId(input.providerId, input.modelId);
     const mapping = input.modelsDevMapping;
     const manual = input.manualSpec;
-    const existing = this.db.prepare("SELECT * FROM provider_candidate_models WHERE id = ? OR (provider_id = ? AND model_id = ?)")
+    const existing = this.db
+      .prepare("SELECT * FROM provider_candidate_models WHERE id = ? OR (provider_id = ? AND model_id = ?)")
       .get(requestedId, input.providerId.trim(), input.modelId.trim()) as CandidateModelRow | undefined;
+    if (existing && existing.provider_id !== input.providerId.trim())
+      throw new Error("候选模型不能跨供应商移动。");
     const id = existing?.id ?? requestedId;
     const provider = this.getProviderRow(input.providerId.trim())!;
-    if (existing?.api_compat === "" && input.apiCompat === undefined) {
+    let endpointId = input.endpointId ?? existing?.endpoint_id ?? "default";
+    // Old cloud snapshots and callers may still supply endpoint fields. Normalize them
+    // into a supplier endpoint once; current callers write only endpointId.
+    if (
+      input.endpointId === undefined &&
+      [input.baseUrl, input.requestPath, input.version, input.apiCompat, input.tokenCountMode].some(
+        (value) => value !== undefined,
+      )
+    ) {
+      const current = existing ? this.candidateToView(existing) : providerRowToView(provider);
+      endpointId = this.ensureProviderEndpoint(provider, {
+        baseUrl: input.baseUrl ?? current.baseUrl,
+        requestPath: input.requestPath ?? current.requestPath,
+        version: input.version ?? current.version,
+        apiCompat: input.apiCompat ?? current.apiCompat,
+        tokenCountMode: input.tokenCountMode ?? current.tokenCountMode,
+      });
+    }
+    if (existing?.api_compat === "" && input.endpointId === undefined && input.apiCompat === undefined) {
       throw new Error(`模型 ${input.modelId} 的旧路由协议与供应商默认值冲突，请确认模型协议后保存。`);
     }
-    const baseUrl = (input.baseUrl ?? existing?.base_url ?? provider.base_url).trim();
-    if (!/^https?:\/\//.test(baseUrl)) throw new Error("模型端点地址须以 http:// 或 https:// 开头。");
-    const requestPath = normalizeRequestPath(input.requestPath ?? existing?.request_path ?? provider.request_path);
-    const version = normalizeApiVersion(input.version ?? existing?.version ?? provider.version);
-    const apiCompat = normalizeUpstreamApiCompat(input.apiCompat ?? existing?.api_compat ?? provider.api_compat);
-    const tokenCountMode = normalizeProviderTokenCountMode(input.tokenCountMode ?? existing?.token_count_mode ?? provider.token_count_mode);
+    this.resolveEndpoint(this.getProviderRow(provider.id)!, endpointId);
+    const baseUrl = null,
+      requestPath = null,
+      version = null,
+      apiCompat = null,
+      tokenCountMode = null;
     this.db
       .prepare(`
         INSERT INTO provider_candidate_models (
@@ -834,7 +1015,8 @@ export class ProviderStore {
           manual_cache_read_per_m, manual_cache_write_per_m, manual_price_multiplier,
           sort_order, created_at, updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(provider_id, model_id) DO UPDATE SET
+        ON CONFLICT DO UPDATE SET
+          model_id = excluded.model_id,
           base_url = excluded.base_url,
           request_path = excluded.request_path,
           version = excluded.version,
@@ -887,8 +1069,10 @@ export class ProviderStore {
     const savedRow = this.db
       .prepare("SELECT * FROM provider_candidate_models WHERE id = ?")
       .get(id) as unknown as CandidateModelRow;
+    this.db.prepare("UPDATE provider_candidate_models SET endpoint_id = ? WHERE id = ?").run(endpointId, id);
+    savedRow.endpoint_id = endpointId;
     this.syncDefaultModelFromCandidates(input.providerId.trim());
-    return candidateRowToView(savedRow);
+    return this.candidateToView(savedRow);
   }
 
   deleteCandidateModel(id: string): void {
@@ -950,7 +1134,7 @@ export class ProviderStore {
       const row = this.db
         .prepare("SELECT * FROM provider_candidate_models WHERE provider_id = ? AND model_id = ?")
         .get(providerId, trimmed) as unknown as CandidateModelRow;
-      if (row) results.push(candidateRowToView(row));
+      if (row) results.push(this.candidateToView(row));
     }
     this.syncDefaultModelFromCandidates(providerId);
     return results;
@@ -1052,6 +1236,7 @@ export class ProviderStore {
 function providerRowToView(row: ProviderRow): ProviderConfigView {
   const provider: ProviderConfigView = {
     id: row.id,
+    endpoints: JSON.parse(row.endpoints_json || "[]") as ProviderEndpoint[],
     name: row.name,
     baseUrl: row.base_url,
     requestPath: row.request_path ?? "",
@@ -1363,7 +1548,9 @@ function candidateRowToView(row: CandidateModelRow): CandidateModelView {
     ...(row.request_path !== null ? { requestPath: row.request_path } : {}),
     ...(row.version ? { version: row.version } : {}),
     ...(row.api_compat ? { apiCompat: normalizeUpstreamApiCompat(row.api_compat) } : {}),
-    ...(row.token_count_mode ? { tokenCountMode: normalizeProviderTokenCountMode(row.token_count_mode) } : {}),
+    ...(row.token_count_mode
+      ? { tokenCountMode: normalizeProviderTokenCountMode(row.token_count_mode) }
+      : {}),
     sortOrder: row.sort_order,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -1408,4 +1595,24 @@ function triStateToNullableInt(value: boolean | undefined): number | null {
 
 function fail(message: string): never {
   throw new Error(message);
+}
+
+function normalizeEndpoints(endpoints: readonly ProviderEndpoint[]): ProviderEndpoint[] {
+  const ids = new Set<string>();
+  return endpoints.map((endpoint) => {
+    const id = endpoint.id.trim();
+    if (!id || id === "default" || ids.has(id)) throw new Error("端点 ID 为空、重复或使用了保留值 default。");
+    ids.add(id);
+    if (endpoint.baseUrl && !/^https?:\/\//.test(endpoint.baseUrl.trim()))
+      throw new Error("端点地址须以 http:// 或 https:// 开头。");
+    return {
+      id,
+      name: endpoint.name.trim() || id,
+      ...(endpoint.baseUrl?.trim() ? { baseUrl: endpoint.baseUrl.trim() } : {}),
+      requestPath: normalizeRequestPath(endpoint.requestPath),
+      version: normalizeApiVersion(endpoint.version),
+      apiCompat: normalizeUpstreamApiCompat(endpoint.apiCompat),
+      tokenCountMode: normalizeProviderTokenCountMode(endpoint.tokenCountMode),
+    };
+  });
 }

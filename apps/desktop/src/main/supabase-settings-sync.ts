@@ -16,6 +16,7 @@ import type {
 import { isWebSearchApprovalMode } from "../shared/integrated-web-search";
 import type {
   CandidateModelInput,
+  ProviderEndpoint,
   IntegratedWebSearchSettingsSnapshot,
   ProxyBridgeSettingsSnapshot,
   RouteProfileInput,
@@ -49,6 +50,7 @@ export type EcoSyncedProxyBridgeSettings = Pick<
 };
 
 export interface EcoSyncedProvider {
+  endpoints?: ProviderEndpoint[];
   id: string;
   name: string;
   baseUrl: string;

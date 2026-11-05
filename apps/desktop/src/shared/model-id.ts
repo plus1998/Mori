@@ -71,7 +71,7 @@ function capitalizeModelSegment(segment: string): string {
 }
 
 export function isEcoSdkModelAlias(modelId: string): boolean {
-  return ECO_SDK_ALIAS_PATTERN.test(modelId.trim());
+  return modelId.trim().startsWith("cand-") || ECO_SDK_ALIAS_PATTERN.test(modelId.trim());
 }
 
 /** Prefer configured upstream id when live usage reports an SDK alias. */

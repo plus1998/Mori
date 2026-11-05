@@ -87,6 +87,7 @@ function collectPayload(input: {
 }): EcoSyncedSettingsPayload {
   const providers = input.providerStore.listProviders().map((provider) => ({
     id: provider.id,
+    endpoints: provider.endpoints ?? [],
     name: provider.name,
     baseUrl: provider.baseUrl,
     requestPath: provider.requestPath,
@@ -144,11 +145,7 @@ function collectPayload(input: {
           id: candidate.id,
           providerId: candidate.providerId,
           modelId: candidate.modelId,
-          ...(candidate.baseUrl ? { baseUrl: candidate.baseUrl } : {}),
-          ...(candidate.requestPath !== undefined ? { requestPath: candidate.requestPath } : {}),
-          ...(candidate.version ? { version: candidate.version } : {}),
-          ...(candidate.apiCompat ? { apiCompat: candidate.apiCompat } : {}),
-          ...(candidate.tokenCountMode ? { tokenCountMode: candidate.tokenCountMode } : {}),
+          endpointId: candidate.endpointId ?? "default",
           ...(candidate.displayName ? { displayName: candidate.displayName } : {}),
           ...(candidate.modelsDevMapping ? { modelsDevMapping: candidate.modelsDevMapping } : {}),
           ...(candidate.manualSpec ? { manualSpec: candidate.manualSpec } : {}),
@@ -214,6 +211,9 @@ async function applyPayload(
   for (const provider of payload.providers) {
     const saveInput: ProviderConfigInput = {
       id: provider.id,
+      ...(provider.endpoints !== undefined ? { endpoints: [...new Map([
+        ...(input.providerStore.getProviderWithSecret(provider.id)?.endpoints ?? []), ...provider.endpoints,
+      ].map((endpoint) => [endpoint.id, endpoint])).values()] } : {}),
       name: provider.name,
       baseUrl: provider.baseUrl,
       requestPath: provider.requestPath,
@@ -249,6 +249,11 @@ async function applyPayload(
         input.providerStore.deleteCandidateModel(candidate.id);
       }
     }
+  }
+  for (const provider of payload.providers) {
+    if (provider.endpoints === undefined) continue;
+    const current = input.providerStore.getProviderWithSecret(provider.id);
+    if (current) input.providerStore.saveProvider({ ...current, endpoints: provider.endpoints });
   }
   input.providerStore.replaceRouteProfilesForSync(payload.routeProfiles ?? []);
 

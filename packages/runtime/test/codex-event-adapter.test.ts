@@ -492,7 +492,8 @@ test("eco_image_view MCP completion keeps both halves of a real call", () => {
   );
 });
 
-test("eco_image_view MCP start does not invent an output before the answer exists", () => {  const events = collectEvents((record) => {
+test("eco_image_view MCP start does not invent an output before the answer exists", () => {
+  const events = collectEvents((record) => {
     const adapter = new CodexEventAdapter({ resolveEcoThreadId, recordThreadRunEvent: record });
     adapter.dispatch("item/started", {
       threadId: CODEX_THREAD,
@@ -2084,14 +2085,23 @@ test("child subagent turn/completed emits agent.stopped without persisted agentR
   });
 });
 
-test("native child route keeps the exact gateway identity and interruption keeps the spawn owner", () => {
+test.each([
+  false,
+  true,
+])("native child keeps candidate/legacy routing and immutable spawn ownership (%s)", (candidateIdentity) => {
   const registry = new CodexTurnRouteRegistry();
   let attribution: { parentThreadId: string; agentRole?: string; spawnCallId?: string } | undefined;
-  const model = buildCodexGatewayModelAlias("vendor", "actual-model", "openai_responses");
+  const model = candidateIdentity
+    ? "cand-vendor-stable"
+    : buildCodexGatewayModelAlias("vendor", "actual-model", "openai_responses");
   const events: CodexThreadRunEventInput[] = [];
   const usages: string[] = [];
   const adapter = new CodexEventAdapter({
     resolveEcoThreadId,
+    resolveCandidateModel: (id) =>
+      id === "cand-vendor-stable"
+        ? { providerId: "vendor", upstreamModelId: "actual-model", apiCompat: "openai_responses" }
+        : undefined,
     turnRouteRegistry: registry,
     recordThreadRunEvent: (event) => events.push(event),
     getThreadAttributionRecord: () => attribution,
@@ -2479,9 +2489,7 @@ test("dispatch inserts newlines between summary parts on the same reasoning item
 
   expect(events).toHaveLength(2);
   expect(events[0]?.message).toBe("**Planning ordered file reading**");
-  expect(events[1]?.message).toBe(
-    "**Planning ordered file reading**\n**Confirming smoke-skill file path**",
-  );
+  expect(events[1]?.message).toBe("**Planning ordered file reading**\n**Confirming smoke-skill file path**");
 });
 
 test("dispatch inserts newlines when summaryIndex advances without summaryPartAdded", () => {
@@ -3163,11 +3171,7 @@ test("dispatch maps model safety buffering and auth recovery to thread.status", 
     });
   });
 
-  expect(events.map((event) => event.eventType)).toEqual([
-    "thread.status",
-    "thread.status",
-    "thread.status",
-  ]);
+  expect(events.map((event) => event.eventType)).toEqual(["thread.status", "thread.status", "thread.status"]);
   expect(events[0]?.metadata?.liveType).toBe("codex.safety_buffering");
   expect(events[0]?.message).toContain("cyber");
   expect(events[1]?.metadata?.liveType).toBe("codex.auth_recovery");
@@ -3193,7 +3197,8 @@ const ASYNC_QUESTIONS_ITEM = {
 };
 
 test("dispatch surfaces async questions from item/started and item/completed", () => {
-  const seen: Array<{ ecoThreadId: string; itemId: string; turnId?: string | undefined; titles: string[] }> = [];
+  const seen: Array<{ ecoThreadId: string; itemId: string; turnId?: string | undefined; titles: string[] }> =
+    [];
   const adapter = new CodexEventAdapter({
     resolveEcoThreadId,
     recordThreadRunEvent: () => {},

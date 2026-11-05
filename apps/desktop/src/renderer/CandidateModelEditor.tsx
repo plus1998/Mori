@@ -1,4 +1,3 @@
-import { shortcutMatches } from "./keyboard-shortcuts";
 import { X } from "lucide-react";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -7,11 +6,11 @@ import type {
   CandidateModelView,
   ModelsDevMapping,
   ModelsDevModelOption,
+  ProviderEndpoint,
   RouteCapabilityHint,
   RoutePricingHint,
   RuntimeRoleRouteConfig,
 } from "../shared/ipc";
-import { requestPathPlaceholderForApiCompat, type UpstreamApiCompat } from "../shared/api-compat";
 import {
   isRateFormValueValid,
   isTokenFormValueValid,
@@ -20,16 +19,9 @@ import {
   prefillManualSpecFormFromHints,
   tryFormToManualSpec,
 } from "./agent-resource-manual-spec-form";
+import { shortcutMatches } from "./keyboard-shortcuts";
 import { ModelCascadeSelect } from "./ModelCascadeSelect";
 import { ModelManualSpecPanel } from "./ModelManualSpecPanel";
-import { EndpointCompatSelect, type EndpointCompatOption } from "./EndpointCompatSelect";
-
-const ENDPOINT_OPTIONS: EndpointCompatOption[] = [
-  { apiCompat: "anthropic", requestPath: "/anthropic" },
-  { apiCompat: "openai_responses", requestPath: "/openai" },
-  { apiCompat: "openai_chat_completions", requestPath: "/" },
-  { apiCompat: "system_one", requestPath: "" },
-];
 
 export interface CandidateModelEditorHandle {
   hasPendingEdits: () => boolean;
@@ -38,10 +30,12 @@ export interface CandidateModelEditorHandle {
 
 interface CandidateModelEditorProps {
   providerId: string;
+  endpoints: readonly ProviderEndpoint[];
   candidate: CandidateModelView;
   modelsDevOptions: readonly ModelsDevModelOption[];
   modelsDevLoading: boolean;
   busy?: boolean | undefined;
+  beforeSave: () => Promise<unknown>;
   onClose: () => void;
   onSaved: (candidateId: string) => void;
   onError: (message: string) => void;
@@ -76,15 +70,24 @@ async function lookupCandidateRouteHints(
  */
 export const CandidateModelEditor = forwardRef<CandidateModelEditorHandle, CandidateModelEditorProps>(
   function CandidateModelEditor(
-    { providerId, candidate, modelsDevOptions, modelsDevLoading, busy, onClose, onSaved, onError },
+    {
+      providerId,
+      endpoints,
+      candidate,
+      modelsDevOptions,
+      modelsDevLoading,
+      busy,
+      beforeSave,
+      onClose,
+      onSaved,
+      onError,
+    },
     ref,
   ) {
     const { t } = useTranslation();
     const [modelId, setModelId] = useState(candidate.modelId);
-    const [apiCompat, setApiCompat] = useState<UpstreamApiCompat>(candidate.apiCompat ?? "openai_responses");
-    const [baseUrl, setBaseUrl] = useState(candidate.baseUrl ?? "");
-    const [requestPath, setRequestPath] = useState(candidate.requestPath ?? "");
-    const [version, setVersion] = useState(candidate.version ?? "v1");
+    const [endpointId, setEndpointId] = useState(candidate.endpointId ?? "default");
+    const endpoint = endpoints.find((entry) => entry.id === endpointId);
     const [displayName, setDisplayName] = useState(candidate.displayName ?? "");
     const [mapping, setMapping] = useState<ModelsDevMapping | undefined>(candidate.modelsDevMapping);
     const [form, setForm] = useState<ManualSpecFormFields>(() =>
@@ -153,8 +156,7 @@ export const CandidateModelEditor = forwardRef<CandidateModelEditorHandle, Candi
 
     const modelIdMissing = !modelId.trim();
     const hasInvalidField =
-      !/^https?:\/\//.test(baseUrl.trim()) ||
-      Boolean(requestPath.trim() && !requestPath.trim().startsWith("/")) ||
+      !endpoint ||
       !isTokenFormValueValid(form.contextTokens) ||
       !isTokenFormValueValid(form.maxOutputTokens) ||
       !isRateFormValueValid(form.inputPerM) ||
@@ -174,10 +176,7 @@ export const CandidateModelEditor = forwardRef<CandidateModelEditorHandle, Candi
         id: candidate.id,
         providerId,
         modelId: modelId.trim(),
-        apiCompat,
-        baseUrl: baseUrl.trim(),
-        requestPath: requestPath.trim(),
-        version: version.trim(),
+        endpointId,
         sortOrder: candidate.sortOrder,
       };
       const trimmedDisplayName = displayName.trim();
@@ -185,15 +184,14 @@ export const CandidateModelEditor = forwardRef<CandidateModelEditorHandle, Candi
       if (mapping) input.modelsDevMapping = mapping;
       const manualSpec = tryFormToManualSpec(form);
       if (manualSpec) input.manualSpec = manualSpec;
+      await beforeSave();
       await window.eco!.saveCandidateModel(input);
       onSaved(candidate.id);
     }, [
       candidate.id,
       candidate.sortOrder,
-      apiCompat,
-      baseUrl,
-      requestPath,
-      version,
+      beforeSave,
+      endpointId,
       displayName,
       form,
       hasInvalidField,
@@ -321,34 +319,26 @@ export const CandidateModelEditor = forwardRef<CandidateModelEditorHandle, Candi
           <section className="provider-form-section">
             <h4 className="provider-form-section-title">{t("candidateModels.sectionEndpoint")}</h4>
             <label className="mcp-field">
-              <span className="mcp-field-label">baseURL</span>
-              <input className="mcp-field-input" value={baseUrl} disabled={busy}
-                onChange={(event) => setBaseUrl(event.target.value)} placeholder="https://api.example.com" />
-            </label>
-            <div className="mcp-field models-provider-endpoint-row">
-              <span className="mcp-field-label">{t("settings.models.provider.endpoint")}</span>
-              <div className="models-provider-endpoint-stack">
-                <EndpointCompatSelect
-                  options={ENDPOINT_OPTIONS}
-                  activeApiCompat={apiCompat}
-                  onChange={setApiCompat}
-                  disabled={Boolean(busy)}
-                />
-                <input
-                  className="mcp-field-input models-provider-request-path-input"
-                  aria-label={t("candidateModels.requestPath")}
-                  value={requestPath}
-                  disabled={busy}
-                  onChange={(event) => setRequestPath(event.target.value)}
-                  placeholder={requestPathPlaceholderForApiCompat(apiCompat)}
-                />
-              </div>
-            </div>
-            <label className="mcp-field">
-              <span className="mcp-field-label">{t("settings.models.provider.version")}</span>
-              <input className="mcp-field-input" value={version} disabled={busy}
-                onChange={(event) => setVersion(event.target.value)} placeholder="v1" />
-              <span className="mcp-field-hint">{t("settings.models.provider.versionHint")}</span>
+              <span className="mcp-field-label">{t("candidateModels.supplierEndpoint")}</span>
+              <select
+                className="mcp-field-input"
+                value={endpointId}
+                disabled={busy}
+                onChange={(event) => setEndpointId(event.target.value)}
+              >
+                {endpoints.map((entry) => (
+                  <option key={entry.id} value={entry.id}>
+                    {entry.name} · {entry.apiCompat}
+                  </option>
+                ))}
+              </select>
+              <span className="mcp-field-hint">{t("candidateModels.endpointReferenceHint")}</span>
+              {endpoint ? (
+                <code className="mcp-field-hint">
+                  {endpoint.baseUrl}
+                  {endpoint.requestPath}/{endpoint.version}
+                </code>
+              ) : null}
             </label>
           </section>
 

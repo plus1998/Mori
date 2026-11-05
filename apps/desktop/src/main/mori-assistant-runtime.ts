@@ -52,6 +52,7 @@ export interface AssistantRuntimeDeps {
 }
 
 export interface AssistantCustomProviderRoute {
+  candidateModelIds?: Record<string, string>;
   providerId: string;
   apiCompat: ChatApiCompat;
   gatewayBaseUrl: string;
@@ -381,9 +382,10 @@ export class MoriAssistantRuntime {
 
   private requestModel(model: string): string {
     const connection = this.deps.connection;
-    return connection.type === "custom"
-      ? buildCodexGatewayModelAlias(connection.providerId, model, connection.apiCompat)
-      : model;
+    if (connection.type !== "custom") return model;
+    const candidateId = connection.candidateModelIds?.[model];
+    if (connection.candidateModelIds && !candidateId) throw new Error(`候选模型 ${connection.providerId}/${model} 已不存在，请重新选择。`);
+    return buildCodexGatewayModelAlias(connection.providerId, model, connection.apiCompat, candidateId);
   }
 
   private handleNotification(method: string, value: unknown): void {

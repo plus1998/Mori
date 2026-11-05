@@ -83,6 +83,8 @@ export interface GatewayProviderPayload {
 
 export interface EcoGatewayLifecycleOptions {
   ecoDataDir: string;
+  resolveCandidateModel?: EcoSdkBridgeOptions["resolveCandidateModel"];
+  resolveLegacyCandidateId?: EcoSdkBridgeOptions["resolveLegacyCandidateId"];
   listProviders: () => readonly EcoProviderForGateway[] | Promise<readonly EcoProviderForGateway[]>;
   /** Global Proxy Bridge User-Agent override; undefined = passthrough / Eco default. */
   getUpstreamUserAgent?: () => string | undefined;
@@ -98,9 +100,7 @@ export interface EcoGatewayLifecycleOptions {
         request?: Request;
       }) => Promise<{ accessToken: string; accountId?: string; upstreamProxyUrl?: string }>)
     | undefined;
-  getGatewayCredentialReporter?: () =>
-    | ((input: GatewayCredentialResult) => void | Promise<void>)
-    | undefined;
+  getGatewayCredentialReporter?: () => ((input: GatewayCredentialResult) => void | Promise<void>) | undefined;
   /** Fixed ceiling or per-request remaining-window budget. */
   getGlobalMaxOutputTokens?: () => GlobalMaxOutputTokens;
   countInputTokens?: GatewayConfig["countInputTokens"];
@@ -157,11 +157,11 @@ export class EcoGatewayLifecycle {
   }
 
   /** In-process Gateway handler (product counters / internal callers; not Bridge face). */
-  handleGatewayRequest(request: Request): Promise<Response> {
+  handleGatewayRequest(request: Request, provider?: GatewayProvider): Promise<Response> {
     if (!this.gateway) {
       throw new Error("eco-gateway is not running. Call ensureRunning() first.");
     }
-    return Promise.resolve(this.gateway.handleRequest(request));
+    return Promise.resolve(this.gateway.handleRequest(request, provider));
   }
 
   async ensureRunning(): Promise<GatewayProviderPayload[]> {
@@ -259,6 +259,12 @@ export class EcoGatewayLifecycle {
       try {
         this.bridge = await startEcoSdkBridge("127.0.0.1", this.port, {
           gateway: this.gateway,
+          ...(this.options.resolveLegacyCandidateId
+            ? { resolveLegacyCandidateId: this.options.resolveLegacyCandidateId }
+            : {}),
+          ...(this.options.resolveCandidateModel
+            ? { resolveCandidateModel: this.options.resolveCandidateModel }
+            : {}),
           onLog: bridgeLog,
           getTurnRouteRegistry: () => this.options.getTurnRouteRegistry?.(),
           getProviders: () =>
@@ -269,23 +275,25 @@ export class EcoGatewayLifecycle {
             })) ?? [],
           prepareClaudeMessages:
             this.options.prepareClaudeMessages ??
-            (async ({ path, body, model, headers }) => {
+            (async ({ path, body, model, headers, candidateRoute }) => {
               const { prepareClaudeBridgeMessagesRequest } = await import("./anthropic-proxy");
               return prepareClaudeBridgeMessagesRequest({
                 path,
                 body,
                 requestedModel: model,
+                candidateRoute,
                 headers,
               });
             }),
           prepareGatewayBindingForward:
             this.options.prepareGatewayBindingForward ??
-            (async ({ face, body, model, headers }) => {
+            (async ({ face, body, model, headers, candidateRoute }) => {
               const { prepareGatewayBindingForwardRequest } = await import("./anthropic-proxy");
               return prepareGatewayBindingForwardRequest({
                 face,
                 body,
                 requestedModel: model,
+                candidateRoute,
                 headers,
               });
             }),
@@ -507,13 +515,18 @@ export function buildGatewayProvidersFromEcoProviders(
       modelUpstreams: Object.fromEntries(
         gatewayModels
           .filter((model) => model.baseUrl && model.apiCompat)
-          .map((model) => [model.modelId, {
-            baseUrl: normalizeGatewayBaseUrl(model.baseUrl!, model.version),
-            ...(model.requestPath !== undefined ? { requestPath: normalizeGatewayRequestPath(model.requestPath) } : {}),
-            version: normalizeGatewayApiVersion(model.version),
-            upstreamKind: mapApiCompatToUpstreamKind(model.apiCompat!),
-            ...(model.tokenCountMode ? { tokenCountMode: model.tokenCountMode } : {}),
-          }]),
+          .map((model) => [
+            model.modelId,
+            {
+              baseUrl: normalizeGatewayBaseUrl(model.baseUrl!, model.version),
+              ...(model.requestPath !== undefined
+                ? { requestPath: normalizeGatewayRequestPath(model.requestPath) }
+                : {}),
+              version: normalizeGatewayApiVersion(model.version),
+              upstreamKind: mapApiCompatToUpstreamKind(model.apiCompat!),
+              ...(model.tokenCountMode ? { tokenCountMode: model.tokenCountMode } : {}),
+            },
+          ]),
       ),
       modelSupportsImageInput: Object.fromEntries(
         gatewayModels.flatMap((model) =>
@@ -629,14 +642,17 @@ export function getGlobalEcoBridgeBaseUrl(): string {
 }
 
 /** Direct embedded gateway (skips public Bridge face — for count_tokens recursion-safe product path). */
-export async function handleGlobalEcoGatewayRequest(request: Request): Promise<Response> {
+export async function handleGlobalEcoGatewayRequest(
+  request: Request,
+  provider?: GatewayProvider,
+): Promise<Response> {
   if (!globalGateway) {
     throw new Error(
       "eco-gateway lifecycle is not configured. Call configureEcoGatewayLifecycle() at startup.",
     );
   }
   await globalGateway.ensureRunning();
-  return globalGateway.handleGatewayRequest(request);
+  return globalGateway.handleGatewayRequest(request, provider);
 }
 
 /**

@@ -29,6 +29,7 @@ import type { ModelsDevPricingCache } from "./models-dev-pricing-cache";
 import type { ProviderConfigSecret } from "./provider-store";
 
 export interface RuntimeRoute {
+  candidateModelId?: string;
   role: RuntimeAgentRole;
   provider: ProviderConfigSecret;
   modelId: string;
@@ -109,7 +110,7 @@ export function buildResolvedProxyRoutes(routes: readonly RuntimeRoute[]): Anthr
     provider: route.provider,
     modelId: route.modelId,
     apiCompat: route.apiCompat,
-    aliasModelId: createModelAlias(route.role, route.provider.id, route.modelId),
+    aliasModelId: route.candidateModelId || createModelAlias(route.role, route.provider.id, route.modelId),
     ...(route.thinkingEffort && { thinkingEffort: route.thinkingEffort }),
   }));
 }

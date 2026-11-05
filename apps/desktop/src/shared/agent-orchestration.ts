@@ -23,7 +23,7 @@ export interface ModelRef {
   thinkingEffort?: ThinkingEffort;
   modelsDevMapping?: ModelsDevMapping;
   manualSpec?: RouteManualSpec;
-  /** 引用 Provider 的候选模型 ID（软引用，不存在时降级为手动模式） */
+  /** 引用供应商候选模型的稳定 ID；不存在时必须重新选择 */
   candidateModelId?: string;
 }
 

@@ -897,3 +897,24 @@ function firstOrchestrationAgent(): EcoOrchestrationConfig["agents"][number] {
   }
   return agent;
 }
+
+test("generated role TOML keeps the candidate ID while sharing a supplier config block", async () => {
+  const ecoDataDir = await makeTempEcoDataDir();
+  const orchestration = buildOrchestration();
+  const agents = orchestration.agents.map((agent, index) => ({
+    ...agent,
+    modelRef: { ...agent.modelRef, providerId: "one-supplier", candidateModelId: `cand-stable-${index}` },
+  }));
+  const result = await syncOrchestrationAgentsToCodexRoles({
+    codexHomeDir: resolveCodexHomeDir(ecoDataDir),
+    orchestration: { ...orchestration, agents },
+    templates: [researchTemplate, codingTemplate],
+  });
+  for (const role of result.roles) {
+    expect(role.candidateModelId?.startsWith("cand-stable-")).toBe(true);
+    const text = await fs.readFile(role.rolePath, "utf8");
+    expect(text).toContain(`model = "${role.candidateModelId}"`);
+    expect(text).toContain('model_provider = "eco_one-supplier"');
+    expect(text).not.toContain("eco_route_v1.");
+  }
+});

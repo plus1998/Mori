@@ -21,26 +21,40 @@ test.skipIf(!sqliteAvailable)("legacy route protocol conflict requires model con
   try {
     let store = await createProviderStore(filename);
     const provider = store.saveProvider({
-      name: "Mixed", baseUrl: "https://api.test", apiKey: "key",
-      apiCompat: "openai_responses", defaultModel: "model", enabled: true,
+      name: "Mixed",
+      baseUrl: "https://api.test",
+      apiKey: "key",
+      apiCompat: "openai_responses",
+      defaultModel: "model",
+      enabled: true,
     });
     const candidate = store.saveCandidateModel({ providerId: provider.id, modelId: "model" });
-    store.saveRouteProfile({ name: "legacy", routes: ([
-      "main", "explore", "architect", "coder", "reviewer", "tester",
-    ] as const).map((role) => ({
-      role, providerId: provider.id, modelId: "model", apiCompat: "anthropic" as const,
-    })) });
+    store.saveRouteProfile({
+      name: "legacy",
+      routes: (["main", "explore", "architect", "coder", "reviewer", "tester"] as const).map((role) => ({
+        role,
+        providerId: provider.id,
+        modelId: "model",
+        apiCompat: "anthropic" as const,
+      })),
+    });
     const db = new DatabaseSync(filename);
     try {
+      db.exec("ALTER TABLE provider_candidate_models DROP COLUMN endpoint_id");
       db.prepare("UPDATE provider_candidate_models SET api_compat = NULL WHERE id = ?").run(candidate.id);
     } finally {
       db.close();
     }
     store = await createProviderStore(filename);
     expect(store.listCandidateModels(provider.id)[0]?.apiCompat).toBeUndefined();
-    expect(() => store.saveCandidateModel({ id: candidate.id, providerId: provider.id, modelId: "model" }))
-      .toThrow("请确认模型协议");
-    const repaired = store.saveCandidateModel({ providerId: provider.id, modelId: "model", apiCompat: "anthropic" });
+    expect(() =>
+      store.saveCandidateModel({ id: candidate.id, providerId: provider.id, modelId: "model" }),
+    ).toThrow("请确认模型协议");
+    const repaired = store.saveCandidateModel({
+      providerId: provider.id,
+      modelId: "model",
+      apiCompat: "anthropic",
+    });
     expect(repaired.id).toBe(candidate.id);
     expect(repaired.apiCompat).toBe("anthropic");
   } finally {
@@ -153,34 +167,85 @@ test.skipIf(!sqliteAvailable)("provider version defaults to v1 and persists cust
   expect(emptied.version).toBe("v1");
 });
 
-test.skipIf(!sqliteAvailable)("models keep independent upstream endpoints when provider changes", async () => {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "eco-model-endpoints-"));
-  try {
-    const store = await createProviderStore(path.join(dir, "eco.sqlite"));
-    const provider = store.saveProvider({
-      name: "Mixed", baseUrl: "https://old.example.test", apiKey: "k", defaultModel: "a",
-      apiCompat: "openai_responses", enabled: true,
-    });
-    const response = store.saveCandidateModel({ providerId: provider.id, modelId: "a" });
-    const messages = store.saveCandidateModel({
-      providerId: provider.id, modelId: "b", baseUrl: "https://messages.example.test",
-      requestPath: "/anthropic", apiCompat: "anthropic",
-    });
-    store.saveProvider({
-      id: provider.id, name: "Mixed", baseUrl: "https://new.example.test", apiKey: "k",
-      defaultModel: "a", apiCompat: "openai_chat_completions", enabled: true,
-    });
-    const models = store.listCandidateModels(provider.id);
-    expect(models.find((model) => model.id === response.id)).toMatchObject({
-      baseUrl: "https://old.example.test", apiCompat: "openai_responses",
-    });
-    expect(models.find((model) => model.id === messages.id)).toMatchObject({
-      baseUrl: "https://messages.example.test", requestPath: "/anthropic", apiCompat: "anthropic",
-    });
-  } finally {
-    await removeTempDirectory(dir);
-  }
-});
+test.skipIf(!sqliteAvailable)(
+  "supplier endpoints update default references and preserve additional endpoint definitions",
+  async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "eco-model-endpoints-"));
+    try {
+      const store = await createProviderStore(path.join(dir, "eco.sqlite"));
+      const provider = store.saveProvider({
+        name: "Mixed",
+        baseUrl: "http://localhost:8000",
+        requestPath: "/old",
+        version: "v1",
+        apiKey: "k",
+        defaultModel: "a",
+        apiCompat: "openai_responses",
+        enabled: true,
+      });
+      const response = store.saveCandidateModel({ providerId: provider.id, modelId: "a" });
+      const messages = store.saveCandidateModel({
+        providerId: provider.id,
+        modelId: "b",
+        baseUrl: "https://messages.example.test",
+        requestPath: "/anthropic",
+        version: "v3",
+        apiCompat: "anthropic",
+      });
+      const pathOnly = store.saveCandidateModel({
+        providerId: provider.id,
+        modelId: "c",
+        requestPath: "/custom",
+      });
+      const other = store.saveProvider({ ...provider, id: "other" });
+      const otherModel = store.saveCandidateModel({ providerId: other.id, modelId: "a" });
+      store.saveProvider({
+        id: provider.id,
+        name: "Mixed",
+        baseUrl: "http://localhost:9000",
+        requestPath: "/new",
+        version: "v2",
+        apiKey: "k",
+        defaultModel: "a",
+        apiCompat: "openai_chat_completions",
+        enabled: true,
+      });
+      const models = store.listCandidateModels(provider.id);
+      expect(models.find((model) => model.id === response.id)).toMatchObject({
+        baseUrl: "http://localhost:9000",
+        requestPath: "/new",
+        version: "v2",
+        apiCompat: "openai_chat_completions",
+      });
+      expect(models.find((model) => model.id === messages.id)).toMatchObject({
+        baseUrl: "https://messages.example.test",
+        requestPath: "/anthropic",
+        version: "v3",
+        apiCompat: "anthropic",
+      });
+      expect(models.find((model) => model.id === pathOnly.id)).toMatchObject({
+        baseUrl: "http://localhost:9000",
+        requestPath: "/custom",
+        version: "v1",
+      });
+      expect(store.listCandidateModels(other.id)).toEqual([otherModel]);
+      // Endpoint references keep following supplier changes after reopening storage.
+      const updated = store.listProviders().find((entry) => entry.id === provider.id)!;
+      store.saveProvider({ ...updated, baseUrl: "https://new.example.test", requestPath: "", version: "" });
+      const reopened = await createProviderStore(path.join(dir, "eco.sqlite"));
+      expect(
+        reopened.listCandidateModels(provider.id).find((model) => model.id === response.id),
+      ).toMatchObject({
+        baseUrl: "https://new.example.test",
+        requestPath: "",
+        version: "v1",
+        apiCompat: "openai_chat_completions",
+      });
+    } finally {
+      await removeTempDirectory(dir);
+    }
+  },
+);
 
 test.skipIf(!sqliteAvailable)("fresh provider store does not auto-seed providers or routes", async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "eco-provider-store-"));
@@ -615,3 +680,93 @@ test.skipIf(!sqliteAvailable)("per-provider upstream proxy persists, validates, 
     }),
   ).toThrow(/无效的上游代理 URL/);
 });
+
+test.skipIf(!sqliteAvailable)(
+  "provider endpoint changes roll back if a referenced endpoint is removed",
+  async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "eco-provider-endpoint-rollback-"));
+    try {
+      const store = await createProviderStore(path.join(dir, "eco.sqlite"));
+      const provider = store.saveProvider({
+        name: "Rollback",
+        baseUrl: "https://old.test",
+        defaultModel: "a",
+        enabled: true,
+      });
+      const model = store.saveCandidateModel({
+        providerId: provider.id,
+        modelId: "a",
+        requestPath: "/separate",
+      });
+      expect(() => store.saveProvider({ ...provider, baseUrl: "https://new.test", endpoints: [] })).toThrow(
+        "仍被候选模型引用",
+      );
+      expect(store.getProviderWithSecret(provider.id)?.baseUrl).toBe("https://old.test");
+      expect(store.getCandidateModel(model.id)?.requestPath).toBe("/separate");
+    } finally {
+      await removeTempDirectory(dir);
+    }
+  },
+);
+
+test.skipIf(!sqliteAvailable)(
+  "legacy endpoint copies become deduplicated supplier references and new rows store no address",
+  async () => {
+    const { DatabaseSync } = await import("node:sqlite");
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "eco-endpoint-reference-migration-"));
+    const filename = path.join(dir, "eco.sqlite");
+    try {
+      let store = await createProviderStore(filename);
+      const provider = store.saveProvider({
+        name: "Migration",
+        baseUrl: "https://supplier.test",
+        requestPath: "/default",
+        apiCompat: "openai_responses",
+        defaultModel: "default",
+        enabled: true,
+      });
+      const original = store.saveCandidateModel({ providerId: provider.id, modelId: "default" });
+      const one = store.saveCandidateModel({ providerId: provider.id, modelId: "one" });
+      const two = store.saveCandidateModel({ providerId: provider.id, modelId: "two" });
+      const db = new DatabaseSync(filename);
+      try {
+        db.exec("ALTER TABLE provider_candidate_models DROP COLUMN endpoint_id");
+        db.prepare(
+          "UPDATE provider_candidate_models SET base_url = ?, request_path = ?, version = 'v1', api_compat = 'openai_responses'",
+        ).run(provider.baseUrl, "/default");
+        db.prepare(
+          "UPDATE provider_candidate_models SET request_path = '/anthropic', api_compat = 'anthropic' WHERE id IN (?, ?)",
+        ).run(one.id, two.id);
+        store = await createProviderStore(filename);
+        const candidates = store.listCandidateModels(provider.id);
+        expect(candidates.find((model) => model.id === original.id)?.endpointId).toBe("default");
+        expect(candidates.find((model) => model.id === one.id)?.endpointId).toBe(
+          candidates.find((model) => model.id === two.id)?.endpointId,
+        );
+        expect(store.listProviders()[0]?.endpoints).toHaveLength(1);
+        const fresh = store.getProviderWithSecret(provider.id)!;
+        store.saveProvider({ ...fresh, baseUrl: "https://new-supplier.test" });
+        expect(store.getCandidateModel(one.id)).toMatchObject({
+          baseUrl: "https://new-supplier.test",
+          requestPath: "/anthropic",
+          apiCompat: "anthropic",
+        });
+        const row = db
+          .prepare(
+            "SELECT base_url, request_path, version, api_compat FROM provider_candidate_models WHERE id = ?",
+          )
+          .get(one.id);
+        expect(row).toMatchObject({ base_url: null, request_path: null, version: null, api_compat: null });
+        const reopened = await createProviderStore(filename);
+        expect(reopened.getCandidateModel(two.id)?.endpointId).toBe(
+          store.getCandidateModel(one.id)?.endpointId,
+        );
+        expect(reopened.listProviders()[0]?.endpoints).toHaveLength(1);
+      } finally {
+        db.close();
+      }
+    } finally {
+      await removeTempDirectory(dir);
+    }
+  },
+);

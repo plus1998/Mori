@@ -20,6 +20,10 @@ export function resolveCandidateModelRouteDefaults(
   },
 ): RuntimeRoleRouteConfig[] {
   return routes.map((route) => {
+    if (!route.candidateModelId && !source.isBuiltInCodexProvider(route.providerId) && !source.isChatGptSubscriptionProvider(route.providerId)) {
+      const existing = source.listCandidateModels(route.providerId).find((candidate) => candidate.modelId === route.modelId);
+      if (existing) route = { ...route, candidateModelId: existing.id };
+    }
     if (!route.candidateModelId) return route;
 
     // Account catalogs expose selection IDs, not ProviderStore candidate rows.

@@ -90,6 +90,7 @@ function writeResponse(stdout: PassThrough, message: unknown): void {
 
 function plannerRoute(
   overrides: {
+    candidateModelId?: string;
     providerId?: string;
     upstreamModelId?: string;
     primaryModelId?: string;
@@ -99,6 +100,7 @@ function plannerRoute(
 ): ResolvedModelRoute {
   return {
     role: "main",
+    ...(overrides.candidateModelId ? { candidateModelId: overrides.candidateModelId } : {}),
     providerId: overrides.providerId ?? "anthropic-main",
     upstreamModelId: overrides.upstreamModelId ?? "claude-sonnet-4",
     ...(overrides.thinkingEffort ? { thinkingEffort: overrides.thinkingEffort } : {}),
@@ -792,7 +794,10 @@ test("CodexAppServerDriver ignores child subagent turn/completed while waiting f
   driver.dispose();
 });
 
-test("CodexAppServerDriver maps route apiCompat into a V1 gateway alias", async () => {
+test.each([
+  undefined,
+  "cand-custom-stable",
+])("Codex driver sends the candidate ID or legacy route identity (%s)", async (candidateModelId) => {
   const stdin = new PassThrough();
   const stdout = new PassThrough();
   const client = new CodexAppServerClient(stdin, stdout);
@@ -812,6 +817,7 @@ test("CodexAppServerDriver maps route apiCompat into a V1 gateway alias", async 
       worktreePath: "/repo",
       routes: [
         plannerRoute({
+          ...(candidateModelId ? { candidateModelId } : {}),
           providerId: "custom",
           upstreamModelId: "gpt-test",
           primaryModelId: "eco-custom-alias",
@@ -846,7 +852,8 @@ test("CodexAppServerDriver maps route apiCompat into a V1 gateway alias", async 
   const messages = readRpcMessages(stdin);
   const threadStart = messages.find((message) => message.method === "thread/start");
   const turnStart = messages.find((message) => message.method === "turn/start");
-  const expectedAlias = buildCodexGatewayModelAlias("custom", "gpt-test", "openai_chat_completions");
+  const expectedAlias =
+    candidateModelId ?? buildCodexGatewayModelAlias("custom", "gpt-test", "openai_chat_completions");
   expect(threadStart?.params?.modelProvider).toBe("eco_custom");
   expect(threadStart?.params?.model).toBe(expectedAlias);
   expect(turnStart?.params?.modelProvider).toBeUndefined();

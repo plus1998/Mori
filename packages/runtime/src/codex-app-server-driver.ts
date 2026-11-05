@@ -343,7 +343,7 @@ export class CodexAppServerDriver implements AgentRuntimeDriver {
       : buildCodexModelProviderSlug(ecoProviderId);
     const codexGatewayModel = isBuiltInOpenAi
       ? turnModel
-      : buildCodexGatewayModelAlias(ecoProviderId, turnModel, route.apiCompat);
+      : buildCodexGatewayModelAlias(ecoProviderId, turnModel, route.apiCompat, route.candidateModelId);
     const cwd = input.worktreePath || input.workspacePath;
     const turnOptions = overrides.turnOptions ?? this.materializeTurnOptions(this.sessionMode);
     const prompt = overrides.prompt?.trim() || input.prompt;

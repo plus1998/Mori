@@ -14,6 +14,7 @@ import type {
 } from "./types.js";
 import { GATEWAY_AGENT_CORES } from "./upstream/user-agent.js";
 import {
+  UPSTREAM_PROXY_URL,
   createUpstreamFetchController,
   parseUpstreamProxyUrl,
   type UpstreamFetchController,
@@ -24,7 +25,7 @@ export type GatewayLogFn = (message: string) => void;
 export interface EcoGatewayServer {
   port: number;
   /** In-process request handler (Bridge / embedded callers). */
-  handleRequest: (request: Request) => Response | Promise<Response>;
+  handleRequest: (request: Request, provider?: GatewayProvider) => Response | Promise<Response>;
   stop: () => void;
   getProviders: () => GatewayProvider[];
   setProviders: (providers: GatewayProvider[]) => void;
@@ -71,8 +72,18 @@ export function createGatewayFetchHandler(
   onProvidersChanged?: (providers: readonly GatewayProvider[]) => void,
   resolveEcoThreadIdFromCodex?: (codexThreadId: string) => string | undefined,
   onToolWriteStarted?: GatewayToolWriteObserver,
-): (request: Request) => Response | Promise<Response> {
-  return async (request: Request) => {
+): (request: Request, provider?: GatewayProvider) => Response | Promise<Response> {
+  const sharedConfig = config;
+  const sharedFetch = fetchImpl;
+  return async (request: Request, provider?: GatewayProvider) => {
+    const config = provider ? { ...sharedConfig, providers: [normalizeProvider(provider)] } : sharedConfig;
+    const fetchImpl = provider
+      ? (((input, init) =>
+          sharedFetch(input, {
+            ...init,
+            [UPSTREAM_PROXY_URL]: provider.upstreamProxyUrl || config.upstreamProxyUrl,
+          } as RequestInit)) as typeof fetch)
+      : sharedFetch;
     const url = new URL(request.url);
     const path = url.pathname.replace(/\/+$/, "") || "/";
     const startedAt = Date.now();

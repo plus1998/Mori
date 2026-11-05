@@ -21,7 +21,11 @@ import {
   type UpstreamKind,
 } from "@eco/gateway";
 import type { CodexTurnRouteRegistry } from "@eco/runtime";
-import { InvalidCodexGatewayModelAliasError, parseCodexGatewayModelAlias } from "@eco/shared";
+import {
+  isCandidateModelId,
+  InvalidCodexGatewayModelAliasError,
+  parseCodexGatewayModelAlias,
+} from "@eco/shared";
 import type { UpstreamAgentCore } from "../shared/ipc";
 import { isEcoSdkModelAlias } from "../shared/model-id";
 import {
@@ -30,6 +34,8 @@ import {
   extractClaudeBridgeCredential,
   redactClaudeBridgeSecret,
 } from "./claude-bridge-binding";
+
+import type { CandidateModelRequestRoute } from "./candidate-model-request-route";
 
 export type BridgeLogFn = (message: string) => void;
 
@@ -41,6 +47,8 @@ export interface BridgeRouteResolution {
 
 export interface EcoSdkBridgeOptions {
   gateway: EcoGatewayServer;
+  resolveCandidateModel?: (id: string) => CandidateModelRequestRoute | Promise<CandidateModelRequestRoute>;
+  resolveLegacyCandidateId?: (providerId: string, modelId: string) => string | undefined;
   /** Codex turn → route (provider + model). */
   turnRouteRegistry?: CodexTurnRouteRegistry;
   getTurnRouteRegistry?: () => CodexTurnRouteRegistry | undefined;
@@ -65,6 +73,7 @@ export interface EcoSdkBridgeOptions {
     body: Record<string, unknown>;
     model: string | undefined;
     headers: Headers;
+    candidateRoute?: CandidateModelRequestRoute | undefined;
   }) => Promise<
     | { kind: "response"; response: Response }
     | {
@@ -90,6 +99,7 @@ export interface EcoSdkBridgeOptions {
     body: Record<string, unknown>;
     model: string | undefined;
     headers: Headers;
+    candidateRoute?: CandidateModelRequestRoute | undefined;
   }) => Promise<
     | { kind: "response"; response: Response }
     | {
@@ -283,6 +293,38 @@ async function forwardWithResolvedRoute(
   // Stamp the issuing Harness so the gateway can apply a per-core User-Agent.
   stampAgentCoreHeader(headers, face);
   let clientModel = model?.trim();
+  let candidateId = model?.trim().replace(/\[1m\]$/i, "");
+  if (!isCandidateModelId(candidateId) && model && options.resolveLegacyCandidateId) {
+    try {
+      const legacy = parseCodexGatewayModelAlias(model);
+      if (legacy)
+        candidateId =
+          options.resolveLegacyCandidateId(legacy.providerId, legacy.upstreamModelId) ?? candidateId;
+    } catch (error) {
+      return Response.json(
+        { error: { message: error instanceof Error ? error.message : String(error) } },
+        { status: 400 },
+      );
+    }
+  }
+  let candidateRoute: CandidateModelRequestRoute | undefined;
+  if (isCandidateModelId(candidateId) && options.resolveCandidateModel) {
+    try {
+      candidateRoute = await options.resolveCandidateModel(candidateId!);
+    } catch (error) {
+      return Response.json(
+        { error: { message: error instanceof Error ? error.message : String(error) } },
+        { status: 400 },
+      );
+    }
+  }
+  const freshResolution = candidateRoute
+    ? {
+        providerId: candidateRoute.provider.id,
+        upstreamModelId: candidateRoute.candidate.modelId,
+        upstreamKind: candidateRoute.gatewayProvider.upstreamKind,
+      }
+    : undefined;
 
   // Explicit product binding (title/auxiliary/provider probe): wins over table/alias.
   // PI also pre-stamps provider id — still run binding prep when a bridge credential is present
@@ -303,11 +345,13 @@ async function forwardWithResolvedRoute(
       body,
       model,
       headers: request.headers,
+      ...(candidateRoute ? { candidateRoute } : {}),
     });
     if (prepared.kind === "response") {
       return prepared.response;
     }
     if (prepared.kind === "forward") {
+      if (freshResolution) prepared.resolution = freshResolution;
       clientModel = prepared.clientModel || clientModel;
       body.model = prepared.resolution.upstreamModelId;
       if (clientModel) {
@@ -342,6 +386,7 @@ async function forwardWithResolvedRoute(
             body: JSON.stringify(body),
             duplex: "half",
           } as RequestInit),
+          candidateRoute?.gatewayProvider,
         );
         return wrapResponseReleasingLease(response, prepared.releaseLease);
       } catch (error) {
@@ -359,11 +404,13 @@ async function forwardWithResolvedRoute(
       body,
       model,
       headers: request.headers,
+      ...(candidateRoute ? { candidateRoute } : {}),
     });
     if (prepared.kind === "response") {
       return prepared.response;
     }
     if (prepared.kind === "forward") {
+      if (freshResolution) prepared.resolution = freshResolution;
       clientModel = prepared.clientModel || clientModel;
       body.model = prepared.resolution.upstreamModelId;
       if (clientModel) {
@@ -398,6 +445,7 @@ async function forwardWithResolvedRoute(
             body: JSON.stringify(body),
             duplex: "half",
           } as RequestInit),
+          candidateRoute?.gatewayProvider,
         );
         return wrapResponseReleasingLease(response, prepared.releaseLease);
       } catch (error) {
@@ -411,7 +459,14 @@ async function forwardWithResolvedRoute(
 
   // Header-bound provider is final only when binding prep missed (no binding credential).
   // body.model must already be the concrete upstream id for this path (title/aux probes).
-  if (preboundProvider && model?.trim()) {
+  if (freshResolution) {
+    resolution = freshResolution;
+  } else if (isCandidateModelId(candidateId)) {
+    return Response.json(
+      { error: { message: `Candidate resolver is unavailable for ${candidateId}.` } },
+      { status: 400 },
+    );
+  } else if (preboundProvider && model?.trim()) {
     const requested = model.trim();
     if (isEcoSdkModelAlias(requested)) {
       onLog(`bridge refused prebound SDK alias face=${face} provider=${preboundProvider} model=${requested}`);
@@ -492,7 +547,7 @@ async function forwardWithResolvedRoute(
   onLog(
     `bridge → gateway face=${face} provider=${resolution.providerId} model=${resolution.upstreamModelId}`,
   );
-  return options.gateway.handleRequest(rewritten);
+  return options.gateway.handleRequest(rewritten, candidateRoute?.gatewayProvider);
 }
 
 function wrapResponseReleasingLease(response: Response, releaseLease: (() => void) | undefined): Response {

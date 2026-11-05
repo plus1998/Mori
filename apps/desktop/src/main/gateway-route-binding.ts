@@ -39,6 +39,7 @@ export async function startGatewayRouteBinding(
 }
 
 export function buildPiGatewayRequestHeaders(input: {
+  role?: string;
   bindingId: string;
   threadId?: string;
   runAttemptId?: string;
@@ -53,6 +54,7 @@ export function buildPiGatewayRequestHeaders(input: {
     "x-gateway-requested-model": input.requestedModel,
     "x-gateway-upstream-kind": mapApiCompatToUpstreamKind(resolveUpstreamApiCompat(input.apiCompat)),
   };
+  if (input.role?.trim()) headers["x-eco-route-role"] = input.role.trim();
   if (input.threadId?.trim()) {
     headers["x-gateway-thread-id"] = input.threadId.trim();
   }

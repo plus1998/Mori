@@ -162,6 +162,7 @@ export interface RunThreadRequestWithRuntimeProxyInput {
 export interface EcoProviderForCodexCatalog extends EcoProviderForCodexConfig {
   defaultModel?: string;
   models?: readonly {
+    candidateModelId?: string;
     modelId: string;
     displayName?: string;
     apiCompat?: EcoProviderForCodexConfig["apiCompat"];
@@ -170,6 +171,7 @@ export interface EcoProviderForCodexCatalog extends EcoProviderForCodexConfig {
 }
 
 export interface CodexRuntimeRunDeps {
+  resolveCandidateModel?: import("@eco/runtime").CodexEventAdapterOptions["resolveCandidateModel"];
   ecoDataDir: string;
   /** Refresh managed ChatGPT credentials before a native OpenAI turn. */
   ensureAccountReady?: (accountId?: string) => Promise<void>;
@@ -231,8 +233,10 @@ export interface CodexRuntimeRunDeps {
   /** Runs only after the root Eco -> Codex thread mapping has been persisted successfully. */
   onCodexThreadMapped?: (codexThreadId: string) => void;
   onCodexContextUpdated?: (resolution: CodexContextSnapshotResolution) => void;
-  accountUsageObserver?: Pick<ConstructorParameters<typeof CodexEventAdapter>[0],
-    "onTurnStarted" | "onAccountTokenUsage" | "onTurnFinished" | "onThreadRouteCleanup">;
+  accountUsageObserver?: Pick<
+    ConstructorParameters<typeof CodexEventAdapter>[0],
+    "onTurnStarted" | "onAccountTokenUsage" | "onTurnFinished" | "onThreadRouteCleanup"
+  >;
   /**
    * Cumulative turn usage on each native usage notification and again at terminal
    * completion. The host persists checkpoints and bills only unseen deltas.
@@ -275,6 +279,7 @@ export interface PrepareCodexRuntimeInput {
   /** Main thread's selected provider (the built-in `openai` route retains native image viewing). */
   mainProviderId?: string;
   mainModelId?: string;
+  mainCandidateModelId?: string;
   mainApiCompat?: EcoProviderForCodexConfig["apiCompat"];
   mainSupportsImageInput?: boolean;
   /**
@@ -423,12 +428,14 @@ export function configureCodexRuntimeRun(config: CodexRuntimeRunDeps): void {
   eventAdapter = new CodexEventAdapter({
     ...config.accountUsageObserver,
     resolveEcoThreadId,
+    ...(config.resolveCandidateModel ? { resolveCandidateModel: config.resolveCandidateModel } : {}),
     turnRouteRegistry,
     onTurnTokenUsageUpdated: (route) => {
       if (!route.appServerTokenUsage) return;
       const threadId = resolveEcoThreadId(route.codexThreadId);
       const runAttemptId =
-        config.resolvePersistedRunAttemptId?.(threadId, route.turnId) ?? config.resolveRunAttemptId?.(threadId);
+        config.resolvePersistedRunAttemptId?.(threadId, route.turnId) ??
+        config.resolveRunAttemptId?.(threadId);
       config.onCodexTurnTokenUsage?.({
         threadId,
         codexThreadId: route.codexThreadId,
@@ -532,7 +539,8 @@ function emitCodexTurnTokenUsage(config: CodexRuntimeRunDeps, event: ThreadRunEv
     return;
   }
   const runAttemptId =
-    config.resolvePersistedRunAttemptId?.(event.threadId, turnId) ?? config.resolveRunAttemptId?.(event.threadId);
+    config.resolvePersistedRunAttemptId?.(event.threadId, turnId) ??
+    config.resolveRunAttemptId?.(event.threadId);
   config.onCodexTurnTokenUsage?.({
     threadId: event.threadId,
     codexThreadId,
@@ -544,7 +552,10 @@ function emitCodexTurnTokenUsage(config: CodexRuntimeRunDeps, event: ThreadRunEv
       ? { providerId: event.metadata.usageProviderId }
       : {}),
     ...(event.metadata?.appServerTokenUsageSnapshot
-      ? { appServerTokenUsageSnapshot: event.metadata.appServerTokenUsageSnapshot as CodexTurnTokenUsageSnapshot }
+      ? {
+          appServerTokenUsageSnapshot: event.metadata
+            .appServerTokenUsageSnapshot as CodexTurnTokenUsageSnapshot,
+        }
       : {}),
     ...(Array.isArray(event.metadata?.appServerTokenUsageRequests)
       ? {
@@ -625,9 +636,12 @@ export async function resumeCodexThreadForEcoThread(input: {
   const runtimeDeps = requireDeps();
   const ecoThreadId = input.ecoThreadId.trim();
   if (!ecoThreadId) {
-    throw new CodexResumeNotAvailable("Codex resume is not available because the Mori thread id is missing.", {
-      nextAction: "Retry resume from a Codex-backed thread that has a persisted Mori thread id.",
-    });
+    throw new CodexResumeNotAvailable(
+      "Codex resume is not available because the Mori thread id is missing.",
+      {
+        nextAction: "Retry resume from a Codex-backed thread that has a persisted Mori thread id.",
+      },
+    );
   }
   const codexThreadId = runtimeDeps.threadMap.getCodexThreadId(ecoThreadId);
   if (!codexThreadId) {
@@ -1250,7 +1264,13 @@ async function prepareCodexRuntimeUnlocked(input: PrepareCodexRuntimeInput): Pro
             model:
               mainProviderId === "openai"
                 ? mainModelId
-                : buildCodexGatewayModelAlias(mainProviderId, mainModelId, input.mainApiCompat),
+                : buildCodexGatewayModelAlias(
+                    mainProviderId,
+                    mainModelId,
+                    input.mainApiCompat,
+                    input.mainCandidateModelId ??
+                      input.agentRegistry?.orchestration.mainAgent.modelRef.candidateModelId,
+                  ),
           },
         }
       : {}),
@@ -1330,6 +1350,7 @@ async function prepareCodexRuntimeUnlocked(input: PrepareCodexRuntimeInput): Pro
     assertCatalogRoutesAvailable(
       (roleSync?.roles ?? []).map((role) => ({
         providerId: role.providerId,
+        ...(role.candidateModelId ? { candidateModelId: role.candidateModelId } : {}),
         modelId: role.modelId,
         apiCompat:
           role.apiCompat ??
@@ -1444,6 +1465,7 @@ async function prepareCodexRuntimeUnlocked(input: PrepareCodexRuntimeInput): Pro
   assertCatalogRoutesAvailable(
     (roleSync?.roles ?? []).map((role) => ({
       providerId: role.providerId,
+      ...(role.candidateModelId ? { candidateModelId: role.candidateModelId } : {}),
       modelId: role.modelId,
       apiCompat:
         role.apiCompat ??
@@ -1469,8 +1491,7 @@ async function prepareCodexRuntimeUnlocked(input: PrepareCodexRuntimeInput): Pro
     return prepared;
   }
   const catalogNeedsRestart = catalogSync.runtimeFingerprint !== lastPreparedModelCatalogFingerprint;
-  const configNeedsRestart =
-    globalConfigFingerprint !== lastPreparedGlobalConfigFingerprint;
+  const configNeedsRestart = globalConfigFingerprint !== lastPreparedGlobalConfigFingerprint;
   if (catalogNeedsRestart || configNeedsRestart) {
     await ensureCodexRuntimeRestart(
       runtimeDeps,
@@ -1594,6 +1615,7 @@ async function collectCatalogRoutesForRuntime(
     providers: providers.map((provider) => {
       const models = (provider.models ?? []).map((model) => ({
         modelId: model.modelId,
+        ...(model.candidateModelId ? { candidateModelId: model.candidateModelId } : {}),
         ...(model.displayName ? { displayName: model.displayName } : {}),
         ...(model.apiCompat ? { apiCompat: model.apiCompat } : {}),
         ...(model.manualSpec ? { manualSpec: model.manualSpec } : {}),
@@ -1629,7 +1651,9 @@ function assertCatalogRoutesAvailable(
       continue;
     }
     const alias =
-      providerId === "openai" ? modelId : buildCodexGatewayModelAlias(providerId, modelId, route.apiCompat);
+      providerId === "openai"
+        ? modelId
+        : buildCodexGatewayModelAlias(providerId, modelId, route.apiCompat, route.candidateModelId);
     if (!available.has(alias)) {
       throw new Error(
         `Codex model '${providerId}/${modelId}' is not registered in the global model catalog. Save it as a candidate model or route configuration, then wait for the global runtime refresh to finish.`,
@@ -1650,7 +1674,9 @@ function catalogRoutesAreAvailable(
       !providerId ||
       !modelId ||
       available.has(
-        providerId === "openai" ? modelId : buildCodexGatewayModelAlias(providerId, modelId, route.apiCompat),
+        providerId === "openai"
+          ? modelId
+          : buildCodexGatewayModelAlias(providerId, modelId, route.apiCompat, route.candidateModelId),
       )
     );
   });
@@ -1797,11 +1823,15 @@ async function startSharedCodexRuntimeLifecycle(
   const start = accountId
     ? (options: import("./codex-runtime-lifecycle").CodexRuntimeLifecycleOptions) =>
         ensureCodexAccountRuntimeLifecycle(accountId, options, loadedGlobalRuntimeRevision)
-    : replace ? replaceGlobalCodexRuntimeLifecycle : ensureGlobalCodexRuntimeLifecycle;
+    : replace
+      ? replaceGlobalCodexRuntimeLifecycle
+      : ensureGlobalCodexRuntimeLifecycle;
   const client = await start({
     ecoDataDir: runtimeDeps.ecoDataDir,
     codexExecutable,
-    ...(runtimeDeps.onAccountRateLimitsUpdated ? { onAccountRateLimitsUpdated: runtimeDeps.onAccountRateLimitsUpdated } : {}),
+    ...(runtimeDeps.onAccountRateLimitsUpdated
+      ? { onAccountRateLimitsUpdated: runtimeDeps.onAccountRateLimitsUpdated }
+      : {}),
     clientOptions: {
       onServerRequest: (method, params) => approvalBridge?.handleServerRequest(method, params),
     },
@@ -1890,6 +1920,7 @@ export async function runThreadRequestWithRuntimeProxy(
           continue;
         }
         requiredCatalogRoutes.push({
+          ...(route.candidateModelId ? { candidateModelId: route.candidateModelId } : {}),
           providerId,
           modelId,
           apiCompat: resolveUpstreamApiCompat(route.apiCompat, route.provider.apiCompat),
@@ -1914,7 +1945,8 @@ export async function runThreadRequestWithRuntimeProxy(
       const systemPromptAppend = input.resolveSystemPromptAppend?.()?.trim();
       const plannerRoute = freshConfig.routes.find((route) => route.role === "main");
       const selectedRoute = plannerRoute ?? freshConfig.routes[0];
-      const accountId = selectedRoute?.provider.id === "openai" ? input.resolveAccountId?.()?.trim() : undefined;
+      const accountId =
+        selectedRoute?.provider.id === "openai" ? input.resolveAccountId?.()?.trim() : undefined;
       if (selectedRoute?.provider.id === "openai" && !accountId) {
         throw new Error("此会话尚未选择 ChatGPT Login 账号，请先选择账号和模型。");
       }
@@ -1937,6 +1969,9 @@ export async function runThreadRequestWithRuntimeProxy(
         ...(selectedRoute
           ? {
               mainModelId: selectedRoute.modelId,
+              ...(selectedRoute.candidateModelId
+                ? { mainCandidateModelId: selectedRoute.candidateModelId }
+                : {}),
               mainApiCompat: resolveUpstreamApiCompat(
                 selectedRoute.apiCompat,
                 selectedRoute.provider.apiCompat,
@@ -1958,8 +1993,10 @@ export async function runThreadRequestWithRuntimeProxy(
       // The driver passes thread overrides to thread/start and thread/resume.
       // Do not restart the shared app-server or block unrelated active threads.
       bindPreparedCodexRuntimeToThread(input.threadId, prepared);
-      if (requiredProviderIds.includes("openai") ||
-        Object.values(prepared.roleThreadConfigs).some((config) => config.model_provider === "openai")) {
+      if (
+        requiredProviderIds.includes("openai") ||
+        Object.values(prepared.roleThreadConfigs).some((config) => config.model_provider === "openai")
+      ) {
         await requireDeps().ensureAccountReady?.(accountId);
       }
       await input.onPrepared?.(prepared);

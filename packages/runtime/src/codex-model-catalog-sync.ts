@@ -42,6 +42,7 @@ export interface CodexCatalogManualCapabilities {
  * Only fields that affect catalog metadata / routing identity belong here.
  */
 export interface CodexGatewayCatalogRoute {
+  candidateModelId?: string;
   providerId: string;
   modelId: string;
   apiCompat: CodexGatewayApiCompat;
@@ -54,6 +55,7 @@ export interface CodexGatewayCatalogRoute {
  * Models may carry optional per-model apiCompat / manual capability overrides.
  */
 export interface EcoProviderModelForCatalog {
+  candidateModelId?: string;
   modelId: string;
   displayName?: string;
   apiCompat?: CodexGatewayApiCompat | undefined;
@@ -192,6 +194,7 @@ export function mergeCodexGatewayCatalogRoutes(
       const normalized: CodexGatewayCatalogRoute = {
         providerId,
         modelId,
+        ...(route.candidateModelId ? { candidateModelId: route.candidateModelId } : {}),
         apiCompat: route.apiCompat,
         ...(route.displayName?.trim() ? { displayName: route.displayName.trim() } : {}),
         ...(route.manualSpec ? { manualSpec: { ...route.manualSpec } } : {}),
@@ -200,6 +203,7 @@ export function mergeCodexGatewayCatalogRoutes(
         normalized.providerId,
         normalized.modelId,
         normalized.apiCompat,
+        normalized.candidateModelId,
       );
       byAlias.set(alias, normalized);
     }
@@ -229,7 +233,7 @@ export function collectCodexGatewayCatalogRoutes(
     const providerCompat = provider.apiCompat ?? "openai_responses";
     const providerName = provider.name?.trim() || providerId;
     const defaultModel = provider.defaultModel?.trim();
-    if (defaultModel) {
+    if (defaultModel && !provider.models?.some((model) => model.modelId === defaultModel)) {
       fromProviders.push({
         providerId,
         modelId: defaultModel,
@@ -246,6 +250,7 @@ export function collectCodexGatewayCatalogRoutes(
         providerId,
         modelId,
         apiCompat: model.apiCompat ?? providerCompat,
+        ...(model.candidateModelId ? { candidateModelId: model.candidateModelId } : {}),
         ...(model.displayName?.trim()
           ? { displayName: model.displayName.trim() }
           : { displayName: `${providerName} / ${modelId}` }),
@@ -412,7 +417,12 @@ export function buildEcoCodexModelCatalogDocument(
   const seenAliases = new Set<string>();
 
   for (const route of mergeCodexGatewayCatalogRoutes(routes)) {
-    const alias = buildCodexGatewayModelAlias(route.providerId, route.modelId, route.apiCompat);
+    const alias = buildCodexGatewayModelAlias(
+      route.providerId,
+      route.modelId,
+      route.apiCompat,
+      route.candidateModelId,
+    );
     if (seenAliases.has(alias) || nativeBySlug.has(alias)) {
       continue;
     }
@@ -635,7 +645,9 @@ export async function syncEcoCodexModelCatalog(
   const written = await writeEcoCodexModelCatalog(catalogPath, document);
   const aliasSlugs = document.models
     .map((entry) => entry.slug)
-    .filter((slug) => slug.startsWith("eco_route_v1.") || slug.startsWith("eco_"));
+    .filter(
+      (slug) => slug.startsWith("cand-") || slug.startsWith("eco_route_v1.") || slug.startsWith("eco_"),
+    );
 
   return {
     catalogPath,
