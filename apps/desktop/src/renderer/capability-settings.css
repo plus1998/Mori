@@ -1,0 +1,286 @@
+/* Mori capability content uses the verified Codex settings primitives. The
+ * feature-specific editors and diagnostics remain local; controls share one style. */
+.capability-settings-page {
+  & > .settings-ui-group {
+    margin-bottom: 40px;
+  }
+  & :is(.mcp-list-empty, .image-generation-profile-empty, .asr-profile-empty) {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    margin: 0;
+    padding: 24px;
+    border: 1px dashed var(--border-subtle);
+    border-radius: 16px;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 20px;
+    box-shadow: none;
+  }
+  & :is(.image-generation-profile-empty, .asr-profile-empty) > svg {
+    display: none;
+  }
+  & :is(.image-generation-profile-empty, .asr-profile-empty) strong {
+    color: var(--text-primary);
+    font-size: 14px;
+    font-weight: 500;
+  }
+  & :is(.image-generation-profile-empty, .asr-profile-empty) small {
+    max-width: 480px;
+    font-size: 13px;
+    line-height: 20px;
+  }
+  & :is(.computer-use-note, .browser-settings-error, .asr-inline-alert) {
+    margin: 12px 0;
+    font-size: 12px;
+    line-height: 18px;
+  }
+  & .computer-use-status {
+    margin-block: 16px 32px;
+    gap: 12px;
+  }
+  & .computer-use-alert {
+    padding: 12px;
+    border-radius: 12px;
+    box-shadow: none;
+    font-size: 13px;
+    line-height: 20px;
+  }
+  & .browser-settings-select {
+    max-width: 100%;
+    min-width: 0;
+  }
+  & .browser-settings-select > select {
+    max-width: 100%;
+    min-width: 0;
+  }
+  & :is(.asr-mic-control, .asr-mic-select) {
+    min-width: 0;
+    max-width: 100%;
+  }
+  & :is(.mcp-editor-hint, .mcp-field-hint, .mcp-json-hint) {
+    font-size: 12px;
+    line-height: 18px;
+  }
+  & .mcp-learn-more {
+    color: var(--text-primary);
+  }
+}
+
+.capability-editor-page {
+  & .mcp-editor-header {
+    margin-bottom: 24px;
+  }
+  & .mcp-editor-title-block {
+    margin-bottom: 24px;
+  }
+  & .mcp-editor-title-block h1 {
+    margin: 0;
+    font-size: 24px;
+    font-weight: 400;
+    line-height: 1.2;
+    letter-spacing: inherit;
+  }
+  & .mcp-editor-form {
+    max-width: 640px;
+    gap: 24px;
+  }
+  & .mcp-mode-toggle {
+    padding: 2px;
+    background: var(--nav-hover);
+    border: 0;
+    border-radius: 10px;
+    box-shadow: none;
+  }
+  & .mcp-mode-btn {
+    min-height: 28px;
+    padding: 4px 10px;
+    font-size: 13px;
+    font-weight: 430;
+    border-radius: 8px;
+    color: var(--text-secondary);
+  }
+  & .mcp-mode-btn.is-active {
+    color: var(--text-primary);
+    background: var(--bg-elevated);
+    box-shadow: 0 1px 2px rgb(0 0 0 / 6%);
+  }
+  & .mcp-editor-actions {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+}
+
+.capability-web-search-form {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 24px;
+}
+.capability-web-search-form .mcp-field {
+  min-width: 0;
+  margin: 0;
+}
+.capability-web-search-form .provider-preset-tabs {
+  gap: 8px;
+}
+.capability-web-search-form .provider-preset-tab {
+  min-height: 36px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  box-shadow: none;
+  font-size: 13px;
+  font-weight: 430;
+}
+.capability-web-search-form .provider-preset-tab.is-active {
+  border-color: var(--text-primary);
+  background: var(--nav-hover);
+  box-shadow: none;
+}
+.capability-web-search-form .provider-preset-tab-label {
+  font-size: 13px;
+  font-weight: 500;
+}
+.capability-web-search-form .integrated-web-search-test-controls {
+  flex-wrap: wrap;
+}
+.capability-web-search-form .integrated-web-search-test-controls > input {
+  width: auto;
+  min-width: 120px;
+  flex: 1;
+}
+.capability-web-search-form .integrated-web-search-test-results {
+  padding: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: transparent;
+}
+.capability-web-search-form .integrated-web-search-test-results li {
+  padding: 12px 16px;
+}
+
+.settings-modal.capability-settings-modal {
+  width: min(560px, calc(100vw - 32px));
+  max-width: calc(100vw - 32px);
+  max-height: calc(100dvh - 48px);
+  border: 1px solid var(--border-subtle);
+  border-radius: 20px;
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-modal);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 430;
+  line-height: 20px;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+
+  & .settings-modal-header {
+    padding: 20px 24px 16px;
+    gap: 16px;
+  }
+  & .settings-modal-title {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 500;
+    line-height: 24px;
+    letter-spacing: inherit;
+  }
+  & :is(.asr-profile-modal-subtitle, .image-generation-profile-modal-subtitle, .mcp-import-desc) {
+    margin-top: 4px;
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 20px;
+  }
+  & .settings-modal-body {
+    min-width: 0;
+    min-height: 0;
+    padding: 0 24px 20px;
+    overflow-y: auto;
+  }
+  & :is(.asr-profile-modal-body, .image-generation-profile-modal-body) {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+  & .settings-modal-footer {
+    padding: 16px 24px 20px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  & .settings-modal-footer-actions {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  & :is(.settings-form-field, .mcp-field) {
+    min-width: 0;
+    gap: 6px;
+  }
+  & .settings-form-field-checkbox {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+  & .settings-form-field-checkbox .settings-ui-field-hint {
+    grid-column: 1 / -1;
+  }
+  & .asr-secure-input {
+    min-width: 0;
+    border-color: transparent;
+    border-radius: 8px;
+    background: var(--nav-hover);
+  }
+  & .asr-secure-input:focus-within {
+    outline: 2px solid var(--border-strong);
+    outline-offset: 2px;
+    box-shadow: none;
+  }
+  & .asr-secure-input > .settings-ui-input:focus-visible {
+    outline: none;
+  }
+  & .mcp-import-body {
+    gap: 16px;
+  }
+  & .mcp-import-preview {
+    border-color: var(--border-subtle);
+    border-radius: 12px;
+    box-shadow: none;
+  }
+  & .mcp-import-row {
+    padding: 12px 16px;
+    gap: 12px;
+  }
+}
+
+:is(.capability-settings-page, .capability-settings-modal) {
+  & .mcp-json-toolbar {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  & .mcp-json-editor {
+    min-width: 0;
+    border-color: var(--border-subtle);
+    border-radius: 12px;
+    box-shadow: none;
+    background: var(--nav-hover);
+  }
+  & .mcp-json-input {
+    min-width: 0;
+    font-size: 13px;
+    line-height: 20px;
+  }
+  & .mcp-json-gutter {
+    font-size: 13px;
+    line-height: 20px;
+  }
+  & .mcp-json-message {
+    font-size: 12px;
+    line-height: 18px;
+  }
+  & .mcp-json-message.is-error {
+    color: var(--danger);
+  }
+}

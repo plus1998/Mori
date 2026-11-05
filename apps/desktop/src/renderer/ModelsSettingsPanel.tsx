@@ -1,3 +1,4 @@
+import { Switch } from "./components/Switch";
 import { ProviderEndpointEditor } from "./ProviderEndpointEditor";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { LazyOpenAIAccountsPanel } from "./lazy-app-panels";
@@ -78,6 +79,7 @@ import { SettingsSyncControl } from "./SettingsSyncControl";
 import { SubagentSettingsSection } from "./SubagentSettingsSection";
 import { ToolCapabilityPanel } from "./ToolCapabilityPanel";
 import "./provider-settings.css";
+import "./runtime-settings.css";
 
 export type ModelsSettingsTab =
   | "subagents"
@@ -751,7 +753,7 @@ export function ModelsSettingsPanel({
     );
   }, [providerOptions, providerSearchQuery]);
   return (
-    <>
+    <div className={activeTab === "compositionParts" ? "runtime-settings" : undefined}>
       {appMessage && (
         <AppMessage kind={appMessage.kind} message={appMessage.message} onDismiss={dismissAppMessage} />
       )}
@@ -1158,7 +1160,7 @@ export function ModelsSettingsPanel({
         />
       )}
 
-    </>
+    </div>
   );
 }
 
@@ -1364,20 +1366,14 @@ function ProviderEditorModal({
 
               <label className="mcp-field models-toggle-field provider-enable-row">
                 <span className="mcp-field-label">{t("settings.models.provider.enable")}</span>
-                <label
-                  className="mcp-toggle mcp-toggle-sm"
+                <Switch
+                  size="sm"
                   title={form.enabled ? t("common.enabled") : t("common.disabled")}
-                >
-                  <input
-                    type="checkbox"
-                    checked={form.enabled}
-                    disabled={busy}
-                    onChange={(event) =>
-                      setForm((current) => ({ ...current, enabled: event.target.checked }))
-                    }
-                  />
-                  <span className="mcp-toggle-track" aria-hidden />
-                </label>
+                  checked={form.enabled}
+                  disabled={busy}
+                  onCheckedChange={(checked) => setForm((current) => ({ ...current, enabled: checked }))}
+                  aria-label={form.enabled ? t("common.enabled") : t("common.disabled")}
+                />
               </label>
             </section>
 

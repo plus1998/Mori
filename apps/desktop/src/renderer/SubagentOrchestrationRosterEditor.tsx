@@ -1,3 +1,4 @@
+import { Switch } from "./components/Switch";
 import { ChevronRight, Plus, Trash2, Users } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -158,23 +159,23 @@ export function SubagentOrchestrationRosterEditor({
                   <ChevronRight size={16} className="orchestration-roster-chevron" aria-hidden />
                 </button>
                 <div className="orchestration-roster-row-controls">
-                  <label
-                    className="mcp-toggle mcp-toggle-sm orchestration-roster-toggle"
+                  <Switch
+                    size="sm"
                     title={
                       agent.enabled
                         ? t("settings.models.editor.rosterToggleEnabled")
                         : t("settings.models.editor.rosterToggleDisabled")
                     }
                     onClick={(event) => event.stopPropagation()}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={agent.enabled}
-                      disabled={busy}
-                      onChange={(event) => onToggleEnabled(index, event.target.checked)}
-                    />
-                    <span className="mcp-toggle-track" aria-hidden />
-                  </label>
+                    checked={agent.enabled}
+                    disabled={busy}
+                    onCheckedChange={(checked) => onToggleEnabled(index, checked)}
+                    aria-label={
+                      agent.enabled
+                        ? t("settings.models.editor.rosterToggleEnabled")
+                        : t("settings.models.editor.rosterToggleDisabled")
+                    }
+                  />
                   <button
                     type="button"
                     className="mcp-icon-button danger orchestration-roster-remove"

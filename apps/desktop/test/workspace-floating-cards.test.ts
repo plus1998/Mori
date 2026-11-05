@@ -46,7 +46,7 @@ test("agent orchestration switches remain editable for an editable active thread
   expect(markup).toContain('aria-expanded="true"');
   expect(markup).toContain('aria-label="explore 已启用"');
   expect(markup).toContain('aria-label="coder 已启用"');
-  expect(markup).not.toContain('type="checkbox" disabled=""');
+  expect(markup).not.toMatch(/role="switch"[^>]*disabled/);
 });
 
 test("agent orchestration defaults collapsed when more than two subagents", () => {

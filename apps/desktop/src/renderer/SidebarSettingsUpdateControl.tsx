@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import type { DesktopUpdateState } from "../shared/desktop-update";
 import { ComposerHoverTooltip } from "./ComposerHoverTooltip";
 import { resolveSidebarUpdateAction } from "./desktop-update-banner-state";
+import { ICON_SIZE, ICON_STROKE } from "./icon-metrics";
 
 interface SidebarSettingsUpdateControlProps {
   state: DesktopUpdateState | undefined;
@@ -63,7 +64,7 @@ export function SidebarSettingsUpdateControl({
     return (
       <ComposerHoverTooltip content={tooltip}>
         <button type="button" className="sidebar-settings-meta" aria-label={ariaLabel}>
-          <CircleHelp size={18} aria-hidden />
+          <CircleHelp size={ICON_SIZE.md} strokeWidth={ICON_STROKE} aria-hidden />
         </button>
       </ComposerHoverTooltip>
     );
@@ -77,7 +78,12 @@ export function SidebarSettingsUpdateControl({
           aria-label={ariaLabel}
           role="status"
         >
-          <LoaderCircle size={16} className="sidebar-settings-update-spin" aria-hidden />
+          <LoaderCircle
+            size={ICON_SIZE.md}
+            strokeWidth={ICON_STROKE}
+            className="sidebar-settings-update-spin"
+            aria-hidden
+          />
         </span>
       </ComposerHoverTooltip>
     );
@@ -120,7 +126,7 @@ export function SidebarSettingsUpdateControl({
           onClick={onDownload}
           aria-label={ariaLabel}
         >
-          <Download size={18} aria-hidden />
+          <Download size={ICON_SIZE.md} strokeWidth={ICON_STROKE} aria-hidden />
         </button>
       </ComposerHoverTooltip>
     );
@@ -135,7 +141,7 @@ export function SidebarSettingsUpdateControl({
           onClick={onInstall}
           aria-label={ariaLabel}
         >
-          <RotateCw size={18} aria-hidden />
+          <RotateCw size={ICON_SIZE.md} strokeWidth={ICON_STROKE} aria-hidden />
         </button>
       </ComposerHoverTooltip>
     );
@@ -150,7 +156,7 @@ export function SidebarSettingsUpdateControl({
           onClick={onCheck}
           aria-label={ariaLabel}
         >
-          <CircleAlert size={18} aria-hidden />
+          <CircleAlert size={ICON_SIZE.md} strokeWidth={ICON_STROKE} aria-hidden />
         </button>
       </ComposerHoverTooltip>
     );
@@ -164,7 +170,7 @@ export function SidebarSettingsUpdateControl({
         onClick={onOpenRelease}
         aria-label={ariaLabel}
       >
-        <ExternalLink size={18} aria-hidden />
+        <ExternalLink size={ICON_SIZE.md} strokeWidth={ICON_STROKE} aria-hidden />
       </button>
     </ComposerHoverTooltip>
   );

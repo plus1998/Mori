@@ -1,3 +1,12 @@
+import { SettingsPage, SettingsSection } from "./components/SettingsPage";
+import { SettingsGroup, SettingsRow } from "./components/SettingsRow";
+import {
+  SettingsButton,
+  SettingsInput,
+  SettingsSelect,
+  SettingsTextarea,
+} from "./components/SettingsControls";
+import { Switch } from "./components/Switch";
 import { useTranslation } from "react-i18next";
 import type { ConversationMessage } from "@eco/shared";
 import {
@@ -158,9 +167,9 @@ export function MoriAssistantSettingsPanel({
   if (accountsOpen)
     return (
       <section className="mori-settings mori-manage-accounts" aria-label={t("moriUi.moriAssistant.accounts")}>
-        <button
+        <SettingsButton
+          variant="ghost"
           type="button"
-          className="mori-text-button"
           onClick={() => {
             setAccountsOpen(false);
             void refresh();
@@ -168,7 +177,7 @@ export function MoriAssistantSettingsPanel({
         >
           <ArrowLeft size={14} />
           {t("moriUi.moriAssistant.backToSettings")}
-        </button>
+        </SettingsButton>
         <Suspense fallback={<p role="status">{t("moriUi.moriAssistant.loadingAccounts")}</p>}>
           <LazyOpenAIAccountsPanel onError={setError} />
         </Suspense>
@@ -201,33 +210,22 @@ export function MoriAssistantSettingsPanel({
     { id: "wechat", label: "微信", icon: MessageCircle },
   ] as const;
   return (
-    <section className="mori-settings" aria-label={t("moriUi.moriAssistant.settings")}>
-      <div className="mori-settings-heading">
-        <span className="mori-mark">
-          <MoriIcon />
-        </span>
-        <div>
-          <h2>Mori</h2>
-          <p>{t("moriUi.moriAssistant.intro")}</p>
-        </div>
-        <span className={`mori-status-pill ${snapshot.settings.enabled ? "is-ready" : ""}`}>
-          {snapshot.settings.enabled ? "已启用" : "未启用"}
-        </span>
-      </div>
-      <label className="mori-toggle mori-enable">
-        <span>
-          <strong>{t("moriUi.moriAssistant.enable")}</strong>
-          <small>{t("moriUi.moriAssistant.configureHint")}</small>
-        </span>
-        <input
-          type="checkbox"
-          role="switch"
-          checked={settings.enabled}
-          aria-checked={settings.enabled}
-          disabled={locked}
-          onChange={(event) => patch("enabled", event.target.checked)}
+    <SettingsPage className="mori-settings" title="Mori" description={t("moriUi.moriAssistant.intro")}>
+      <SettingsGroup>
+        <SettingsRow
+          label={<>{t("moriUi.moriAssistant.enable")}</>}
+          description={<>{t("moriUi.moriAssistant.configureHint")}</>}
+          control={(controlProps) => (
+            <Switch
+              {...controlProps}
+              checked={settings.enabled}
+              disabled={locked}
+              onCheckedChange={(checked) => patch("enabled", checked)}
+              aria-label={t("moriUi.moriAssistant.enable")}
+            />
+          )}
         />
-      </label>
+      </SettingsGroup>
       <nav className="mori-settings-tabs" aria-label={t("moriUi.moriAssistant.settingsCategories")}>
         {tabs.map(({ id, label, icon: Icon }) => (
           <button
@@ -237,7 +235,7 @@ export function MoriAssistantSettingsPanel({
             className={tab === id ? "is-selected" : ""}
             onClick={() => setTab(id)}
           >
-            <Icon size={14} />
+            <Icon size={14} strokeWidth={1.75} aria-hidden />
             {label}
           </button>
         ))}
@@ -250,13 +248,13 @@ export function MoriAssistantSettingsPanel({
       <fieldset disabled={locked}>
         {tab === "conversation" ? (
           <>
-            <section className="mori-settings-section">
-              <div className="mori-section-heading">
-                <h3>{t("moriUi.moriAssistant.modelSource")}</h3>
-              </div>
+            <SettingsSection
+              className="mori-settings-section"
+              title={<>{t("moriUi.moriAssistant.modelSource")}</>}
+            >
               <label>
                 {t("moriUi.moriAssistant.usage")}
-                <select
+                <SettingsSelect
                   aria-label={t("moriUi.moriAssistant.assistantModelSource")}
                   value={settings.modelSource}
                   onChange={(event) => {
@@ -281,13 +279,13 @@ export function MoriAssistantSettingsPanel({
                 >
                   <option value="chatgpt">{t("moriUi.moriAssistant.chatgptAccount")}</option>
                   <option value="custom">{t("moriUi.moriAssistant.customModel")}</option>
-                </select>
+                </SettingsSelect>
               </label>
               {custom ? (
                 <>
                   <label>
                     {t("moriUi.moriAssistant.provider")}
-                    <select
+                    <SettingsSelect
                       aria-label={t("moriUi.moriAssistant.assistantProvider")}
                       value={settings.providerId}
                       aria-invalid={missingProvider}
@@ -310,37 +308,37 @@ export function MoriAssistantSettingsPanel({
                     >
                       <option value="">{t("moriUi.moriAssistant.selectProvider")}</option>
                       {settings.providerId && !selectedProvider ? (
-                        <option value={settings.providerId}>{t("moriUi.moriAssistant.providerUnavailable")}</option>
+                        <option value={settings.providerId}>
+                          {t("moriUi.moriAssistant.providerUnavailable")}
+                        </option>
                       ) : null}
                       {snapshot.customProviders.map((provider) => (
                         <option key={provider.id} value={provider.id}>
                           {provider.name}
                         </option>
                       ))}
-                    </select>
+                    </SettingsSelect>
                   </label>
                   <p className="mori-muted">{t("moriUi.moriAssistant.enabledProvidersHint")}</p>
                   {missingProvider ? (
-                    <p className="mori-field-error">
-                      {t("moriUi.moriAssistant.configureProviderHint")}
-                    </p>
+                    <p className="mori-field-error">{t("moriUi.moriAssistant.configureProviderHint")}</p>
                   ) : null}
                 </>
               ) : null}
-            </section>
+            </SettingsSection>
             {!custom ? (
-              <section className="mori-settings-section">
-                <div className="mori-section-heading">
-                  <h3>{t("moriUi.moriAssistant.selectedAccounts")}</h3>
-                  <small>{t("moriUi.moriAssistant.independentAccount")}</small>
-                </div>
+              <SettingsSection
+                className="mori-settings-section"
+                title={<>{t("moriUi.moriAssistant.selectedAccounts")}</>}
+                description={<>{t("moriUi.moriAssistant.independentAccount")}</>}
+              >
                 {snapshot.accounts.length === 0 ? (
                   <div className="mori-account-empty">
                     <p>{t("moriUi.moriAssistant.noAccounts")}</p>
-                    <button type="button" onClick={manageAccounts}>
+                    <SettingsButton variant="secondary" type="button" onClick={manageAccounts}>
                       {t("moriUi.moriAssistant.addAccount")}
                       <ChevronRight size={14} />
-                    </button>
+                    </SettingsButton>
                   </div>
                 ) : (
                   <div className="mori-account-list">
@@ -383,7 +381,12 @@ export function MoriAssistantSettingsPanel({
                     <input
                       type="checkbox"
                       checked
-                      onChange={() => patch("accountIds", settings.accountIds.filter((item) => item !== id))}
+                      onChange={() =>
+                        patch(
+                          "accountIds",
+                          settings.accountIds.filter((item) => item !== id),
+                        )
+                      }
                     />
                     <span>
                       <strong>{t("moriUi.moriAssistant.missingAccount")}</strong>
@@ -392,32 +395,40 @@ export function MoriAssistantSettingsPanel({
                     <span className="mori-account-meta">{t("moriUi.moriAssistant.uncheckToRemove")}</span>
                   </label>
                 ))}
-                {missingAccount ? <p className="mori-field-error">{t("moriUi.moriAssistant.selectAccountHint")}</p> : null}
-                {unavailableAccountIds.length ? <p className="mori-field-error">{t("moriUi.moriAssistant.removeMissingHint")}</p> : null}
+                {missingAccount ? (
+                  <p className="mori-field-error">{t("moriUi.moriAssistant.selectAccountHint")}</p>
+                ) : null}
+                {unavailableAccountIds.length ? (
+                  <p className="mori-field-error">{t("moriUi.moriAssistant.removeMissingHint")}</p>
+                ) : null}
                 {snapshot.accounts.length > 0 ? (
-                  <button type="button" className="mori-text-button" onClick={manageAccounts}>
+                  <SettingsButton variant="ghost" type="button" onClick={manageAccounts}>
                     {t("moriUi.moriAssistant.manageAccounts")}
                     <ExternalLink size={12} />
-                  </button>
+                  </SettingsButton>
                 ) : null}
-                <label className="mori-check">
-                  <input
-                    type="checkbox"
-                    checked={settings.autoSwitchAccounts}
-                    onChange={(event) => patch("autoSwitchAccounts", event.target.checked)}
+                <SettingsGroup>
+                  <SettingsRow
+                    label={t("moriUi.moriAssistant.accountRotation")}
+                    control={(controlProps) => (
+                      <Switch
+                        {...controlProps}
+                        checked={settings.autoSwitchAccounts}
+                        onCheckedChange={(checked) => patch("autoSwitchAccounts", checked)}
+                      />
+                    )}
                   />
-                  {t("moriUi.moriAssistant.accountRotation")}
-                </label>
-              </section>
+                </SettingsGroup>
+              </SettingsSection>
             ) : null}
-            <section className="mori-settings-section">
-              <div className="mori-section-heading">
-                <h3>{t("moriUi.moriAssistant.preferences")}</h3>
-              </div>
+            <SettingsSection
+              className="mori-settings-section"
+              title={<>{t("moriUi.moriAssistant.preferences")}</>}
+            >
               <div className="mori-settings-grid">
                 <label>
                   {t("moriUi.moriAssistant.model")}
-                  <input
+                  <SettingsInput
                     list="mori-models"
                     value={settings.model}
                     aria-invalid={!settings.model.trim()}
@@ -437,7 +448,7 @@ export function MoriAssistantSettingsPanel({
                 </label>
                 <label>
                   {t("moriUi.moriAssistant.reasoning")}
-                  <select
+                  <SettingsSelect
                     value={settings.reasoningEffort}
                     onChange={(event) =>
                       patch("reasoningEffort", event.target.value as MoriAssistantSettings["reasoningEffort"])
@@ -446,7 +457,7 @@ export function MoriAssistantSettingsPanel({
                     <option value="low">{t("moriUi.moriAssistant.reasoningLow")}</option>
                     <option value="medium">{t("moriUi.moriAssistant.reasoningMedium")}</option>
                     <option value="high">{t("moriUi.moriAssistant.reasoningHigh")}</option>
-                  </select>
+                  </SettingsSelect>
                 </label>
               </div>
               <p className="mori-workspace-note">
@@ -461,7 +472,7 @@ export function MoriAssistantSettingsPanel({
                 <div>
                   <label>
                     {t("moriUi.moriAssistant.name")}
-                    <input
+                    <SettingsInput
                       value={settings.name}
                       maxLength={60}
                       aria-invalid={!settings.name.trim()}
@@ -470,7 +481,7 @@ export function MoriAssistantSettingsPanel({
                   </label>
                   <label>
                     {t("moriUi.moriAssistant.instructions")}
-                    <textarea
+                    <SettingsTextarea
                       rows={4}
                       value={settings.instructions}
                       onChange={(event) => patch("instructions", event.target.value)}
@@ -478,14 +489,11 @@ export function MoriAssistantSettingsPanel({
                   </label>
                 </div>
               </details>
-            </section>
+            </SettingsSection>
           </>
         ) : null}
         {tab === "desktop" ? (
-          <section className="mori-settings-section">
-            <div className="mori-section-heading">
-              <h3>{t("moriUi.moriAssistant.invoke")}</h3>
-            </div>
+          <SettingsSection className="mori-settings-section" title={<>{t("moriUi.moriAssistant.invoke")}</>}>
             <div className="mori-computer-capability">
               <div>
                 <Monitor size={16} />
@@ -504,27 +512,28 @@ export function MoriAssistantSettingsPanel({
                   : snapshot.computerUse.reason}
               </p>
               {onOpenComputerUse ? (
-                <button type="button" onClick={onOpenComputerUse}>
+                <SettingsButton variant="secondary" type="button" onClick={onOpenComputerUse}>
                   {t("moriUi.moriAssistant.computerUseSettings")}
                   <ChevronRight size={13} />
-                </button>
+                </SettingsButton>
               ) : (
                 <small>{t("moriUi.moriAssistant.computerUseHint")}</small>
               )}
             </div>
-            <label className="mori-toggle">
-              <span>
-                <strong>{t("moriUi.moriAssistant.desktopBall")}</strong>
-                <small>{t("moriUi.moriAssistant.desktopBallHint")}</small>
-              </span>
-              <input
-                type="checkbox"
-                role="switch"
-                checked={settings.floatingEnabled}
-                aria-checked={settings.floatingEnabled}
-                onChange={(event) => patch("floatingEnabled", event.target.checked)}
+            <SettingsGroup>
+              <SettingsRow
+                label={<>{t("moriUi.moriAssistant.desktopBall")}</>}
+                description={<>{t("moriUi.moriAssistant.desktopBallHint")}</>}
+                control={(controlProps) => (
+                  <Switch
+                    {...controlProps}
+                    checked={settings.floatingEnabled}
+                    onCheckedChange={(checked) => patch("floatingEnabled", checked)}
+                    aria-label={t("moriUi.moriAssistant.desktopBall")}
+                  />
+                )}
               />
-            </label>
+            </SettingsGroup>
             <MoriPetSettings
               value={settings.petKey}
               onChange={(value) => patch("petKey", value)}
@@ -533,37 +542,39 @@ export function MoriAssistantSettingsPanel({
                 patch("petSizes", { ...settings.petSizes, [settings.petKey || "builtin:mori"]: size })
               }
             />
-            <label className="mori-toggle">
-              <span>
-                <strong>{t("moriUi.moriAssistant.keepRunning")}</strong>
-                <small>{t("moriUi.moriAssistant.keepRunningHint")}</small>
-              </span>
-              <input
-                type="checkbox"
-                role="switch"
-                checked={settings.backgroundEnabled}
-                aria-checked={settings.backgroundEnabled}
-                onChange={(event) => patch("backgroundEnabled", event.target.checked)}
+            <SettingsGroup>
+              <SettingsRow
+                label={<>{t("moriUi.moriAssistant.keepRunning")}</>}
+                description={<>{t("moriUi.moriAssistant.keepRunningHint")}</>}
+                control={(controlProps) => (
+                  <Switch
+                    {...controlProps}
+                    checked={settings.backgroundEnabled}
+                    onCheckedChange={(checked) => patch("backgroundEnabled", checked)}
+                    aria-label={t("moriUi.moriAssistant.keepRunning")}
+                  />
+                )}
               />
-            </label>
+            </SettingsGroup>
             <p className="mori-settings-hint">{t("moriUi.moriAssistant.shortcutHint")}</p>
-          </section>
+          </SettingsSection>
         ) : null}
         {tab === "wechat" ? (
           <section className="mori-settings-section mori-wechat">
-            <label className="mori-toggle">
-              <span>
-                <strong>{t("moriUi.moriAssistant.wechatInvoke")}</strong>
-                <small>{t("moriUi.moriAssistant.wechatHint")}</small>
-              </span>
-              <input
-                type="checkbox"
-                role="switch"
-                checked={settings.wechatEnabled}
-                aria-checked={settings.wechatEnabled}
-                onChange={(event) => patch("wechatEnabled", event.target.checked)}
+            <SettingsGroup>
+              <SettingsRow
+                label={<>{t("moriUi.moriAssistant.wechatInvoke")}</>}
+                description={<>{t("moriUi.moriAssistant.wechatHint")}</>}
+                control={(controlProps) => (
+                  <Switch
+                    {...controlProps}
+                    checked={settings.wechatEnabled}
+                    onCheckedChange={(checked) => patch("wechatEnabled", checked)}
+                    aria-label={t("moriUi.moriAssistant.wechatInvoke")}
+                  />
+                )}
               />
-            </label>
+            </SettingsGroup>
             <div className="mori-wechat-connection">
               <span
                 className={`mori-status-pill ${snapshot.wechat.status === "connected" ? "is-ready" : ""}`}
@@ -597,9 +608,9 @@ export function MoriAssistantSettingsPanel({
                   : "启用后生成二维码，使用微信扫码连接。"}
               </p>
               <div className="mori-settings-actions">
-                <button
+                <SettingsButton
+                  variant="primary"
                   type="button"
-                  className="mori-primary"
                   disabled={!settings.enabled || !settings.wechatEnabled || invalid}
                   onClick={() =>
                     void action(async () => {
@@ -615,14 +626,15 @@ export function MoriAssistantSettingsPanel({
                       : dirty
                         ? "保存并生成二维码"
                         : "生成登录二维码"}
-                </button>
+                </SettingsButton>
                 {snapshot.wechat.status !== "disconnected" ? (
-                  <button
+                  <SettingsButton
+                    variant="secondary"
                     type="button"
                     onClick={() => void action(() => desktopApi().moriAssistantDisconnectWechat())}
                   >
                     {t("moriUi.moriAssistant.disconnect")}
-                  </button>
+                  </SettingsButton>
                 ) : null}
               </div>
               {!settings.enabled || !settings.wechatEnabled ? (
@@ -639,9 +651,7 @@ export function MoriAssistantSettingsPanel({
                 {snapshot.wechat.feedbackError}
               </p>
             ) : null}
-            <p className="mori-muted">
-              {t("moriUi.moriAssistant.typingHint")}
-            </p>
+            <p className="mori-muted">{t("moriUi.moriAssistant.typingHint")}</p>
             <p className="mori-muted">{t("moriUi.moriAssistant.wechatFormats")}</p>
           </section>
         ) : null}
@@ -673,7 +683,8 @@ export function MoriAssistantSettingsPanel({
             )}
           </span>
           {dirty ? (
-            <button
+            <SettingsButton
+              variant="secondary"
               type="button"
               disabled={locked}
               onClick={() => {
@@ -683,29 +694,31 @@ export function MoriAssistantSettingsPanel({
               }}
             >
               {t("moriUi.moriAssistant.discard")}
-            </button>
+            </SettingsButton>
           ) : null}
-          <button
+          <SettingsButton
+            variant="primary"
             type="button"
-            className="mori-primary"
             disabled={locked || invalid || !dirty}
             onClick={() => void action(persist)}
           >
-            {busy ? <LoaderCircle size={14} className="spinning" /> : null}{t("moriUi.moriAssistant.saveSettings")}
-          </button>
+            {busy ? <LoaderCircle size={14} className="spinning" /> : null}
+            {t("moriUi.moriAssistant.saveSettings")}
+          </SettingsButton>
           {snapshot.settings.enabled && !dirty ? (
-            <button
+            <SettingsButton
+              variant="secondary"
               type="button"
               disabled={busy}
               onClick={() => (onDone ? onDone() : void action(() => desktopApi().moriAssistantShowMain()))}
             >
               {t("moriUi.moriAssistant.startChat")}
               <ChevronRight size={14} />
-            </button>
+            </SettingsButton>
           ) : null}
         </div>
       </div>
-    </section>
+    </SettingsPage>
   );
 }
 
@@ -974,7 +987,10 @@ export function MoriAssistantPanel({
     return true;
   });
   return (
-    <section className={`mori-panel ${floating ? "is-floating" : ""}`} aria-label={t("moriUi.moriAssistant.chatLabel")}>
+    <section
+      className={`mori-panel ${floating ? "is-floating" : ""}`}
+      aria-label={t("moriUi.moriAssistant.chatLabel")}
+    >
       <header className="mori-panel-header">
         <span className="mori-mark">
           <MoriIcon
@@ -1033,7 +1049,12 @@ export function MoriAssistantPanel({
         >
           <Plus size={17} />
         </button>
-        <button type="button" title={t("moriUi.moriAssistant.assistantSettings")} aria-label={t("moriUi.moriAssistant.assistantSettings")} onClick={openSettings}>
+        <button
+          type="button"
+          title={t("moriUi.moriAssistant.assistantSettings")}
+          aria-label={t("moriUi.moriAssistant.assistantSettings")}
+          onClick={openSettings}
+        >
           <Settings size={16} />
         </button>
         {floating ? (
@@ -1222,8 +1243,21 @@ export function MoriAssistantPanel({
                 {olderLoading ? "正在加载…" : "查看更早的消息"}
               </button>
             ) : null}
-            {snapshot && <MoriScheduledCards schedules={snapshot.schedules} occurrences={snapshot.scheduledOccurrences} onChanged={refresh} />}
-            {snapshot?.activeThreadId && snapshot.activeThreadId !== snapshot.currentThreadId && <p className="mori-activity">{t("moriUi.moriAssistant.runningElsewhere")}<button type="button" onClick={() => void switchSession(snapshot.activeThreadId)}>{t("moriUi.moriAssistant.openRunningChat")}</button></p>}
+            {snapshot && (
+              <MoriScheduledCards
+                schedules={snapshot.schedules}
+                occurrences={snapshot.scheduledOccurrences}
+                onChanged={refresh}
+              />
+            )}
+            {snapshot?.activeThreadId && snapshot.activeThreadId !== snapshot.currentThreadId && (
+              <p className="mori-activity">
+                {t("moriUi.moriAssistant.runningElsewhere")}
+                <button type="button" onClick={() => void switchSession(snapshot.activeThreadId)}>
+                  {t("moriUi.moriAssistant.openRunningChat")}
+                </button>
+              </p>
+            )}
             {messages.map((message) => (
               <article className={`mori-message is-${message.role}`} key={message.messageId}>
                 <div className="mori-message-label">
@@ -1232,7 +1266,9 @@ export function MoriAssistantPanel({
                       ? "你 · 来自微信"
                       : snapshot?.sourceByMessage[message.messageId] === "task"
                         ? "任务更新"
-                        : snapshot?.sourceByMessage[message.messageId] === "schedule" ? "定时操作" : "你"
+                        : snapshot?.sourceByMessage[message.messageId] === "schedule"
+                          ? "定时操作"
+                          : "你"
                     : (snapshot?.settings.name ?? "Mori")}
                   {message.status === "queued"
                     ? " · 排队中"
@@ -1348,7 +1384,8 @@ export function MoriAssistantPanel({
                     disabled={answering}
                   />
                   <button type="submit" disabled={!answer.trim() || answering}>
-                    {answering ? <LoaderCircle size={13} className="spinning" /> : null}{t("moriUi.moriAssistant.answerContinue")}
+                    {answering ? <LoaderCircle size={13} className="spinning" /> : null}
+                    {t("moriUi.moriAssistant.answerContinue")}
                   </button>
                 </>
               )}
@@ -1487,7 +1524,9 @@ export function MoriAssistantSurface({ mode }: { mode: "ball" | "panel" | "notic
   const updateHitMap = useCallback((map: MoriPetHitMap, bodyMap?: MoriPetHitMap) => {
     inputHitMap.current = map;
     bodyHitMap.current = bodyMap;
-    void desktopApi().moriAssistantPetHitMap(map).catch((error) => setPetError(String(error)));
+    void desktopApi()
+      .moriAssistantPetHitMap(map)
+      .catch((error) => setPetError(String(error)));
   }, []);
   useEffect(() => {
     if (mode !== "ball") return;
@@ -1602,8 +1641,7 @@ export function MoriAssistantSurface({ mode }: { mode: "ball" | "panel" | "notic
           : status === "error" || petError
             ? "failed"
             : "idle");
-  const indicator =
-    petError || status === "error" ? "error" : status === "waiting" ? "waiting" : undefined;
+  const indicator = petError || status === "error" ? "error" : status === "waiting" ? "waiting" : undefined;
   const statusLabel =
     indicator === "error"
       ? "Mori 遇到错误，点击查看"
@@ -1622,16 +1660,14 @@ export function MoriAssistantSurface({ mode }: { mode: "ball" | "panel" | "notic
       ((event.clientY - bounds.top) * map.height) / bounds.height,
     );
   };
-  const greetOnBodyEntry = (
-    event: {
-      pointerType: string;
-      clientX: number;
-      clientY: number;
-      screenX: number;
-      screenY: number;
-      currentTarget: HTMLButtonElement;
-    },
-  ) => {
+  const greetOnBodyEntry = (event: {
+    pointerType: string;
+    clientX: number;
+    clientY: number;
+    screenX: number;
+    screenY: number;
+    currentTarget: HTMLButtonElement;
+  }) => {
     if (event.pointerType !== "mouse" || drag.current) return;
     const previous = pointerPosition.current;
     pointerPosition.current = { x: event.screenX, y: event.screenY };
@@ -1662,7 +1698,9 @@ export function MoriAssistantSurface({ mode }: { mode: "ball" | "panel" | "notic
       onPointerDown={(event) => {
         if (event.button !== 0 || !pointerHits(event, inputHitMap.current)) return;
         event.currentTarget.setPointerCapture(event.pointerId);
-        void desktopApi().moriAssistantPetDragging(true).catch((error) => setPetError(String(error)));
+        void desktopApi()
+          .moriAssistantPetDragging(true)
+          .catch((error) => setPetError(String(error)));
         drag.current = { x: event.screenX, y: event.screenY, moved: false };
       }}
       onPointerMove={(event) => {
@@ -1686,17 +1724,23 @@ export function MoriAssistantSurface({ mode }: { mode: "ball" | "panel" | "notic
         }
         drag.current = undefined;
         setDragAnimation(undefined);
-        void desktopApi().moriAssistantPetDragging(false).catch((error) => setPetError(String(error)));
+        void desktopApi()
+          .moriAssistantPetDragging(false)
+          .catch((error) => setPetError(String(error)));
       }}
       onPointerCancel={() => {
         drag.current = undefined;
         setDragAnimation(undefined);
-        void desktopApi().moriAssistantPetDragging(false).catch((error) => setPetError(String(error)));
+        void desktopApi()
+          .moriAssistantPetDragging(false)
+          .catch((error) => setPetError(String(error)));
       }}
       onLostPointerCapture={() => {
         drag.current = undefined;
         setDragAnimation(undefined);
-        void desktopApi().moriAssistantPetDragging(false).catch((error) => setPetError(String(error)));
+        void desktopApi()
+          .moriAssistantPetDragging(false)
+          .catch((error) => setPetError(String(error)));
       }}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") {
@@ -1717,7 +1761,9 @@ export function MoriAssistantSurface({ mode }: { mode: "ball" | "panel" | "notic
         />
       ) : null}
       {petError ? (
-        <span className="mori-pet-load-error" aria-hidden="true">!</span>
+        <span className="mori-pet-load-error" aria-hidden="true">
+          !
+        </span>
       ) : null}
     </button>
   );

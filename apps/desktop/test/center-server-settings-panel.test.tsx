@@ -94,8 +94,8 @@ test("connected connection panel keeps switch and delete enabled", () => {
   expect(markup).toContain("互联");
   expect(markup).toContain("Supabase Cloud 部署");
   expect(markup).toContain("删除连接");
-  expect(markup).toContain('<input type="checkbox" checked=""/>');
-  expect(markup).not.toMatch(/type="checkbox"[^>]*disabled/);
+  expect(markup).toContain('role="switch" aria-checked="true"');
+  expect(markup).not.toMatch(/role="switch"[^>]*disabled/);
   expect(markup).not.toMatch(/cs-text-action is-muted"[^>]*disabled[^>]*>[\s\S]*?删除连接/);
 });
 
@@ -113,7 +113,7 @@ test("connected connection panel shows sync status instead of pull/push buttons"
 test("saving still disables switch and delete", () => {
   const markup = renderPanel(connectedSnapshot, true);
 
-  expect(markup).toMatch(/type="checkbox"[^>]*disabled/);
+  expect(markup).toMatch(/role="switch"[^>]*disabled/);
   expect(markup).toMatch(/cs-text-action is-muted"[^>]*disabled[^>]*>[\s\S]*?删除连接/);
 });
 

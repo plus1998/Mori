@@ -46,7 +46,8 @@ test("the connector list offers raw-JSON import next to the add button", () => {
   expect(markup).toContain("从 JSON 导入");
   expect(markup).toContain("添加服务器");
   // Both toolbar actions share one button family, so they cannot drift apart again.
-  expect(markup.match(/class="mcp-add-button"/g)).toHaveLength(2);
+  const toolbar = markup.match(/<div class="mcp-list-toolbar-actions">([\s\S]*?)<\/div>/)?.[1] ?? "";
+  expect(toolbar.match(/class="settings-ui-button"/g)).toHaveLength(2);
 });
 
 test("the JSON editor points at the broken line instead of a generic failure", () => {

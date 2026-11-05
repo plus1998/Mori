@@ -1,3 +1,4 @@
+import { Switch } from "./components/Switch";
 import { Blocks, Globe, Image, Monitor, Volume2 } from "lucide-react";
 import { type CSSProperties, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -62,16 +63,14 @@ function IntegrationRows({ availability, enabledSettings, canEdit, saving, onTog
                   : t("composer.integrations.unavailable")}
               </span>
             </div>
-            <label className="composer-switch" title={label}>
-              <input
-                type="checkbox"
-                checked={enabled}
-                disabled={!canEdit || saving || !item.available}
-                aria-label={label}
-                onChange={() => onToggle(item.id, !enabled)}
-              />
-              <span className="composer-switch-track" aria-hidden />
-            </label>
+            <Switch
+              size="sm"
+              title={label}
+              checked={enabled}
+              disabled={!canEdit || saving || !item.available}
+              aria-label={label}
+              onCheckedChange={() => onToggle(item.id, !enabled)}
+            />
           </div>
         );
       })}

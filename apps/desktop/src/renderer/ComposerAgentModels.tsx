@@ -1,3 +1,4 @@
+import { Switch } from "./components/Switch";
 import { Users } from "lucide-react";
 import {
   type CSSProperties,
@@ -89,23 +90,18 @@ function SubagentSwitchRows({
               <span className="composer-mcp-row-transport">{modelShort}</span>
             </div>
             {hasSwitch && subagentRole ? (
-              <label
-                className="composer-switch"
+              <Switch
+                size="sm"
                 title={t(enabled ? "composer.enabledNamed" : "composer.disabledNamed", {
                   name: displayName,
                 })}
-              >
-                <input
-                  type="checkbox"
-                  checked={enabled}
-                  disabled={subagentSaving || !clickable}
-                  aria-label={t(enabled ? "composer.enabledAria" : "composer.disabledAria", {
-                    name: displayName,
-                  })}
-                  onChange={() => onToggleSubagent?.(subagentRole, !enabled)}
-                />
-                <span className="composer-switch-track" aria-hidden />
-              </label>
+                checked={enabled}
+                disabled={subagentSaving || !clickable}
+                aria-label={t(enabled ? "composer.enabledAria" : "composer.disabledAria", {
+                  name: displayName,
+                })}
+                onCheckedChange={() => onToggleSubagent?.(subagentRole, !enabled)}
+              />
             ) : (
               <span className="composer-mcp-row-status">
                 {enabled ? t("composer.enabled") : t("composer.disabled")}
@@ -135,23 +131,18 @@ function AgentModelRows({
         const modelShort = modelId?.trim() ? formatModelDisplayName(modelId) : t("common.notConfigured");
         const className = rowClassName({ subagent, enabled, main: main });
         const switchControl = subagentRole ? (
-          <label
-            className="composer-switch"
+          <Switch
+            size="sm"
             title={t(enabled ? "composer.enabledNamed" : "composer.disabledNamed", {
               name: displayName,
             })}
-          >
-            <input
-              type="checkbox"
-              checked={enabled}
-              disabled={subagentSaving || !clickable}
-              aria-label={t(enabled ? "composer.enabledAria" : "composer.disabledAria", {
-                name: displayName,
-              })}
-              onChange={() => onToggleSubagent?.(subagentRole, !enabled)}
-            />
-            <span className="composer-switch-track" aria-hidden />
-          </label>
+            checked={enabled}
+            disabled={subagentSaving || !clickable}
+            aria-label={t(enabled ? "composer.enabledAria" : "composer.disabledAria", {
+              name: displayName,
+            })}
+            onCheckedChange={() => onToggleSubagent?.(subagentRole, !enabled)}
+          />
         ) : undefined;
 
         return (

@@ -1,10 +1,11 @@
+import { SettingsGroup, SettingsRow } from "./components/SettingsRow";
+import "./capability-settings.css";
+import { SettingsInput, SettingsButton, SettingsSelect } from "./components/SettingsControls";
+import { Switch } from "./components/Switch";
 import { ChevronDown, LinkIcon, LoaderCircle, Search } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import {
-  WEB_SEARCH_APPROVAL_MODES,
-  type WebSearchApprovalMode,
-} from "../shared/integrated-web-search";
+import { WEB_SEARCH_APPROVAL_MODES, type WebSearchApprovalMode } from "../shared/integrated-web-search";
 import type {
   IntegratedWebSearchProvider,
   IntegratedWebSearchSettingsSaveInput,
@@ -52,8 +53,6 @@ export function IntegratedWebSearchSettingsSection({
   onSave,
 }: IntegratedWebSearchSettingsSectionProps) {
   const { t } = useTranslation();
-  const enableId = useId();
-  const approvalId = useId();
   const queryId = useId();
   const [enabled, setEnabled] = useState(settings.enabled);
   const [provider, setProvider] = useState(settings.provider);
@@ -68,7 +67,9 @@ export function IntegratedWebSearchSettingsSection({
     setTestResult(undefined);
     setTestError(undefined);
     setTesting(false);
-    return () => { testRequest.current += 1; };
+    return () => {
+      testRequest.current += 1;
+    };
   }, [provider, settings.provider, settings.hasApiKey, apiKeyDraft, testQuery, enabled]);
 
   useEffect(() => {
@@ -81,8 +82,12 @@ export function IntegratedWebSearchSettingsSection({
 
   const selectedProvider = PROVIDERS.find((entry) => entry.id === provider) ?? PROVIDERS[0]!;
   const fieldsDisabled = disabled || !enabled || testing;
-  const canTest = !fieldsDisabled && provider === settings.provider && settings.hasApiKey &&
-    !apiKeyDraft.trim() && Boolean(testQuery.trim());
+  const canTest =
+    !fieldsDisabled &&
+    provider === settings.provider &&
+    settings.hasApiKey &&
+    !apiKeyDraft.trim() &&
+    Boolean(testQuery.trim());
 
   async function testSearch() {
     if (!canTest || !window.eco) return;
@@ -141,28 +146,24 @@ export function IntegratedWebSearchSettingsSection({
   }
 
   return (
-    <section className="provider-form-section models-integrated-web-search-section">
-      <div className="mcp-field models-toggle-field provider-enable-row">
-        <span className="integrated-web-search-enable-copy" id={enableId}>
-          <span className="mcp-field-label">{t("settings.integratedWebSearch.enabled")}</span>
-        </span>
-        <label
-          className="mcp-toggle mcp-toggle-sm"
-          title={enabled ? t("common.enabled") : t("common.disabled")}
-        >
-          <input
-            type="checkbox"
-            checked={enabled}
-            disabled={disabled || testing}
-            aria-labelledby={enableId}
-            onChange={(event) => commitEnabled(event.target.checked)}
-          />
-          <span className="mcp-toggle-track" aria-hidden />
-        </label>
-      </div>
+    <section className="capability-web-search-form">
+      <SettingsGroup>
+        <SettingsRow
+          label={t("settings.integratedWebSearch.enabled")}
+          control={(controlProps) => (
+            <Switch
+              {...controlProps}
+              title={enabled ? t("common.enabled") : t("common.disabled")}
+              checked={enabled}
+              disabled={disabled || testing}
+              onCheckedChange={(checked) => commitEnabled(checked)}
+            />
+          )}
+        />
+      </SettingsGroup>
 
       <div className="mcp-field models-provider-preset-field">
-        <span className="mcp-field-label">{t("settings.integratedWebSearch.provider")}</span>
+        <span className="settings-ui-field-label">{t("settings.integratedWebSearch.provider")}</span>
         <div
           className="provider-preset-tabs"
           role="radiogroup"
@@ -192,7 +193,9 @@ export function IntegratedWebSearchSettingsSection({
 
       <label className="mcp-field">
         <span className="models-provider-label-row">
-          <span className="mcp-field-label">{t(`settings.integratedWebSearch.apiKey.${provider}`)}</span>
+          <span className="settings-ui-field-label">
+            {t(`settings.integratedWebSearch.apiKey.${provider}`)}
+          </span>
           <span className="integrated-web-search-api-key-actions">
             <a
               className="models-provider-inline-link"
@@ -215,8 +218,7 @@ export function IntegratedWebSearchSettingsSection({
             ) : null}
           </span>
         </span>
-        <input
-          className="mcp-field-input"
+        <SettingsInput
           type="password"
           value={apiKeyDraft}
           placeholder={
@@ -236,13 +238,12 @@ export function IntegratedWebSearchSettingsSection({
       </label>
 
       <div className="mcp-field integrated-web-search-test">
-        <label className="mcp-field-label" htmlFor={queryId}>
+        <label className="settings-ui-field-label" htmlFor={queryId}>
           {t("settings.integratedWebSearch.testQuery")}
         </label>
         <div className="integrated-web-search-test-controls">
-          <input
+          <SettingsInput
             id={queryId}
-            className="mcp-field-input"
             value={testQuery}
             maxLength={128}
             disabled={fieldsDisabled}
@@ -254,17 +255,22 @@ export function IntegratedWebSearchSettingsSection({
               }
             }}
           />
-          <button
+          <SettingsButton
+            variant="primary"
+            className="integrated-web-search-test-button"
             type="button"
-            className="mcp-save-button integrated-web-search-test-button"
             disabled={!canTest}
             onClick={() => void testSearch()}
           >
-            {testing ? <LoaderCircle size={14} className="spinning" aria-hidden /> : <Search size={14} aria-hidden />}
+            {testing ? (
+              <LoaderCircle size={14} className="spinning" aria-hidden />
+            ) : (
+              <Search size={14} aria-hidden />
+            )}
             {t(testing ? "settings.integratedWebSearch.testing" : "settings.integratedWebSearch.test")}
-          </button>
+          </SettingsButton>
         </div>
-        <small className="mcp-field-hint">{t("settings.integratedWebSearch.testHint")}</small>
+        <small className="settings-ui-field-hint">{t("settings.integratedWebSearch.testHint")}</small>
         <div role="status" aria-live="polite" aria-busy={testing}>
           {testError ? (
             <p className="integrated-web-search-test-error">
@@ -273,18 +279,31 @@ export function IntegratedWebSearchSettingsSection({
           ) : null}
           {testResult ? (
             <>
-              <p className={testResult.results.length ? "integrated-web-search-test-success" : "mcp-field-hint"}>
-                {t(testResult.results.length ? "settings.integratedWebSearch.testPassed" : "settings.integratedWebSearch.testEmpty", {
-                  count: testResult.results.length,
-                  duration: (testResult.elapsedMs / 1000).toFixed(2),
-                })}
+              <p
+                className={
+                  testResult.results.length ? "integrated-web-search-test-success" : "mcp-field-hint"
+                }
+              >
+                {t(
+                  testResult.results.length
+                    ? "settings.integratedWebSearch.testPassed"
+                    : "settings.integratedWebSearch.testEmpty",
+                  {
+                    count: testResult.results.length,
+                    duration: (testResult.elapsedMs / 1000).toFixed(2),
+                  },
+                )}
               </p>
               <ul className="integrated-web-search-test-results">
                 {testResult.results.map((result, index) => (
                   <li key={`${index}-${result.url}`}>
                     {/^https?:\/\//i.test(result.url) ? (
-                      <a href={result.url} target="_blank" rel="noreferrer">{result.title || result.url}</a>
-                    ) : <strong>{result.title || result.url}</strong>}
+                      <a href={result.url} target="_blank" rel="noreferrer">
+                        {result.title || result.url}
+                      </a>
+                    ) : (
+                      <strong>{result.title || result.url}</strong>
+                    )}
                     {result.url ? <small>{result.url}</small> : null}
                     {result.description ? <p>{result.description}</p> : null}
                   </li>
@@ -296,28 +315,37 @@ export function IntegratedWebSearchSettingsSection({
       </div>
 
       {enabled ? (
-        <div className="mcp-field models-toggle-field provider-enable-row">
-          <span className="integrated-web-search-enable-copy" id={approvalId}>
-            <span className="mcp-field-label">{t("settings.integratedWebSearch.approvalMode")}</span>
-            <small>{t("settings.integratedWebSearch.approvalModeHint")}</small>
-          </span>
-          <label className="browser-settings-select">
-            <span className="sr-only">{t("settings.integratedWebSearch.approvalMode")}</span>
-            <select
-              value={settings.approvalMode}
-              disabled={disabled || testing}
-              aria-labelledby={approvalId}
-              onChange={(event) => commitApprovalMode(event.target.value as WebSearchApprovalMode)}
-            >
-              {(WEB_SEARCH_APPROVAL_MODES as readonly WebSearchApprovalMode[]).map((mode) => (
-                <option key={mode} value={mode}>
-                  {t(`settings.integratedWebSearch.approvalMode.${mode}`)}
-                </option>
-              ))}
-            </select>
-            <ChevronDown size={14} strokeWidth={2} aria-hidden className="browser-settings-select-chevron" />
-          </label>
-        </div>
+        <SettingsGroup>
+          <SettingsRow
+            label={t("settings.integratedWebSearch.approvalMode")}
+            description={t("settings.integratedWebSearch.approvalModeHint")}
+            stackControlOnNarrow
+            control={(controlProps) => (
+              <label className="browser-settings-select">
+                <span className="sr-only">{t("settings.integratedWebSearch.approvalMode")}</span>
+                <SettingsSelect
+                  {...controlProps}
+                  variant="inline"
+                  value={settings.approvalMode}
+                  disabled={disabled || testing}
+                  onChange={(event) => commitApprovalMode(event.target.value as WebSearchApprovalMode)}
+                >
+                  {(WEB_SEARCH_APPROVAL_MODES as readonly WebSearchApprovalMode[]).map((mode) => (
+                    <option key={mode} value={mode}>
+                      {t(`settings.integratedWebSearch.approvalMode.${mode}`)}
+                    </option>
+                  ))}
+                </SettingsSelect>
+                <ChevronDown
+                  size={14}
+                  strokeWidth={2}
+                  aria-hidden
+                  className="browser-settings-select-chevron"
+                />
+              </label>
+            )}
+          />
+        </SettingsGroup>
       ) : null}
     </section>
   );

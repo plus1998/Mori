@@ -1,0 +1,43 @@
+/* Codex AWNZ/ZEx5/bZug: row insets, label/description hierarchy and inset divider. */
+.settings-ui-group {
+  container-type: inline-size;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  background: var(--card-surface-bg, var(--bg-elevated));
+  list-style: none;
+}
+
+.settings-ui-row {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 56px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 12px 16px;
+}
+
+.settings-ui-group > .settings-ui-row:not(:last-child)::after {
+  position: absolute;
+  inset: auto 16px 0;
+  height: 1px;
+  background: var(--border-subtle);
+  content: "";
+  pointer-events: none;
+}
+
+.settings-ui-row-main { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 2px; }
+.settings-ui-row-label { color: var(--text-primary); font-size: 13px; font-weight: 500; line-height: 1.428571; overflow-wrap: anywhere; }
+.settings-ui-row-description { color: var(--text-secondary); font-size: 12px; font-weight: 400; line-height: 16px; overflow-wrap: anywhere; }
+.settings-ui-row-control { display: flex; min-width: 0; max-width: min(240px, 48%); flex: 0 0 auto; align-items: center; justify-content: flex-end; gap: 8px; }
+
+@container (max-width: 420px) {
+  .settings-ui-row[data-stack-narrow="true"] { flex-direction: column; align-items: stretch; gap: 8px; }
+  .settings-ui-row[data-stack-narrow="true"] > .settings-ui-row-control { max-width: 100%; justify-content: flex-start; }
+}

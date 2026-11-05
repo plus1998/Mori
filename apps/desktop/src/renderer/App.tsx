@@ -40,7 +40,6 @@ import {
   Clock3,
   ClipboardList,
   Cloud,
-  Cog,
   CornerDownRight,
   Cpu,
   FolderOpen,
@@ -13077,7 +13076,7 @@ function App() {
                     : t("nav.settings")
                 }
               >
-                <Cog size={ICON_SIZE.md} strokeWidth={ICON_STROKE} aria-hidden />
+                <Settings size={ICON_SIZE.md} strokeWidth={ICON_STROKE} aria-hidden />
                 {centerServerRegistered ? (
                   <>
                     <span className="sidebar-settings-action-label">{sidebarCenterDeviceName}</span>

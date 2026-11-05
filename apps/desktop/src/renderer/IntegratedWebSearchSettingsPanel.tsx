@@ -1,3 +1,5 @@
+import "./capability-settings.css";
+import { SettingsPage } from "./components/SettingsPage";
 import { useTranslation } from "react-i18next";
 import type { CenterServerSyncDomain, CenterServerSyncDomainResult } from "../shared/center-server";
 import type {
@@ -28,23 +30,24 @@ export function IntegratedWebSearchSettingsPanel({
   const { t } = useTranslation();
 
   return (
-    <>
-      <header className="settings-page-header settings-page-header-with-action integrated-web-search-settings-header">
-        <div>
-          <h1>{t("settings.integratedWebSearch.title")}</h1>
-          <p className="settings-page-desc">{t("settings.integratedWebSearch.pageDesc")}</p>
-        </div>
-        {onSyncDomain ? (
-          <SettingsSyncControl
-            domain="proxyBridge"
-            visible={centerServerSyncVisible}
-            disabled={busy}
-            onSync={onSyncDomain}
-          />
-        ) : null}
-      </header>
-
+    <SettingsPage
+      className="capability-settings-page"
+      title={t("settings.integratedWebSearch.title")}
+      description={t("settings.integratedWebSearch.pageDesc")}
+      actions={
+        <>
+          {onSyncDomain ? (
+            <SettingsSyncControl
+              domain="proxyBridge"
+              visible={centerServerSyncVisible}
+              disabled={busy}
+              onSync={onSyncDomain}
+            />
+          ) : null}
+        </>
+      }
+    >
       <IntegratedWebSearchSettingsSection settings={settings} disabled={busy} onSave={onSave} />
-    </>
+    </SettingsPage>
   );
 }

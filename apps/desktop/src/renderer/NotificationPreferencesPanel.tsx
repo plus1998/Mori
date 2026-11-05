@@ -1,5 +1,7 @@
+import { SettingsGroup, SettingsRow } from "./components/SettingsRow";
+import { Switch } from "./components/Switch";
 import { ChevronDown } from "lucide-react";
-import { useId, useState } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { BASH_REVIEW_MODES, type BashReviewMode, isBashReviewMode } from "../shared/bash-review-ui";
 import type { FollowUpDeliveryMode } from "../shared/ipc";
@@ -9,14 +11,9 @@ import {
   TURN_COMPLETION_NOTIFY_MODES,
   type TurnCompletionNotifyMode,
 } from "../shared/notification-settings";
-import {
-  THINKING_DISPLAY_MODES,
-  type ThinkingDisplayMode,
-} from "./thinking-display-preferences";
-import {
-  TOKEN_SPEED_DISPLAY_MODES,
-  type TokenSpeedDisplayMode,
-} from "./token-speed-preferences";
+import { THINKING_DISPLAY_MODES, type ThinkingDisplayMode } from "./thinking-display-preferences";
+import { TOKEN_SPEED_DISPLAY_MODES, type TokenSpeedDisplayMode } from "./token-speed-preferences";
+import "./settings-form-pages.css";
 
 interface NotificationPreferencesPanelProps {
   settings: NotificationSettingsSnapshot;
@@ -59,16 +56,6 @@ export function NotificationPreferencesPanel({
   onThinkingDisplayModeChange = () => undefined,
 }: NotificationPreferencesPanelProps) {
   const { t } = useTranslation();
-  const turnSelectId = useId();
-  const languageSelectId = useId();
-  const cacheBreakTipsId = useId();
-  const followUpDeliveryId = useId();
-  const defaultBashReviewId = useId();
-  const billingVisibilityId = useId();
-  const tokenSpeedId = useId();
-  const thinkingDisplayModeId = useId();
-  const permissionId = useId();
-  const questionId = useId();
   const [busy, setBusy] = useState(false);
   const [followUpBusy, setFollowUpBusy] = useState(false);
   const [bashReviewBusy, setBashReviewBusy] = useState(false);
@@ -98,7 +85,7 @@ export function NotificationPreferencesPanel({
   }
 
   return (
-    <div className="notification-preferences">
+    <div className="notification-preferences settings-form-page">
       <header className="settings-page-header">
         <h1>{t("settings.preferences")}</h1>
       </header>
@@ -110,16 +97,15 @@ export function NotificationPreferencesPanel({
           </div>
         </div>
 
-        <ul className="settings-rows">
-          <li>
-            <label className="notification-settings-row" htmlFor={languageSelectId}>
-              <span className="settings-row-main">
-                <strong>{t("settings.language")}</strong>
-                <small>{t("settings.languageSubtitle")}</small>
-              </span>
+        <SettingsGroup>
+          <SettingsRow
+            label={t("settings.language")}
+            description={t("settings.languageSubtitle")}
+            stackControlOnNarrow
+            control={(controlProps) => (
               <span className="notification-settings-select">
                 <select
-                  id={languageSelectId}
+                  {...controlProps}
                   value={localePreference}
                   onChange={(event) => {
                     const next = event.target.value as AppLocalePreference;
@@ -137,54 +123,53 @@ export function NotificationPreferencesPanel({
                 </select>
                 <ChevronDown size={14} aria-hidden />
               </span>
-            </label>
-          </li>
+            )}
+          />
 
-          <li>
-            <div className="notification-settings-row">
-              <span className="settings-row-main" id={followUpDeliveryId}>
-                <strong>{t("settings.followUpDelivery")}</strong>
-                <small>{t(followUpDeliveryMode === "queue" ? "settings.followUpDeliveryHint.queue" : "settings.followUpDeliveryHint.steer")}</small>
+          <SettingsRow
+            label={t("settings.followUpDelivery")}
+            description={t(
+              followUpDeliveryMode === "queue"
+                ? "settings.followUpDeliveryHint.queue"
+                : "settings.followUpDeliveryHint.steer",
+            )}
+            stackControlOnNarrow
+            control={(controlProps) => (
+              <span className="notification-settings-select">
+                <select
+                  {...controlProps}
+                  value={followUpDeliveryMode}
+                  disabled={followUpBusy}
+                  onChange={(event) => {
+                    const mode = event.target.value as FollowUpDeliveryMode;
+                    if (!FOLLOW_UP_DELIVERY_OPTIONS.includes(mode) || followUpDeliveryMode === mode || followUpBusy)
+                      return;
+                    setFollowUpBusy(true);
+                    void Promise.resolve(onFollowUpDeliveryModeChange(mode)).finally(() => {
+                      setFollowUpBusy(false);
+                    });
+                  }}
+                >
+                  {FOLLOW_UP_DELIVERY_OPTIONS.map((mode) => (
+                    <option key={mode} value={mode}>
+                      {t(`settings.followUpDelivery.${mode}`)}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown size={14} aria-hidden />
               </span>
-              <div
-                className="settings-segmented-control follow-up-delivery-segmented"
-                role="group"
-                aria-labelledby={followUpDeliveryId}
-              >
-                {FOLLOW_UP_DELIVERY_OPTIONS.map((mode) => (
-                  <button
-                    key={mode}
-                    type="button"
-                    className={followUpDeliveryMode === mode ? "active" : undefined}
-                    aria-pressed={followUpDeliveryMode === mode}
-                    disabled={followUpBusy}
-                    onClick={() => {
-                      if (followUpDeliveryMode === mode || followUpBusy) {
-                        return;
-                      }
-                      setFollowUpBusy(true);
-                      void Promise.resolve(onFollowUpDeliveryModeChange(mode)).finally(() => {
-                        setFollowUpBusy(false);
-                      });
-                    }}
-                  >
-                    {t(`settings.followUpDelivery.${mode}`)}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </li>
+            )}
+          />
 
-          <li>
-            <label className="notification-settings-row" htmlFor={defaultBashReviewId}>
-              <span className="settings-row-main">
-                <strong>{t("settings.defaultBashReviewMode")}</strong>
-                <small>{t("settings.defaultBashReviewModeHint")}</small>
-              </span>
+          <SettingsRow
+            label={t("settings.defaultBashReviewMode")}
+            description={t("settings.defaultBashReviewModeHint")}
+            stackControlOnNarrow
+            control={(controlProps) => (
               <span className="notification-settings-select">
                 <select
                   key={bashReviewSelectKey}
-                  id={defaultBashReviewId}
+                  {...controlProps}
                   value={defaultBashReviewMode}
                   disabled={bashReviewBusy}
                   onChange={(event) => {
@@ -212,9 +197,9 @@ export function NotificationPreferencesPanel({
                 </select>
                 <ChevronDown size={14} aria-hidden />
               </span>
-            </label>
-          </li>
-        </ul>
+            )}
+          />
+        </SettingsGroup>
       </section>
 
       <section className="settings-section">
@@ -224,16 +209,15 @@ export function NotificationPreferencesPanel({
           </div>
         </div>
 
-        <ul className="settings-rows">
-          <li>
-            <label className="notification-settings-row" htmlFor={turnSelectId}>
-              <span className="settings-row-main">
-                <strong>{t("settings.notifications.turnCompletion")}</strong>
-                <small>{t("settings.notifications.turnCompletionHint")}</small>
-              </span>
+        <SettingsGroup>
+          <SettingsRow
+            label={t("settings.notifications.turnCompletion")}
+            description={t("settings.notifications.turnCompletionHint")}
+            stackControlOnNarrow
+            control={(controlProps) => (
               <span className="notification-settings-select">
                 <select
-                  id={turnSelectId}
+                  {...controlProps}
                   value={settings.turnCompletion}
                   disabled={busy}
                   onChange={(event) => {
@@ -252,57 +236,41 @@ export function NotificationPreferencesPanel({
                 </select>
                 <ChevronDown size={14} aria-hidden />
               </span>
-            </label>
-          </li>
+            )}
+          />
 
-          <li>
-            <div className="notification-settings-row">
-              <span className="settings-row-main" id={permissionId}>
-                <strong>{t("settings.notifications.permission")}</strong>
-                <small>{t("settings.notifications.permissionHint")}</small>
-              </span>
-              <label
-                className="composer-switch notification-settings-switch"
+          <SettingsRow
+            label={t("settings.notifications.permission")}
+            description={t("settings.notifications.permissionHint")}
+            control={(controlProps) => (
+              <Switch
+                {...controlProps}
                 title={t(settings.permissionEnabled ? "composer.enabledNamed" : "composer.disabledNamed", {
                   name: t("settings.notifications.permission"),
                 })}
-              >
-                <input
-                  type="checkbox"
-                  checked={settings.permissionEnabled}
-                  disabled={busy}
-                  aria-labelledby={permissionId}
-                  onChange={(event) => void save({ ...settings, permissionEnabled: event.target.checked })}
-                />
-                <span className="composer-switch-track" aria-hidden />
-              </label>
-            </div>
-          </li>
+                checked={settings.permissionEnabled}
+                disabled={busy}
+                onCheckedChange={(checked) => void save({ ...settings, permissionEnabled: checked })}
+              />
+            )}
+          />
 
-          <li>
-            <div className="notification-settings-row">
-              <span className="settings-row-main" id={questionId}>
-                <strong>{t("settings.notifications.question")}</strong>
-                <small>{t("settings.notifications.questionHint")}</small>
-              </span>
-              <label
-                className="composer-switch notification-settings-switch"
+          <SettingsRow
+            label={t("settings.notifications.question")}
+            description={t("settings.notifications.questionHint")}
+            control={(controlProps) => (
+              <Switch
+                {...controlProps}
                 title={t(settings.questionEnabled ? "composer.enabledNamed" : "composer.disabledNamed", {
                   name: t("settings.notifications.question"),
                 })}
-              >
-                <input
-                  type="checkbox"
-                  checked={settings.questionEnabled}
-                  disabled={busy}
-                  aria-labelledby={questionId}
-                  onChange={(event) => void save({ ...settings, questionEnabled: event.target.checked })}
-                />
-                <span className="composer-switch-track" aria-hidden />
-              </label>
-            </div>
-          </li>
-        </ul>
+                checked={settings.questionEnabled}
+                disabled={busy}
+                onCheckedChange={(checked) => void save({ ...settings, questionEnabled: checked })}
+              />
+            )}
+          />
+        </SettingsGroup>
       </section>
 
       <section className="settings-section">
@@ -312,115 +280,91 @@ export function NotificationPreferencesPanel({
           </div>
         </div>
 
-        <ul className="settings-rows">
-          <li>
-            <div className="notification-settings-row">
-              <span className="settings-row-main" id={billingVisibilityId}>
-                <strong>{t("settings.showBilling")}</strong>
-                <small>{t("settings.showBillingHint")}</small>
-              </span>
-              <label
-                className="composer-switch notification-settings-switch"
+        <SettingsGroup>
+          <SettingsRow
+            label={t("settings.showBilling")}
+            description={t("settings.showBillingHint")}
+            control={(controlProps) => (
+              <Switch
+                {...controlProps}
                 title={t(showBilling ? "composer.enabledNamed" : "composer.disabledNamed", {
                   name: t("settings.showBilling"),
                 })}
-              >
-                <input
-                  type="checkbox"
-                  checked={showBilling}
-                  aria-labelledby={billingVisibilityId}
-                  onChange={(event) => void onShowBillingChange(event.target.checked)}
-                />
-                <span className="composer-switch-track" aria-hidden />
-              </label>
-            </div>
-          </li>
+                checked={showBilling}
+                onCheckedChange={(checked) => void onShowBillingChange(checked)}
+              />
+            )}
+          />
 
-          <li>
-            <div className="notification-settings-row">
-              <span className="settings-row-main" id={tokenSpeedId}>
-                <strong>{t("settings.tokenSpeed")}</strong>
-                <small>{t(`settings.tokenSpeed.${tokenSpeedMode}Hint`)}</small>
-              </span>
-              <div
-                className="settings-segmented-control token-speed-mode-segmented"
-                role="group"
-                aria-labelledby={tokenSpeedId}
-              >
-                {TOKEN_SPEED_DISPLAY_MODES.map((mode) => (
-                  <button
-                    key={mode}
-                    type="button"
-                    className={tokenSpeedMode === mode ? "active" : undefined}
-                    aria-pressed={tokenSpeedMode === mode}
-                    onClick={() => {
-                      if (tokenSpeedMode === mode) {
-                        return;
-                      }
+          <SettingsRow
+            label={t("settings.tokenSpeed")}
+            description={t(`settings.tokenSpeed.${tokenSpeedMode}Hint`)}
+            stackControlOnNarrow
+            control={(controlProps) => (
+              <span className="notification-settings-select">
+                <select
+                  {...controlProps}
+                  value={tokenSpeedMode}
+                  onChange={(event) => {
+                    const mode = event.target.value as TokenSpeedDisplayMode;
+                    if (TOKEN_SPEED_DISPLAY_MODES.includes(mode) && tokenSpeedMode !== mode) {
                       void onTokenSpeedModeChange(mode);
-                    }}
-                  >
-                    {t(`settings.tokenSpeed.${mode}`)}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </li>
-
-          <li>
-            <div className="notification-settings-row">
-              <span className="settings-row-main" id={thinkingDisplayModeId}>
-                <strong>{t("settings.thinkingContentDefault")}</strong>
-                <small>{t(`settings.thinkingContentDefault.${thinkingDisplayMode}Hint`)}</small>
+                    }
+                  }}
+                >
+                  {TOKEN_SPEED_DISPLAY_MODES.map((mode) => (
+                    <option key={mode} value={mode}>
+                      {t(`settings.tokenSpeed.${mode}`)}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown size={14} aria-hidden />
               </span>
-              <div
-                className="settings-segmented-control thinking-content-default-segmented"
-                role="group"
-                aria-labelledby={thinkingDisplayModeId}
-              >
-                {THINKING_DISPLAY_MODES.map((mode) => (
-                  <button
-                    key={mode}
-                    type="button"
-                    className={thinkingDisplayMode === mode ? "active" : undefined}
-                    aria-pressed={thinkingDisplayMode === mode}
-                    onClick={() => {
-                      if (thinkingDisplayMode === mode) {
-                        return;
-                      }
+            )}
+          />
+
+          <SettingsRow
+            label={t("settings.thinkingContentDefault")}
+            description={t(`settings.thinkingContentDefault.${thinkingDisplayMode}Hint`)}
+            stackControlOnNarrow
+            control={(controlProps) => (
+              <span className="notification-settings-select">
+                <select
+                  {...controlProps}
+                  value={thinkingDisplayMode}
+                  onChange={(event) => {
+                    const mode = event.target.value as ThinkingDisplayMode;
+                    if (THINKING_DISPLAY_MODES.includes(mode) && thinkingDisplayMode !== mode) {
                       void onThinkingDisplayModeChange(mode);
-                    }}
-                  >
-                    {t(`settings.thinkingContentDefault.${mode}`)}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </li>
-
-          <li>
-            <div className="notification-settings-row">
-              <span className="settings-row-main" id={cacheBreakTipsId}>
-                <strong>{t("settings.cacheBreakTips")}</strong>
-                <small>{t("settings.cacheBreakTipsHint")}</small>
+                    }
+                  }}
+                >
+                  {THINKING_DISPLAY_MODES.map((mode) => (
+                    <option key={mode} value={mode}>
+                      {t(`settings.thinkingContentDefault.${mode}`)}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown size={14} aria-hidden />
               </span>
-              <label
-                className="composer-switch notification-settings-switch"
+            )}
+          />
+
+          <SettingsRow
+            label={t("settings.cacheBreakTips")}
+            description={t("settings.cacheBreakTipsHint")}
+            control={(controlProps) => (
+              <Switch
+                {...controlProps}
                 title={t(cacheBreakTipsEnabled ? "composer.enabledNamed" : "composer.disabledNamed", {
                   name: t("settings.cacheBreakTips"),
                 })}
-              >
-                <input
-                  type="checkbox"
-                  checked={cacheBreakTipsEnabled}
-                  aria-labelledby={cacheBreakTipsId}
-                  onChange={(event) => onCacheBreakTipsEnabledChange(event.target.checked)}
-                />
-                <span className="composer-switch-track" aria-hidden />
-              </label>
-            </div>
-          </li>
-        </ul>
+                checked={cacheBreakTipsEnabled}
+                onCheckedChange={(checked) => onCacheBreakTipsEnabledChange(checked)}
+              />
+            )}
+          />
+        </SettingsGroup>
       </section>
     </div>
   );

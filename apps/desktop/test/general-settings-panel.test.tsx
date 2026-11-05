@@ -22,10 +22,9 @@ test("appearance settings renders theme and typography controls in Chinese", () 
   expect(markup).toContain("代码字号");
   expect(markup).not.toContain("语言");
   expect(markup).not.toContain("模型吞吐");
-  expect(markup).toContain("14<small>px</small>");
-  expect(markup).toContain("12<small>px</small>");
-  expect(markup).toContain('aria-label="减小UI 字号"');
-  expect(markup).toContain('aria-label="增大代码字号"');
+  expect(markup.match(/type="number"/g)).toHaveLength(2);
+  expect(markup).toMatch(/min="11" max="16" step="1" value="14"/);
+  expect(markup).toMatch(/min="8" max="24" step="1" value="12"/);
 });
 
 test("appearance settings renders English labels without language section", () => {
@@ -43,7 +42,7 @@ test("appearance settings renders English labels without language section", () =
   expect(markup).toContain("Theme");
   expect(markup).not.toContain("Language");
   expect(markup).toContain("UI font size");
-  expect(markup).toContain('aria-label="Decrease UI font size"');
+  expect(markup).toMatch(/min="11" max="16" step="1" value="15"/);
   expect(markup).not.toContain("Model throughput");
 });
 
@@ -92,7 +91,7 @@ test("preferences panel puts language under the general section", () => {
   const notificationsIdx = markup.indexOf('settings-section-label">通知<');
   const displayIdx = markup.indexOf('settings-section-label">显示<');
   const billingIdx = markup.indexOf("显示用量");
-  const thinkingLabelIdx = markup.indexOf("<strong>思考过程</strong>");
+  const thinkingLabelIdx = markup.indexOf(">思考过程<");
   const cacheIdx = markup.indexOf("缓存失效提醒");
   const tokenIdx = markup.indexOf("模型吞吐");
   expect(generalIdx).toBeGreaterThan(-1);
@@ -143,7 +142,7 @@ test("preferences panel renders cache break tips in English", () => {
   );
   expect(markup).toContain(">Collapsed<");
   expect(markup).toContain(">Expanded<");
-  expect(markup).toMatch(/type="checkbox"(?![^>]*checked)/);
+  expect(markup).toMatch(/role="switch" aria-checked="false"/);
 });
 
 test("preferences panel renders the Composer billing toggle", () => {
@@ -176,11 +175,11 @@ test("preferences panel renders the Composer billing toggle", () => {
   expect(markup).toContain(">隐藏<");
   expect(markup).toContain(">吞吐<");
   expect(markup).toContain(">详细<");
-  expect(markup).toMatch(/aria-pressed="true"\s*>吞吐</);
-  expect(markup).toMatch(/type="checkbox"[^>]*checked/);
+  expect(markup).toMatch(/<option value="throughput" selected="">吞吐</);
+  expect(markup).toMatch(/role="switch" aria-checked="true"/);
 });
 
-test("general preferences panel renders the token speed segmented control, hidden by default", () => {
+test("general preferences panel renders the token speed select, hidden by default", () => {
   const markup = renderLocalized(
     createElement(NotificationPreferencesPanel, {
       settings: {
@@ -207,8 +206,8 @@ test("general preferences panel renders the token speed segmented control, hidde
   expect(markup).toContain(">Hidden<");
   expect(markup).toContain(">Throughput<");
   expect(markup).toContain(">Detailed<");
-  expect(markup).toMatch(/aria-pressed="true"\s*>Hidden/);
-  expect(markup).toMatch(/type="checkbox"(?![^>]*checked)/);
+  expect(markup).toMatch(/<option value="hidden" selected="">Hidden</);
+  expect(markup).toMatch(/role="switch" aria-checked="false"/);
 });
 
 test("thinking content hint follows the selected display mode", () => {

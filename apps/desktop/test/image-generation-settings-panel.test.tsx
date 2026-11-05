@@ -68,10 +68,10 @@ test("keeps the state chip as the only activation control", () => {
     }),
     "en-US",
   );
-  const activeChip = markup.match(/<button[^>]*image-generation-profile-status is-active[^>]*>/)?.[0] ?? "";
+  const activeChip = markup.match(/<button(?=[^>]*class="settings-ui-resource-state")(?=[^>]*aria-pressed="true")[^>]*>/)?.[0] ?? "";
   expect(activeChip).toContain('aria-pressed="true"');
   expect(activeChip).toContain("disabled");
-  const inactiveChip = markup.match(/<button[^>]*image-generation-profile-status"[^>]*>/)?.[0] ?? "";
+  const inactiveChip = markup.match(/<button(?=[^>]*class="settings-ui-resource-state")(?=[^>]*aria-pressed="false")[^>]*>/)?.[0] ?? "";
   expect(inactiveChip).toContain('aria-pressed="false"');
   expect(inactiveChip).not.toContain("disabled");
   // No separate activation button: the chip itself carries the click.

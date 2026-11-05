@@ -1,3 +1,4 @@
+import { Switch } from "./components/Switch";
 import { Sparkles } from "lucide-react";
 import { type CSSProperties, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -53,23 +54,18 @@ function ComposerSkillsRows({
                       <span className="composer-mcp-row-name">{skill.name}</span>
                       <span className="composer-mcp-row-transport">{skill.layout}</span>
                     </div>
-                    <label
-                      className="composer-switch"
+                    <Switch
+                      size="sm"
                       title={t(enabled ? "composer.enabledNamed" : "composer.disabledNamed", {
                         name: skill.name,
                       })}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={enabled}
-                        disabled={!canEdit || saving || !onToggleSkill}
-                        aria-label={t(enabled ? "composer.enabledAria" : "composer.disabledAria", {
-                          name: skill.name,
-                        })}
-                        onChange={() => onToggleSkill?.(key, !enabled)}
-                      />
-                      <span className="composer-switch-track" aria-hidden />
-                    </label>
+                      checked={enabled}
+                      disabled={!canEdit || saving || !onToggleSkill}
+                      aria-label={t(enabled ? "composer.enabledAria" : "composer.disabledAria", {
+                        name: skill.name,
+                      })}
+                      onCheckedChange={() => onToggleSkill?.(key, !enabled)}
+                    />
                   </div>
                 );
               })}

@@ -26,6 +26,7 @@ import type {
 } from "../shared/storage-usage";
 
 import "./storage-cleanup-progress.css";
+import "./settings-detail-pages.css";
 
 /** Spring: critically damped, response ~0.35s — Apple move/reposition default. */
 const SPRING_SETTLE = { type: "spring" as const, bounce: 0, duration: 0.35 };

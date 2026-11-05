@@ -1,5 +1,11 @@
+import { SettingsResourceList, SettingsResourceRow } from "./components/SettingsResourceList";
+import { SettingsGroup, SettingsRow } from "./components/SettingsRow";
+import "./capability-settings.css";
+import { SettingsButton, SettingsInput, SettingsSelect } from "./components/SettingsControls";
+import { SettingsPage, SettingsSection } from "./components/SettingsPage";
+import { Switch } from "./components/Switch";
 import type { TFunction } from "i18next";
-import { Image, Palette, Pencil, Plus, Trash2, X } from "lucide-react";
+import { Image, Pencil, Plus, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
@@ -94,90 +100,76 @@ export function ImageGenerationSettingsPanel({
   }
 
   return (
-    <div className="image-generation-settings">
-      <header className="settings-page-header browser-settings-header settings-page-header-with-action">
-        <div>
-          <h1>{t("settings.imageGeneration.title")}</h1>
-          <p className="settings-page-desc">{t("settings.imageGeneration.pageDesc")}</p>
-        </div>
-        {onSyncDomain ? (
-          <SettingsSyncControl
-            domain="imageGeneration"
-            visible={centerServerSyncVisible}
-            disabled={busy}
-            onSync={onSyncDomain}
-          />
-        ) : null}
-      </header>
-      <section className="browser-settings-card browser-settings-master">
-        <div className="browser-settings-master-glyph" aria-hidden>
-          <Palette size={20} strokeWidth={1.75} />
-        </div>
-        <div className="browser-settings-master-copy">
-          <strong>{t("settings.imageGeneration.masterTitle")}</strong>
-          <small>{t("settings.imageGeneration.masterHint")}</small>
-        </div>
-        <span className={`image-generation-enabled-badge ${settings.enabled ? "is-enabled" : "is-disabled"}`}>
-          <i />
-          {t(
-            settings.enabled
-              ? "settings.imageGeneration.status.enabled"
-              : "settings.imageGeneration.status.disabled",
+    <SettingsPage
+      className="image-generation-settings capability-settings-page"
+      title={t("settings.imageGeneration.title")}
+      description={t("settings.imageGeneration.pageDesc")}
+      actions={
+        <>
+          {onSyncDomain ? (
+            <SettingsSyncControl
+              domain="imageGeneration"
+              visible={centerServerSyncVisible}
+              disabled={busy}
+              onSync={onSyncDomain}
+            />
+          ) : null}
+        </>
+      }
+    >
+      <SettingsGroup>
+        <SettingsRow
+          label={t("settings.imageGeneration.masterTitle")}
+          description={t("settings.imageGeneration.masterHint")}
+          control={(controlProps) => (
+            <Switch
+              {...controlProps}
+              checked={settings.enabled}
+              disabled={busy}
+              onCheckedChange={(checked) =>
+                void run(async () => {
+                  if (!window.eco) throw new Error(t("settings.imageGeneration.desktopOnly"));
+                  onChange(await window.eco.saveImageGenerationEnabled(checked));
+                })
+              }
+            />
           )}
-        </span>
-        <label className="composer-switch browser-settings-switch">
-          <input
-            type="checkbox"
-            checked={settings.enabled}
-            disabled={busy}
-            aria-label={t("settings.imageGeneration.masterTitle")}
-            onChange={(event) =>
-              void run(async () => {
-                if (!window.eco) throw new Error(t("settings.imageGeneration.desktopOnly"));
-                onChange(await window.eco.saveImageGenerationEnabled(event.target.checked));
-              })
-            }
-          />
-          <span className="composer-switch-track" aria-hidden />
-        </label>
-      </section>
+        />
+      </SettingsGroup>
 
       {!settings.apiKeyEncryptionAvailable ? (
         <p className="browser-settings-error">{t("settings.imageGeneration.encryptionUnavailable")}</p>
       ) : null}
 
-      <div className="image-generation-profile-console">
-        <div className="image-generation-profile-toolbar">
-          <div>
-            <strong>{t("settings.imageGeneration.profiles")}</strong>
-            <span>
-              {t("settings.imageGeneration.profileCount", { count: settings.profiles.length })}
-              {settings.activeProfileId ? t("settings.imageGeneration.profileActiveSuffix") : ""}
-            </span>
-          </div>
-          <button type="button" className="settings-primary-button" disabled={busy} onClick={startNewProfile}>
-            <Plus size={15} aria-hidden />
-            {t("settings.imageGeneration.addProfile")}
-          </button>
-        </div>
-
+      <SettingsSection
+        title={t("settings.imageGeneration.profiles")}
+        description={
+          <>
+            {t("settings.imageGeneration.profileCount", { count: settings.profiles.length })}
+            {settings.activeProfileId ? t("settings.imageGeneration.profileActiveSuffix") : ""}
+          </>
+        }
+        actions={
+          <>
+            <SettingsButton variant="primary" type="button" disabled={busy} onClick={startNewProfile}>
+              <Plus size={15} aria-hidden />
+              {t("settings.imageGeneration.addProfile")}
+            </SettingsButton>
+          </>
+        }
+      >
         {settings.profiles.length === 0 ? (
           <div className="image-generation-profile-empty">
             <Image size={22} />
             <strong>{t("settings.imageGeneration.emptyTitle")}</strong>
             <small>{t("settings.imageGeneration.emptyHint")}</small>
-            <button
-              type="button"
-              className="settings-primary-button"
-              disabled={busy}
-              onClick={startNewProfile}
-            >
+            <SettingsButton variant="primary" type="button" disabled={busy} onClick={startNewProfile}>
               <Plus size={15} />
               {t("settings.imageGeneration.addProfile")}
-            </button>
+            </SettingsButton>
           </div>
         ) : (
-          <div className="image-generation-profile-cards">
+          <SettingsResourceList>
             {settings.profiles.map((profile) => {
               const active = settings.activeProfileId === profile.id;
               const brand = resolveProviderBrandLogo({
@@ -187,27 +179,37 @@ export function ImageGenerationSettingsPanel({
                 endpoint: profile.endpoint,
               });
               return (
-                <article
+                <SettingsResourceRow
                   key={profile.id}
-                  className={`image-generation-profile-card${active ? " is-active" : ""}`}
-                >
-                  <div className="image-generation-profile-card-main">
-                    <div className="image-generation-profile-card-icon">
-                      {brand ? (
-                        <img src={brand.iconSrc} alt="" aria-hidden />
-                      ) : (
-                        <Image size={17} aria-hidden />
-                      )}
-                    </div>
-                    <div className="image-generation-profile-card-identity">
-                      <strong title={profile.name}>{profile.name}</strong>
+                  name={profile.name}
+                  description={
+                    <>
+                      {providerLabel(profile.provider, t)} · {profile.model}
+                    </>
+                  }
+                  icon={
+                    brand ? <img src={brand.iconSrc} alt="" aria-hidden /> : <Image size={17} aria-hidden />
+                  }
+                  metadata={
+                    <>
                       <span>
-                        {providerLabel(profile.provider, t)} · {profile.model}
+                        {profile.provider === "codex" || profile.provider === "chatgpt_web"
+                          ? t("settings.imageGeneration.accountPoolHint")
+                          : t("settings.imageGeneration.baseUrlValue", { url: profile.endpoint })}
                       </span>
-                    </div>
+                      <span>
+                        {t(
+                          profile.supportsImageToImage
+                            ? "settings.imageGeneration.profileSupportsImageToImage"
+                            : "settings.imageGeneration.profileTextToImageOnly",
+                        )}
+                      </span>
+                    </>
+                  }
+                  status={
                     <button
                       type="button"
-                      className={`image-generation-profile-status${active ? " is-active" : ""}`}
+                      className="settings-ui-resource-state"
                       aria-pressed={active}
                       disabled={active || busy}
                       title={t(
@@ -234,38 +236,26 @@ export function ImageGenerationSettingsPanel({
                           : "settings.imageGeneration.status.disabled",
                       )}
                     </button>
-                    <div className="image-generation-profile-card-actions">
-                      <button
+                  }
+                  actions={
+                    <>
+                      <SettingsButton
+                        variant="secondary"
                         type="button"
-                        className="image-generation-profile-action-secondary"
                         disabled={busy}
                         onClick={() => choose(profile)}
                       >
                         <Pencil size={14} />
                         {t("common.edit")}
-                      </button>
-                    </div>
-                  </div>
-                  <div className="image-generation-profile-card-meta">
-                    <span>
-                      {profile.provider === "codex" || profile.provider === "chatgpt_web"
-                        ? t("settings.imageGeneration.accountPoolHint")
-                        : t("settings.imageGeneration.baseUrlValue", { url: profile.endpoint })}
-                    </span>
-                    <span>
-                      {t(
-                        profile.supportsImageToImage
-                          ? "settings.imageGeneration.profileSupportsImageToImage"
-                          : "settings.imageGeneration.profileTextToImageOnly",
-                      )}
-                    </span>
-                  </div>
-                </article>
+                      </SettingsButton>
+                    </>
+                  }
+                />
               );
             })}
-          </div>
+          </SettingsResourceList>
         )}
-      </div>
+      </SettingsSection>
 
       {editorOpen
         ? createPortal(
@@ -279,7 +269,7 @@ export function ImageGenerationSettingsPanel({
                 tabIndex={-1}
               />
               <form
-                className="settings-modal settings-modal-provider-editor image-generation-profile-modal"
+                className="settings-modal settings-modal-provider-editor image-generation-profile-modal capability-settings-modal"
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="image-generation-profile-title"
@@ -312,21 +302,22 @@ export function ImageGenerationSettingsPanel({
                       )}
                     </p>
                   </div>
-                  <button
+                  <SettingsButton
+                    variant="ghost"
                     type="button"
-                    className="mcp-icon-button"
                     aria-label={t("common.close")}
                     disabled={busy}
                     onClick={() => setEditorOpen(false)}
                   >
                     <X size={17} />
-                  </button>
+                  </SettingsButton>
                 </header>
                 <div className="settings-modal-body image-generation-profile-modal-body">
                   <label className="settings-form-field">
-                    <span className="settings-form-label">{t("settings.imageGeneration.profileName")}</span>
-                    <input
-                      className="settings-form-input"
+                    <span className="settings-ui-field-label">
+                      {t("settings.imageGeneration.profileName")}
+                    </span>
+                    <SettingsInput
                       value={form.name}
                       disabled={busy}
                       required
@@ -335,9 +326,8 @@ export function ImageGenerationSettingsPanel({
                     />
                   </label>
                   <label className="settings-form-field">
-                    <span className="settings-form-label">{t("settings.imageGeneration.provider")}</span>
-                    <select
-                      className="settings-form-input"
+                    <span className="settings-ui-field-label">{t("settings.imageGeneration.provider")}</span>
+                    <SettingsSelect
                       value={form.provider}
                       disabled={busy}
                       onChange={(event) => {
@@ -358,17 +348,16 @@ export function ImageGenerationSettingsPanel({
                       </option>
                       <option value="codex">{t("settings.imageGeneration.providerCodex")}</option>
                       <option value="chatgpt_web">{t("settings.imageGeneration.providerChatgptWeb")}</option>
-                    </select>
+                    </SettingsSelect>
                   </label>
                   {form.provider === "codex" || form.provider === "chatgpt_web" ? (
-                    <p className="settings-form-hint">
+                    <p className="settings-ui-field-hint">
                       {t("settings.imageGeneration.accountDrawingEnabledHint")}
                     </p>
                   ) : null}
                   <label className="settings-form-field">
-                    <span className="settings-form-label">Base URL</span>
-                    <input
-                      className="settings-form-input"
+                    <span className="settings-ui-field-label">Base URL</span>
+                    <SettingsInput
                       type="url"
                       value={form.endpoint}
                       disabled={busy || form.provider === "codex" || form.provider === "chatgpt_web"}
@@ -377,9 +366,8 @@ export function ImageGenerationSettingsPanel({
                     />
                   </label>
                   <label className="settings-form-field">
-                    <span className="settings-form-label">{t("settings.imageGeneration.model")}</span>
-                    <input
-                      className="settings-form-input"
+                    <span className="settings-ui-field-label">{t("settings.imageGeneration.model")}</span>
+                    <SettingsInput
                       value={form.model}
                       disabled={busy || form.provider === "codex" || form.provider === "chatgpt_web"}
                       required
@@ -387,28 +375,23 @@ export function ImageGenerationSettingsPanel({
                     />
                   </label>
                   <label className="settings-form-field settings-form-field-checkbox">
-                    <span className="settings-form-label">
+                    <span className="settings-ui-field-label">
                       {t("settings.imageGeneration.supportsImageToImage")}
                     </span>
-                    <label className="composer-switch">
-                      <input
-                        type="checkbox"
-                        checked={form.supportsImageToImage ?? false}
-                        disabled={busy}
-                        aria-label={t("settings.imageGeneration.supportsImageToImage")}
-                        onChange={(event) => setForm({ ...form, supportsImageToImage: event.target.checked })}
-                      />
-                      <span className="composer-switch-track" aria-hidden />
-                    </label>
-                    <small className="settings-form-hint">
+                    <Switch
+                      checked={form.supportsImageToImage ?? false}
+                      disabled={busy}
+                      aria-label={t("settings.imageGeneration.supportsImageToImage")}
+                      onCheckedChange={(checked) => setForm({ ...form, supportsImageToImage: checked })}
+                    />
+                    <small className="settings-ui-field-hint">
                       {t("settings.imageGeneration.supportsImageToImageHint")}
                     </small>
                   </label>
                   {form.provider !== "codex" && form.provider !== "chatgpt_web" ? (
                     <label className="settings-form-field">
-                      <span className="settings-form-label">API Key</span>
-                      <input
-                        className="settings-form-input"
+                      <span className="settings-ui-field-label">API Key</span>
+                      <SettingsInput
                         type="password"
                         value={form.apiKey ?? ""}
                         disabled={busy || !settings.apiKeyEncryptionAvailable}
@@ -419,19 +402,22 @@ export function ImageGenerationSettingsPanel({
                   ) : null}
                 </div>
                 <footer className="settings-modal-footer">
-                  <button
+                  <SettingsButton
+                    variant="secondary"
+                    size="dialog"
                     type="button"
-                    className="settings-modal-cancel"
                     disabled={busy}
                     onClick={() => setEditorOpen(false)}
                   >
                     {t("common.cancel")}
-                  </button>
+                  </SettingsButton>
                   <div className="settings-modal-footer-actions">
                     {selected ? (
-                      <button
+                      <SettingsButton
+                        variant="danger"
+                        size="dialog"
+                        className="image-generation-danger-button"
                         type="button"
-                        className="settings-secondary-button image-generation-danger-button"
                         disabled={
                           busy || settings.activeProfileId === selected.id || settings.profiles.length <= 1
                         }
@@ -446,11 +432,11 @@ export function ImageGenerationSettingsPanel({
                       >
                         <Trash2 size={14} />
                         {t("common.delete")}
-                      </button>
+                      </SettingsButton>
                     ) : null}
-                    <button type="submit" className="settings-primary-button" disabled={busy}>
+                    <SettingsButton variant="primary" size="dialog" type="submit" disabled={busy}>
                       {t(busy ? "settings.imageGeneration.saving" : "common.save")}
-                    </button>
+                    </SettingsButton>
                   </div>
                 </footer>
               </form>
@@ -458,7 +444,7 @@ export function ImageGenerationSettingsPanel({
             document.body,
           )
         : null}
-    </div>
+    </SettingsPage>
   );
 }
 

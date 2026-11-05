@@ -2,6 +2,7 @@ import { GitBranch, Laptop, LoaderCircle, RefreshCw, Settings } from "lucide-rea
 import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ComposerAbovePanel } from "./ComposerAbovePanel";
+import { SwitchIndicator } from "./components/Switch";
 import type { ThreadSummary, WorktreeStatusResult } from "../shared/ipc";
 import type { ThreadDevelopmentMode, ThreadWorkLocation, ThreadWorktreeRecord } from "../shared/thread-worktree";
 
@@ -245,9 +246,7 @@ export function ThreadWorktreeControl({
               >
                 <WorktreeIcon size={18} />
                 <span>{t("worktreeControl.create")}</span>
-                <span className={`thread-worktree-switch${isolated ? " is-on" : ""}`} aria-hidden>
-                  <span />
-                </span>
+                <SwitchIndicator checked={isolated} tone="neutral" size="sm" />
               </button>
               {isolated ? (
                 <p id={`${panelId}-hint`} className="thread-worktree-hint">

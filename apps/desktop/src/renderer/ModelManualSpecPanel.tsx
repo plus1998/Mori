@@ -1,3 +1,4 @@
+import { Switch } from "./components/Switch";
 import { RotateCcw } from "lucide-react";
 import { type ReactNode, useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -513,23 +514,14 @@ export function ModelManualSpecPanel({
             <span className="model-spec-field-label" id={nativeWebSearchLabelId}>
               {t("modelSpec.nativeWebSearch")}
             </span>
-            <span
-              className="mcp-toggle mcp-toggle-sm"
-              title={
-                value.supportsNativeWebSearch
-                  ? t("modelSpec.nativeWebSearch")
-                  : t("modelSpec.nativeWebSearchOff")
-              }
-            >
-              <input
-                type="checkbox"
-                checked={value.supportsNativeWebSearch}
-                disabled={disabled}
-                aria-labelledby={nativeWebSearchLabelId}
-                onChange={(event) => onChange({ supportsNativeWebSearch: event.target.checked })}
-              />
-              <span className="mcp-toggle-track" aria-hidden />
-            </span>
+            <Switch
+              size="sm"
+              title={value.supportsNativeWebSearch ? t("modelSpec.nativeWebSearch") : t("modelSpec.nativeWebSearchOff")}
+              checked={value.supportsNativeWebSearch}
+              disabled={disabled}
+              aria-labelledby={nativeWebSearchLabelId}
+              onCheckedChange={(checked) => onChange({ supportsNativeWebSearch: checked })}
+            />
           </label>
           <label
             className="model-spec-field model-spec-field-checkbox"
@@ -538,16 +530,13 @@ export function ModelManualSpecPanel({
             <span className="model-spec-field-label" id={remoteCompactionLabelId}>
               {t("modelSpec.remoteCompaction")}
             </span>
-            <span className="mcp-toggle mcp-toggle-sm">
-              <input
-                type="checkbox"
-                checked={value.supportsRemoteCompaction}
-                disabled={disabled}
-                aria-labelledby={remoteCompactionLabelId}
-                onChange={(event) => onChange({ supportsRemoteCompaction: event.target.checked })}
-              />
-              <span className="mcp-toggle-track" aria-hidden />
-            </span>
+            <Switch
+              size="sm"
+              checked={value.supportsRemoteCompaction}
+              disabled={disabled}
+              aria-labelledby={remoteCompactionLabelId}
+              onCheckedChange={(checked) => onChange({ supportsRemoteCompaction: checked })}
+            />
           </label>
         </div>
       </section>
@@ -715,16 +704,13 @@ export function ModelManualSpecPanel({
           {...(disabled !== undefined ? { disabled } : {})}
           onReset={() => onChange({ supportsNativeWebSearch: true })}
         >
-          <label className="mcp-toggle mcp-toggle-sm">
-            <input
-              type="checkbox"
-              checked={value.supportsNativeWebSearch}
-              disabled={disabled}
-              aria-label={t("modelSpec.nativeWebSearch")}
-              onChange={(event) => onChange({ supportsNativeWebSearch: event.target.checked })}
-            />
-            <span className="mcp-toggle-track" aria-hidden />
-          </label>
+          <Switch
+            size="sm"
+            checked={value.supportsNativeWebSearch}
+            disabled={disabled}
+            aria-label={t("modelSpec.nativeWebSearch")}
+            onCheckedChange={(checked) => onChange({ supportsNativeWebSearch: checked })}
+          />
         </EditorCapabilityRow>
         <EditorCapabilityRow
           title={t("modelSpec.remoteCompaction")}
@@ -734,16 +720,13 @@ export function ModelManualSpecPanel({
           {...(disabled !== undefined ? { disabled } : {})}
           onReset={() => onChange({ supportsRemoteCompaction: false })}
         >
-          <label className="mcp-toggle mcp-toggle-sm">
-            <input
-              type="checkbox"
-              checked={value.supportsRemoteCompaction}
-              disabled={disabled}
-              aria-label={t("modelSpec.remoteCompaction")}
-              onChange={(event) => onChange({ supportsRemoteCompaction: event.target.checked })}
-            />
-            <span className="mcp-toggle-track" aria-hidden />
-          </label>
+          <Switch
+            size="sm"
+            checked={value.supportsRemoteCompaction}
+            disabled={disabled}
+            aria-label={t("modelSpec.remoteCompaction")}
+            onCheckedChange={(checked) => onChange({ supportsRemoteCompaction: checked })}
+          />
         </EditorCapabilityRow>
       </div>
 

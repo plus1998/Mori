@@ -123,19 +123,6 @@
   color: var(--text-primary);
 }
 
-.settings-page .mcp-toggle-track {
-  background: var(--toggle-off);
-}
-
-.settings-page .mcp-toggle input:checked + .mcp-toggle-track {
-  background: var(--accent);
-}
-
-.settings-page .mcp-toggle-track::after {
-  background: var(--toggle-thumb);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
-}
-
 /* MCP editor */
 .settings-page .mcp-back-button {
   color: var(--text-secondary);
@@ -1436,12 +1423,4 @@
 
 [data-theme="dark"] .settings-primary-button:hover:not(:disabled) {
   background: var(--primary-btn-hover-bg);
-}
-
-[data-theme="light"] .composer-switch-track {
-  background: rgba(0, 0, 0, 0.12);
-}
-
-[data-theme="light"] .composer-switch input:checked + .composer-switch-track {
-  background: var(--accent);
 }

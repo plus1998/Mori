@@ -1,3 +1,4 @@
+import { Switch } from "./components/Switch";
 import { KeyRound, Loader2, Pencil, Plus, Search, Trash2, Upload, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
@@ -225,10 +226,13 @@ export function CursorApiKeysPanel({ busy = false, revision = 0 }: CursorApiKeys
                 </div>
                 <span className={`codex-status-badge ${account.enabled ? "is-ready" : "is-danger"}`}><i />{t(account.enabled ? "settings.cursorApiKeys.stateEnabled" : "settings.cursorApiKeys.stateDisabled")}</span>
                 <div className="codex-account-actions">
-                  <label className="mcp-toggle" title={account.enabled ? t("settings.cursorApiKeys.disable") : t("settings.cursorApiKeys.enabled")}>
-                    <input type="checkbox" checked={account.enabled} disabled={disabled} aria-label={`${account.name}: ${t("settings.cursorApiKeys.enabled")}`} onChange={() => void toggle(account)} />
-                    <span className="mcp-toggle-track" aria-hidden />
-                  </label>
+                  <Switch
+                    title={account.enabled ? t("settings.cursorApiKeys.disable") : t("settings.cursorApiKeys.enabled")}
+                    checked={account.enabled}
+                    disabled={disabled}
+                    aria-label={`${account.name}: ${t("settings.cursorApiKeys.enabled")}`}
+                    onCheckedChange={() => void toggle(account)}
+                  />
                   <button type="button" className="mcp-icon-button" title={t("settings.cursorApiKeys.edit")} aria-label={t("settings.cursorApiKeys.edit")} disabled={disabled} onClick={() => openEdit(account)}><Pencil size={14} /></button>
                   <button type="button" className="mcp-icon-button danger" title={t("settings.cursorApiKeys.delete")} aria-label={t("settings.cursorApiKeys.delete")} disabled={disabled} onClick={() => { setError(undefined); setDialog({ type: "delete", account }); }}><Trash2 size={14} /></button>
                 </div>

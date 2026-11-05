@@ -195,10 +195,6 @@
     }
   }
 
-  & .mcp-toggle input:checked + .mcp-toggle-track::after {
-    background: var(--primary-btn-text);
-  }
-
   & :is(.mcp-icon-button, .cs-icon-btn) {
     width: 28px;
     height: 28px;

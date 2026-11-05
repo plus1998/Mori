@@ -1,0 +1,70 @@
+/* Codex F0xz: default 32×20/16px thumb, small 28×16/12px thumb.
+ * Both sizes move the thumb 12px. Appearance belongs to the component. */
+.mori-switch[role="switch"] {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  margin: 0;
+  padding: 4px 0;
+  border: 0;
+  border-radius: 999px;
+  appearance: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: 1;
+  vertical-align: middle;
+  cursor: pointer;
+  user-select: none;
+
+  &:focus-visible { outline: 2px solid var(--text-primary); outline-offset: 2px; }
+  &:hover:not(:disabled) { background: transparent; }
+  &:disabled { opacity: .6; cursor: not-allowed; }
+}
+
+.mori-switch-track {
+  box-sizing: border-box;
+  position: relative;
+  display: inline-block;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 20px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-primary) 10%, transparent);
+  vertical-align: middle;
+  transition: background-color 150ms ease-out;
+
+  &[data-size="sm"] { width: 28px; height: 16px; }
+  &[data-state="checked"] { background: var(--accent); }
+  &[data-state="checked"][data-tone="neutral"] { background: var(--text-primary); }
+}
+
+.mori-switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 12%);
+  transition: transform 150ms ease-out;
+}
+
+.mori-switch-track[data-size="sm"] .mori-switch-thumb { width: 12px; height: 12px; }
+.mori-switch-track[data-state="checked"] .mori-switch-thumb { transform: translateX(12px); }
+.mori-switch-track[data-state="checked"][data-tone="neutral"] .mori-switch-thumb { background: var(--bg-main); }
+[dir="rtl"] .mori-switch-thumb { right: 2px; left: auto; }
+[dir="rtl"] .mori-switch-track[data-state="checked"] .mori-switch-thumb { transform: translateX(-12px); }
+
+@media (prefers-reduced-motion: reduce) {
+  .mori-switch-track, .mori-switch-thumb { transition: none; }
+}
+
+@media (forced-colors: active) {
+  .mori-switch-track { border: 1px solid ButtonText; background: Canvas; }
+  .mori-switch-track[data-state="checked"] { background: Highlight; }
+  .mori-switch-thumb { background: ButtonText; box-shadow: none; }
+}

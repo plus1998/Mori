@@ -1,3 +1,13 @@
+import { SettingsResourceList, SettingsResourceRow } from "./components/SettingsResourceList";
+import { SettingsGroup, SettingsRow } from "./components/SettingsRow";
+import "./capability-settings.css";
+import {
+  SettingsSelect,
+  SettingsButton,
+  SettingsInput,
+  SettingsTextarea,
+} from "./components/SettingsControls";
+import { SettingsPage, SettingsSection } from "./components/SettingsPage";
 import { ChevronRight, KeyRound, Mic, Pencil, Plus, RefreshCw, Trash2, X } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
@@ -211,62 +221,65 @@ export function AsrSettingsPanel({
   }
 
   return (
-    <>
-      <header className="settings-page-header browser-settings-header settings-page-header-with-action">
-        <div>
-          <h1>{t("asr.title")}</h1>
-          <p className="settings-page-desc">{t("asr.pageSubtitle")}</p>
-        </div>
-        {onSyncDomain ? (
-          <SettingsSyncControl
-            domain="asr"
-            visible={centerServerSyncVisible}
-            disabled={busy}
-            onSync={onSyncDomain}
-          />
-        ) : null}
-      </header>
-
-      <section className="browser-settings-card browser-settings-master asr-mic-card">
-        <div className="browser-settings-master-glyph" aria-hidden>
-          <Mic size={20} strokeWidth={1.75} />
-        </div>
-        <div className="browser-settings-master-copy">
-          <strong>{t("asr.inputDevice")}</strong>
-          <small>{t("asr.inputDeviceSubtitle")}</small>
-        </div>
-        <div className="asr-mic-control">
-          <span className="asr-mic-select">
-            <select
-              value={snapshot.inputDeviceId ?? SYSTEM_DEFAULT_ASR_INPUT_DEVICE_ID}
+    <SettingsPage
+      className="capability-settings-page"
+      title={t("asr.title")}
+      description={t("asr.pageSubtitle")}
+      actions={
+        <>
+          {onSyncDomain ? (
+            <SettingsSyncControl
+              domain="asr"
+              visible={centerServerSyncVisible}
               disabled={busy}
-              aria-label={t("asr.inputSource")}
-              onChange={(event) => void selectInputDevice(event.target.value)}
-            >
-              <option value={SYSTEM_DEFAULT_ASR_INPUT_DEVICE_ID}>{t("asr.systemDefault")}</option>
-              {!selectedDeviceAvailable && snapshot.inputDeviceId && (
-                <option value={snapshot.inputDeviceId}>{t("asr.inputDeviceUnavailable")}</option>
-              )}
-              {inputDevices.devices.map((device) => (
-                <option key={device.deviceId} value={device.deviceId}>
-                  {device.label}
-                </option>
-              ))}
-            </select>
-            <ChevronRight size={15} aria-hidden />
-          </span>
-          <button
-            type="button"
-            className="settings-icon-button asr-icon-button"
-            onClick={() => void inputDevices.refresh()}
-            disabled={busy || inputDevices.refreshing}
-            title={t("asr.refreshInputDevices")}
-            aria-label={t("asr.refreshInputDevices")}
-          >
-            <RefreshCw size={15} className={inputDevices.refreshing ? "asr-voice-spinner" : undefined} />
-          </button>
-        </div>
-      </section>
+              onSync={onSyncDomain}
+            />
+          ) : null}
+        </>
+      }
+    >
+      <SettingsGroup>
+        <SettingsRow
+          label={t("asr.inputDevice")}
+          description={t("asr.inputDeviceSubtitle")}
+          stackControlOnNarrow
+          control={(controlProps) => (
+            <div className="asr-mic-control">
+              <span className="asr-mic-select">
+                <SettingsSelect
+                  {...controlProps}
+                  variant="inline"
+                  value={snapshot.inputDeviceId ?? SYSTEM_DEFAULT_ASR_INPUT_DEVICE_ID}
+                  disabled={busy}
+                  onChange={(event) => void selectInputDevice(event.target.value)}
+                >
+                  <option value={SYSTEM_DEFAULT_ASR_INPUT_DEVICE_ID}>{t("asr.systemDefault")}</option>
+                  {!selectedDeviceAvailable && snapshot.inputDeviceId && (
+                    <option value={snapshot.inputDeviceId}>{t("asr.inputDeviceUnavailable")}</option>
+                  )}
+                  {inputDevices.devices.map((device) => (
+                    <option key={device.deviceId} value={device.deviceId}>
+                      {device.label}
+                    </option>
+                  ))}
+                </SettingsSelect>
+                <ChevronRight size={15} aria-hidden />
+              </span>
+              <SettingsButton
+                variant="ghost"
+                className="asr-icon-button"
+                type="button"
+                onClick={() => void inputDevices.refresh()}
+                disabled={busy || inputDevices.refreshing}
+                title={t("asr.refreshInputDevices")}
+                aria-label={t("asr.refreshInputDevices")}
+              >
+                <RefreshCw size={15} className={inputDevices.refreshing ? "asr-voice-spinner" : undefined} />
+              </SettingsButton>
+            </div>
+          )}
+        />
+      </SettingsGroup>
 
       {!selectedDeviceAvailable && snapshot.inputDeviceId && (
         <p className="asr-inline-alert" role="alert">
@@ -281,43 +294,46 @@ export function AsrSettingsPanel({
         </p>
       )}
 
-      <div className="asr-profile-console">
-        <div className="asr-profile-toolbar">
-          <div>
-            <strong>{t("asr.profiles")}</strong>
-            <span>
-              {t("asr.profileCount", { count: snapshot.profiles.length })}
-              {activeProfile ? t("asr.profileCountActiveSuffix") : ""}
-            </span>
-          </div>
-          <button
-            type="button"
-            className="settings-primary-button asr-add-button"
-            disabled={busy}
-            onClick={() => openEditor(emptyDraft)}
-          >
-            <Plus size={15} aria-hidden />
-            {t("asr.addProfile")}
-          </button>
-        </div>
-
-        {snapshot.profiles.length === 0 ? (
-          <div className="asr-profile-empty">
-            <Mic size={22} aria-hidden />
-            <strong>{t("asr.emptyTitle")}</strong>
-            <small>{t("asr.emptyHint")}</small>
-            <button
+      <SettingsSection
+        title={t("asr.profiles")}
+        description={
+          <>
+            {t("asr.profileCount", { count: snapshot.profiles.length })}
+            {activeProfile ? t("asr.profileCountActiveSuffix") : ""}
+          </>
+        }
+        actions={
+          <>
+            <SettingsButton
+              variant="primary"
+              className="asr-add-button"
               type="button"
-              className="settings-primary-button"
               disabled={busy}
               onClick={() => openEditor(emptyDraft)}
             >
               <Plus size={15} aria-hidden />
               {t("asr.addProfile")}
-            </button>
+            </SettingsButton>
+          </>
+        }
+      >
+        {snapshot.profiles.length === 0 ? (
+          <div className="asr-profile-empty">
+            <Mic size={22} aria-hidden />
+            <strong>{t("asr.emptyTitle")}</strong>
+            <small>{t("asr.emptyHint")}</small>
+            <SettingsButton
+              variant="primary"
+              type="button"
+              disabled={busy}
+              onClick={() => openEditor(emptyDraft)}
+            >
+              <Plus size={15} aria-hidden />
+              {t("asr.addProfile")}
+            </SettingsButton>
           </div>
         ) : (
-          <div className="asr-profile-cards">
+          <SettingsResourceList>
             {snapshot.profiles.map((profile) => {
               const active = profile.id === snapshot.activeProfileId;
               const brand = resolveProviderBrandLogo({
@@ -326,26 +342,27 @@ export function AsrSettingsPanel({
                 endpoint: profile.endpoint,
               });
               return (
-                <article key={profile.id} className={`asr-profile-card${active ? " is-active" : ""}`}>
-                  <div className="asr-profile-card-main">
-                    <div className="asr-profile-card-icon">
-                      {brand ? <img src={brand.iconSrc} alt="" aria-hidden /> : <Mic size={17} aria-hidden />}
-                    </div>
-                    <div className="asr-profile-card-identity">
-                      <strong title={profile.name}>{profile.name}</strong>
-                      <span className="asr-profile-card-subtitle">
-                        <span className="asr-profile-card-subtitle-text">
-                          {profileStatusLine(profile, { notSet: t("asr.notSet") })}
-                        </span>
-                        {/* A saved key is the normal case; only a missing key is worth surfacing. */}
-                        {!profile.hasApiKey && (
-                          <em className="asr-profile-card-warning">{t("asr.missingApiKey")}</em>
-                        )}
+                <SettingsResourceRow
+                  key={profile.id}
+                  name={profile.name}
+                  description={
+                    <>
+                      <span className="asr-profile-card-subtitle-text">
+                        {profileStatusLine(profile, { notSet: t("asr.notSet") })}
                       </span>
-                    </div>
+                      {/* A saved key is the normal case; only a missing key is worth surfacing. */}
+                      {!profile.hasApiKey && (
+                        <em className="asr-profile-card-warning">{t("asr.missingApiKey")}</em>
+                      )}
+                    </>
+                  }
+                  icon={
+                    brand ? <img src={brand.iconSrc} alt="" aria-hidden /> : <Mic size={17} aria-hidden />
+                  }
+                  status={
                     <button
                       type="button"
-                      className={`asr-profile-state${active ? " is-active" : ""}`}
+                      className="settings-ui-resource-state"
                       aria-pressed={active}
                       disabled={active || busy}
                       title={active ? t("asr.active") : t("asr.setActive")}
@@ -355,24 +372,26 @@ export function AsrSettingsPanel({
                       <i aria-hidden />
                       {active ? t("asr.active") : t("asr.inactive")}
                     </button>
-                    <div className="asr-profile-card-actions">
-                      <button
+                  }
+                  actions={
+                    <>
+                      <SettingsButton
+                        variant="secondary"
                         type="button"
-                        className="asr-profile-action-secondary"
                         disabled={busy}
                         onClick={() => openEditor(profileToDraft(profile))}
                       >
                         <Pencil size={14} aria-hidden />
                         {t("asr.editProfileAction")}
-                      </button>
-                    </div>
-                  </div>
-                </article>
+                      </SettingsButton>
+                    </>
+                  }
+                />
               );
             })}
-          </div>
+          </SettingsResourceList>
         )}
-      </div>
+      </SettingsSection>
 
       {loadError !== undefined && (
         <p className="asr-inline-alert" role="alert">
@@ -399,7 +418,7 @@ export function AsrSettingsPanel({
                 tabIndex={-1}
               />
               <form
-                className="settings-modal asr-profile-modal"
+                className="settings-modal asr-profile-modal capability-settings-modal"
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="asr-profile-modal-title"
@@ -415,22 +434,21 @@ export function AsrSettingsPanel({
                     </h2>
                     <p className="asr-profile-modal-subtitle">{t("asr.editorSubtitle")}</p>
                   </div>
-                  <button
+                  <SettingsButton
+                    variant="ghost"
                     type="button"
-                    className="mcp-icon-button"
                     aria-label={t("common.close")}
                     disabled={busy}
                     onClick={closeEditor}
                   >
                     <X size={17} aria-hidden />
-                  </button>
+                  </SettingsButton>
                 </header>
 
                 <div className="settings-modal-body asr-profile-modal-body">
                   <label className="settings-form-field">
-                    <span className="settings-form-label">{t("asr.profileName")}</span>
-                    <input
-                      className="settings-form-input"
+                    <span className="settings-ui-field-label">{t("asr.profileName")}</span>
+                    <SettingsInput
                       value={draft.name}
                       onChange={(event) => {
                         setConfirmingDelete(false);
@@ -444,7 +462,7 @@ export function AsrSettingsPanel({
                   </label>
 
                   <div className="settings-form-field">
-                    <span className="settings-form-label">{t("asr.apiMode")}</span>
+                    <span className="settings-ui-field-label">{t("asr.apiMode")}</span>
                     <div
                       className="settings-segmented-control asr-segmented"
                       role="group"
@@ -475,7 +493,7 @@ export function AsrSettingsPanel({
                         {t("asr.apiModeTranscriptions")}
                       </button>
                     </div>
-                    <small className="settings-form-hint">
+                    <small className="settings-ui-field-hint">
                       {draft.apiMode === "audio_transcriptions"
                         ? t("asr.subtitleTranscriptions")
                         : t("asr.subtitleChat")}
@@ -483,9 +501,8 @@ export function AsrSettingsPanel({
                   </div>
 
                   <label className="settings-form-field">
-                    <span className="settings-form-label">{t("asr.baseUrl")}</span>
-                    <input
-                      className="settings-form-input"
+                    <span className="settings-ui-field-label">{t("asr.baseUrl")}</span>
+                    <SettingsInput
                       value={draft.endpoint}
                       onChange={(event) => {
                         setConfirmingDelete(false);
@@ -499,13 +516,13 @@ export function AsrSettingsPanel({
                   </label>
 
                   <label className="settings-form-field">
-                    <span className="settings-form-label settings-form-label-row">
+                    <span className="settings-ui-field-label settings-ui-field-label-row">
                       <span>{t("asr.apiKey")}</span>
                       {selectedProfile?.hasApiKey ? <em>{t("asr.saved")}</em> : null}
                     </span>
                     <span className="asr-secure-input">
                       <KeyRound size={15} aria-hidden />
-                      <input
+                      <SettingsInput
                         type="password"
                         value={draft.apiKey}
                         onChange={(event) => {
@@ -520,9 +537,8 @@ export function AsrSettingsPanel({
                   </label>
 
                   <label className="settings-form-field">
-                    <span className="settings-form-label">{t("asr.model")}</span>
-                    <input
-                      className="settings-form-input"
+                    <span className="settings-ui-field-label">{t("asr.model")}</span>
+                    <SettingsInput
                       value={draft.model}
                       onChange={(event) => {
                         setConfirmingDelete(false);
@@ -536,9 +552,9 @@ export function AsrSettingsPanel({
                   </label>
 
                   <label className="settings-form-field">
-                    <span className="settings-form-label">{t("asr.contextPrompt")}</span>
-                    <textarea
-                      className="settings-form-input asr-profile-modal-textarea"
+                    <span className="settings-ui-field-label">{t("asr.contextPrompt")}</span>
+                    <SettingsTextarea
+                      className="asr-profile-modal-textarea"
                       value={draft.systemPrompt}
                       onChange={(event) => {
                         setConfirmingDelete(false);
@@ -547,7 +563,7 @@ export function AsrSettingsPanel({
                       rows={4}
                       disabled={busy}
                     />
-                    <small className="settings-form-hint">{contextPromptNote}</small>
+                    <small className="settings-ui-field-hint">{contextPromptNote}</small>
                   </label>
                 </div>
 
@@ -563,40 +579,45 @@ export function AsrSettingsPanel({
                 )}
 
                 <footer className="settings-modal-footer">
-                  <button
+                  <SettingsButton
+                    variant="secondary"
+                    size="dialog"
                     type="button"
-                    className="settings-modal-cancel"
                     disabled={busy}
                     onClick={closeEditor}
                   >
                     {t("common.cancel")}
-                  </button>
+                  </SettingsButton>
                   <div className="settings-modal-footer-actions">
                     {draft.id ? (
                       confirmingDelete ? (
                         <div className="asr-delete-confirm" role="group" aria-label={t("asr.deleteConfirm")}>
                           <span>{t("asr.deleteConfirm")}</span>
-                          <button
+                          <SettingsButton
+                            variant="danger"
+                            size="dialog"
                             type="button"
-                            className="settings-danger-button"
                             disabled={busy}
                             onClick={() => void remove()}
                           >
                             {t("asr.deleteConfirmAction")}
-                          </button>
-                          <button
+                          </SettingsButton>
+                          <SettingsButton
+                            variant="ghost"
+                            size="dialog"
                             type="button"
-                            className="settings-text-button"
                             disabled={busy}
                             onClick={() => setConfirmingDelete(false)}
                           >
                             {t("asr.deleteCancel")}
-                          </button>
+                          </SettingsButton>
                         </div>
                       ) : (
-                        <button
+                        <SettingsButton
+                          variant="danger"
+                          size="dialog"
+                          className="asr-delete-text"
                           type="button"
-                          className="settings-secondary-button asr-delete-text"
                           disabled={
                             busy || draft.id === snapshot.activeProfileId || snapshot.profiles.length <= 1
                           }
@@ -604,12 +625,12 @@ export function AsrSettingsPanel({
                         >
                           <Trash2 size={14} aria-hidden />
                           {t("asr.deleteProfile")}
-                        </button>
+                        </SettingsButton>
                       )
                     ) : null}
-                    <button type="submit" className="settings-primary-button" disabled={busy || !dirty}>
+                    <SettingsButton variant="primary" size="dialog" type="submit" disabled={busy || !dirty}>
                       {busy ? t("asr.saving") : t("common.save")}
-                    </button>
+                    </SettingsButton>
                   </div>
                 </footer>
               </form>
@@ -617,6 +638,6 @@ export function AsrSettingsPanel({
             document.body,
           )
         : null}
-    </>
+    </SettingsPage>
   );
 }

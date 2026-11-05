@@ -23,13 +23,13 @@ test("Codex composer exposes MCP, subagent, and skills UI", async ({ ecoPage: pa
   await mcpTrigger.click();
 
   const mcpSwitches = page.locator(
-    '.composer-agents-popover[aria-label="MCP 服务器"] input[type="checkbox"]',
+    '.composer-agents-popover[aria-label="MCP 服务器"] [role="switch"]',
   );
   const mcpSwitchCount = await mcpSwitches.count();
   for (let index = 0; index < mcpSwitchCount; index += 1) {
     const state = await mcpSwitches.nth(index).evaluate((input) => ({
-      checked: input.checked,
-      disabled: input.disabled,
+      checked: input.getAttribute("aria-checked") === "true",
+      disabled: (input as HTMLButtonElement).disabled,
     }));
     expect(state.disabled).toBe(false);
   }
@@ -43,19 +43,19 @@ test("Codex composer exposes MCP, subagent, and skills UI", async ({ ecoPage: pa
   await subagentTrigger.click();
 
   const subagentSwitches = page.locator(
-    '.composer-agents-popover[aria-label="子代理详情"] input[type="checkbox"]',
+    '.composer-agents-popover[aria-label="子代理详情"] [role="switch"]',
   );
   const subagentSwitchCount = await subagentSwitches.count();
   for (let index = 0; index < subagentSwitchCount; index += 1) {
     const state = await subagentSwitches.nth(index).evaluate((input) => ({
-      checked: input.checked,
-      disabled: input.disabled,
+      checked: input.getAttribute("aria-checked") === "true",
+      disabled: (input as HTMLButtonElement).disabled,
     }));
     expect(state.disabled).toBe(false);
   }
 
   const switchSubagentRows = await page
-    .locator('.composer-agents-popover[aria-label="子代理详情"] .composer-agent-row .composer-switch')
+    .locator('.composer-agents-popover[aria-label="子代理详情"] .composer-agent-row [role="switch"]')
     .count();
   expect(switchSubagentRows).toBeGreaterThan(0);
 

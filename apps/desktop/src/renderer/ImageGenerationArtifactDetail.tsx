@@ -5,6 +5,9 @@ import type { ImageGenerationArtifact } from "../shared/image-generation";
 import { ImageLightbox } from "./image-lightbox";
 import { formatIpcInvokeError } from "./AppMessage";
 import { useImageLibraryRevision } from "./use-image-library-revision";
+import { SettingsButton } from "./components/SettingsControls";
+import { ICON_SIZE, ICON_STROKE } from "./icon-metrics";
+import "./image-generation-artifact-detail.css";
 import {
   createImageObjectUrlFromBase64,
   revokeImageObjectUrl,
@@ -83,12 +86,12 @@ export function ImageGenerationArtifactDetail({ artifact }: { artifact: ImageGen
   }
 
   return (
-    <section className="image-artifact-detail">
+    <section className="image-artifact-detail image-artifact-detail--generation">
       <header>
-        <span className={`image-artifact-status is-${artifact.status}`}>
+        <span className={`image-artifact-status is-${artifact.status}`} role="status">
           {t(`task.image.status.${artifact.status}`)}
         </span>
-        <span>
+        <span className="image-artifact-provider">
           {artifact.profileName} · {artifact.model}
         </span>
       </header>
@@ -98,7 +101,9 @@ export function ImageGenerationArtifactDetail({ artifact }: { artifact: ImageGen
       </section>
       <section>
         <h3>{t("task.image.parameters")}</h3>
-        <pre>{JSON.stringify(artifact.parameters, null, 2)}</pre>
+        <pre tabIndex={0} role="region" aria-label={t("task.image.parameters")}>
+          {JSON.stringify(artifact.parameters, null, 2)}
+        </pre>
       </section>
       {artifact.errorMessage ? (
         <section className="image-artifact-error">
@@ -106,7 +111,11 @@ export function ImageGenerationArtifactDetail({ artifact }: { artifact: ImageGen
           <p>{artifact.errorMessage}</p>
         </section>
       ) : null}
-      {loadError ? <p className="image-artifact-error">{loadError}</p> : null}
+      {loadError ? (
+        <p className="image-artifact-error" role="alert">
+          {loadError}
+        </p>
+      ) : null}
       {revealError ? (
         <p className="image-artifact-error" role="alert">
           {revealError}
@@ -131,42 +140,42 @@ export function ImageGenerationArtifactDetail({ artifact }: { artifact: ImageGen
                 </p>
               )}
               <figcaption className="image-artifact-caption">
-                <span>
+                <span className="image-artifact-filename" title={artifact.images[index]?.absolutePath}>
                   {artifact.images[index]?.libraryImageId
                     ? artifact.images[index]?.absolutePath.split(/[\\/]/).pop()
                     : artifact.images[index]?.relativePath}
                 </span>
-                {artifact.images[index]?.libraryImageId && source ? (
-                  <button
+                <div className="image-artifact-caption-actions">
+                  {artifact.images[index]?.libraryImageId && source ? (
+                    <SettingsButton
+                      type="button"
+                      onClick={() => {
+                        const id = artifact.images[index]?.libraryImageId;
+                        if (!id || !window.eco) return;
+                        void window.eco
+                          .exportImageLibraryImages([id])
+                          .then((result) => {
+                            if (result.errors.length)
+                              setRevealError(result.errors.map((error) => error.message).join("\n"));
+                          })
+                          .catch((error) => setRevealError(String(error)));
+                      }}
+                    >
+                      <Download size={ICON_SIZE.sm} strokeWidth={ICON_STROKE} aria-hidden />
+                      <span>{t("imageLibrary.export")}</span>
+                    </SettingsButton>
+                  ) : null}
+                  <SettingsButton
                     type="button"
-                    className="image-artifact-location-button"
-                    onClick={() => {
-                      const id = artifact.images[index]?.libraryImageId;
-                      if (!id || !window.eco) return;
-                      void window.eco
-                        .exportImageLibraryImages([id])
-                        .then((result) => {
-                          if (result.errors.length)
-                            setRevealError(result.errors.map((error) => error.message).join("\n"));
-                        })
-                        .catch((error) => setRevealError(String(error)));
-                    }}
+                    disabled={!source}
+                    onClick={() => void handleRevealImage(index)}
+                    title={t("task.image.openLocation")}
+                    aria-label={t("task.image.openLocation")}
                   >
-                    <Download size={13} aria-hidden />
-                    <span>{t("imageLibrary.export")}</span>
-                  </button>
-                ) : null}
-                <button
-                  type="button"
-                  disabled={!source}
-                  className="image-artifact-location-button"
-                  onClick={() => void handleRevealImage(index)}
-                  title={t("task.image.openLocation")}
-                  aria-label={t("task.image.openLocation")}
-                >
-                  <FolderOpen size={13} aria-hidden />
-                  <span>{t("task.image.openLocation")}</span>
-                </button>
+                    <FolderOpen size={ICON_SIZE.sm} strokeWidth={ICON_STROKE} aria-hidden />
+                    <span>{t("task.image.openLocation")}</span>
+                  </SettingsButton>
+                </div>
               </figcaption>
             </figure>
           ))}

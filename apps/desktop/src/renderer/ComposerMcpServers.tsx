@@ -1,3 +1,4 @@
+import { Switch } from "./components/Switch";
 import { Unplug } from "lucide-react";
 import { type CSSProperties, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -45,23 +46,18 @@ function McpServerRows({
               <span className="composer-mcp-row-name">{displayName}</span>
               <span className="composer-mcp-row-transport">{server.transport}</span>
             </div>
-            <label
-              className="composer-switch"
+            <Switch
+              size="sm"
               title={t(enabled ? "composer.enabledNamed" : "composer.disabledNamed", {
                 name: displayName,
               })}
-            >
-              <input
-                type="checkbox"
-                checked={enabled}
-                disabled={saving || !clickable}
-                aria-label={t(enabled ? "composer.enabledAria" : "composer.disabledAria", {
-                  name: displayName,
-                })}
-                onChange={() => onToggleServer?.(serverKey, !enabled)}
-              />
-              <span className="composer-switch-track" aria-hidden />
-            </label>
+              checked={enabled}
+              disabled={saving || !clickable}
+              aria-label={t(enabled ? "composer.enabledAria" : "composer.disabledAria", {
+                name: displayName,
+              })}
+              onCheckedChange={() => onToggleServer?.(serverKey, !enabled)}
+            />
           </div>
         );
       })}

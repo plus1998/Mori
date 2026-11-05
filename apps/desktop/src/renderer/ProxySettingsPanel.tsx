@@ -1,10 +1,13 @@
-import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useId, useState } from "react";
+import { Switch } from "./components/Switch";
+import { SettingsGroup, SettingsRow } from "./components/SettingsRow";
+import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { CenterServerSyncDomain, CenterServerSyncDomainResult } from "../shared/center-server";
 import type { ProxyBridgeSettingsSnapshot, UpstreamAgentCore } from "../shared/ipc";
 import { UPSTREAM_AGENT_CORES } from "../shared/ipc";
 import { AGENT_CORE_META, GatewayArchitectureDiagram } from "./GatewayArchitectureDiagram";
 import { SettingsSyncControl } from "./SettingsSyncControl";
+import "./runtime-settings.css";
 
 interface ProxySettingsPanelProps {
   settings: ProxyBridgeSettingsSnapshot;
@@ -44,7 +47,6 @@ export function ProxySettingsPanel({
   onSyncDomain,
 }: ProxySettingsPanelProps) {
   const { t } = useTranslation();
-  const enabledId = useId();
   const [tab, setTab] = useState<GatewayTab>(initialTab);
   // enabled 缺省视为开启（兼容旧数据）
   const [enabledDraft, setEnabledDraft] = useState(settings.enabled !== false);
@@ -125,7 +127,7 @@ export function ProxySettingsPanel({
   ) : null;
 
   return (
-    <>
+    <div className="gateway-settings">
       <header className="settings-page-header settings-page-header-with-action">
         <h1>{t("settings.gateway")}</h1>
         {syncControl}
@@ -167,30 +169,22 @@ export function ProxySettingsPanel({
           id="gateway-tabpanel-proxy"
           aria-labelledby="gateway-tab-proxy"
         >
-          <ul className="settings-rows">
-            <li>
-              <div className="notification-settings-row">
-                <span className="settings-row-main" id={enabledId}>
-                  <strong>{t("settings.proxy.enabled")}</strong>
-                </span>
-                <label
-                  className="composer-switch notification-settings-switch"
+          <SettingsGroup>
+            <SettingsRow
+              label={t("settings.proxy.enabled")}
+              control={(controlProps) => (
+                <Switch
+                  {...controlProps}
                   title={t(enabledDraft ? "composer.enabledNamed" : "composer.disabledNamed", {
                     name: t("settings.proxy.enabled"),
                   })}
-                >
-                  <input
-                    type="checkbox"
-                    checked={enabledDraft}
-                    disabled={busy}
-                    aria-labelledby={enabledId}
-                    onChange={(event) => setEnabledDraft(event.target.checked)}
-                  />
-                  <span className="composer-switch-track" aria-hidden />
-                </label>
-              </div>
-            </li>
-          </ul>
+                  checked={enabledDraft}
+                  disabled={busy}
+                  onCheckedChange={(checked) => setEnabledDraft(checked)}
+                />
+              )}
+            />
+          </SettingsGroup>
 
           <label className="mcp-field">
             <span className="mcp-field-label">{t("settings.proxy.url")}</span>
@@ -282,6 +276,6 @@ export function ProxySettingsPanel({
           </div>
         </section>
       )}
-    </>
+    </div>
   );
 }

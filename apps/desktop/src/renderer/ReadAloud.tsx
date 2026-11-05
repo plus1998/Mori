@@ -1,3 +1,4 @@
+import { Switch } from "./components/Switch";
 import {
   AlertCircle,
   ArrowUpRight,
@@ -229,15 +230,11 @@ function ReadAloudAutoReadSwitch() {
   const { autoRead } = useReadAloud();
   const { t } = useTranslation();
   return (
-    <label className="composer-switch browser-settings-switch">
-      <input
-        type="checkbox"
-        checked={autoRead}
-        aria-label={t("readAloud.autoRead")}
-        onChange={(event) => setReadAloudAutoRead(event.target.checked)}
-      />
-      <span className="composer-switch-track" aria-hidden />
-    </label>
+    <Switch
+      checked={autoRead}
+      aria-label={t("readAloud.autoRead")}
+      onCheckedChange={(checked) => setReadAloudAutoRead(checked)}
+    />
   );
 }
 

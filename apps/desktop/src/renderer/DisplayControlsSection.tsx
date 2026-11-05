@@ -1,3 +1,4 @@
+import { Switch } from "./components/Switch";
 import { formatAccelerator } from "../shared/keyboard-shortcuts";
 import { useKeyboardShortcuts } from "./keyboard-shortcuts";
 import { LockKeyholeOpen, Monitor, SunDim } from "lucide-react";
@@ -71,27 +72,21 @@ export function DisplayControlsSection() {
       <label className="running-display-control" title={t("app.running.preventAutoLockHint")}>
         <LockKeyholeOpen size={16} aria-hidden />
         <span>{t("app.running.preventAutoLock")}</span>
-        <input
-          type="checkbox"
-          role="switch"
+        <Switch
           aria-label={t("app.running.preventAutoLock")}
-          aria-checked={state?.preventAutoLock ?? false}
           checked={state?.preventAutoLock ?? false}
           disabled={!state || busy}
-          onChange={(event) => void change({ control: "preventAutoLock", enabled: event.target.checked })}
+          onCheckedChange={(checked) => void change({ control: "preventAutoLock", enabled: checked })}
         />
       </label>
       <label className="running-display-control" title={dimScreenHint}>
         <SunDim size={16} aria-hidden />
         <span>{t("app.running.dimScreen")}</span>
-        <input
-          type="checkbox"
-          role="switch"
+        <Switch
           aria-label={t("app.running.dimScreen")}
-          aria-checked={state?.dimmed ?? false}
           checked={state?.dimmed ?? false}
           disabled={!state || (!state.brightnessAvailable && !state.dimmed) || busy}
-          onChange={(event) => void change({ control: "dimmed", enabled: event.target.checked })}
+          onCheckedChange={(checked) => void change({ control: "dimmed", enabled: checked })}
         />
       </label>
       <details className="running-display-details">

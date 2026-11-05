@@ -2290,9 +2290,9 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .thread-info-workspac
   display: flex;
   flex-shrink: 0;
   align-items: center;
+  gap: 4px;
   width: 100%;
   margin-top: auto;
-  border-radius: 10px;
   color: var(--sidebar-item-text);
   -webkit-app-region: no-drag;
 }
@@ -2302,23 +2302,34 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .thread-info-workspac
   -webkit-app-region: no-drag;
 }
 
-.sidebar-settings:hover {
-  background: var(--sidebar-control-hover-bg);
-  color: var(--sidebar-item-active-text);
-}
-
 .sidebar-settings-action {
   display: flex;
   flex: 1;
   align-items: center;
   gap: 8px;
   min-width: 0;
-  min-height: 32px;
-  padding: 0 8px;
+  min-height: 36px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 8px;
   background: transparent;
   color: inherit;
-  font-size: 14px;
-  line-height: 1;
+  font-size: calc(var(--ui-font-size) - 1px);
+  font-weight: 400;
+  text-align: left;
+  line-height: 20px;
+}
+
+.sidebar-settings-action:hover,
+button.sidebar-settings-meta:hover {
+  background: var(--sidebar-control-hover-bg);
+  color: var(--sidebar-item-active-text);
+}
+
+.sidebar-settings-action:focus-visible,
+button.sidebar-settings-meta:focus-visible {
+  outline: 2px solid var(--sidebar-item-text);
+  outline-offset: -2px;
 }
 
 .sidebar-settings-action > svg {
@@ -2332,14 +2343,17 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .thread-info-workspac
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  line-height: 1;
+  line-height: 20px;
 }
 
 .sidebar-settings-action .sidebar-settings-presence-dot.cs-dot {
   margin-top: 0;
-  margin-left: auto;
+  width: 6px;
+  height: 6px;
+  margin-left: 0;
   align-self: center;
   flex-shrink: 0;
+  box-shadow: none;
 }
 
 .sidebar-settings-meta {
@@ -2350,6 +2364,8 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .thread-info-workspac
   position: relative;
   width: 32px;
   height: 32px;
+  border: 0;
+  border-radius: 8px;
   background: transparent;
   color: inherit;
   cursor: default;
@@ -11137,105 +11153,6 @@ button.integrated-web-search-clear-key:disabled {
   to {
     transform: rotate(360deg);
   }
-}
-
-.mcp-toggle {
-  position: relative;
-  display: inline-flex;
-  cursor: pointer;
-}
-
-.mcp-toggle input {
-  position: absolute;
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-
-.mcp-toggle-track {
-  display: block;
-  width: 42px;
-  height: 25px;
-  border-radius: 999px;
-  background: var(--toggle-off);
-  transition: background 0.22s cubic-bezier(0.32, 0.72, 0, 1);
-}
-
-.mcp-toggle-track::after {
-  content: "";
-  position: absolute;
-  top: 2.5px;
-  left: 2.5px;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: var(--toggle-thumb);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
-  transition: transform 0.22s cubic-bezier(0.32, 0.72, 0, 1);
-}
-
-.mcp-toggle input:checked + .mcp-toggle-track {
-  background: var(--accent);
-}
-
-.mcp-toggle input:checked + .mcp-toggle-track::after {
-  transform: translateX(18px);
-}
-
-.mcp-toggle input:disabled + .mcp-toggle-track {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.mcp-toggle-sm .mcp-toggle-track {
-  width: 34px;
-  height: 20px;
-}
-
-.mcp-toggle-sm .mcp-toggle-track::after {
-  top: 2px;
-  left: 2px;
-  width: 16px;
-  height: 16px;
-}
-
-.mcp-toggle-sm input:checked + .mcp-toggle-track::after {
-  transform: translateX(14px);
-}
-
-.mcp-server-row .mcp-toggle-sm {
-  opacity: 0.55;
-  transition: opacity 0.15s ease;
-}
-
-.mcp-server-row:hover .mcp-toggle-sm,
-.mcp-server-row .mcp-toggle-sm:has(input:checked),
-.mcp-server-row .mcp-toggle-sm:has(input:focus-visible) {
-  opacity: 1;
-}
-
-.mcp-server-row .mcp-toggle-sm input:checked + .mcp-toggle-track {
-  background: color-mix(in srgb, var(--accent) 65%, var(--toggle-off));
-}
-
-.mcp-toggle-lg {
-  flex-shrink: 0;
-}
-
-.mcp-toggle-lg .mcp-toggle-track {
-  width: 52px;
-  height: 30px;
-}
-
-.mcp-toggle-lg .mcp-toggle-track::after {
-  top: 3px;
-  left: 3px;
-  width: 24px;
-  height: 24px;
-}
-
-.mcp-toggle-lg input:checked + .mcp-toggle-track::after {
-  transform: translateX(22px);
 }
 
 .mcp-editor-header {
@@ -21419,65 +21336,6 @@ a.run-log-web-search-detail-result-url:focus-visible {
   white-space: nowrap;
 }
 
-.composer-mcp-row > .composer-switch {
-  flex: 0 0 auto;
-}
-
-.composer-switch {
-  position: relative;
-  display: inline-flex;
-  flex-shrink: 0;
-  align-items: center;
-  cursor: pointer;
-}
-
-.composer-switch input {
-  position: absolute;
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-
-.composer-switch-track {
-  display: block;
-  width: 36px;
-  height: 20px;
-  border-radius: 999px;
-  background: var(--composer-switch-off, rgba(255, 255, 255, 0.14));
-  transition: background-color 0.18s ease;
-}
-
-.composer-switch-track::after {
-  content: "";
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: #f5f5f5;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
-  transition: transform 0.18s ease;
-}
-
-.composer-switch input:checked + .composer-switch-track {
-  background: var(--composer-switch-on, #3b82f6);
-}
-
-.composer-switch input:focus-visible + .composer-switch-track {
-  outline: 2px solid color-mix(in srgb, var(--accent) 68%, transparent);
-  outline-offset: 2px;
-}
-
-.composer-switch input:checked + .composer-switch-track::after {
-  transform: translateX(16px);
-}
-
-.composer-switch input:disabled + .composer-switch-track {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
 .composer-footer-main {
   display: flex;
   flex: 1;
@@ -23245,6 +23103,9 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .settings-nav {
 /* Lazy panel chunk placeholder (settings / terminal / task drawer). */
 .run-log--virtualized {
   position: relative;
+  /* Unmeasured rows must not extend the model-owned scroll range. Unlike hidden,
+     clip does not create another scrolling ancestor for sticky row contents. */
+  overflow: clip;
 }
 
 .run-log-virtual-anchor {
@@ -23259,7 +23120,7 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .settings-nav {
   opacity: 0;
 }
 
-.run-log-virtual-spacer {
+.run-log-virtual-sizer {
   flex-shrink: 0;
   pointer-events: none;
 }
@@ -23686,10 +23547,6 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .settings-nav {
   right: 8px;
   pointer-events: none;
   color: var(--text-muted);
-}
-
-.notification-settings-switch {
-  flex: 0 0 auto;
 }
 
 .font-size-stepper {
@@ -28516,10 +28373,6 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .settings-nav {
   font-weight: 600;
   color: var(--text-primary);
   line-height: 1.35;
-}
-
-.model-spec-field-checkbox .mcp-toggle {
-  flex-shrink: 0;
 }
 
 .model-spec-field-checkbox:has(input:checked) {
@@ -33924,8 +33777,6 @@ html[data-platform="darwin"] :is(.run-log, .codex-composer, .codex-sidebar) {
   .mcp-secondary-button,
   .mcp-uninstall-button,
   .mcp-row-delete,
-  .mcp-toggle-track,
-  .mcp-toggle-track::after,
   .candidate-panel,
   .candidate-panel-toggle,
   .candidate-panel-toggle-icon,
@@ -33940,9 +33791,7 @@ html[data-platform="darwin"] :is(.run-log, .codex-composer, .codex-sidebar) {
   .cs-back,
   .cs-btn,
   .cs-icon-btn,
-  .cs-tab,
-  .cs-switch-track,
-  .cs-switch-track::after {
+  .cs-tab {
     transition: none !important;
     animation: none !important;
   }
@@ -34369,55 +34218,6 @@ html[data-platform="darwin"] .git-commit-dialog-backdrop .git-commit-popover {
 .cs-icon-btn.is-warn:hover:not(:disabled) {
   background: color-mix(in srgb, var(--status-deny-text, #f87171) 12%, transparent);
   color: var(--status-deny-text, #f87171);
-}
-
-.cs-switch {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  cursor: pointer;
-}
-
-.cs-switch input {
-  position: absolute;
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-
-.cs-switch-track {
-  display: block;
-  width: 42px;
-  height: 25px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--text-muted) 28%, transparent);
-  transition: background 0.22s cubic-bezier(0.32, 0.72, 0, 1);
-}
-
-.cs-switch-track::after {
-  content: "";
-  position: absolute;
-  top: 2.5px;
-  left: 2.5px;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: var(--toggle-thumb, var(--bg-elevated, #fff));
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
-  transition: transform 0.22s cubic-bezier(0.32, 0.72, 0, 1);
-}
-
-.cs-switch input:checked + .cs-switch-track {
-  background: var(--accent);
-}
-
-.cs-switch input:checked + .cs-switch-track::after {
-  transform: translateX(17px);
-}
-
-.cs-switch input:disabled + .cs-switch-track {
-  opacity: 0.45;
-  cursor: not-allowed;
 }
 
 .cs-block {
@@ -40468,35 +40268,6 @@ body.is-resizing-browser-split::before {
   color: var(--text-muted, var(--text-secondary));
 }
 
-.browser-settings-switch {
-  flex: 0 0 auto;
-  align-self: center;
-}
-
-.browser-settings-switch .composer-switch-track {
-  width: 42px;
-  height: 24px;
-  transition:
-    background-color 160ms cubic-bezier(0.32, 0.72, 0, 1),
-    transform 100ms ease-out;
-}
-
-.browser-settings-switch .composer-switch-track::after {
-  top: 3px;
-  left: 3px;
-  width: 18px;
-  height: 18px;
-  transition: transform 220ms cubic-bezier(0.32, 0.72, 0, 1);
-}
-
-.browser-settings-switch input:checked + .composer-switch-track::after {
-  transform: translateX(18px);
-}
-
-.browser-settings-switch:active .composer-switch-track {
-  transform: scale(0.96);
-}
-
 .browser-settings-error {
   margin: 10px 4px 0;
   color: #c47b0a;
@@ -40628,15 +40399,6 @@ body.is-resizing-browser-split::before {
 
 [data-theme="light"] .browser-settings-error {
   color: #a35c00;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .browser-settings-switch .composer-switch-track,
-  .browser-settings-switch .composer-switch-track::after,
-  .browser-settings-switch:active .composer-switch-track {
-    transition: none;
-    transform: none;
-  }
 }
 
 /* ── Computer use settings: info note + permission status row ── */
@@ -41613,45 +41375,6 @@ body.is-resizing-browser-split::before {
   font-size: 12px;
   font-weight: 500;
   line-height: 18px;
-}
-
-.running-display-control input {
-  appearance: none;
-  flex: 0 0 auto;
-  width: 28px;
-  height: 17px;
-  margin: 0;
-  padding: 2px;
-  border-radius: 10px;
-  background: var(--text-muted);
-  cursor: pointer;
-}
-
-.running-display-control input::before {
-  display: block;
-  content: "";
-  width: 13px;
-  height: 13px;
-  border-radius: 50%;
-  background: white;
-}
-
-.running-display-control input:checked {
-  background: var(--accent);
-}
-
-.running-display-control input:checked::before {
-  transform: translateX(11px);
-}
-
-.running-display-control input:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
-.running-display-control input:focus-visible {
-  outline: 2px solid var(--text-primary);
-  outline-offset: 3px;
 }
 
 .running-display-details {
@@ -44150,10 +43873,7 @@ body.is-resizing-browser-split::before {
   cursor: pointer;
 }
 .thread-worktree-toggle:hover:not(:disabled) { background: color-mix(in srgb, var(--text-primary) 5%, transparent); }
-.thread-worktree-switch { display: flex; align-items: center; width: 30px; height: 18px; padding: 2px; margin-left: auto; border-radius: 20px; background: color-mix(in srgb, var(--text-primary) 20%, transparent); }
-.thread-worktree-switch > span { width: 14px; height: 14px; border-radius: 50%; background: var(--bg-main); box-shadow: 0 1px 3px #0002; transition: transform 140ms ease; }
-.thread-worktree-switch.is-on { background: var(--text-primary); }
-.thread-worktree-switch.is-on > span { transform: translateX(12px); }
+.thread-worktree-toggle > .mori-switch-track { margin-left: auto; }
 .thread-worktree-hint { margin: 0 10px 8px 38px; color: var(--text-secondary); font-size: 11px; line-height: 1.6; }
 .thread-worktree-details { margin: 4px 10px; color: var(--text-secondary); font-size: 12px; }
 .thread-worktree-details summary { width: fit-content; padding: 6px 0; cursor: pointer; }
@@ -44179,9 +43899,6 @@ body.is-resizing-browser-split::before {
 @media (max-width: 600px) {
   .thread-worktree-bar { gap: 6px; }
   .thread-worktree-location { font-size: 11px; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .thread-worktree-switch > span { transition: none; }
 }
 
 .thread-worktree-progress { display: flex; align-items: center; gap: 10px; padding: 10px; color: var(--text-secondary); font-size: 12px; }

@@ -1,3 +1,4 @@
+import { Switch } from "./components/Switch";
 import {
   Check,
   ChevronLeft,
@@ -54,6 +55,7 @@ import {
 import { i18n } from "./i18n";
 import { SupabaseDeploymentPanel } from "./SupabaseDeploymentPanel";
 import type { SupabaseDeploymentConnection } from "../shared/supabase-deployment";
+import "./runtime-settings.css";
 
 interface CenterServerSettingsPanelProps {
   snapshot: CenterServerSettingsSnapshot;
@@ -941,18 +943,13 @@ export function CenterServerSettingsPanel({
                 >
                   <Settings2 size={16} strokeWidth={1.75} />
                 </button>
-                <label
-                  className="cs-switch"
+                <Switch
                   title={form.enabled ? t("common.enabled") : t("common.disabled")}
-                >
-                  <input
-                    type="checkbox"
-                    checked={form.enabled}
-                    disabled={actionBusy || isConnecting}
-                    onChange={(event) => void handleToggle(event.target.checked)}
-                  />
-                  <span className="cs-switch-track" aria-hidden />
-                </label>
+                  checked={form.enabled}
+                  disabled={actionBusy || isConnecting}
+                  onCheckedChange={(checked) => void handleToggle(checked)}
+                  aria-label={form.enabled ? t("common.enabled") : t("common.disabled")}
+                />
               </div>
             </div>
           </div>

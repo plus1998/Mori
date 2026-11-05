@@ -1,0 +1,234 @@
+/* One shrinking grid track keeps long JSON strings inside their own scroller. */
+.image-artifact-detail {
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  flex: 1 1 auto;
+  gap: 24px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  min-height: 0;
+  padding: 20px;
+  overflow: auto;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 20px;
+}
+
+.image-artifact-detail > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.image-artifact-detail > header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 16px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.image-artifact-provider {
+  min-width: 0;
+  flex: 1 1 220px;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.image-artifact-detail section h3 {
+  margin: 0 0 10px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
+}
+
+.image-artifact-prompt,
+.image-artifact-error p {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.image-artifact-prompt {
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.image-artifact-detail pre {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  max-height: min(260px, 40dvh);
+  margin: 0;
+  padding: 12px 16px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: var(--nav-hover);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 20px;
+  white-space: pre;
+  overflow: auto;
+  overscroll-behavior-x: contain;
+  tab-size: 2;
+}
+
+.image-artifact-detail pre:focus-visible {
+  outline: 2px solid var(--border-strong);
+  outline-offset: 2px;
+}
+
+.image-artifact-status {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.image-artifact-detail--generation {
+  container: image-artifact / inline-size;
+}
+
+.image-artifact-detail--generation .image-artifact-status {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+}
+
+.image-artifact-detail--generation .image-artifact-status::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+
+.image-artifact-detail--generation .image-artifact-status.is-completed::before {
+  background: var(--success);
+}
+
+.image-artifact-status.is-failed,
+.image-artifact-error {
+  color: var(--danger);
+  overflow-wrap: anywhere;
+}
+
+.image-artifact-detail--generation .image-artifact-error {
+  margin: 0;
+  padding: 12px 16px;
+  border: 1px solid color-mix(in srgb, var(--danger) 20%, var(--border-subtle));
+  border-radius: 12px;
+  background: var(--danger-soft);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.image-artifact-detail--generation .image-artifact-error h3 {
+  color: inherit;
+}
+
+.image-artifact-detail--generation .image-artifact-status.is-failed::before {
+  background: currentColor;
+}
+
+.image-artifact-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+  align-items: start;
+  gap: 24px 16px;
+  min-width: 0;
+}
+
+.image-artifact-gallery figure {
+  min-width: 0;
+  margin: 0;
+}
+
+.image-artifact-preview-button {
+  box-sizing: border-box;
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--text-primary) 3%, transparent);
+  cursor: zoom-in;
+}
+
+.image-artifact-preview-button:hover {
+  border-color: var(--border-strong);
+}
+
+.image-artifact-preview-button:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
+}
+
+.image-artifact-preview-button img {
+  display: block;
+  min-width: 0;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: min(70dvh, 720px);
+  object-fit: contain;
+  border-radius: 11px;
+}
+
+.image-artifact-caption {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin-top: 10px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.image-artifact-filename {
+  min-width: 0;
+  flex: 1 1 160px;
+  padding-block: 5px;
+  overflow-wrap: anywhere;
+}
+
+.image-artifact-caption-actions {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.image-artifact-caption-actions .settings-ui-button {
+  font-size: 12px;
+}
+
+@container image-artifact (max-width: 420px) {
+  .image-artifact-provider {
+    flex-basis: 100%;
+    text-align: left;
+  }
+
+  .image-artifact-filename {
+    flex-basis: 100%;
+    padding-block: 0;
+  }
+}

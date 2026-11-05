@@ -2,6 +2,7 @@ import { Check, ChevronLeft, Clock3, Loader2, Pencil, Plus, Search, Trash2, X, Z
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
+import { Switch } from "./Switch";
 import type {
   AccountWakeBatch,
   AccountWakeBatchInput,
@@ -352,17 +353,14 @@ export function AccountWakeBatchesPanel(props: Props) {
                                 {statusText(batch)}
                               </small>
                             </button>
-                            <button
-                              className="wake-toggle"
-                              type="button"
-                              role="switch"
-                              aria-checked={batch.enabled}
+                            <Switch
+                              className="wake-batch-row-switch"
+                              size="sm"
+                              checked={batch.enabled}
                               aria-label={t("wakeBatch.enabled", { name: batch.name })}
                               disabled={busy || batch.lastRun?.status === "running"}
-                              onClick={() => void toggle(batch)}
-                            >
-                              <span />
-                            </button>
+                              onCheckedChange={() => void toggle(batch)}
+                            />
                           </div>
                         ))
                     )}

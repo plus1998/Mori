@@ -487,11 +487,10 @@ export function useFeedSectionVirtualizer(input: {
     // react-virtual >= 3.14.13 skips flushSync during ref measurements, when
     // React is already committing, while preserving these scroll corrections.
     useFlushSync: true,
-    // Measurements update both the virtual window and its DOM spacers. Run that
-    // mutation at the frame boundary, rather than resizing observed ancestors
-    // inside their own ResizeObserver delivery. The layout effect then pins
-    // the committed geometry before that frame is painted.
-    useAnimationFrameWithResizeObserver: true,
+    // Publish measured positions and the scroll extent together before paint.
+    // An extra rAF adds stale geometry without batching benefits: RO already
+    // runs after layout. The sizer below keeps mounts independent of that extent.
+    useAnimationFrameWithResizeObserver: false,
   });
   const virtualItems = enabled ? virtualizer.getVirtualItems() : ([] as VirtualItem[]);
   const totalSize = enabled ? virtualizer.getTotalSize() : 0;
@@ -510,12 +509,11 @@ export function useFeedSectionVirtualizer(input: {
     [virtualizer],
   );
 
-  // Reconcile after the measured window and its spacers commit. Swapping a
-  // spacer for rows can transiently shorten the DOM and clamp scrollTop even
-  // when the section keys and model totalSize stay unchanged. Pinning only on
-  // structural changes misses that clamp and leaves the live tail below the
-  // Composer. Depend on virtual geometry, so Composer/text-only renders with
-  // unchanged measurements do not compete with pending ResizeObserver work.
+  // Reconcile after measured positions and the sizer commit. The library's
+  // measurement correction may run against the previous DOM extent; only the
+  // committed model can determine the new end. Text-only renders with unchanged
+  // geometry do not need another scroll writer, and history readers retain their
+  // own anchor instead of being pinned to the end.
   // biome-ignore lint/correctness/useExhaustiveDependencies: Committed virtual geometry invalidates the DOM scroll position.
   useLayoutEffect(() => {
     if (!enabled || userDetached) return;
@@ -643,20 +641,16 @@ export function FeedVirtualSectionWindow(props: {
     measureElement,
     renderSection,
   } = props;
-  const first = virtualItems[0];
-  const last = virtualItems[virtualItems.length - 1];
-  // item.start/end include scrollMargin and the element's padding-top; totalSize
-  // also carries the element's padding-bottom. The padding is real DOM space
-  // outside the row container, so the spacers must not reproduce it — otherwise
-  // the Composer's band gets reserved twice.
-  const topSpacer = Math.max(0, (first?.start ?? 0) - scrollMargin - paddingStart);
-  const bottomSpacer = Math.max(0, totalSize - paddingEnd - ((last?.end ?? scrollMargin) - scrollMargin));
+  // The model owns the scroll extent, independently of which rows are mounted.
+  // Flow rows between two spacers let an unmeasured tall row inflate scrollHeight
+  // immediately. End-follow then scrolls past it using geometry the virtualizer
+  // has not recorded yet, unmounting the row before it can be measured.
+  // Header and scroll padding already occupy real space outside this sizer.
+  const rowsSize = Math.max(0, totalSize - scrollMargin - paddingStart - paddingEnd);
 
   return (
     <>
-      {topSpacer > 0 ? (
-        <div className="run-log-virtual-spacer" style={{ height: topSpacer }} aria-hidden />
-      ) : null}
+      <div className="run-log-virtual-sizer" style={{ height: rowsSize }} aria-hidden />
       {virtualItems.map((item) => (
         <div
           key={item.key}
@@ -664,13 +658,11 @@ export function FeedVirtualSectionWindow(props: {
           data-previous-section-kind={sections[item.index - 1]?.kind}
           ref={measureElement}
           className="run-log-virtual-row"
+          style={{ position: "absolute", top: item.start - paddingStart, left: 0, width: "100%" }}
         >
           {renderSection(item.index)}
         </div>
       ))}
-      {bottomSpacer > 0 ? (
-        <div className="run-log-virtual-spacer" style={{ height: bottomSpacer }} aria-hidden />
-      ) : null}
     </>
   );
 }

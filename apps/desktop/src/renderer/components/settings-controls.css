@@ -1,0 +1,131 @@
+/* Codex ygO2 (secondary text/5, primary solid, dialog 36px), zLIa (field 36px). */
+.settings-ui-button[data-variant] {
+  display: inline-flex;
+  box-sizing: border-box;
+  min-height: 28px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-primary) 5%, transparent);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 430;
+  line-height: 20px;
+  text-decoration: none;
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--text-primary) 10%, transparent);
+  }
+  &[data-variant="primary"] {
+    background: var(--text-primary);
+    color: var(--bg-main);
+  }
+  &[data-variant="primary"]:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--text-primary) 85%, var(--bg-main));
+  }
+  &[data-variant="ghost"] {
+    background: transparent;
+    color: var(--text-secondary);
+    padding-inline: 6px;
+  }
+  &[data-variant="ghost"]:hover:not(:disabled) {
+    background: var(--nav-hover);
+    color: var(--text-primary);
+  }
+  &[data-variant="danger"] {
+    background: var(--danger-soft);
+    color: var(--danger);
+  }
+  &[data-variant="danger"]:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--danger) 16%, transparent);
+  }
+  &[data-size="dialog"] {
+    min-height: 36px;
+    padding-inline: 14px;
+    font-weight: 500;
+  }
+  &:focus-visible {
+    outline: 2px solid var(--text-primary);
+    outline-offset: 2px;
+  }
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+}
+
+.settings-ui-input:is(input, select, textarea) {
+  box-sizing: border-box;
+  display: block;
+  width: 100%;
+  min-width: 0;
+  min-height: 36px;
+  padding: 7px 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: var(--nav-hover);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 430;
+  line-height: 20px;
+  outline: none;
+
+  &::placeholder {
+    color: var(--text-muted);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--border-strong);
+    outline-offset: 2px;
+  }
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+.settings-ui-input.settings-ui-textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+.settings-ui-input.settings-ui-select[data-variant="inline"] {
+  min-height: 28px;
+  padding: 3px 26px 3px 8px;
+  appearance: none;
+  background: transparent;
+  text-overflow: ellipsis;
+}
+.settings-ui-input.settings-ui-select[data-variant="inline"]:hover:not(:disabled) {
+  background: var(--nav-hover);
+}
+.settings-ui-field-label {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 18px;
+}
+.settings-ui-field-hint {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 16px;
+  overflow-wrap: anywhere;
+}
+.settings-ui-field-label-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+.settings-ui-field-label-row em {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 400;
+}

@@ -1,0 +1,222 @@
+/* Codex 26.1029.61003: AWNZ (SettingsRow), ZEx5 (row group), BSnr
+ * (section), jxU8 (page). Mori's connection, gateway and runtime content
+ * has no exact Codex equivalent; only these verified primitives are adapted.
+ * Desktop text-sm = 13px, text-xs = 12px; row labels remain medium (500).
+ */
+:is(.cs, .gateway-settings, .runtime-settings) {
+  min-width: 0;
+  max-width: 768px;
+  margin-inline: auto;
+  container-type: inline-size;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 430;
+  line-height: 1.428571;
+
+  & :is(.settings-page-header, .cs-head) { margin-bottom: 32px; }
+
+  & :is(.settings-page-header h1, .cs-title) {
+    margin: 0;
+    font-size: 24px;
+    font-weight: 400;
+    line-height: 1.2;
+    letter-spacing: inherit;
+  }
+
+  & .cs-desc {
+    margin-top: 6px;
+    font-size: 14px;
+    line-height: 24px;
+    letter-spacing: inherit;
+  }
+
+  & .settings-section { margin-bottom: 40px; }
+
+  & :is(.mcp-field-label, .cs-field-label) {
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 18px;
+  }
+
+  & :is(.mcp-field-input, .cs-input) {
+    min-width: 0;
+    font-size: 13px;
+    font-weight: 430;
+    line-height: 20px;
+    letter-spacing: inherit;
+  }
+
+  & :is(.settings-row-main strong, .cs-service-name, .cs-device-name, .mcp-server-name) {
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 18px;
+  }
+
+  & :is(.settings-row-main small, .cs-service-url, .cs-service-status, .cs-device-meta, .mcp-server-meta) {
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 16px;
+  }
+
+  & :is(.settings-rows, .cs-card, .cs-list, .settings-global-orchestration-list, .mcp-server-list) {
+    border: 1px solid var(--border-subtle);
+    border-radius: 16px;
+    background: var(--card-surface-bg, var(--bg-elevated));
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  & :is(.cs-card-row, .cs-list-item, .mcp-server-row) {
+    min-width: 0;
+    gap: 24px;
+    padding: 12px 16px;
+  }
+
+  & :is(.cs-list-item, .mcp-server-row) + :is(.cs-list-item, .mcp-server-row) {
+    position: relative;
+    border-top: 0;
+
+    &::before {
+      position: absolute;
+      inset: 0 16px auto;
+      height: 1px;
+      background: var(--border-subtle);
+      content: "";
+      pointer-events: none;
+    }
+  }
+
+  & :is(.cs-service, .cs-device) { gap: 12px; }
+  & :is(.cs-service-copy, .cs-device-copy, .settings-row-main) { gap: 2px; }
+
+  & :is(.mcp-field-input, .cs-input):focus {
+    border-color: var(--border-strong);
+    outline: 2px solid var(--border-strong);
+    outline-offset: 2px;
+    box-shadow: none;
+  }
+
+  & :is(.mcp-save-button, .mcp-add-button, .cs-btn--accent) {
+    border-color: transparent;
+    background: var(--text-primary);
+    color: var(--bg-main);
+    box-shadow: none;
+
+    &:hover:not(:disabled) { background: color-mix(in srgb, var(--text-primary) 88%, var(--bg-main)); }
+  }
+}
+
+.cs {
+  & .cs-empty {
+    padding: 24px 16px;
+    border-radius: 16px;
+    box-shadow: none;
+  }
+
+  & .cs-block { margin-top: 40px; }
+  & .cs-block--tab-first { margin-top: 0; }
+  & .cs-block--after-card { margin-top: 24px; }
+
+  & .cs-block-label {
+    color: var(--text-primary);
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 20px;
+    letter-spacing: inherit;
+    text-transform: none;
+  }
+
+  & .cs-cloud {
+    --cloud-accent: var(--text-primary);
+    --cloud-button-text: var(--bg-main);
+    --cloud-tint: var(--nav-hover);
+    box-shadow: none;
+  }
+
+  & .cs-cloud-heading h2 { font-size: 16px; font-weight: 500; letter-spacing: inherit; }
+  & .cs-cloud-brand { border: 0; background: transparent; }
+  & :is(.cs-cloud-authorized, .cs-cloud-success) { color: var(--success); }
+  & .cs-form { width: 100%; max-width: 560px; gap: 24px; }
+  & .cs-dot--online { box-shadow: none; }
+}
+
+.gateway-settings {
+  & .gateway-tab-lead { font-size: 13px; line-height: 18px; letter-spacing: inherit; }
+  & .gateway-tab-panel .mcp-field + .mcp-field { margin-top: 24px; }
+
+  /* The architecture diagram is Mori-specific. Keep its topology and use
+   * the same label/description hierarchy instead of a separate tiny type scale. */
+  & :is(.gateway-arch-agent-name, .gateway-arch-core-title, .gateway-arch-upstream-title) {
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: inherit;
+  }
+
+  & :is(.gateway-arch-agent-protocol, .gateway-arch-core-address, .gateway-arch-core-label,
+    .gateway-arch-core-protocols code, .gateway-arch-core-credential-label,
+    .gateway-arch-core-credential-value, .gateway-arch-outbound-title,
+    .gateway-arch-outbound-hint, .gateway-arch-upstream-list li,
+    .gateway-arch-upstream-hint, .gateway-arch-notes li) {
+    font-size: 12px;
+    line-height: 16px;
+    letter-spacing: inherit;
+    overflow-wrap: anywhere;
+  }
+
+  & :is(.gateway-arch-core-label, .gateway-arch-core-credential-label) {
+    font-weight: 500;
+    text-transform: none;
+  }
+
+  & .gateway-arch-core {
+    padding: 16px;
+    border-color: var(--border-subtle);
+    border-radius: 16px;
+    background: var(--card-surface-bg, var(--bg-elevated));
+    box-shadow: none;
+  }
+
+  & .gateway-arch-core-head { flex-wrap: wrap; gap: 4px 12px; }
+  & .gateway-arch-upstream { padding: 16px; border-radius: 16px; }
+}
+
+.runtime-settings {
+  /* Resource editor backdrops are rendered inside this root. Keep fixed
+   * dialogs relative to the viewport; contain only the responsive row group. */
+  container-type: normal;
+  & .settings-global-orchestration { container-type: inline-size; }
+  & .settings-global-orchestration-header { gap: 24px; padding: 0 0 12px; }
+  & .settings-global-orchestration-icon { width: 20px; height: 20px; background: transparent; color: var(--text-secondary); box-shadow: none; }
+  & .settings-global-orchestration-header h3 { font-size: 16px; font-weight: 500; line-height: 22px; }
+  & .settings-global-orchestration-header p { font-size: 13px; line-height: 18px; }
+  & .settings-global-orchestration-reset { border: 0; border-radius: 8px; background: transparent; box-shadow: none; }
+
+  & .settings-global-orchestration-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    min-height: 56px;
+    gap: 24px;
+    padding: 12px 16px;
+  }
+
+  & .settings-global-orchestration-row::before { inset-inline: 16px; background: var(--border-subtle); }
+  & .settings-global-orchestration-row > .composer-route-prompt-control { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 6px 24px; }
+  & .settings-global-orchestration-label { white-space: normal; overflow-wrap: anywhere; }
+  & .settings-global-orchestration-hint { font-size: 12px; font-weight: 400; line-height: 16px; }
+  & .mcp-list-toolbar-label { font-size: 14px; font-weight: 500; }
+  & .mcp-server-summary { min-width: 0; }
+  & .mcp-server-name { overflow-wrap: anywhere; }
+  & .mcp-server-actions { flex-shrink: 0; }
+}
+
+@container (max-width: 480px) {
+  .runtime-settings .settings-global-orchestration-row,
+  .runtime-settings .settings-global-orchestration-row > .composer-route-prompt-control {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .runtime-settings .settings-global-orchestration-row > .composer-route-prompt-control > * { grid-column: 1; }
+  :is(.cs, .gateway-settings, .runtime-settings) :is(.cs-card-row, .cs-list-item, .mcp-server-row) { gap: 12px; }
+}

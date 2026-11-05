@@ -1,5 +1,10 @@
-import { AlertTriangle, CheckCircle, ChevronDown, Info, Monitor } from "lucide-react";
-import { useEffect, useId, useRef, useState } from "react";
+import { SettingsGroup, SettingsRow } from "./components/SettingsRow";
+import "./capability-settings.css";
+import { SettingsButton, SettingsSelect } from "./components/SettingsControls";
+import { SettingsPage, SettingsSection } from "./components/SettingsPage";
+import { Switch } from "./components/Switch";
+import { AlertTriangle, CheckCircle, ChevronDown, Info } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ComputerUseActionApprovalMode, ComputerUseSettingsSnapshot } from "../shared/computer-use";
 import { PACKAGED_SCREEN_RECORDING_APP_LABEL } from "../shared/computer-use-screen-host";
@@ -82,8 +87,6 @@ export function ComputerUseSettingsPanel({
   onCheckPermissionStatus,
 }: ComputerUseSettingsPanelProps) {
   const { t } = useTranslation();
-  const switchId = useId();
-  const approvalId = useId();
   const [busy, setBusy] = useState(false);
   const [doctorBusy, setDoctorBusy] = useState(false);
   const [doctorStatus, setDoctorStatus] = useState<DoctorStatus | undefined>();
@@ -176,41 +179,36 @@ export function ComputerUseSettingsPanel({
     doctorStatus ?? (unavailable ? { kind: "error" as const, text: unavailableText } : undefined);
 
   return (
-    <div className="browser-settings">
-      <header className="settings-page-header browser-settings-header">
-        <h1>{t("settings.computerUse")}</h1>
-        <p className="settings-page-desc">{t("settings.computerUse.pageDesc")}</p>
-      </header>
-
-      <section className="browser-settings-card browser-settings-master" aria-labelledby={switchId}>
-        <div className="browser-settings-master-glyph" aria-hidden>
-          <Monitor size={20} strokeWidth={1.75} />
-        </div>
-        <div className="browser-settings-master-copy" id={switchId}>
-          <strong>{t("settings.computerUse.masterTitle")}</strong>
-          <small>{t("settings.computerUse.masterHint")}</small>
-        </div>
-        <label
-          className="composer-switch browser-settings-switch"
-          title={t(settings.agentIntegrationEnabled ? "composer.enabledNamed" : "composer.disabledNamed", {
-            name: t("settings.computerUse.masterTitle"),
-          })}
-        >
-          <input
-            type="checkbox"
-            checked={settings.agentIntegrationEnabled}
-            disabled={busy}
-            aria-labelledby={switchId}
-            onChange={(event) =>
-              void save({
-                ...settings,
-                agentIntegrationEnabled: event.target.checked,
-              })
-            }
-          />
-          <span className="composer-switch-track" aria-hidden />
-        </label>
-      </section>
+    <SettingsPage
+      className="browser-settings capability-settings-page"
+      title={t("settings.computerUse")}
+      description={t("settings.computerUse.pageDesc")}
+    >
+      <SettingsGroup>
+        <SettingsRow
+          label={t("settings.computerUse.masterTitle")}
+          description={t("settings.computerUse.masterHint")}
+          control={(controlProps) => (
+            <Switch
+              {...controlProps}
+              title={t(
+                settings.agentIntegrationEnabled ? "composer.enabledNamed" : "composer.disabledNamed",
+                {
+                  name: t("settings.computerUse.masterTitle"),
+                },
+              )}
+              checked={settings.agentIntegrationEnabled}
+              disabled={busy}
+              onCheckedChange={(checked) =>
+                void save({
+                  ...settings,
+                  agentIntegrationEnabled: checked,
+                })
+              }
+            />
+          )}
+        />
+      </SettingsGroup>
 
       <p className="computer-use-note" role="note">
         <Info size={13} aria-hidden />
@@ -237,58 +235,57 @@ export function ComputerUseSettingsPanel({
             </div>
           ) : null}
           {onRunDoctor ? (
-            <button
+            <SettingsButton
+              variant="secondary"
               type="button"
-              className="settings-secondary-button"
               disabled={doctorBusy || busy}
               onClick={() => void runDoctor()}
             >
               {doctorBusy ? t("settings.computerUse.doctorBusy") : t("settings.computerUse.runDoctor")}
-            </button>
+            </SettingsButton>
           ) : null}
         </div>
       ) : null}
 
       {settings.agentIntegrationEnabled ? (
-        <section className="browser-settings-section" aria-labelledby={`${approvalId}-heading`}>
-          <h2 className="browser-settings-section-title" id={`${approvalId}-heading`}>
-            {t("settings.computerUse.permissions")}
-          </h2>
-          <ul className="browser-settings-group">
-            <li className="browser-settings-group-row">
-              <span className="browser-settings-group-copy">
-                <strong id={approvalId}>{t("settings.computerUse.actionApproval")}</strong>
-                <small>{t("settings.computerUse.actionApprovalHint")}</small>
-              </span>
-              <label className="browser-settings-select">
-                <span className="sr-only">{t("settings.computerUse.actionApproval")}</span>
-                <select
-                  value={settings.actionApprovalMode}
-                  disabled={busy}
-                  aria-labelledby={approvalId}
-                  onChange={(event) =>
-                    void save({
-                      ...settings,
-                      actionApprovalMode: event.target.value as ComputerUseActionApprovalMode,
-                    })
-                  }
-                >
-                  {ACTION_APPROVAL_OPTIONS.map((mode) => (
-                    <option key={mode} value={mode}>
-                      {t(`settings.computerUse.actionApproval.${mode}`)}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown
-                  size={14}
-                  strokeWidth={2}
-                  aria-hidden
-                  className="browser-settings-select-chevron"
-                />
-              </label>
-            </li>
-          </ul>
-        </section>
+        <SettingsSection title={t("settings.computerUse.permissions")}>
+          <SettingsGroup>
+            <SettingsRow
+              label={t("settings.computerUse.actionApproval")}
+              description={t("settings.computerUse.actionApprovalHint")}
+              stackControlOnNarrow
+              control={(controlProps) => (
+                <label className="browser-settings-select">
+                  <span className="sr-only">{t("settings.computerUse.actionApproval")}</span>
+                  <SettingsSelect
+                    {...controlProps}
+                    variant="inline"
+                    value={settings.actionApprovalMode}
+                    disabled={busy}
+                    onChange={(event) =>
+                      void save({
+                        ...settings,
+                        actionApprovalMode: event.target.value as ComputerUseActionApprovalMode,
+                      })
+                    }
+                  >
+                    {ACTION_APPROVAL_OPTIONS.map((mode) => (
+                      <option key={mode} value={mode}>
+                        {t(`settings.computerUse.actionApproval.${mode}`)}
+                      </option>
+                    ))}
+                  </SettingsSelect>
+                  <ChevronDown
+                    size={14}
+                    strokeWidth={2}
+                    aria-hidden
+                    className="browser-settings-select-chevron"
+                  />
+                </label>
+              )}
+            />
+          </SettingsGroup>
+        </SettingsSection>
       ) : null}
 
       {hostPlatform === "darwin" ? (
@@ -297,6 +294,6 @@ export function ComputerUseSettingsPanel({
           {t("settings.computerUse.screenRecordingHostNote", { screenApp })}
         </p>
       ) : null}
-    </div>
+    </SettingsPage>
   );
 }

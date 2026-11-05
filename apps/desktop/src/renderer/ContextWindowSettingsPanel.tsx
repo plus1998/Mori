@@ -13,6 +13,7 @@ import {
 } from "@eco/runtime/models-dev-limits";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import "./settings-detail-pages.css";
 
 const contextPresetFlags = GLOBAL_CONTEXT_WINDOW_LIMIT_PRESETS.map((value) => ({
   value,

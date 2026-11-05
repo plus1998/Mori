@@ -1,3 +1,4 @@
+import { SettingsButton, SettingsSelect } from "./components/SettingsControls";
 import { useTranslation } from "react-i18next";
 import { useCallback, useEffect, useState } from "react";
 import { MORI_PET_SIZE_MAX, MORI_PET_SIZE_MIN } from "../shared/mori-assistant";
@@ -88,7 +89,7 @@ export function MoriPetSettings({
     <div className="mori-pet-settings">
       <label>
         <span>{t("moriUi.moriPetSettings.appearance")}</span>
-        <select
+        <SettingsSelect
           value={value}
           onChange={(event) => {
             onChange(event.target.value);
@@ -102,25 +103,27 @@ export function MoriPetSettings({
             </option>
           ))}
           {value && list && !list.pets.some((item) => item.key === value) ? (
-            <option value={value}>{t("moriUi.moriPetSettings.unavailable")}{value}</option>
+            <option value={value}>
+              {t("moriUi.moriPetSettings.unavailable")}
+              {value}
+            </option>
           ) : null}
-        </select>
+        </SettingsSelect>
       </label>
       <div className="mori-pet-actions">
-        <button type="button" disabled={busy} onClick={() => void importPet()}>
+        <SettingsButton variant="secondary" type="button" disabled={busy} onClick={() => void importPet()}>
           {t("moriUi.moriPetSettings.import")}
-        </button>
-        <button
+        </SettingsButton>
+        <SettingsButton
+          variant="secondary"
           type="button"
           disabled={busy}
           onClick={() => void refresh().catch((error) => setError(String(error)))}
         >
           {t("moriUi.moriPetSettings.refresh")}
-        </button>
+        </SettingsButton>
       </div>
-      <p className="mori-settings-hint">
-        {t("moriUi.moriPetSettings.importHint")}
-      </p>
+      <p className="mori-settings-hint">{t("moriUi.moriPetSettings.importHint")}</p>
       <label className="mori-pet-size">
         <span>
           {t("moriUi.moriPetSettings.size")} <strong>{size} px</strong>
@@ -142,7 +145,8 @@ export function MoriPetSettings({
       ) : null}
       {list?.errors.length ? (
         <p className="mori-error" role="alert">
-          {t("moriUi.moriPetSettings.readErrors")}{list.errors.join("；")}
+          {t("moriUi.moriPetSettings.readErrors")}
+          {list.errors.join("；")}
         </p>
       ) : null}
       {pet ? (
@@ -158,7 +162,7 @@ export function MoriPetSettings({
             <strong>{pet.name}</strong>
             <label>
               <span>{t("moriUi.moriPetSettings.preview")}</span>
-              <select
+              <SettingsSelect
                 value={direction === null ? animation : `look:${direction}`}
                 onChange={(event) => {
                   const value = event.target.value;
@@ -183,7 +187,7 @@ export function MoriPetSettings({
                       </option>
                     ))
                   : null}
-              </select>
+              </SettingsSelect>
             </label>
           </div>
         </div>

@@ -1,3 +1,13 @@
+import { SettingsResourceList, SettingsResourceRow } from "./components/SettingsResourceList";
+import "./capability-settings.css";
+import {
+  SettingsButton,
+  SettingsInput,
+  SettingsSelect,
+  SettingsTextarea,
+} from "./components/SettingsControls";
+import { SettingsPage, SettingsSection } from "./components/SettingsPage";
+import { Switch } from "./components/Switch";
 import type { TFunction } from "i18next";
 import {
   Braces,
@@ -335,10 +345,11 @@ export function McpSettingsPanel({ servers, busy, onSave, onDelete, onCheck }: M
   }
 
   return (
-    <>
-      <header className="mcp-page-header">
-        <h1>{t("settings.mcp.title")}</h1>
-        <p className="mcp-page-desc">
+    <SettingsPage
+      className="capability-settings-page"
+      title={t("settings.mcp.title")}
+      description={
+        <>
           {t("settings.mcp.description")}{" "}
           <a
             href="https://code.claude.com/docs/en/agent-sdk/mcp"
@@ -348,86 +359,86 @@ export function McpSettingsPanel({ servers, busy, onSave, onDelete, onCheck }: M
           >
             {t("settings.mcp.learnMore")}
           </a>
-        </p>
-      </header>
-
+        </>
+      }
+    >
       {error && <p className="settings-form-error mcp-list-error">{error}</p>}
 
-      <section className="mcp-list-section settings-list-scroll-section">
-        <div className="mcp-list-toolbar">
-          <span className="mcp-list-toolbar-label">{t("settings.mcp.servers")}</span>
-          <div className="mcp-list-toolbar-actions">
-            <button
-              type="button"
-              className="mcp-add-button"
-              onClick={() => setImportOpen(true)}
-              disabled={busy}
-            >
-              <ClipboardPaste size={16} />
-              {t("settings.mcp.import")}
-            </button>
-            <button type="button" className="mcp-add-button" onClick={openCreate} disabled={busy}>
-              <Plus size={16} />
-              {t("settings.mcp.add")}
-            </button>
-          </div>
-        </div>
-
+      <SettingsSection
+        title={t("settings.mcp.servers")}
+        actions={
+          <>
+            <div className="mcp-list-toolbar-actions">
+              <SettingsButton
+                variant="secondary"
+                type="button"
+                onClick={() => setImportOpen(true)}
+                disabled={busy}
+              >
+                <ClipboardPaste size={16} />
+                {t("settings.mcp.import")}
+              </SettingsButton>
+              <SettingsButton variant="primary" type="button" onClick={openCreate} disabled={busy}>
+                <Plus size={16} />
+                {t("settings.mcp.add")}
+              </SettingsButton>
+            </div>
+          </>
+        }
+      >
         {servers.length === 0 ? (
           <p className="mcp-list-empty">{t("settings.mcp.empty")}</p>
         ) : (
-          <ul className="mcp-server-list">
+          <SettingsResourceList>
             {servers.map((server) => (
-              <li key={server.id} className="mcp-server-row">
-                <div className="mcp-server-summary">
-                  <span className="mcp-server-name">{server.name}</span>
-                  <span className="mcp-server-meta">
+              <SettingsResourceRow
+                key={server.id}
+                name={server.name}
+                description={
+                  <>
                     {server.transport}
                     <McpCheckStatus state={checkStates[server.id]} />
-                  </span>
-                </div>
-                <div className="mcp-server-actions">
-                  <button
-                    type="button"
-                    className="mcp-icon-button"
-                    onClick={() => void handleCheck(server.id, mcpServerToInput(server))}
-                    aria-label={t("settings.mcp.checkAria", { name: server.name })}
-                    title={t("settings.mcp.check")}
-                    disabled={busy || checkStates[server.id]?.status === "checking"}
-                  >
-                    {checkStates[server.id]?.status === "checking" ? (
-                      <LoaderCircle size={18} className="mcp-spin" />
-                    ) : (
-                      <Radar size={18} />
-                    )}
-                  </button>
-                  <button
-                    type="button"
-                    className="mcp-icon-button"
-                    onClick={() => openEdit(server)}
-                    aria-label={t("settings.mcp.configureAria", { name: server.name })}
-                    disabled={busy}
-                  >
-                    <Settings2 size={18} />
-                  </button>
-                  <label
-                    className="mcp-toggle"
-                    title={server.enabled ? t("settings.mcp.enabled") : t("settings.mcp.disabled")}
-                  >
-                    <input
-                      type="checkbox"
+                  </>
+                }
+                actions={
+                  <>
+                    <SettingsButton
+                      variant="ghost"
+                      type="button"
+                      onClick={() => void handleCheck(server.id, mcpServerToInput(server))}
+                      aria-label={t("settings.mcp.checkAria", { name: server.name })}
+                      title={t("settings.mcp.check")}
+                      disabled={busy || checkStates[server.id]?.status === "checking"}
+                    >
+                      {checkStates[server.id]?.status === "checking" ? (
+                        <LoaderCircle size={18} className="mcp-spin" />
+                      ) : (
+                        <Radar size={18} />
+                      )}
+                    </SettingsButton>
+                    <SettingsButton
+                      variant="ghost"
+                      type="button"
+                      onClick={() => openEdit(server)}
+                      aria-label={t("settings.mcp.configureAria", { name: server.name })}
+                      disabled={busy}
+                    >
+                      <Settings2 size={18} />
+                    </SettingsButton>
+                    <Switch
+                      title={server.enabled ? t("settings.mcp.enabled") : t("settings.mcp.disabled")}
                       checked={server.enabled}
                       disabled={busy}
-                      onChange={() => void handleToggle(server)}
+                      onCheckedChange={() => void handleToggle(server)}
+                      aria-label={server.enabled ? t("settings.mcp.enabled") : t("settings.mcp.disabled")}
                     />
-                    <span className="mcp-toggle-track" aria-hidden />
-                  </label>
-                </div>
-              </li>
+                  </>
+                }
+              />
             ))}
-          </ul>
+          </SettingsResourceList>
         )}
-      </section>
+      </SettingsSection>
 
       {importOpen && (
         <McpJsonImportDialog
@@ -437,7 +448,7 @@ export function McpSettingsPanel({ servers, busy, onSave, onDelete, onCheck }: M
           onImport={handleImport}
         />
       )}
-    </>
+    </SettingsPage>
   );
 }
 
@@ -491,22 +502,17 @@ function McpServerEditor({
   const titleName = form.name.trim() || t("settings.mcp.newServer");
 
   return (
-    <>
+    <div className="settings-ui-page capability-settings-page capability-editor-page">
       <header className="mcp-editor-header">
-        <button type="button" className="mcp-back-button" onClick={onBack} disabled={busy}>
+        <SettingsButton variant="ghost" type="button" onClick={onBack} disabled={busy}>
           <ChevronLeft size={18} />
           {t("settings.mcp.back")}
-        </button>
+        </SettingsButton>
         {isEditing && (
-          <button
-            type="button"
-            className="mcp-uninstall-button"
-            onClick={() => void onDelete()}
-            disabled={busy}
-          >
+          <SettingsButton variant="danger" type="button" onClick={() => void onDelete()} disabled={busy}>
             <Trash2 size={16} />
             {t("settings.mcp.uninstall")}
-          </button>
+          </SettingsButton>
         )}
       </header>
 
@@ -539,9 +545,8 @@ function McpServerEditor({
       <div className={mode === "json" ? "mcp-editor-form is-json" : "mcp-editor-form"}>
         {mode === "form" && !isEditing && (
           <label className="mcp-field">
-            <span className="mcp-field-label">{t("settings.mcp.name")}</span>
-            <input
-              className="mcp-field-input"
+            <span className="settings-ui-field-label">{t("settings.mcp.name")}</span>
+            <SettingsInput
               value={form.name}
               onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
               placeholder="github"
@@ -551,9 +556,8 @@ function McpServerEditor({
 
         {mode === "form" && !isEditing && (
           <label className="mcp-field">
-            <span className="mcp-field-label">{t("settings.mcp.transport")}</span>
-            <select
-              className="mcp-field-input"
+            <span className="settings-ui-field-label">{t("settings.mcp.transport")}</span>
+            <SettingsSelect
               value={form.transport}
               onChange={(event) =>
                 setForm((current) => ({
@@ -565,7 +569,7 @@ function McpServerEditor({
               <option value="stdio">{t("settings.mcp.localProcess")}</option>
               <option value="http">http</option>
               <option value="sse">sse</option>
-            </select>
+            </SettingsSelect>
           </label>
         )}
 
@@ -582,9 +586,8 @@ function McpServerEditor({
         ) : form.transport === "stdio" ? (
           <>
             <label className="mcp-field">
-              <span className="mcp-field-label">{t("settings.mcp.command")}</span>
-              <input
-                className="mcp-field-input"
+              <span className="settings-ui-field-label">{t("settings.mcp.command")}</span>
+              <SettingsInput
                 value={form.command ?? ""}
                 onChange={(event) => setForm((current) => ({ ...current, command: event.target.value }))}
                 placeholder="/usr/local/bin/npx"
@@ -592,12 +595,11 @@ function McpServerEditor({
             </label>
 
             <div className="mcp-field">
-              <span className="mcp-field-label">{t("settings.mcp.arguments")}</span>
+              <span className="settings-ui-field-label">{t("settings.mcp.arguments")}</span>
               <ul className="mcp-kv-rows">
                 {args.map((arg, index) => (
                   <li key={`arg-${index}`} className="mcp-kv-row">
-                    <input
-                      className="mcp-field-input"
+                    <SettingsInput
                       value={arg}
                       onChange={(event) =>
                         setArgs((current) =>
@@ -608,34 +610,34 @@ function McpServerEditor({
                       }
                       placeholder={t("settings.mcp.argumentValue")}
                     />
-                    <button
+                    <SettingsButton
+                      variant="ghost"
                       type="button"
-                      className="mcp-row-delete"
                       onClick={() => setArgs((current) => current.filter((_, i) => i !== index))}
                       aria-label={t("settings.mcp.deleteArgument")}
                     >
                       <Trash2 size={16} />
-                    </button>
+                    </SettingsButton>
                   </li>
                 ))}
               </ul>
-              <button
+              <SettingsButton
+                variant="ghost"
                 type="button"
-                className="mcp-inline-add"
                 onClick={() => setArgs((current) => [...current, ""])}
               >
                 <Plus size={16} />
                 {t("settings.mcp.addArgument")}
-              </button>
+              </SettingsButton>
             </div>
 
             <div className="mcp-field">
-              <span className="mcp-field-label">{t("settings.mcp.environment")}</span>
+              <span className="settings-ui-field-label">{t("settings.mcp.environment")}</span>
               <ul className="mcp-kv-rows">
                 {envEntries.map((entry, index) => (
                   <li key={`env-${index}`} className="mcp-kv-row mcp-env-row">
-                    <input
-                      className="mcp-field-input mcp-env-key"
+                    <SettingsInput
+                      className="mcp-env-key"
                       value={entry.key}
                       onChange={(event) =>
                         setEnvEntries((current) =>
@@ -646,8 +648,7 @@ function McpServerEditor({
                       }
                       placeholder="KEY"
                     />
-                    <input
-                      className="mcp-field-input"
+                    <SettingsInput
                       value={entry.value}
                       onChange={(event) =>
                         setEnvEntries((current) =>
@@ -658,42 +659,40 @@ function McpServerEditor({
                       }
                       placeholder="value"
                     />
-                    <button
+                    <SettingsButton
+                      variant="ghost"
                       type="button"
-                      className="mcp-row-delete"
                       onClick={() => setEnvEntries((current) => current.filter((_, i) => i !== index))}
                       aria-label={t("settings.mcp.deleteEnvironment")}
                     >
                       <Trash2 size={16} />
-                    </button>
+                    </SettingsButton>
                   </li>
                 ))}
               </ul>
-              <button
+              <SettingsButton
+                variant="ghost"
                 type="button"
-                className="mcp-inline-add"
                 onClick={() => setEnvEntries((current) => [...current, { key: "", value: "" }])}
               >
                 <Plus size={16} />
                 {t("settings.mcp.addEnvironment")}
-              </button>
+              </SettingsButton>
             </div>
           </>
         ) : (
           <>
             <label className="mcp-field">
-              <span className="mcp-field-label">URL</span>
-              <input
-                className="mcp-field-input"
+              <span className="settings-ui-field-label">URL</span>
+              <SettingsInput
                 value={form.url ?? ""}
                 onChange={(event) => setForm((current) => ({ ...current, url: event.target.value }))}
                 placeholder="https://api.example.com/mcp"
               />
             </label>
             <label className="mcp-field">
-              <span className="mcp-field-label">{t("settings.mcp.headers")}</span>
-              <textarea
-                className="mcp-field-input mcp-field-textarea"
+              <span className="settings-ui-field-label">{t("settings.mcp.headers")}</span>
+              <SettingsTextarea
                 value={form.headersJson ?? "{}"}
                 onChange={(event) => setForm((current) => ({ ...current, headersJson: event.target.value }))}
                 rows={4}
@@ -704,20 +703,20 @@ function McpServerEditor({
 
         {rememberedTools.length > 0 && (
           <div className="mcp-field">
-            <span className="mcp-field-label">{t("settings.mcp.rememberedTools")}</span>
+            <span className="settings-ui-field-label">{t("settings.mcp.rememberedTools")}</span>
             <p>
               {form.resetToolApprovals
                 ? t("settings.mcp.resetToolApprovalsPending")
                 : rememberedTools.join(" · ")}
             </p>
-            <button
+            <SettingsButton
+              variant="secondary"
               type="button"
-              className="mcp-secondary-button"
               disabled={busy || form.resetToolApprovals}
               onClick={() => setForm((current) => ({ ...current, resetToolApprovals: true }))}
             >
               {t("settings.mcp.resetToolApprovals")}
-            </button>
+            </SettingsButton>
           </div>
         )}
 
@@ -725,9 +724,8 @@ function McpServerEditor({
           <details className="mcp-advanced">
             <summary>{t("settings.mcp.advanced")}</summary>
             <label className="mcp-field">
-              <span className="mcp-field-label">{t("settings.mcp.allowedTools")}</span>
-              <input
-                className="mcp-field-input"
+              <span className="settings-ui-field-label">{t("settings.mcp.allowedTools")}</span>
+              <SettingsInput
                 value={form.allowedTools ?? ""}
                 onChange={(event) => setForm((current) => ({ ...current, allowedTools: event.target.value }))}
                 placeholder="mcp__github__*"
@@ -741,9 +739,9 @@ function McpServerEditor({
         {checkState && <McpCheckCard state={checkState} />}
 
         <div className="mcp-editor-actions">
-          <button
+          <SettingsButton
+            variant="secondary"
             type="button"
-            className="mcp-secondary-button"
             onClick={() => void onCheck()}
             disabled={busy || checkState?.status === "checking"}
           >
@@ -753,18 +751,18 @@ function McpServerEditor({
               <Radar size={16} />
             )}
             {t("settings.mcp.check")}
-          </button>
-          <button
+          </SettingsButton>
+          <SettingsButton
+            variant="primary"
             type="button"
-            className="mcp-save-button"
             onClick={() => void onSave()}
             disabled={busy || (mode === "json" && !jsonParse.ok)}
           >
             {t("common.save")}
-          </button>
+          </SettingsButton>
         </div>
       </div>
-    </>
+    </div>
   );
 }
 
@@ -901,19 +899,19 @@ export function McpJsonField({
         <span className="mcp-json-hint">{t("settings.mcp.json.hint")}</span>
         <div className="mcp-json-actions">
           {onRegenerate && (
-            <button type="button" className="mcp-json-action" onClick={onRegenerate}>
+            <SettingsButton variant="ghost" type="button" onClick={onRegenerate}>
               <RotateCcw size={13} />
               {t("settings.mcp.json.regenerate")}
-            </button>
+            </SettingsButton>
           )}
-          <button type="button" className="mcp-json-action" onClick={onFormat}>
+          <SettingsButton variant="ghost" type="button" onClick={onFormat}>
             <WandSparkles size={13} />
             {t("settings.mcp.json.format")}
-          </button>
-          <button type="button" className="mcp-json-action" onClick={() => void copyAll()}>
+          </SettingsButton>
+          <SettingsButton variant="ghost" type="button" onClick={() => void copyAll()}>
             {copied ? <Check size={13} /> : <Copy size={13} />}
             {t(copied ? "settings.mcp.json.copied" : "settings.mcp.json.copy")}
-          </button>
+          </SettingsButton>
         </div>
       </div>
 
@@ -1025,7 +1023,7 @@ export function McpJsonImportDialog({
         disabled={importing}
       />
       <div
-        className="settings-modal mcp-import-modal"
+        className="settings-modal mcp-import-modal capability-settings-modal"
         role="dialog"
         aria-modal="true"
         aria-labelledby="mcp-import-title"
@@ -1081,18 +1079,26 @@ export function McpJsonImportDialog({
 
         <footer className="settings-modal-footer">
           <div className="settings-modal-footer-actions">
-            <button type="button" className="settings-modal-cancel" onClick={onClose} disabled={importing}>
-              {t("common.cancel")}
-            </button>
-            <button
+            <SettingsButton
+              variant="secondary"
+              size="dialog"
               type="button"
-              className="settings-modal-confirm mcp-import-confirm"
+              onClick={onClose}
+              disabled={importing}
+            >
+              {t("common.cancel")}
+            </SettingsButton>
+            <SettingsButton
+              variant="primary"
+              size="dialog"
+              className="mcp-import-confirm"
+              type="button"
               onClick={() => void submit()}
               disabled={!canImport}
             >
               {importing ? <LoaderCircle size={14} className="mcp-spin" /> : <ClipboardPaste size={14} />}
               {t("settings.mcp.importAction", { count: parse.servers.length })}
-            </button>
+            </SettingsButton>
           </div>
         </footer>
       </div>

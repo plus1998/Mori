@@ -1,3 +1,4 @@
+import { Switch } from "./components/Switch";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -249,15 +250,13 @@ function CapabilityToggle({
         <strong>{label}</strong>
         <small>{description}</small>
       </span>
-      <label className="mcp-toggle" title={checked ? t("common.enabled") : t("common.disabled")}>
-        <input
-          type="checkbox"
-          checked={checked}
-          disabled={disabled}
-          onChange={(event) => onChange(event.target.checked)}
-        />
-        <span className="mcp-toggle-track" aria-hidden />
-      </label>
+      <Switch
+        title={checked ? t("common.enabled") : t("common.disabled")}
+        checked={checked}
+        disabled={disabled}
+        onCheckedChange={(checked) => onChange(checked)}
+        aria-label={checked ? t("common.enabled") : t("common.disabled")}
+      />
     </div>
   );
 }

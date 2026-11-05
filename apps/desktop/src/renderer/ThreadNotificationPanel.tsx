@@ -1,3 +1,4 @@
+import { Switch } from "./components/Switch";
 import { AudioLines, Bell, MessageCircle, X } from "lucide-react";
 import { type ReactNode, useEffect, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -90,27 +91,23 @@ export function ThreadNotificationPanel({
             <strong>{t("thread.wechatCompletion")}</strong>
             <small>{t("thread.wechatFollowHint")}</small>
           </div>
-          <label className="composer-switch notification-settings-switch">
-            <input
-              type="checkbox"
-              checked={wechatFollowEnabled}
-              disabled={busy}
-              aria-label={t("thread.wechatCompletion")}
-              onChange={async (event) => {
-                const enabled = event.target.checked;
-                setBusy(true);
-                setError(undefined);
-                try {
-                  await onWechatFollowChange(enabled);
-                } catch (reason) {
-                  setError(reason instanceof Error ? reason.message : String(reason));
-                } finally {
-                  setBusy(false);
-                }
-              }}
-            />
-            <span className="composer-switch-track" aria-hidden />
-          </label>
+          <Switch
+            checked={wechatFollowEnabled}
+            disabled={busy}
+            aria-label={t("thread.wechatCompletion")}
+            onCheckedChange={async (checked) => {
+              const enabled = checked;
+              setBusy(true);
+              setError(undefined);
+              try {
+                await onWechatFollowChange(enabled);
+              } catch (reason) {
+                setError(reason instanceof Error ? reason.message : String(reason));
+              } finally {
+                setBusy(false);
+              }
+            }}
+          />
         </div>
         <p className="read-aloud-help thread-notification-scope">{t("thread.wechatScopeHint")}</p>
         {error ? (

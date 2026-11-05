@@ -1,3 +1,9 @@
+import { SettingsResourceList, SettingsResourceRow } from "./components/SettingsResourceList";
+import { SettingsGroup, SettingsRow } from "./components/SettingsRow";
+import "./capability-settings.css";
+import { SettingsButton, SettingsInput, SettingsSelect } from "./components/SettingsControls";
+import { SettingsPage, SettingsSection } from "./components/SettingsPage";
+import { Switch } from "./components/Switch";
 import type { TFunction } from "i18next";
 import { Pencil, Plus, Trash2, Volume2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -77,78 +83,64 @@ export function TtsSettingsPanel({ settings, onChange, onError }: Props) {
   }
 
   return (
-    <div className="image-generation-settings">
-      <header className="settings-page-header browser-settings-header settings-page-header-with-action">
-        <div>
-          <h1>{t("settings.tts.title")}</h1>
-          <p className="settings-page-desc">{t("settings.tts.pageDesc")}</p>
-        </div>
-      </header>
-      <section className="browser-settings-card browser-settings-master">
-        <div className="browser-settings-master-glyph" aria-hidden>
-          <Volume2 size={20} strokeWidth={1.75} />
-        </div>
-        <div className="browser-settings-master-copy">
-          <strong>{t("settings.tts.masterTitle")}</strong>
-          <small>{t("settings.tts.masterHint")}</small>
-        </div>
-        <span className={`image-generation-enabled-badge ${settings.enabled ? "is-enabled" : "is-disabled"}`}>
-          <i />
-          {t(settings.enabled ? "settings.tts.status.enabled" : "settings.tts.status.disabled")}
-        </span>
-        <label className="composer-switch browser-settings-switch">
-          <input
-            type="checkbox"
-            checked={settings.enabled}
-            disabled={busy}
-            aria-label={t("settings.tts.masterTitle")}
-            onChange={(event) =>
-              void run(async () => {
-                if (!window.eco) throw new Error(t("settings.tts.desktopOnly"));
-                onChange(await window.eco.saveTtsEnabled(event.target.checked));
-              })
-            }
-          />
-          <span className="composer-switch-track" aria-hidden />
-        </label>
-      </section>
+    <SettingsPage
+      className="image-generation-settings capability-settings-page"
+      title={t("settings.tts.title")}
+      description={t("settings.tts.pageDesc")}
+    >
+      <SettingsGroup>
+        <SettingsRow
+          label={t("settings.tts.masterTitle")}
+          description={t("settings.tts.masterHint")}
+          control={(controlProps) => (
+            <Switch
+              {...controlProps}
+              checked={settings.enabled}
+              disabled={busy}
+              onCheckedChange={(checked) =>
+                void run(async () => {
+                  if (!window.eco) throw new Error(t("settings.tts.desktopOnly"));
+                  onChange(await window.eco.saveTtsEnabled(checked));
+                })
+              }
+            />
+          )}
+        />
+      </SettingsGroup>
 
       {!settings.apiKeyEncryptionAvailable ? (
         <p className="browser-settings-error">{t("settings.tts.encryptionUnavailable")}</p>
       ) : null}
 
-      <div className="image-generation-profile-console">
-        <div className="image-generation-profile-toolbar">
-          <div>
-            <strong>{t("settings.tts.profiles")}</strong>
-            <span>
-              {t("settings.tts.profileCount", { count: settings.profiles.length })}
-              {settings.activeProfileId ? t("settings.tts.profileActiveSuffix") : ""}
-            </span>
-          </div>
-          <button type="button" className="settings-primary-button" disabled={busy} onClick={startNewProfile}>
-            <Plus size={15} aria-hidden />
-            {t("settings.tts.addProfile")}
-          </button>
-        </div>
-
+      <SettingsSection
+        title={t("settings.tts.profiles")}
+        description={
+          <>
+            {t("settings.tts.profileCount", { count: settings.profiles.length })}
+            {settings.activeProfileId ? t("settings.tts.profileActiveSuffix") : ""}
+          </>
+        }
+        actions={
+          <>
+            <SettingsButton variant="primary" type="button" disabled={busy} onClick={startNewProfile}>
+              <Plus size={15} aria-hidden />
+              {t("settings.tts.addProfile")}
+            </SettingsButton>
+          </>
+        }
+      >
         {settings.profiles.length === 0 ? (
           <div className="image-generation-profile-empty">
             <Volume2 size={22} />
             <strong>{t("settings.tts.emptyTitle")}</strong>
             <small>{t("settings.tts.emptyHint")}</small>
-            <button
-              type="button"
-              className="settings-primary-button"
-              disabled={busy}
-              onClick={startNewProfile}
-            >
+            <SettingsButton variant="primary" type="button" disabled={busy} onClick={startNewProfile}>
               <Plus size={15} />
               {t("settings.tts.addProfile")}
-            </button>
+            </SettingsButton>
           </div>
         ) : (
-          <div className="image-generation-profile-cards">
+          <SettingsResourceList>
             {settings.profiles.map((profile) => {
               const active = settings.activeProfileId === profile.id;
               const brand = resolveProviderBrandLogo({
@@ -158,27 +150,26 @@ export function TtsSettingsPanel({ settings, onChange, onError }: Props) {
                 endpoint: profile.baseUrl,
               });
               return (
-                <article
+                <SettingsResourceRow
                   key={profile.id}
-                  className={`image-generation-profile-card${active ? " is-active" : ""}`}
-                >
-                  <div className="image-generation-profile-card-main">
-                    <div className="image-generation-profile-card-icon">
-                      {brand ? (
-                        <img src={brand.iconSrc} alt="" aria-hidden />
-                      ) : (
-                        <Volume2 size={17} aria-hidden />
-                      )}
-                    </div>
-                    <div className="image-generation-profile-card-identity">
-                      <strong title={profile.name}>{profile.name}</strong>
-                      <span>
-                        {providerLabel(profile.provider, t)} · {profile.model}
-                      </span>
-                    </div>
+                  name={profile.name}
+                  description={
+                    <>
+                      {providerLabel(profile.provider, t)} · {profile.model}
+                    </>
+                  }
+                  icon={
+                    brand ? <img src={brand.iconSrc} alt="" aria-hidden /> : <Volume2 size={17} aria-hidden />
+                  }
+                  metadata={
+                    <>
+                      <span>Base URL：{profile.baseUrl}</span>
+                    </>
+                  }
+                  status={
                     <button
                       type="button"
-                      className={`image-generation-profile-status${active ? " is-active" : ""}`}
+                      className="settings-ui-resource-state"
                       aria-pressed={active}
                       disabled={active || busy}
                       title={t(active ? "settings.tts.status.active" : "settings.tts.activate")}
@@ -193,27 +184,26 @@ export function TtsSettingsPanel({ settings, onChange, onError }: Props) {
                       <i aria-hidden />
                       {t(active ? "settings.tts.status.active" : "settings.tts.status.disabled")}
                     </button>
-                    <div className="image-generation-profile-card-actions">
-                      <button
+                  }
+                  actions={
+                    <>
+                      <SettingsButton
+                        variant="secondary"
                         type="button"
-                        className="image-generation-profile-action-secondary"
                         disabled={busy}
                         onClick={() => choose(profile)}
                       >
                         <Pencil size={14} />
                         {t("common.edit")}
-                      </button>
-                    </div>
-                  </div>
-                  <div className="image-generation-profile-card-meta">
-                    <span>Base URL：{profile.baseUrl}</span>
-                  </div>
-                </article>
+                      </SettingsButton>
+                    </>
+                  }
+                />
               );
             })}
-          </div>
+          </SettingsResourceList>
         )}
-      </div>
+      </SettingsSection>
 
       {editorOpen
         ? createPortal(
@@ -227,7 +217,7 @@ export function TtsSettingsPanel({ settings, onChange, onError }: Props) {
                 tabIndex={-1}
               />
               <form
-                className="settings-modal settings-modal-provider-editor image-generation-profile-modal"
+                className="settings-modal settings-modal-provider-editor image-generation-profile-modal capability-settings-modal"
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="image-generation-profile-title"
@@ -252,21 +242,20 @@ export function TtsSettingsPanel({ settings, onChange, onError }: Props) {
                       {t("settings.tts.editorSubtitle")}
                     </p>
                   </div>
-                  <button
+                  <SettingsButton
+                    variant="ghost"
                     type="button"
-                    className="mcp-icon-button"
                     aria-label={t("common.close")}
                     disabled={busy}
                     onClick={() => setEditorOpen(false)}
                   >
                     <X size={17} />
-                  </button>
+                  </SettingsButton>
                 </header>
                 <div className="settings-modal-body image-generation-profile-modal-body">
                   <label className="settings-form-field">
-                    <span className="settings-form-label">{t("settings.tts.profileName")}</span>
-                    <input
-                      className="settings-form-input"
+                    <span className="settings-ui-field-label">{t("settings.tts.profileName")}</span>
+                    <SettingsInput
                       value={form.name}
                       disabled={busy}
                       required
@@ -274,9 +263,8 @@ export function TtsSettingsPanel({ settings, onChange, onError }: Props) {
                     />
                   </label>
                   <label className="settings-form-field">
-                    <span className="settings-form-label">{t("settings.tts.provider")}</span>
-                    <select
-                      className="settings-form-input"
+                    <span className="settings-ui-field-label">{t("settings.tts.provider")}</span>
+                    <SettingsSelect
                       value={form.provider}
                       disabled={busy}
                       onChange={(event) => {
@@ -292,12 +280,11 @@ export function TtsSettingsPanel({ settings, onChange, onError }: Props) {
                       <option value="gemini">{t("settings.tts.providerGemini")}</option>
                       <option value="openai_compatible">{t("settings.tts.providerOpenAiCompatible")}</option>
                       <option value="doubao">{t("settings.tts.providerDoubao")}</option>
-                    </select>
+                    </SettingsSelect>
                   </label>
                   <label className="settings-form-field">
-                    <span className="settings-form-label">Base URL</span>
-                    <input
-                      className="settings-form-input"
+                    <span className="settings-ui-field-label">Base URL</span>
+                    <SettingsInput
                       type="url"
                       value={form.baseUrl}
                       disabled={busy}
@@ -306,9 +293,8 @@ export function TtsSettingsPanel({ settings, onChange, onError }: Props) {
                     />
                   </label>
                   <label className="settings-form-field">
-                    <span className="settings-form-label">{t("settings.tts.model")}</span>
-                    <input
-                      className="settings-form-input"
+                    <span className="settings-ui-field-label">{t("settings.tts.model")}</span>
+                    <SettingsInput
                       value={form.model}
                       disabled={busy}
                       required
@@ -321,9 +307,8 @@ export function TtsSettingsPanel({ settings, onChange, onError }: Props) {
                     ) : null}
                   </label>
                   <label className="settings-form-field">
-                    <span className="settings-form-label">API Key</span>
-                    <input
-                      className="settings-form-input"
+                    <span className="settings-ui-field-label">API Key</span>
+                    <SettingsInput
                       type="password"
                       value={form.apiKey ?? ""}
                       disabled={busy || !settings.apiKeyEncryptionAvailable}
@@ -333,19 +318,22 @@ export function TtsSettingsPanel({ settings, onChange, onError }: Props) {
                   </label>
                 </div>
                 <footer className="settings-modal-footer">
-                  <button
+                  <SettingsButton
+                    variant="secondary"
+                    size="dialog"
                     type="button"
-                    className="settings-modal-cancel"
                     disabled={busy}
                     onClick={() => setEditorOpen(false)}
                   >
                     {t("common.cancel")}
-                  </button>
+                  </SettingsButton>
                   <div className="settings-modal-footer-actions">
                     {selected ? (
-                      <button
+                      <SettingsButton
+                        variant="danger"
+                        size="dialog"
+                        className="image-generation-danger-button"
                         type="button"
-                        className="settings-secondary-button image-generation-danger-button"
                         disabled={
                           busy || settings.activeProfileId === selected.id || settings.profiles.length <= 1
                         }
@@ -360,11 +348,11 @@ export function TtsSettingsPanel({ settings, onChange, onError }: Props) {
                       >
                         <Trash2 size={14} />
                         {t("common.delete")}
-                      </button>
+                      </SettingsButton>
                     ) : null}
-                    <button type="submit" className="settings-primary-button" disabled={busy}>
+                    <SettingsButton variant="primary" size="dialog" type="submit" disabled={busy}>
                       {t(busy ? "settings.tts.saving" : "common.save")}
-                    </button>
+                    </SettingsButton>
                   </div>
                 </footer>
               </form>
@@ -372,7 +360,7 @@ export function TtsSettingsPanel({ settings, onChange, onError }: Props) {
             document.body,
           )
         : null}
-    </div>
+    </SettingsPage>
   );
 }
 

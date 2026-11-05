@@ -1,0 +1,96 @@
+/* Codex jxU8/BSnr: default page header and section hierarchy. */
+.settings-ui-page {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 768px;
+  min-width: 0;
+  margin-inline: auto;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 430;
+  line-height: 1.428571;
+}
+.settings-ui-page-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px 24px;
+  margin-bottom: 32px;
+}
+.settings-ui-page-heading {
+  flex: 1;
+  min-width: 0;
+}
+.settings-ui-page-header h1 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 24px;
+  font-weight: 400;
+  line-height: 1.2;
+  letter-spacing: inherit;
+}
+.settings-ui-page-description {
+  margin-top: 6px;
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 24px;
+  overflow-wrap: anywhere;
+}
+.settings-ui-page-description a {
+  color: var(--text-primary);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.settings-ui-page-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+}
+.settings-ui-section {
+  margin-bottom: 40px;
+}
+.settings-ui-section:last-child {
+  margin-bottom: 0;
+}
+.settings-ui-section-header {
+  display: flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-bottom: 6px;
+}
+.settings-ui-section-header > div:first-child {
+  min-width: 0;
+}
+.settings-ui-section-header h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+}
+.settings-ui-section-header[data-description="true"] {
+  min-height: 0;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+.settings-ui-section-header[data-description="true"] h2 {
+  font-size: 16px;
+  line-height: 22px;
+}
+.settings-ui-section-description {
+  margin-top: 2px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+.settings-ui-section-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}

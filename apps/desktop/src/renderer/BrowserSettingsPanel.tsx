@@ -1,5 +1,10 @@
-import { AppWindow, ChevronDown } from "lucide-react";
-import { useId, useState } from "react";
+import { SettingsGroup, SettingsRow } from "./components/SettingsRow";
+import "./capability-settings.css";
+import { SettingsSelect } from "./components/SettingsControls";
+import { SettingsPage, SettingsSection } from "./components/SettingsPage";
+import { Switch } from "./components/Switch";
+import { ChevronDown } from "lucide-react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { BrowserOpenApprovalMode, BrowserSettingsSnapshot } from "../shared/browser";
 import { useBrowserIntegrationStatus } from "./browser-state-store";
@@ -14,8 +19,6 @@ const OPEN_APPROVAL_OPTIONS: BrowserOpenApprovalMode[] = ["always_allow", "alway
 export function BrowserSettingsPanel({ settings, onSave }: BrowserSettingsPanelProps) {
   const { t } = useTranslation();
   const browserIntegration = useBrowserIntegrationStatus();
-  const switchId = useId();
-  const approvalId = useId();
   const [busy, setBusy] = useState(false);
 
   const unavailable = settings.agentIntegrationEnabled && browserIntegration.available === false;
@@ -34,41 +37,36 @@ export function BrowserSettingsPanel({ settings, onSave }: BrowserSettingsPanelP
   }
 
   return (
-    <div className="browser-settings">
-      <header className="settings-page-header browser-settings-header">
-        <h1>{t("settings.browser")}</h1>
-        <p className="settings-page-desc">{t("settings.browser.pageDesc")}</p>
-      </header>
-
-      <section className="browser-settings-card browser-settings-master" aria-labelledby={switchId}>
-        <div className="browser-settings-master-glyph" aria-hidden>
-          <AppWindow size={20} strokeWidth={1.75} />
-        </div>
-        <div className="browser-settings-master-copy" id={switchId}>
-          <strong>{t("settings.browser.masterTitle")}</strong>
-          <small>{t("settings.browser.masterHint")}</small>
-        </div>
-        <label
-          className="composer-switch browser-settings-switch"
-          title={t(settings.agentIntegrationEnabled ? "composer.enabledNamed" : "composer.disabledNamed", {
-            name: t("settings.browser.masterTitle"),
-          })}
-        >
-          <input
-            type="checkbox"
-            checked={settings.agentIntegrationEnabled}
-            disabled={busy}
-            aria-labelledby={switchId}
-            onChange={(event) =>
-              void save({
-                ...settings,
-                agentIntegrationEnabled: event.target.checked,
-              })
-            }
-          />
-          <span className="composer-switch-track" aria-hidden />
-        </label>
-      </section>
+    <SettingsPage
+      className="browser-settings capability-settings-page"
+      title={t("settings.browser")}
+      description={t("settings.browser.pageDesc")}
+    >
+      <SettingsGroup>
+        <SettingsRow
+          label={t("settings.browser.masterTitle")}
+          description={t("settings.browser.masterHint")}
+          control={(controlProps) => (
+            <Switch
+              {...controlProps}
+              title={t(
+                settings.agentIntegrationEnabled ? "composer.enabledNamed" : "composer.disabledNamed",
+                {
+                  name: t("settings.browser.masterTitle"),
+                },
+              )}
+              checked={settings.agentIntegrationEnabled}
+              disabled={busy}
+              onCheckedChange={(checked) =>
+                void save({
+                  ...settings,
+                  agentIntegrationEnabled: checked,
+                })
+              }
+            />
+          )}
+        />
+      </SettingsGroup>
 
       {unavailable ? (
         <p className="browser-settings-error" role="status">
@@ -77,46 +75,45 @@ export function BrowserSettingsPanel({ settings, onSave }: BrowserSettingsPanelP
       ) : null}
 
       {settings.agentIntegrationEnabled ? (
-        <section className="browser-settings-section" aria-labelledby={`${approvalId}-heading`}>
-          <h2 className="browser-settings-section-title" id={`${approvalId}-heading`}>
-            {t("settings.browser.permissions")}
-          </h2>
-          <ul className="browser-settings-group">
-            <li className="browser-settings-group-row">
-              <span className="browser-settings-group-copy">
-                <strong id={approvalId}>{t("settings.browser.openApproval")}</strong>
-                <small>{t("settings.browser.openApprovalHint")}</small>
-              </span>
-              <label className="browser-settings-select">
-                <span className="sr-only">{t("settings.browser.openApproval")}</span>
-                <select
-                  value={settings.openApprovalMode}
-                  disabled={busy}
-                  aria-labelledby={approvalId}
-                  onChange={(event) =>
-                    void save({
-                      ...settings,
-                      openApprovalMode: event.target.value as BrowserOpenApprovalMode,
-                    })
-                  }
-                >
-                  {OPEN_APPROVAL_OPTIONS.map((mode) => (
-                    <option key={mode} value={mode}>
-                      {t(`settings.browser.openApproval.${mode}`)}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown
-                  size={14}
-                  strokeWidth={2}
-                  aria-hidden
-                  className="browser-settings-select-chevron"
-                />
-              </label>
-            </li>
-          </ul>
-        </section>
+        <SettingsSection title={t("settings.browser.permissions")}>
+          <SettingsGroup>
+            <SettingsRow
+              label={t("settings.browser.openApproval")}
+              description={t("settings.browser.openApprovalHint")}
+              stackControlOnNarrow
+              control={(controlProps) => (
+                <label className="browser-settings-select">
+                  <span className="sr-only">{t("settings.browser.openApproval")}</span>
+                  <SettingsSelect
+                    {...controlProps}
+                    variant="inline"
+                    value={settings.openApprovalMode}
+                    disabled={busy}
+                    onChange={(event) =>
+                      void save({
+                        ...settings,
+                        openApprovalMode: event.target.value as BrowserOpenApprovalMode,
+                      })
+                    }
+                  >
+                    {OPEN_APPROVAL_OPTIONS.map((mode) => (
+                      <option key={mode} value={mode}>
+                        {t(`settings.browser.openApproval.${mode}`)}
+                      </option>
+                    ))}
+                  </SettingsSelect>
+                  <ChevronDown
+                    size={14}
+                    strokeWidth={2}
+                    aria-hidden
+                    className="browser-settings-select-chevron"
+                  />
+                </label>
+              )}
+            />
+          </SettingsGroup>
+        </SettingsSection>
       ) : null}
-    </div>
+    </SettingsPage>
   );
 }
