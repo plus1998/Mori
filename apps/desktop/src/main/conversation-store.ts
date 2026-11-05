@@ -9189,10 +9189,11 @@ export class ConversationStore {
     };
   }
 
-  /** Compact free pages after bulk deletes. No-op gate is caller's responsibility. */
+  /** Compact free pages after bulk deletes. */
   vacuum(): void {
     this.db.exec(`PRAGMA wal_checkpoint(TRUNCATE);`);
     this.db.exec(`VACUUM;`);
+    this.db.exec(`PRAGMA wal_checkpoint(TRUNCATE);`);
   }
 
   getThread(threadId: string): ThreadSummary | undefined {

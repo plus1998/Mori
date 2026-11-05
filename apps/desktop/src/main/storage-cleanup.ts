@@ -28,7 +28,6 @@ export interface StorageCleanupDeps {
   databasePath: string;
   conversationStore: ConversationStore;
   deleteThreadWithExternalState: (threadId: string) => Promise<void>;
-  hasActiveThreadRuns: () => boolean;
   onProgress?: (progress: Omit<StorageCleanupProgress, "request" | "status" | "result">) => void;
   logsDir?: string;
   codexHomeDir?: string;
@@ -451,12 +450,6 @@ function resolveOlderThanCutoffMs(
 }
 
 async function vacuumDatabase(deps: StorageCleanupDeps): Promise<StorageCleanupResult> {
-  if (deps.hasActiveThreadRuns()) {
-    return {
-      ok: false,
-      errors: ["Cannot vacuum while a thread is running or queued."],
-    };
-  }
   const before = (await measurePathBytes(deps.databasePath)).bytes;
   let beforeTotal = before;
   for (const suffix of ["-wal", "-shm"] as const) {

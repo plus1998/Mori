@@ -114,7 +114,6 @@ test("clearClaudeSessions orphansOnly removes Eco worktree projects only", async
       databasePath: path.join(tempDir, "x.sqlite"),
       conversationStore: store as never,
       deleteThreadWithExternalState: async () => {},
-      hasActiveThreadRuns: () => false,
       claudeProjectsDir: projectsDir,
       claudeFileHistoryDir: historyDir,
     },
@@ -166,7 +165,6 @@ test.skipIf(!sqliteAvailable)("clearAllConversations skips running threads", asy
         deleted.push(threadId);
         store.deleteThread(threadId);
       },
-      hasActiveThreadRuns: () => true,
     },
     { action: "clearAllConversations" },
   );
@@ -216,7 +214,6 @@ test("clearOldConversations deletes by updatedAt and skips busy", async () => {
           threads.splice(index, 1);
         }
       },
-      hasActiveThreadRuns: () => true,
     },
     {
       action: "clearOldConversations",
@@ -241,7 +238,6 @@ test("clearOldConversations rejects missing retention options", async () => {
       databasePath: path.join(tempDir, "x.sqlite"),
       conversationStore: { listThreads: () => [] } as never,
       deleteThreadWithExternalState: async () => {},
-      hasActiveThreadRuns: () => false,
     },
     { action: "clearOldConversations" },
   );
@@ -249,21 +245,40 @@ test("clearOldConversations rejects missing retention options", async () => {
   expect(result.errors?.[0]).toMatch(/olderThanValue/i);
 });
 
-test.skipIf(!sqliteAvailable)("vacuumDatabase refuses while threads are active", async () => {
+test.skipIf(!sqliteAvailable)("vacuumDatabase reclaims space and preserves running threads", async () => {
   const userDataDir = path.join(tempDir, "userdata-vac");
-  const store = await createConversationStore(path.join(userDataDir, "eco-coding.sqlite"));
+  const databasePath = path.join(userDataDir, "eco-coding.sqlite");
+  const store = await createConversationStore(databasePath);
+  const thread: ThreadSummary = {
+    id: "thr_vacuum_running",
+    title: "Running",
+    prompt: "test",
+    workspacePath: WORKSPACE_ROOT,
+    status: "running",
+    message: "working",
+    createdAt: "2026-01-01T00:00:00Z",
+    updatedAt: "2026-01-01T00:00:00Z",
+  };
+  store.saveThread(thread);
+  const beforeThread = store.getThread(thread.id)!;
+  const { DatabaseSync } = await import("node:sqlite");
+  const db = new DatabaseSync(databasePath);
+  db.exec("CREATE TABLE vacuum_fixture (data BLOB); INSERT INTO vacuum_fixture VALUES (zeroblob(1048576)); DELETE FROM vacuum_fixture; PRAGMA wal_checkpoint(TRUNCATE);");
+  db.close();
   const result = await runStorageCleanup(
     {
       userDataDir,
-      databasePath: path.join(userDataDir, "eco-coding.sqlite"),
+      databasePath,
       conversationStore: store,
       deleteThreadWithExternalState: async () => {},
-      hasActiveThreadRuns: () => true,
     },
     { action: "vacuumDatabase" },
   );
-  expect(result.ok).toBe(false);
-  expect(result.errors?.[0]).toMatch(/running or queued/i);
+  expect(result.ok).toBe(true);
+  expect(result.freedBytes).toBeGreaterThan(0);
+  expect(store.getThread(thread.id)).toEqual(beforeThread);
+  store.saveThread({ ...beforeThread, message: "still working" });
+  expect(store.getThread(thread.id)?.message).toBe("still working");
 });
 
 test("clearPiAgent orphansOnly removes thread dirs absent from conversation list", async () => {
@@ -282,7 +297,6 @@ test("clearPiAgent orphansOnly removes thread dirs absent from conversation list
         listThreads: () => [{ id: "thr_keep", status: "idle" as const, coreKind: "pi" as const }],
       } as never,
       deleteThreadWithExternalState: async () => {},
-      hasActiveThreadRuns: () => false,
       piAgentDir,
     },
     { action: "clearPiAgent", options: { orphansOnly: true } },
@@ -327,7 +341,6 @@ test("clearPiAgent full wipe deletes Eco PI threads and leftover agent dirs", as
         }
         await fs.rm(path.join(piAgentDir, threadId), { recursive: true, force: true });
       },
-      hasActiveThreadRuns: () => true,
       piAgentDir,
     },
     { action: "clearPiAgent" },
@@ -361,7 +374,6 @@ test("clearPiAgent full wipe with no running PI threads removes all agent dirs",
         deleted.push(threadId);
         await fs.rm(path.join(piAgentDir, threadId), { recursive: true, force: true });
       },
-      hasActiveThreadRuns: () => false,
       piAgentDir,
     },
     { action: "clearPiAgent" },
@@ -387,7 +399,6 @@ function batchFixture(threads: Array<{ id: string; status: string; updatedAt: st
       listCleanupThreads: () => threads.map((thread) => ({ ...thread })),
       getThread: (id: string) => threads.find((thread) => thread.id === id),
     } as never,
-    hasActiveThreadRuns: () => false,
     deleteThreadWithExternalState: async (id: string) => {
       const index = threads.findIndex((thread) => thread.id === id);
       if (index >= 0) threads.splice(index, 1);

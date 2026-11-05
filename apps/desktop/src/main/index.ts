@@ -9711,10 +9711,6 @@ function registerIpcHandlers(): void {
             expectedHistoryRevision: head.historyRevision,
           });
         },
-        hasActiveThreadRuns: () =>
-          conversationStore
-            .listThreads()
-            .some((thread) => thread.status === "running" || thread.status === "queued"),
       },
       payload,
     );
