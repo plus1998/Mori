@@ -27,7 +27,7 @@ export function resolveApprovalModelRoute(
     .find((entry) => entry.id === selection.providerId && entry.enabled);
   if (!provider) throw new Error(`审批模型所属 Provider 不存在或已禁用：${selection.providerId}`);
   const candidate = providerStore
-    .listCandidateModels(provider.id)
+    .listStatelessModelCandidates(provider.id)
     .find((entry) => entry.id === selection.candidateModelId);
   if (!candidate) throw new Error(`审批模型已不在候选模型列表中：${selection.candidateModelId}`);
   if (candidate.modelId.trim() !== selection.modelId.trim()) {

@@ -39,9 +39,9 @@ interface CompositionControlHandlers {
   onSelectMainModel: (model: ModelRef) => void | Promise<void>;
   onSelectMainPrompt: (selection: MainAgentPromptSelection) => void | Promise<void>;
   onSelectSubagents: (selection: SubagentSelection) => void | Promise<void>;
-  onSelectAuxiliaryModel: (selection: AuxiliaryModelSelection) => void | Promise<void>;
+  onSelectAuxiliaryModel: (selection: AuxiliaryModelSelection | undefined) => void | Promise<void>;
   onSelectApprovalModel: (selection: ApprovalModelSelection) => void | Promise<void>;
-  onSelectVisionModel: (selection: VisionModelSelection) => void | Promise<void>;
+  onSelectVisionModel: (selection: VisionModelSelection | undefined) => void | Promise<void>;
 }
 
 function mainPromptSelectionValue(selection: MainAgentPromptSelection | undefined): string {
@@ -438,13 +438,13 @@ function ComposerRouteCompositionControls({
           loading={auxiliaryModelsLoading}
           error={auxiliaryModelsError}
           disabled={statelessModelsDisabled ?? disabled}
+          clearable
+          clearLabel={t("common.clear")}
           hint={auxiliaryHint}
           placeholder={t("composer.route.auxiliaryModel")}
           renderExtra={auxiliaryModelPricingExtra}
           onChange={(selection) => {
-            if (selection) {
-              void onSelectAuxiliaryModel(toCandidateModelSelection(selection));
-            }
+            void onSelectAuxiliaryModel(selection ? toCandidateModelSelection(selection) : undefined);
           }}
         />
         <span className="composer-route-prompt-hint">{auxiliaryHint}</span>
@@ -476,13 +476,13 @@ function ComposerRouteCompositionControls({
           loading={auxiliaryModelsLoading}
           error={auxiliaryModelsError}
           disabled={statelessModelsDisabled ?? disabled}
+          clearable
+          clearLabel={t("common.clear")}
           hint={visionHint}
           placeholder={t("composer.route.visionModel")}
           renderExtra={auxiliaryModelPricingExtra}
           onChange={(selection) => {
-            if (selection) {
-              void onSelectVisionModel(toCandidateModelSelection(selection));
-            }
+            void onSelectVisionModel(selection ? toCandidateModelSelection(selection) : undefined);
           }}
         />
         <span className="composer-route-prompt-hint">{visionHint}</span>

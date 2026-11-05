@@ -9,7 +9,7 @@ for (const includePricing of [false, undefined]) {
     const deps = {
       providerStore: {
         listProvidersWithSecrets: () => [{ id: "local", name: "Local", enabled: true, apiCompat: "openai_responses" }],
-        listCandidateModels: () => [{ id: "local-model", modelId: "model", displayName: "Local model" }],
+        listStatelessModelCandidates: () => [{ id: "local-model", modelId: "model", displayName: "Local model" }],
       },
       pricingCache: {
         lookupForRoute: async () => { pricingCalls += 1; return null; },

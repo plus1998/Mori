@@ -51,7 +51,7 @@ const COMMIT_MESSAGE_ROLE: RuntimeAgentRole = "explore";
 async function listCommitCandidates(input: { providerStore: ProviderStore }) {
   const providers = input.providerStore.listProvidersWithSecrets();
   return listCommitMessageCandidateModels(providers, (providerId) =>
-    input.providerStore.listCandidateModels(providerId),
+    input.providerStore.listStatelessModelCandidates(providerId),
   );
 }
 
@@ -104,7 +104,7 @@ async function resolveCommitProxyRoute(input: {
   if (!provider) {
     throw new Error(`候选模型所属 Provider 未配置或已禁用：${selected.providerName}`);
   }
-  const candidate = input.providerStore.listCandidateModels(provider.id)
+  const candidate = input.providerStore.listStatelessModelCandidates(provider.id)
     .find((entry) => entry.id === selected.candidateModelId);
   if (!candidate?.baseUrl || !candidate.apiCompat || candidate.apiCompat === "system_one") {
     throw new Error(`提交模型 ${selected.modelId} 的端点或协议无效，请重新选择。`);
@@ -143,7 +143,7 @@ export async function handleGitListCommitModelOptions(
   const providers = deps.providerStore.listProvidersWithSecrets();
   const candidates = listCommitMessageCandidateModels(
     providers,
-    (providerId) => deps.providerStore.listCandidateModels(providerId),
+    (providerId) => deps.providerStore.listStatelessModelCandidates(providerId),
     purpose,
   );
   const hints = request.includePricing === false ? [] : await lookupCommitModelPricingHints(

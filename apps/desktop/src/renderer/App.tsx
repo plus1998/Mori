@@ -5149,14 +5149,14 @@ function App() {
           sessionMode: current?.sessionMode ?? "agent",
           bashReviewMode: current?.bashReviewMode ?? "always",
           ...(current?.subagentEnabled ? { subagentEnabled: current.subagentEnabled } : {}),
-          ...((current?.auxiliaryModel ?? workflowSettings.defaultAuxiliaryModel)
-            ? { auxiliaryModel: current?.auxiliaryModel ?? workflowSettings.defaultAuxiliaryModel }
+          ...((current ? current.auxiliaryModel : workflowSettings.defaultAuxiliaryModel)
+            ? { auxiliaryModel: current ? current.auxiliaryModel : workflowSettings.defaultAuxiliaryModel }
             : {}),
           ...((current?.approvalModel ?? workflowSettings.defaultApprovalModel)
             ? { approvalModel: current?.approvalModel ?? workflowSettings.defaultApprovalModel }
             : {}),
-          ...((current?.visionModel ?? workflowSettings.defaultVisionModel)
-            ? { visionModel: current?.visionModel ?? workflowSettings.defaultVisionModel }
+          ...((current ? current.visionModel : workflowSettings.defaultVisionModel)
+            ? { visionModel: current ? current.visionModel : workflowSettings.defaultVisionModel }
             : {}),
           ...(current?.mcpServersEnabled ? { mcpServersEnabled: current.mcpServersEnabled } : {}),
           ...(current?.integrationsEnabled ? { integrationsEnabled: current.integrationsEnabled } : {}),
@@ -5285,14 +5285,14 @@ function App() {
         bashReviewMode:
           base?.bashReviewMode ?? normalizeBashReviewMode(workflowSettings.defaultBashReviewMode),
         ...(base?.subagentEnabled ? { subagentEnabled: base.subagentEnabled } : {}),
-        ...((base?.auxiliaryModel ?? workflowSettings.defaultAuxiliaryModel)
-          ? { auxiliaryModel: base?.auxiliaryModel ?? workflowSettings.defaultAuxiliaryModel }
+        ...((base ? base.auxiliaryModel : workflowSettings.defaultAuxiliaryModel)
+          ? { auxiliaryModel: base ? base.auxiliaryModel : workflowSettings.defaultAuxiliaryModel }
           : {}),
         ...((base?.approvalModel ?? workflowSettings.defaultApprovalModel)
           ? { approvalModel: base?.approvalModel ?? workflowSettings.defaultApprovalModel }
           : {}),
-        ...((base?.visionModel ?? workflowSettings.defaultVisionModel)
-          ? { visionModel: base?.visionModel ?? workflowSettings.defaultVisionModel }
+        ...((base ? base.visionModel : workflowSettings.defaultVisionModel)
+          ? { visionModel: base ? base.visionModel : workflowSettings.defaultVisionModel }
           : {}),
         ...(base?.mcpServersEnabled ? { mcpServersEnabled: base.mcpServersEnabled } : {}),
         ...(base?.integrationsEnabled ? { integrationsEnabled: base.integrationsEnabled } : {}),
@@ -10133,7 +10133,7 @@ function App() {
     await applyComposerOrchestrationSelection({ subagents: selection });
   }
 
-  async function selectComposerAuxiliaryModel(selection: AuxiliaryModelSelection) {
+  async function selectComposerAuxiliaryModel(selection: AuxiliaryModelSelection | undefined) {
     if (!canEditStatelessModelConfig || !window.eco?.saveWorkflowSettings) {
       return;
     }
@@ -10153,12 +10153,16 @@ function App() {
     if (!base) {
       return;
     }
-    await persistComposerRuntimeConfig({ ...base, auxiliaryModel: selection }, { persistWhileRunning: true });
+    const { auxiliaryModel: _previous, ...rest } = base;
+    if (!await persistComposerRuntimeConfig({
+      ...rest,
+      ...(selection ? { auxiliaryModel: selection } : {}),
+    }, { persistWhileRunning: true })) return;
     try {
-      const saved = await window.eco.saveWorkflowSettings({
-        ...workflowSettings,
-        defaultAuxiliaryModel: selection,
-      });
+      const nextSettings = { ...workflowSettings };
+      if (selection) nextSettings.defaultAuxiliaryModel = selection;
+      else delete nextSettings.defaultAuxiliaryModel;
+      const saved = await window.eco.saveWorkflowSettings(nextSettings);
       setWorkflowSettings(saved);
     } catch (caught) {
       setError(errorMessage(caught));
@@ -10197,7 +10201,7 @@ function App() {
     }
   }
 
-  async function selectComposerVisionModel(selection: VisionModelSelection) {
+  async function selectComposerVisionModel(selection: VisionModelSelection | undefined) {
     if (!canEditStatelessModelConfig || !window.eco?.saveWorkflowSettings) {
       return;
     }
@@ -10220,12 +10224,16 @@ function App() {
     if (!base) {
       return;
     }
-    await persistComposerRuntimeConfig({ ...base, visionModel: selection }, { persistWhileRunning: true });
+    const { visionModel: _previous, ...rest } = base;
+    if (!await persistComposerRuntimeConfig({
+      ...rest,
+      ...(selection ? { visionModel: selection } : {}),
+    }, { persistWhileRunning: true })) return;
     try {
-      const saved = await window.eco.saveWorkflowSettings({
-        ...workflowSettings,
-        defaultVisionModel: selection,
-      });
+      const nextSettings = { ...workflowSettings };
+      if (selection) nextSettings.defaultVisionModel = selection;
+      else delete nextSettings.defaultVisionModel;
+      const saved = await window.eco.saveWorkflowSettings(nextSettings);
       setWorkflowSettings(saved);
     } catch (caught) {
       setError(errorMessage(caught));

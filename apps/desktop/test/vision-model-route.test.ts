@@ -28,7 +28,7 @@ describe("resolveVisionModelRoute", () => {
   test("throws when selection is missing", () => {
     const providerStore = {
       listProvidersWithSecrets: () => [],
-      listCandidateModels: () => [],
+      listStatelessModelCandidates: () => [],
     } as unknown as ProviderStore;
     expect(() => resolveVisionModelRoute(undefined, providerStore)).toThrow(/未配置视觉模型/);
   });
@@ -43,7 +43,7 @@ describe("resolveVisionModelRoute", () => {
     };
     const providerStore = {
       listProvidersWithSecrets: () => [provider],
-      listCandidateModels: () => [
+      listStatelessModelCandidates: () => [
         {
           id: "candidate-vision",
           providerId: "provider-1",
@@ -83,7 +83,7 @@ describe("resolveVisionModelRoute", () => {
     };
     const providerStore = {
       listProvidersWithSecrets: () => [provider],
-      listCandidateModels: () => [
+      listStatelessModelCandidates: () => [
         {
           id: "candidate-vision",
           providerId: "provider-1",
@@ -111,7 +111,7 @@ describe("resolveVisionModelRoute", () => {
 describe("resolveThreadVisionAnalysisRoute", () => {
   const providerStore = {
     listProvidersWithSecrets: () => [],
-    listCandidateModels: () => [],
+    listStatelessModelCandidates: () => [],
   } as unknown as ProviderStore;
 
   test("uses the configured vision model before Eco fallback", () => {
@@ -124,7 +124,7 @@ describe("resolveThreadVisionAnalysisRoute", () => {
     };
     const store = {
       listProvidersWithSecrets: () => [provider],
-      listCandidateModels: () => [
+      listStatelessModelCandidates: () => [
         {
           id: "candidate-vision",
           providerId: "provider-1",

@@ -1010,6 +1010,7 @@ export function ModelsSettingsPanel({
                     error={auxiliaryModelsError}
                     disabled={busy}
                     clearable
+                    clearLabel={t("common.clear")}
                     hint={t("composer.route.auxiliaryModelHint")}
                     placeholder={t("composer.route.auxiliaryModel")}
                     renderExtra={commitModelPricingExtra}
@@ -1056,6 +1057,7 @@ export function ModelsSettingsPanel({
                     error={auxiliaryModelsError}
                     disabled={busy}
                     clearable
+                    clearLabel={t("common.clear")}
                     hint={t("composer.route.visionModelHint")}
                     placeholder={t("composer.route.visionModel")}
                     renderExtra={commitModelPricingExtra}

@@ -3190,6 +3190,7 @@ app
     );
     // Warm the account catalog from disk before building synchronous agent settings.
     await getChatGptModelCatalogService().listModels();
+    providerStore.setChatGptModelCatalog(() => getChatGptModelCatalogService().getLoadedModels());
     agentLifecycle = new AgentLifecycleService(conversationStore);
     codexThreadMap = new ConversationStoreCodexThreadMap(conversationStore);
     const defaultUpstreamUserAgent = buildDefaultUpstreamUserAgent({
@@ -11182,7 +11183,7 @@ async function resolveSelectedModelOutputOptions(
     .listProvidersWithSecrets()
     .find((entry) => entry.id === selection.providerId);
   const candidate = providerStore
-    .listCandidateModels(selection.providerId)
+    .listStatelessModelCandidates(selection.providerId)
     .find((entry) => entry.id === selection.candidateModelId);
   if (!provider || !candidate || candidate.apiCompat === "system_one") return baseOptions;
   const resolved = await pricingCache.resolveContextLimit(

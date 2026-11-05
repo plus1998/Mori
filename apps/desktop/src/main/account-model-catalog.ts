@@ -61,6 +61,11 @@ export class AccountModelCatalogService {
     return this.document ? selectVisibleModels(this.document)[0]?.modelId : undefined;
   }
 
+  /** Available after startup hydration; reads the current catalog without network I/O. */
+  getLoadedModels(): CodexCatalogModelView[] {
+    return this.document ? selectVisibleModels(this.document) : [];
+  }
+
   /** Visible models: non-hidden remote entries plus user-added ones, in Codex priority order. */
   async listModels(): Promise<CodexCatalogModelView[]> {
     const document = await this.ensureDocument();

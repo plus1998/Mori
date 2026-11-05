@@ -27,7 +27,7 @@ export function resolveAuxiliaryModelRoute(
     throw new Error(`辅助模型所属 Provider 不存在或已禁用：${selection.providerId}`);
   }
   const candidate = providerStore
-    .listCandidateModels(provider.id)
+    .listStatelessModelCandidates(provider.id)
     .find((model) => model.id === selection.candidateModelId);
   if (!candidate) {
     throw new Error(`辅助模型已不在候选模型列表中：${selection.candidateModelId}`);

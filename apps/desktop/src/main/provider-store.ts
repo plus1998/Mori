@@ -21,6 +21,7 @@ import {
 } from "../shared/ipc";
 import { normalizeStoredPriceMultiplier } from "../shared/manual-spec-pricing";
 import { normalizeProviderTokenCountMode } from "../shared/provider-token-count";
+import type { CodexCatalogModelView } from "../shared/models";
 import { normalizeApiVersion, normalizeRequestPath, splitBaseUrlAndRequestPath } from "./provider-models";
 
 interface ProviderRow {
@@ -128,6 +129,37 @@ export async function createProviderStore(dbPath: string): Promise<ProviderStore
 
 export class ProviderStore {
   constructor(private readonly db: DatabaseSyncType) {}
+
+  private readChatGptModels: (() => readonly CodexCatalogModelView[]) | undefined;
+
+  setChatGptModelCatalog(readModels: () => readonly CodexCatalogModelView[]): void {
+    this.readChatGptModels = readModels;
+  }
+
+  /** Stateless roles can also call account models, which are not database candidates. */
+  listStatelessModelCandidates(providerId: string): CandidateModelView[] {
+    const provider = this.getProviderWithSecret(providerId);
+    if (provider?.authMethod !== "chatgpt_subscription") return this.listCandidateModels(providerId);
+    if (!this.readChatGptModels) throw new Error("ChatGPT OAuth 模型目录尚未初始化。");
+    return this.readChatGptModels().map((model, sortOrder) => ({
+      id: `account:${encodeURIComponent(providerId)}:${encodeURIComponent(model.modelId)}`,
+      providerId,
+      modelId: model.modelId,
+      displayName: model.displayName,
+      baseUrl: provider.baseUrl,
+      requestPath: provider.requestPath,
+      version: provider.version,
+      apiCompat: "openai_responses",
+      tokenCountMode: "openai_responses",
+      manualSpec: {
+        ...(model.contextWindow !== undefined ? { contextTokens: model.contextWindow } : {}),
+        ...(model.supportsImageInput !== undefined ? { supportsImageInput: model.supportsImageInput } : {}),
+      },
+      sortOrder,
+      createdAt: provider.createdAt,
+      updatedAt: provider.updatedAt,
+    }));
+  }
 
   initialize(): void {
     this.db.exec(`
