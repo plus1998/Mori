@@ -13,7 +13,7 @@ import {
   Minimize2,
   UsersRound,
 } from "lucide-react";
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode, type Ref } from "react";
 import { useTranslation } from "react-i18next";
 import type { ThreadPendingPlan } from "../shared/ipc";
 import { MAIN_SHELL_MEDIA_QUERIES } from "./activity-workspace-layout";
@@ -27,6 +27,8 @@ interface PlanApprovalPanelProps {
   busy?: boolean | undefined;
   failureMessage?: string | undefined;
   variant?: "feed" | "dock";
+  modelControl?: ReactNode;
+  dockRef?: Ref<HTMLDivElement>;
   onApprove: () => void;
   /**
    * Approved with an explicit delegation target. Only rendered when the thread's locked
@@ -51,6 +53,8 @@ export function PlanApprovalPanel({
   busy,
   failureMessage,
   variant = "feed",
+  modelControl,
+  dockRef,
   onApprove,
   onApproveWithSubagent,
   onStartNewSession,
@@ -230,6 +234,7 @@ export function PlanApprovalPanel({
         <MarkdownContent text={plan.plan} />
       </div>
       <footer className={docked ? "bash-approval-footer plan-approval-dock-footer" : "plan-approval-actions"}>
+        {modelControl ? <div className="plan-approval-model-control">{modelControl}</div> : null}
         <button
           type="button"
           className={docked ? "bash-approval-dismiss" : "plan-button secondary"}
@@ -438,6 +443,7 @@ export function PlanApprovalPanel({
   if (docked) {
     return (
       <div
+        ref={dockRef}
         className={["codex-composer", "is-compact", "plan-approval-dock-shell", expanded ? "is-expanded" : ""]
           .filter(Boolean)
           .join(" ")}

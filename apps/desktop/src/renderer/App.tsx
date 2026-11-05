@@ -1706,6 +1706,7 @@ function App() {
   const composerPlusButtonRef = useRef<HTMLButtonElement>(null);
   const composerImageInputRef = useRef<HTMLInputElement>(null);
   const composerAnchorRef = useRef<HTMLDivElement>(null);
+  const planModelAnchorRef = useRef<HTMLDivElement>(null);
   const composerInputOverlaysRef = useRef<HTMLDivElement>(null);
   const [composerInputOverlaysHeight, setComposerInputOverlaysHeight] = useState(0);
   const [composerCursor, setComposerCursor] = useState(0);
@@ -7010,6 +7011,13 @@ function App() {
   const canEditComposerConfig =
     !activeThread ||
     (threadAcceptsInput && activeThread.status !== "running" && activeThread.status !== "queued");
+  // Codex/Pi approval launches a new turn from the saved configuration. Claude/ACP
+  // may still be parked inside a live plan bridge, whose model is already bound.
+  const canEditPendingPlanModel =
+    activeThread?.status === "awaiting_plan" &&
+    (composerCoreKind === "codex" || composerCoreKind === "pi") &&
+    !planActionBusy;
+  const canEditComposerModel = canEditComposerConfig || canEditPendingPlanModel;
   const canEditBashReviewMode = Boolean(composerRuntimeConfig);
   // Route settings remain viewable for every thread state, including an active run;
   // canEditComposerConfig continues to gate every route mutation handler/control.
@@ -9040,7 +9048,7 @@ function App() {
   }
 
   async function reviewPendingPlanCode() {
-    if (!activeThread || !pendingPlan || !window.eco || planActionBusy || isStarting) return;
+    if (!activeThread || !pendingPlan || !window.eco || planActionBusy || isStarting || isSavingSettings) return;
     const threadId = activeThread.id;
     const planToRemember = pendingPlan;
     const runtimeConfigForSend = resolveComposerRuntimeConfigForSend();
@@ -9098,7 +9106,7 @@ function App() {
   }
 
   async function approvePendingPlanWithTarget(executionTarget: PlanExecutionTarget) {
-    if (!activeThread || !window.eco) return;
+    if (!activeThread || !window.eco || planActionBusy || isSavingSettings) return;
     const threadId = activeThread.id;
     const planToRemember = pendingPlan;
     setError(undefined);
@@ -9259,7 +9267,7 @@ function App() {
   }
 
   async function dismissPendingPlan() {
-    if (!activeThread || !window.eco) return;
+    if (!activeThread || !window.eco || planActionBusy || isSavingSettings) return;
     setError(undefined);
     setPlanActionBusy(true);
     try {
@@ -9960,7 +9968,11 @@ function App() {
 
   async function persistComposerRuntimeConfig(
     next: ThreadRuntimeConfig,
-    options?: { persistWhileRunning?: boolean; refreshOrchestrationSnapshot?: boolean },
+    options?: {
+      persistWhileRunning?: boolean;
+      refreshOrchestrationSnapshot?: boolean;
+      pendingPlanModel?: boolean;
+    },
   ): Promise<boolean> {
     if (!activeThread) {
       setComposerRuntimeConfig(next);
@@ -9971,7 +9983,10 @@ function App() {
       return false;
     }
     const isRunning = activeThread.status === "running" || activeThread.status === "queued";
-    const canPersist = canEditComposerConfig || (options?.persistWhileRunning === true && isRunning);
+    const canPersist =
+      canEditComposerConfig ||
+      (options?.pendingPlanModel === true && canEditPendingPlanModel) ||
+      (options?.persistWhileRunning === true && isRunning);
     if (!canPersist) {
       return false;
     }
@@ -10008,7 +10023,8 @@ function App() {
     mainPrompt?: MainAgentPromptSelection;
     subagents?: SubagentSelection;
   }) {
-    if (!canEditComposerConfig) {
+    const pendingPlanModel = Boolean(patch.mainModel && !patch.mainPrompt && !patch.subagents);
+    if (!canEditComposerConfig && !(pendingPlanModel && canEditPendingPlanModel)) {
       return;
     }
     const current: OrchestrationSelection =
@@ -10032,10 +10048,10 @@ function App() {
         bashReviewMode: normalizeBashReviewMode(workflowSettings.defaultBashReviewMode),
       };
       const { resolvedOrchestrationSnapshot: _removed, ...base } = partialBase;
-      await persistComposerRuntimeConfig({
-        ...base,
-        orchestrationSelection: nextSelection,
-      });
+      await persistComposerRuntimeConfig(
+        { ...base, orchestrationSelection: nextSelection },
+        { pendingPlanModel },
+      );
       return;
     }
     let materialized: Pick<ThreadRuntimeConfig, "orchestrationSelection" | "resolvedOrchestrationSnapshot">;
@@ -10100,7 +10116,7 @@ function App() {
         return;
       }
     }
-    await persistComposerRuntimeConfig(next);
+    await persistComposerRuntimeConfig(next, { pendingPlanModel });
     if (!activeThread && hasCompleteOrchestrationSelection(nextSelection)) {
       await saveProjectOrchestrationSelection(nextSelection);
     }
@@ -11308,7 +11324,7 @@ function App() {
   }
 
   async function startNewChatWithPlan(plan: ThreadPendingPlan) {
-    if (!window.eco || !activeThread || activeThread.id !== plan.threadId || planActionBusy) return;
+    if (!window.eco || !activeThread || activeThread.id !== plan.threadId || planActionBusy || isSavingSettings) return;
     setPlanActionBusy(true);
     setError(undefined);
     try {
@@ -12325,14 +12341,16 @@ function App() {
           selectedComposerMainModel.accountId ? { accountId: selectedComposerMainModel.accountId } : {}),
       }
     : selectedComposerMainModel;
-  const composerModelReadOnly = activeThread?.status === "running" || activeThread?.status === "queued";
-  const renderComposerModelControl = () =>
+  const composerModelReadOnly =
+    activeThread?.status === "running" || activeThread?.status === "queued" ||
+    activeThread?.status === "awaiting_plan";
+  const renderComposerModelControl = (anchorRef = composerAnchorRef, disabled = false) =>
     composerModelAvailability === "acp" ? (
       <ComposerAcpModelTrigger
         models={cursorModels}
         {...(composerAcpSelectedModelId ? { selectedModelId: composerAcpSelectedModelId } : {})}
-        disabled={isSavingSettings || (!canEditComposerConfig && !composerModelReadOnly)}
-        readOnly={!canEditComposerConfig}
+        disabled={disabled || isSavingSettings || (!canEditComposerModel && !composerModelReadOnly)}
+        readOnly={!canEditComposerModel}
         loading={cursorModelsLoading}
         {...(cursorModelsError ? { error: cursorModelsError } : {})}
         onOpen={refreshCursorModels}
@@ -12340,12 +12358,12 @@ function App() {
       />
     ) : (
       <ComposerMainModelPicker
-        anchorRef={composerAnchorRef}
+        anchorRef={anchorRef}
         model={composerPickerModel}
         openRequest={modelPickerOpenRequest}
         coreKind={composerCoreKind}
-        disabled={isSavingSettings || (!canEditComposerConfig && !composerModelReadOnly)}
-        readOnly={!canEditComposerConfig}
+        disabled={disabled || isSavingSettings || (!canEditComposerModel && !composerModelReadOnly)}
+        readOnly={!canEditComposerModel}
         onSelect={selectComposerMainModel}
         onAddProvider={openProviderSettings}
       />
@@ -12462,8 +12480,10 @@ function App() {
             ) : showPlanApproval && pendingPlan ? (
               <PlanApprovalPanel
                 plan={pendingPlan}
-                busy={planActionBusy}
+                busy={planActionBusy || isSavingSettings}
                 variant="dock"
+                dockRef={planModelAnchorRef}
+                modelControl={renderComposerModelControl(planModelAnchorRef, planActionBusy)}
                 {...(planFailureMessage && { failureMessage: planFailureMessage })}
                 onApprove={() => void approvePendingPlan()}
                 onStartNewSession={() => void startNewChatWithPlan(pendingPlan)}
