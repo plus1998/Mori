@@ -177,7 +177,10 @@ export function ComposerMainModelPicker({
   const { t, i18n } = useTranslation();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const providerListRef = useRef<HTMLDivElement>(null);
+  const accountListRef = useRef<HTMLDivElement>(null);
   const modelListRef = useRef<HTMLDivElement>(null);
+  const loadedAccountSourcesRef = useRef(new Set<"login" | "oauth">());
+  const accountPositionedRef = useRef(false);
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const [open, setOpen] = useState(false);
   const previousOpenRequest = useRef(openRequest);
@@ -218,6 +221,8 @@ export function ComposerMainModelPicker({
     if (!open || !window.eco) return;
     let cancelled = false;
     const eco = window.eco;
+    loadedAccountSourcesRef.current.clear();
+    accountPositionedRef.current = false;
     setLoadingData(new Set(["custom", "loginAccounts", "oauthAccounts", "loginModels", "oauthModels"]));
     setLoadErrors({});
     setError(undefined);
@@ -240,14 +245,18 @@ export function ComposerMainModelPicker({
     // Each local read publishes immediately; unrelated accounts and pricing never gate it.
     load("custom", eco.listGitCommitModelOptions({ includePricing: false }),
       (result) => setCandidates(result.options));
-    load("loginAccounts", eco.openAIAccountsList(), (accounts) => setLoginAccounts(accounts
-      .filter((account) => account.isLoggedIn || account.authState === "refreshable" ||
+    load("loginAccounts", eco.openAIAccountsList(), (accounts) => {
+      loadedAccountSourcesRef.current.add("login");
+      setLoginAccounts(accounts.filter((account) => account.isLoggedIn || account.authState === "refreshable" ||
         account.authState === "refreshing")
       .map((account) => ({ id: account.id, name: account.name, quota: account.quota,
-        quotaError: account.quotaRefresh?.error }))));
-    load("oauthAccounts", eco.chatGptSubscriptionAccountsList(), (accounts) => setOauthAccounts(accounts
-      .filter((account) => account.enabled && account.hasCredentials)
-      .map((account) => ({ id: account.accountId, name: account.displayName }))));
+        quotaError: account.quotaRefresh?.error })));
+    });
+    load("oauthAccounts", eco.chatGptSubscriptionAccountsList(), (accounts) => {
+      loadedAccountSourcesRef.current.add("oauth");
+      setOauthAccounts(accounts.filter((account) => account.enabled && account.hasCredentials)
+        .map((account) => ({ id: account.accountId, name: account.displayName })));
+    });
     load("loginModels", eco.getCodexModelCatalog(), (catalog) => setLoginModels(catalog.models
       .filter((entry) => !entry.hidden)
       .map((entry) => ({ modelId: entry.modelId, displayName: entry.displayName,
@@ -338,6 +347,16 @@ export function ComposerMainModelPicker({
     });
     return () => cancelAnimationFrame(frame);
   }, [open, source, providers.length, availableModels.length, model?.modelId]);
+
+  useEffect(() => {
+    if (!open || accountPositionedRef.current || (source !== "login" && source !== "oauth") ||
+      !loadedAccountSourcesRef.current.has(source) || source !== activeProviderId ||
+      !accountId || accountId !== activeChoice?.accountId) return;
+    const selected = accountListRef.current?.querySelector("button.is-selected");
+    if (!selected) return;
+    selected.scrollIntoView({ block: "nearest", inline: "nearest" });
+    accountPositionedRef.current = true;
+  }, [open, source, accountId, activeProviderId, activeChoice?.accountId, accounts]);
 
   const saveChoice = (choice: ModelRef): Promise<boolean> => {
     const next = saveQueueRef.current.catch(() => {}).then(() => onSelect(choice));
@@ -440,7 +459,7 @@ export function ComposerMainModelPicker({
         <div className="composer-main-model-picker-content">
           {accountSource ? <div className="composer-main-model-picker-accounts">
             <div className="composer-main-model-picker-section-label">{t("composer.mainPicker.accounts")}</div>
-            <div className="composer-main-model-picker-account-list">
+            <div ref={accountListRef} className="composer-main-model-picker-account-list">
               {accounts.length ? accounts.map((account) => <button key={account.id} type="button"
                 className={account.id === accountId ? "is-selected" : ""}
                 aria-pressed={account.id === accountId}
