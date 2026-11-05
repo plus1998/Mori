@@ -319,21 +319,31 @@ test("renders voice profiles with active metadata and disables editing while bus
   expect(markup).toContain("Set active");
   // The state chip is the activation control: active profile is pressed + disabled,
   // inactive profile stays clickable. No separate "Set active" button exists.
-  expect(markup).toMatch(/asr-profile-state is-active"[^>]*aria-pressed="true"[^>]*disabled/);
-  expect(markup).toMatch(/asr-profile-state"[^>]*aria-pressed="false"/);
-  expect(markup).not.toContain("asr-profile-action-primary");
+  const stateButtons = markup.match(/<button\b[^>]*aria-pressed="(?:true|false)"[^>]*>/g) ?? [];
+  expect(stateButtons).toHaveLength(2);
+  expect(stateButtons[0]).toContain('aria-pressed="true"');
+  expect(stateButtons[0]).toContain('disabled=""');
+  expect(stateButtons[1]).toContain('aria-pressed="false"');
+  expect(stateButtons[1]).not.toContain("disabled");
   expect(markup).toContain("Edit");
   expect(markup).toContain("Chat Completions · qwen3-asr-flash");
   expect(markup).toContain("No API key");
   // Brand marks come from the vendor name / model, not from a generic icon.
   expect(markup).toContain('src="./provider-icons/bailian.png"');
-  expect(markup).toContain("asr-profile-card-actions");
   // The editor moved into a modal, so its fields stay out of the page markup.
   expect(markup).not.toContain('placeholder="qwen3-asr-flash"');
   expect(markup).not.toContain("Audio Transcriptions");
   const busyMarkup = renderLocalized(createElement(AsrSettingsPanel, { ...props, busy: true }), "en-US");
-  expect(busyMarkup).toMatch(/class="settings-primary-button asr-add-button"[^>]*disabled/);
-  expect(busyMarkup).toMatch(/asr-profile-action-secondary"[^>]*disabled/);
+  const busyButtons = busyMarkup.match(/<button\b[^>]*>[\s\S]*?<\/button>/g) ?? [];
+  const editButtons = busyButtons.filter((button) => button.endsWith("Edit</button>"));
+  expect(editButtons).toHaveLength(2);
+  expect(editButtons.every((button) => /<button\b[^>]*disabled=""/.test(button))).toBe(true);
+  const addButton = busyButtons.find((button) => button.endsWith("Add profile</button>"));
+  expect(addButton).toBeDefined();
+  expect(addButton).toMatch(/<button\b[^>]*disabled=""/);
+  const busyStateButtons = busyButtons.filter((button) => button.includes("aria-pressed="));
+  expect(busyStateButtons).toHaveLength(2);
+  expect(busyStateButtons.every((button) => /<button\b[^>]*disabled=""/.test(button))).toBe(true);
 });
 
 test("builds exact input constraints and never treats a missing saved device as available", () => {

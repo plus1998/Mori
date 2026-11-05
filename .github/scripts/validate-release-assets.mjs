@@ -60,6 +60,9 @@ if (wrongChannelFiles.length > 0) {
 }
 
 const requiredFeed = [macChannelFile, winChannelFile, linuxChannelFile];
+if (channel === "latest") {
+  requiredFeed.push("beta-mac.yml", "beta.yml", "beta-linux.yml");
+}
 for (const name of requiredFeed) {
   if (!feedNames.has(name)) {
     throw new Error(`Missing update feed asset: ${name}`);
@@ -72,7 +75,21 @@ if (unexpectedFeed.length > 0) {
 
 for (const fileName of [macChannelFile, winChannelFile, linuxChannelFile]) {
   await validateRelativeMetadata(path.join(directory, fileName), fileName, names);
+}
+for (const fileName of requiredFeed) {
   await validateAbsoluteFeedMetadata(path.join(feedDirectory, fileName), fileName, names);
+}
+if (channel === "latest") {
+  for (const [stable, beta] of [
+    [macChannelFile, "beta-mac.yml"],
+    [winChannelFile, "beta.yml"],
+    [linuxChannelFile, "beta-linux.yml"],
+  ]) {
+    if (await readFile(path.join(feedDirectory, stable), "utf8") !==
+        await readFile(path.join(feedDirectory, beta), "utf8")) {
+      throw new Error(`Beta migration pointer ${beta} must match ${stable}.`);
+    }
+  }
 }
 
 const macMetadata = load(await readFile(path.join(directory, macChannelFile), "utf8"));
@@ -128,7 +145,7 @@ async function validateAbsoluteFeedMetadata(filePath, fileName, assetNames) {
     if (!assetNames.has(artifactName)) {
       throw new Error(`Feed ${fileName} references missing asset ${artifactName}.`);
     }
-    if (fileName === macChannelFile && !artifactName.endsWith(".zip")) {
+    if (fileName.endsWith("-mac.yml") && !artifactName.endsWith(".zip")) {
       throw new Error(`Feed ${fileName} must reference ZIP update files: ${artifactName}`);
     }
   }

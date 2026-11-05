@@ -19,7 +19,7 @@ test("通知面板提供微信通知和朗读；微信开关保留当前对话�
     expect(markup).toContain("微信通知");
     expect(markup).toContain("朗读");
     expect(markup).toContain('aria-label="完工通知"');
-    expect(markup.includes('checked=""')).toBe(enabled);
+    expect(markup).toMatch(new RegExp(`<button[^>]*aria-label="完工通知"[^>]*role="switch"[^>]*aria-checked="${enabled}"`));
     expect(markup).toContain("仅对当前对话生效");
     expect(markup).toContain("原有朗读设置");
   }

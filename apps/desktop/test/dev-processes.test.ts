@@ -117,7 +117,12 @@ for (const quiet of [false, true]) {
     instance.worker.kill("SIGKILL");
     await instance.exited;
     const deadline = Date.now() + 3_000;
-    while (!existsSync(instance.marker) && Date.now() < deadline) await Bun.sleep(20);
+    // writeFileSync creates the marker before its contents are written. The
+    // orphan child can still be between open and write when we observe the file.
+    while (Date.now() < deadline) {
+      if (existsSync(instance.marker) && readFileSync(instance.marker, "utf8") === "clean") break;
+      await Bun.sleep(20);
+    }
     expect(readFileSync(instance.marker, "utf8")).toBe("clean");
     expect(existsSync(join(instance.directory, "child-error"))).toBe(false);
     const pid = Number(readFileSync(join(instance.directory, "child-pid"), "utf8"));

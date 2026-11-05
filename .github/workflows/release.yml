@@ -224,8 +224,10 @@ jobs:
         with:
           tag_name: ${{ needs.validate.outputs.tag }}
           name: Mori ${{ needs.validate.outputs.tag }}
-          prerelease: ${{ needs.validate.outputs.channel == 'beta' }}
-          make_latest: ${{ needs.validate.outputs.channel == 'latest' }}
+          # GitHub download visibility is independent of the app's update channel.
+          # Beta packages retain their beta version and beta*.yml update pointers.
+          prerelease: false
+          make_latest: true
           body_path: release-notes.md
           fail_on_unmatched_files: true
           files: |

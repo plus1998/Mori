@@ -96,6 +96,19 @@ await writeChannelMetadata(
   absolutizeUpdateMetadata(mergedMacMetadata, assetBaseUrl),
 );
 
+// Existing beta installations still request beta*.yml. Point them at the stable
+// package, whose embedded manifest switches subsequent checks to the latest feed.
+// Beta releases only write beta pointers, so stable installations stay on latest.
+if (channel === "latest") {
+  for (const [source, target] of [
+    [channelFile, "beta.yml"],
+    [channelLinuxFile, "beta-linux.yml"],
+    [channelMacFile, "beta-mac.yml"],
+  ]) {
+    await copyFile(path.join(feedDirectory, source), path.join(feedDirectory, target));
+  }
+}
+
 const allowedGeneratedNames = new Set([channelMacFile, channelFile, channelLinuxFile]);
 for (const name of await readdir(outputDirectory)) {
   if (name === "SHA256SUMS") {
