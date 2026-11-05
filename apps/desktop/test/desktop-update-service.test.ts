@@ -60,6 +60,7 @@ beforeEach(async () => {
   downloadError = undefined;
   operations.length = 0;
   updater.removeAllListeners();
+  updater.setFeedURL.mockClear();
   updater.checkForUpdates.mockClear();
   updater.downloadUpdate.mockClear();
   setProxy.mockReset();
@@ -95,6 +96,16 @@ afterEach(() => {
   rmSync(manifestDirectory, { recursive: true, force: true });
   if (originalAppImage === undefined) delete process.env.APPIMAGE;
   else process.env.APPIMAGE = originalAppImage;
+});
+
+test("configures the generic feed for redirected single-range blockmap downloads", () => {
+  expect(updater.setFeedURL).toHaveBeenCalledWith({
+    provider: "generic",
+    url: "https://example.com/feed",
+    channel: "latest",
+    useMultipleRangeRequest: false,
+  });
+  expect(updater.disableDifferentialDownload).toBe(false);
 });
 
 test("download refreshes the feed and downloads the newly published version", async () => {

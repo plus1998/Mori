@@ -22,8 +22,9 @@ export function applyDesktopAutoUpdaterPolicy(
   // Keep download manual so users control bandwidth; install silently on quit/restart.
   updater.autoDownload = false;
   updater.autoInstallOnAppQuit = true;
-  // GitHub release asset redirects are unreliable for ranged blockmap fetches.
-  updater.disableDifferentialDownload = true;
+  // GitHub release assets support redirected single-range requests but reject
+  // multi-range requests. The generic feed opts into single ranges separately.
+  updater.disableDifferentialDownload = false;
 }
 
 /** Compact, UI-safe updater errors (no raw URLs / HttpError dumps). */

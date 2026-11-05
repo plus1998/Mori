@@ -264,6 +264,7 @@ export class DesktopUpdateService {
       provider: "generic",
       url: updateFeedUrl,
       channel,
+      useMultipleRangeRequest: false,
     });
     applyDesktopAutoUpdaterPolicy(autoUpdater, channel);
     autoUpdater.logger = {

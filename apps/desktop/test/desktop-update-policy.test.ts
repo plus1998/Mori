@@ -20,7 +20,7 @@ test("desktop updater policy disables downgrades and GitHub prerelease heuristic
     allowPrerelease: true,
     autoDownload: true,
     autoInstallOnAppQuit: true,
-    disableDifferentialDownload: false,
+    disableDifferentialDownload: true,
   };
 
   applyDesktopAutoUpdaterPolicy(updater, "beta");
@@ -30,7 +30,7 @@ test("desktop updater policy disables downgrades and GitHub prerelease heuristic
   expect(updater.allowPrerelease).toBe(false);
   expect(updater.autoDownload).toBe(false);
   expect(updater.autoInstallOnAppQuit).toBe(true);
-  expect(updater.disableDifferentialDownload).toBe(true);
+  expect(updater.disableDifferentialDownload).toBe(false);
 });
 
 test("stable channel also keeps allowPrerelease off on the generic feed", () => {
