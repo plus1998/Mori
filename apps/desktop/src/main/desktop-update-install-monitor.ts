@@ -60,7 +60,8 @@ export class DesktopUpdateInstallMonitor {
 
   private get pointerPath() { return path.join(this.options.userDataPath(), "desktop-update-monitor.json"); }
 
-  async start(version: string): Promise<void> {
+  async start(version: string, signal?: AbortSignal): Promise<void> {
+    signal?.throwIfAborted();
     const platform = this.options.platform ?? process.platform;
     // AppImage updates currently keep the in-app notice until exit.
     if (platform !== "darwin" && platform !== "win32") return;
@@ -86,9 +87,14 @@ export class DesktopUpdateInstallMonitor {
     child.once("error", error => { launchError = error; });
     child.once("exit", () => { exited = true; });
     child.unref();
+    // Abort must terminate the helper before the app can quit; polling alone
+    // could leave it behind if quitAndInstall exits before the next timer tick.
+    const onAbort = () => { child.kill(); };
+    signal?.addEventListener("abort", onAbort, { once: true });
     try {
       const deadline = Date.now() + 10_000;
       while (!fs.existsSync(`${statePath}.ready`)) {
+        signal?.throwIfAborted();
         if (launchError) throw launchError;
         if (exited || Date.now() >= deadline) {
           const detail = fs.existsSync(logPath) ? fs.readFileSync(logPath, "utf8").trim().slice(0, 1000) : "";
@@ -96,12 +102,15 @@ export class DesktopUpdateInstallMonitor {
         }
         await new Promise(resolve => setTimeout(resolve, 50));
       }
+      signal?.throwIfAborted();
       this.active = session;
       fs.writeFileSync(this.pointerPath, JSON.stringify(session), { mode: 0o600 });
     } catch (error) {
       child.kill();
       fs.rmSync(directory, { recursive: true, force: true });
       throw error;
+    } finally {
+      signal?.removeEventListener("abort", onAbort);
     }
   }
 

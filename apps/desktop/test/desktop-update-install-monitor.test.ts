@@ -57,3 +57,13 @@ test("Windows and macOS helpers use system executables and pass paths as argumen
     command: "/usr/bin/osascript", args: ["-l", "JavaScript", "/tmp/a b/monitor.js", "/tmp/a b/state.json"],
   });
 });
+
+test("cancelled startup stops before launching a native process or writing session files", async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "mori-monitor-cancel-test-"));
+  dirs.push(directory);
+  const monitor = new DesktopUpdateInstallMonitor({ userDataPath: () => directory, locale: () => "en-US" });
+  const controller = new AbortController();
+  controller.abort(new Error("Startup cancelled"));
+  await expect(monitor.start("2.0.0", controller.signal)).rejects.toThrow("Startup cancelled");
+  expect(fs.readdirSync(directory)).toEqual([]);
+});

@@ -227,7 +227,7 @@ test("installation waits for the independent window to open before quitting", as
   expect(updater.quitAndInstall).toHaveBeenCalledTimes(1);
 });
 
-test("a failed progress window leaves the downloaded update available for retry", async () => {
+test("a failed progress window reports a warning and still starts installation", async () => {
   service.dispose();
   updater.removeAllListeners();
   const monitor = { start: mock(async () => { throw new Error("Progress window launch failed"); }), failed: mock(() => {}) };
@@ -236,7 +236,56 @@ test("a failed progress window leaves the downloaded update available for retry"
   await service.checkForUpdates();
   await service.downloadUpdate();
   updater.quitAndInstall.mockClear();
-  expect(await service.installUpdate()).toMatchObject({ phase: "downloaded", error: "Progress window launch failed" });
+  expect(await service.installUpdate()).toMatchObject({ phase: "installing", monitorError: "Progress window launch failed" });
+  expect(updater.quitAndInstall).toHaveBeenCalledTimes(1);
+  expect(monitor.failed).not.toHaveBeenCalled();
+});
+
+async function readyToInstallWithMonitor(monitor: { start: (version: string, signal: AbortSignal) => Promise<void>; failed: (error: string) => void }, timeoutMs = 30) {
+  service.dispose();
+  updater.removeAllListeners();
+  service = new DesktopUpdateService({ manifestPath: join(manifestDirectory, "release.json"), onStateChange: state => states.push(state), installMonitor: monitor, installMonitorStartupTimeoutMs: timeoutMs });
+  service.start();
+  await service.checkForUpdates();
+  await service.downloadUpdate();
+  updater.quitAndInstall.mockReset();
+  updater.quitAndInstall.mockImplementation(() => {});
+}
+
+test("an unresponsive progress process times out, is cancelled and cannot block installation", async () => {
+  let signal: AbortSignal | undefined;
+  await readyToInstallWithMonitor({ start: async (_, receivedSignal) => { signal = receivedSignal; await new Promise<void>(() => {}); }, failed: () => {} });
+  const startedAt = Date.now();
+  const result = await service.installUpdate();
+  expect(Date.now() - startedAt).toBeLessThan(500);
+  expect(signal?.aborted).toBe(true);
+  expect(result.phase).toBe("installing");
+  expect(result.monitorError).toContain("timed out");
+  expect(updater.quitAndInstall).toHaveBeenCalledTimes(1);
+});
+
+test("closing the progress process after startup never cancels installation", async () => {
+  const monitor = { start: mock(async () => {}), failed: mock(() => { throw new Error("Progress window is already closed"); }) };
+  await readyToInstallWithMonitor(monitor);
+  await service.installUpdate();
+  expect(updater.quitAndInstall).toHaveBeenCalledTimes(1);
+  updater.emit("error", new Error("Installer rejected the update"));
+  expect(service.getState()).toMatchObject({ phase: "error", error: "Installer rejected the update" });
+  expect(monitor.failed).toHaveBeenCalled();
+});
+
+test("installer errors remain visible even if notifying the progress window also fails", async () => {
+  await readyToInstallWithMonitor({ start: async () => {}, failed: () => { throw new Error("Monitor state is unwritable"); } });
+  updater.quitAndInstall.mockImplementation(() => { throw new Error("Installer failed to launch"); });
+  expect(await service.installUpdate()).toMatchObject({ phase: "downloaded", error: "Installer failed to launch" });
+});
+
+test("an updater error during progress startup prevents installing an invalid update", async () => {
+  let release!: () => void;
+  await readyToInstallWithMonitor({ start: () => new Promise<void>(resolve => { release = resolve; }), failed: () => {} }, 500);
+  const pending = service.installUpdate();
+  updater.emit("error", new Error("Update files no longer valid"));
+  release();
+  expect(await pending).toMatchObject({ phase: "error", error: "Update files no longer valid" });
   expect(updater.quitAndInstall).not.toHaveBeenCalled();
-  expect(monitor.failed).toHaveBeenCalledWith("Progress window launch failed");
 });

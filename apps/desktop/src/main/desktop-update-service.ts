@@ -18,6 +18,7 @@ const STARTUP_CHECK_DELAY_MS = 10_000;
 const PERIODIC_CHECK_INTERVAL_MS = 60 * 60 * 1_000;
 /** Throttle resume/online-style auto checks so lid-open storms do not hammer the feed. */
 const MIN_AUTO_CHECK_INTERVAL_MS = 30 * 60 * 1_000;
+const INSTALL_MONITOR_STARTUP_TIMEOUT_MS = 3_000;
 
 interface DesktopUpdateServiceOptions {
   manifestPath: string;
@@ -25,9 +26,10 @@ interface DesktopUpdateServiceOptions {
   /** Outbound proxy URL (http/https/socks5/socks); routes update check/download through it. */
   getOutboundProxyUrl?: (() => string | undefined) | undefined;
   installMonitor?: {
-    start: (version: string) => Promise<void>;
+    start: (version: string, signal: AbortSignal) => Promise<void>;
     failed: (error: string) => void;
   };
+  installMonitorStartupTimeoutMs?: number;
 }
 
 export class DesktopUpdateService {
@@ -43,6 +45,7 @@ export class DesktopUpdateService {
   private periodicTimer: ReturnType<typeof setInterval> | undefined;
   private lastAutoCheckAt = 0;
   private readonly installMonitor: DesktopUpdateServiceOptions["installMonitor"];
+  private readonly installMonitorStartupTimeoutMs: number;
   private readonly onNativeUpdateDownloaded = (): void => {
     if (this.state.phase === "preparing") this.setState({ phase: "downloaded" });
   };
@@ -55,6 +58,7 @@ export class DesktopUpdateService {
     this.onStateChange = options.onStateChange;
     this.getOutboundProxyUrl = options.getOutboundProxyUrl;
     this.installMonitor = options.installMonitor;
+    this.installMonitorStartupTimeoutMs = options.installMonitorStartupTimeoutMs ?? INSTALL_MONITOR_STARTUP_TIMEOUT_MS;
     this.currentVersion = app.getVersion();
     this.manifest = this.readManifest();
     this.state = this.resolveInitialState();
@@ -178,19 +182,52 @@ export class DesktopUpdateService {
     if (this.state.phase !== "downloaded") {
       throw new Error("No downloaded update is ready to install.");
     }
-    this.setState({ phase: "installing", error: undefined });
+    this.setState({ phase: "installing", error: undefined, monitorError: undefined });
+    await this.startInstallMonitor();
+    if (this.getState().phase !== "installing") return this.state;
     try {
-      await this.installMonitor?.start(this.state.availableVersion ?? "");
       // Silent NSIS update; isForceRunAfter relaunches the app after /S install.
       setApplicationQuitBypassConfirmation(true);
       autoUpdater.quitAndInstall(true, true);
     } catch (error) {
       setApplicationQuitBypassConfirmation(false);
       const message = formatDesktopUpdateError(error);
-      this.installMonitor?.failed(message);
+      this.notifyInstallMonitorFailure(message);
       this.setState({ phase: "downloaded", error: message });
     }
     return this.state;
+  }
+
+  private async startInstallMonitor(): Promise<void> {
+    if (!this.installMonitor) return;
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        this.installMonitor.start(this.state.availableVersion ?? "", controller.signal),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => {
+            const error = new Error("Update progress window startup timed out; installation will continue.");
+            controller.abort(error);
+            reject(error);
+          }, this.installMonitorStartupTimeoutMs);
+        }),
+      ]);
+    } catch (error) {
+      const message = formatDesktopUpdateError(error);
+      this.writeLog("warn", `progress window unavailable; continuing installation: ${message}`);
+      this.setState({ phase: this.state.phase, monitorError: message });
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  private notifyInstallMonitorFailure(message: string): void {
+    try {
+      this.installMonitor?.failed(message);
+    } catch (error) {
+      this.writeLog("warn", `could not notify progress window: ${formatDesktopUpdateError(error)}`);
+    }
   }
 
   async openReleasePage(): Promise<{ ok: true }> {
@@ -281,7 +318,7 @@ export class DesktopUpdateService {
     autoUpdater.on("error", (error) => {
       if (this.state.phase === "installing") {
         setApplicationQuitBypassConfirmation(false);
-        this.installMonitor?.failed(formatDesktopUpdateError(error));
+        this.notifyInstallMonitorFailure(formatDesktopUpdateError(error));
       }
       this.setState({
         phase: "error",
@@ -387,6 +424,10 @@ export class DesktopUpdateService {
       if (patch.error === undefined) delete next.error;
       else next.error = patch.error;
     }
+    if ("monitorError" in patch) {
+      if (patch.monitorError === undefined) delete next.monitorError;
+      else next.monitorError = patch.monitorError;
+    }
     this.state = next;
     this.emitState();
   }
@@ -407,6 +448,7 @@ type DesktopUpdateStatePatch = {
   progress?: DesktopUpdateState["progress"] | undefined;
   reason?: DesktopUpdateState["reason"] | undefined;
   error?: DesktopUpdateState["error"] | undefined;
+  monitorError?: string | undefined;
   progressUpdatedAt?: number;
 };
 

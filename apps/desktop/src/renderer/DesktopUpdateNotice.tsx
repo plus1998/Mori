@@ -53,6 +53,7 @@ export function DesktopUpdateNotice({ state, onInstall, onRetry, onOpenRelease }
         <p>{t(details.elapsedSeconds >= 120 ? "update.waitLonger" : "update.installHint")}</p>
       ) : null}
       {busy ? <p className="desktop-update-notice-elapsed">{t("update.elapsed", { time: updateClock(details.elapsedSeconds) })}</p> : null}
+      {state.monitorError ? <p>{t("update.monitorUnavailable", { detail: state.monitorError })}</p> : null}
       {error ? <p className="desktop-update-notice-error">{errorKey ? t(errorKey) : state.error || t("update.error")}</p> : null}
       {ready || error ? <div className="desktop-update-notice-actions">
         <button type="button" onClick={ready ? onInstall : onRetry}>{t(ready ? "update.restart" : "common.retry")}</button>

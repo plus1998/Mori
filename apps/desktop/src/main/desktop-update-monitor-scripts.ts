@@ -33,7 +33,7 @@ function run(argv) {
   window.center;
   window.makeKeyAndOrderFront(null);
   app.activateIgnoringOtherApps(true);
-  $('ready').writeToFileAtomicallyEncodingError($(statePath + '.ready'), true, $.NSUTF8StringEncoding, null);
+  $(JSON.stringify({pid: Number($.NSProcessInfo.processInfo.processIdentifier)})).writeToFileAtomicallyEncodingError($(statePath + '.ready'), true, $.NSUTF8StringEncoding, null);
   var completedAt = 0;
   while (window.isVisible) {
     try {
@@ -127,7 +127,7 @@ $timer.Add_Tick({
   }
 })
 $window.Add_ContentRendered({
-  [IO.File]::WriteAllText($StatePath + '.ready', 'ready')
+  [IO.File]::WriteAllText($StatePath + '.ready', (@{pid=$PID} | ConvertTo-Json -Compress))
   $timer.Start()
 })
 try { $window.ShowDialog() | Out-Null }

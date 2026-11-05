@@ -41,6 +41,8 @@ export interface DesktopUpdateState {
   progressUpdatedAt?: number;
   reason?: DesktopUpdateDisabledReason | "up-to-date" | "download-failed";
   error?: string;
+  /** Progress UI failure; installation continues independently. */
+  monitorError?: string;
   releaseUrl?: string;
 }
 
