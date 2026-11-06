@@ -3,6 +3,7 @@ import {
   DYNAMIC_OUTPUT_FALLBACK_TOKENS,
   InputTokenCountUnsupportedError,
   isInputTokenCountUnsupportedError,
+  isInputTokenCountTransportError,
   isInputTokenCountUpstreamError,
   inputTokenCountUpstreamErrorResponse,
 } from "@eco/shared";
@@ -169,9 +170,13 @@ export function withDynamicOutputBudget(
       );
       return fetcher(url, { ...init, body: JSON.stringify(body) });
     } catch (error) {
+      // Cancellation belongs to the caller, never to local budget validation.
+      if ((init?.signal ?? signal).aborted) throw (init?.signal ?? signal).reason;
       const message = error instanceof Error ? error.message : String(error);
       onLog(`dynamic output rejected provider=${route.provider.id}: ${message}`);
-      if (isInputTokenCountUpstreamError(error)) return inputTokenCountUpstreamErrorResponse(error);
+      if (isInputTokenCountUpstreamError(error) || isInputTokenCountTransportError(error)) {
+        return inputTokenCountUpstreamErrorResponse(error);
+      }
       return Response.json(
         { error: { message, type: "input_token_count_error", code: "dynamic_output_budget_error" } },
         { status: 400 },

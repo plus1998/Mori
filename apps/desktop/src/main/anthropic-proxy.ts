@@ -9,6 +9,7 @@ import {
 import {
   containsImageInput,
   isInputTokenCountUpstreamError,
+  isInputTokenCountTransportError,
   inputTokenCountUpstreamErrorResponse,
 } from "@eco/shared";
 import {
@@ -753,7 +754,7 @@ async function prepareAgainstBinding(
         response: Response.json({ input_tokens: tokenCount.tokens }),
       };
     } catch (error) {
-      if (isInputTokenCountUpstreamError(error)) {
+      if (isInputTokenCountUpstreamError(error) || isInputTokenCountTransportError(error)) {
         return { kind: "response", response: inputTokenCountUpstreamErrorResponse(error) };
       }
       throw error;

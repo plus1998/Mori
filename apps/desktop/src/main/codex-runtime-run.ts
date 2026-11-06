@@ -2154,6 +2154,7 @@ export function registerCodexGatewayTurnRoute(
     requestedModel: string;
     providerId: string;
     upstreamModelId: string;
+    apiCompat?: RuntimeRoute["apiCompat"];
   },
   registry: CodexTurnRouteRegistry = turnRouteRegistry,
 ): boolean {
@@ -2162,27 +2163,35 @@ export function registerCodexGatewayTurnRoute(
   }
   const providerId = input.providerId.trim();
   const upstreamModelId = input.upstreamModelId.trim();
-  if (!providerId || !upstreamModelId) {
+  const apiCompat = input.apiCompat;
+  if (!providerId || !upstreamModelId || apiCompat === "system_one") {
     return false;
   }
   const alias = parseCodexGatewayModelAlias(input.requestedModel);
   if (alias) {
-    if (alias.providerId !== providerId || alias.upstreamModelId !== upstreamModelId) {
+    if (
+      alias.providerId !== providerId ||
+      alias.upstreamModelId !== upstreamModelId ||
+      (alias.apiCompat && apiCompat && alias.apiCompat !== apiCompat)
+    ) {
       return false;
     }
+    const resolvedApiCompat = alias.apiCompat ?? apiCompat;
     registry.register(input.codexThreadId, input.turnId, {
       aliasModelId: input.requestedModel.trim(),
       providerId: alias.providerId,
       upstreamModelId: alias.upstreamModelId,
-      ...(alias.apiCompat && { apiCompat: alias.apiCompat }),
+      ...(resolvedApiCompat && { apiCompat: resolvedApiCompat }),
     });
     return true;
   }
-  // Real upstream model id path: Bridge already resolved via registry stamp/header
+  // Candidate IDs carry no wire protocol. Keep the resolved route's protocol so
+  // this registration agrees with the driver-owned turn identity.
   registry.register(input.codexThreadId, input.turnId, {
     aliasModelId: input.requestedModel.trim() || upstreamModelId,
     providerId,
     upstreamModelId,
+    ...(apiCompat && { apiCompat }),
   });
   return true;
 }
@@ -2203,6 +2212,7 @@ export function registerResolvedCodexGatewayTurnRoute(
           codexThreadId: string;
           turnId: string;
           requestKind: "turn" | "prewarm" | "compaction";
+          billingInput: { apiCompat?: RuntimeRoute["apiCompat"] };
         };
     requestedModel: string;
     providerId: string;
@@ -2225,6 +2235,9 @@ export function registerResolvedCodexGatewayTurnRoute(
         requestedModel: input.requestedModel,
         providerId: input.providerId,
         upstreamModelId: input.upstreamModelId,
+        ...(input.billingResult.billingInput.apiCompat && {
+          apiCompat: input.billingResult.billingInput.apiCompat,
+        }),
       },
       registry,
     );

@@ -161,7 +161,7 @@ test("missing counter continues with fixed 32K, and abort never sends fallback g
   const init = { method: "POST", body: JSON.stringify({ model: "m", input: "hi" }) };
   expect((await budgeted("https://upstream.test/generate", init)).status).toBe(200);
   controller.abort(new Error("user stopped"));
-  expect((await budgeted("https://upstream.test/generate", init)).status).toBe(400);
+  await expect(budgeted("https://upstream.test/generate", init)).rejects.toBe(controller.signal.reason);
   expect(generated).toBe(1);
 });
 

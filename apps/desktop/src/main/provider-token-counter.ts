@@ -11,7 +11,11 @@ import {
   responsesInputTokensToAnthropicCount,
   responsesToChatCompletionsRequest,
 } from "@eco/openai-anthropic-bridge";
-import { InputTokenCountUnsupportedError, InputTokenCountUpstreamError } from "@eco/shared";
+import {
+  InputTokenCountTransportError,
+  InputTokenCountUnsupportedError,
+  InputTokenCountUpstreamError,
+} from "@eco/shared";
 import type { UpstreamApiCompat } from "../shared/api-compat";
 import { normalizeProviderTokenCountMode, type ProviderTokenCountMode } from "../shared/provider-token-count";
 import { stripSemanticCompactionDirectives } from "./bridge-upstream";
@@ -356,6 +360,7 @@ async function postJsonForTokenCount(
   const fetcher = input.fetcher ?? fetch;
   const controller = new AbortController();
   let timedOut = false;
+  let transportComplete = false;
   const timeout = setTimeout(() => {
     timedOut = true;
     controller.abort();
@@ -383,6 +388,7 @@ async function postJsonForTokenCount(
       signal: controller.signal,
     });
     const text = await response.text();
+    transportComplete = true;
     if (!response.ok) {
       const message = `token count 上游请求失败：HTTP ${response.status}${text.trim() ? `；${text.trim()}` : ""}`;
       if ([404, 405, 501].includes(response.status)) throw new InputTokenCountUnsupportedError(message);
@@ -398,11 +404,15 @@ async function postJsonForTokenCount(
       throw new Error(`token count 上游返回无效 JSON：${detail}`);
     }
   } catch (error) {
-    if (timedOut) {
-      throw new Error(`token count 上游请求超时（${input.timeoutMs ?? DEFAULT_TOKEN_COUNT_TIMEOUT_MS}ms）。`);
-    }
     if (input.signal?.aborted) {
-      throw new Error("token count 请求已取消。");
+      throw input.signal.reason;
+    }
+    if (!transportComplete) {
+      throw new InputTokenCountTransportError(
+        url,
+        error,
+        timedOut ? input.timeoutMs ?? DEFAULT_TOKEN_COUNT_TIMEOUT_MS : undefined,
+      );
     }
     throw error;
   } finally {

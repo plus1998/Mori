@@ -12,6 +12,33 @@ export function isInputTokenCountUnsupportedError(error: unknown): error is Inpu
   return error instanceof Error && "code" in error && error.code === "input_token_count_unsupported";
 }
 
+/** The counter could not be reached/read; no upstream HTTP rejection was received. */
+export class InputTokenCountTransportError extends Error {
+  readonly code = "input_token_count_transport_error";
+  readonly responseHeaders: Record<string, string> = {};
+  readonly statusCode: 502 | 504;
+
+  constructor(
+    readonly url: string,
+    cause: unknown,
+    timeoutMs?: number,
+  ) {
+    const detail = cause instanceof Error ? cause.message : String(cause);
+    super(
+      timeoutMs !== undefined
+        ? `输入 Token 计数接口请求超时（${timeoutMs}ms）：${url}`
+        : `输入 Token 计数接口连接失败：${url}；${detail}`,
+      { cause },
+    );
+    this.name = "InputTokenCountTransportError";
+    this.statusCode = timeoutMs !== undefined ? 504 : 502;
+  }
+}
+
+export function isInputTokenCountTransportError(error: unknown): error is InputTokenCountTransportError {
+  return error instanceof Error && "code" in error && error.code === "input_token_count_transport_error";
+}
+
 /** An actual upstream HTTP failure, not a missing counting capability or invalid local input. */
 export class InputTokenCountUpstreamError extends Error {
   readonly code = "input_token_count_upstream_error";
@@ -22,7 +49,9 @@ export class InputTokenCountUpstreamError extends Error {
     readonly responseBody: string,
     headers?: Headers,
   ) {
-    super(`token count 上游请求失败：HTTP ${statusCode}${responseBody.trim() ? `；${responseBody.trim()}` : ""}`);
+    super(
+      `token count 上游请求失败：HTTP ${statusCode}${responseBody.trim() ? `；${responseBody.trim()}` : ""}`,
+    );
     this.name = "InputTokenCountUpstreamError";
     // Retain retry timing and request attribution without forwarding cookies or credentials.
     for (const key of ["retry-after", "retry-after-ms", "request-id", "x-request-id"]) {
@@ -45,7 +74,9 @@ export function isInputTokenCountUpstreamError(error: unknown): error is InputTo
 }
 
 /** Both SDK count requests and generation preflight preserve the same HTTP semantics. */
-export function inputTokenCountUpstreamErrorResponse(error: InputTokenCountUpstreamError): Response {
+export function inputTokenCountUpstreamErrorResponse(
+  error: InputTokenCountUpstreamError | InputTokenCountTransportError,
+): Response {
   return Response.json(
     {
       error: {
@@ -54,6 +85,7 @@ export function inputTokenCountUpstreamErrorResponse(error: InputTokenCountUpstr
         code: error.code,
         origin: "upstream",
         status: error.statusCode,
+        ...(isInputTokenCountTransportError(error) ? { countUrl: error.url, stage: "transport" } : {}),
       },
     },
     {

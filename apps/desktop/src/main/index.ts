@@ -3441,7 +3441,21 @@ app
           );
           return;
         }
-        await handleCodexGatewayUsage(event);
+        try {
+          await handleCodexGatewayUsage(event);
+        } catch (error) {
+          // Gateway observers report failures to stderr, which packaged launches
+          // may discard. Retain the exact request identity in the daily log too.
+          logUpstream("codex-gateway-usage-billing-failed", {
+            codexThreadId: event.codexTurnMetadata?.threadId,
+            turnId: event.codexTurnMetadata?.turnId,
+            providerId: event.providerId,
+            requestedModel: event.requestedModel,
+            sourceEventId: event.sourceEventId,
+            error: errorMessage(error),
+          });
+          throw error;
+        }
       },
       onRequestLifecycle: (event) => {
         const lifecycleEvent = event.threadId
