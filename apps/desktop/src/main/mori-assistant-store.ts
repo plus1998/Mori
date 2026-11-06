@@ -54,6 +54,9 @@ export function parseAssistantSettings(value: unknown): MoriAssistantSettings {
   )
     throw new Error("助手账号列表无效。");
   result.accountIds = [...new Set(result.accountIds)];
+  if (!Array.isArray(result.mcpServerIds) || result.mcpServerIds.some(id => typeof id !== "string" || !id.trim()))
+    throw new Error("助手 MCP 列表无效。");
+  result.mcpServerIds = [...new Set(result.mcpServerIds.map(id => id.trim()))];
   // Return only known fields. Secrets and runtime state never enter exported settings.
   return Object.fromEntries(
     Object.keys(defaults).map((key) => [key, result[key as keyof MoriAssistantSettings]]),
@@ -64,7 +67,7 @@ export function parseAssistantSettings(value: unknown): MoriAssistantSettings {
 export class MoriAssistantStore {
   state: MoriAssistantState = {
     version: 1,
-    settings: { ...DEFAULT_MORI_ASSISTANT_SETTINGS, accountIds: [] },
+    settings: { ...DEFAULT_MORI_ASSISTANT_SETTINGS, accountIds: [], mcpServerIds: [] },
     sessions: [],
     draft: "",
     taskIds: [],

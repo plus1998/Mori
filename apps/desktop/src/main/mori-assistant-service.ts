@@ -17,6 +17,7 @@ import {
   MoriAssistantRuntime,
 } from "./mori-assistant-runtime";
 import { MoriAssistantStore, parseAssistantSettings } from "./mori-assistant-store";
+import type { MoriAssistantMcp } from "./mori-assistant-mcp";
 import { MORI_TODO_TOOLS, MoriAssistantTodos } from "./mori-assistant-todos";
 import { MORI_ACCOUNT_QUOTA_TOOL, MORI_ACCOUNT_LIST_TOOL, MORI_MODEL_TOOLS, isMoriModelTool, modelManagementToolInput, modelManagementToolName } from "./mori-assistant-models";
 import { MORI_SCHEDULING_TOOLS, isMoriSchedulingTool, MoriAssistantScheduling } from "./mori-assistant-scheduling";
@@ -58,6 +59,17 @@ export const MORI_ASSISTANT_TOOLS: AssistantTool[] = [
   ...MORI_TODO_TOOLS,
   ...MORI_MODEL_TOOLS,
   ...MORI_SCHEDULING_TOOLS,
+  tool(
+    "mori_mcp_search_tools",
+    "搜索 Mori 设置中勾选的 MCP 服务工具，返回真实名称和参数定义。query 可填服务名或关键词；留空列出已授权工具。调用前先搜索。",
+    { query: { type: "string" } },
+  ),
+  tool(
+    "mori_mcp_call_tool",
+    "调用搜索返回的 MCP 工具。name 使用 server:tool，arguments 按真实定义填写。主进程检查勾选和工具权限并处理审批，不得绕过。",
+    { name: text, arguments: { type: "object" } },
+    ["name"],
+  ),
   tool(
     "mori_computer_tools",
     "查看电脑操作是否可用并读取真实工具名称和参数定义。操作前先读取；全局设置关闭或缺少权限时明确报错。",
@@ -161,6 +173,7 @@ export interface MoriAssistantDeps {
   onUsage?(record: AccountUsageRecord, aggregate: boolean): void;
   currentProject(): string | undefined;
   computerUse: MoriComputerUseAccess;
+  mcp: MoriAssistantMcp;
   openThread(id: string): Promise<void>;
   changed(): void;
   settingsChanged(settings: MoriAssistantSettings): Promise<void>;
@@ -352,6 +365,7 @@ export class MoriAssistantService {
         .map((id) => this.deps.conversations.getThread(id))
         .filter((item): item is ThreadSummary => Boolean(item)),
       computerUse: this.deps.computerUse.status(),
+      mcpServers: this.deps.mcp.listServers(),
       wechat: this.wechatStatus,
     };
   }
@@ -795,6 +809,7 @@ export class MoriAssistantService {
 
   private async releaseRuntime(): Promise<void> {
     const runtime = this.runtime;
+    if (this.runtimeThread) this.deps.mcp.revoke(this.runtimeThread);
     this.runtime = undefined;
     this.runtimeAccount = undefined;
     this.runtimeThread = undefined;
@@ -987,6 +1002,24 @@ export class MoriAssistantService {
       expectedHistoryRevision: this.deps.conversations.conversationV2().head(id).historyRevision,
     });
     if (MORI_TODO_TOOLS.some((tool) => tool.name === name)) return this.todos.call(name, args, signal);
+    if (name === "mori_mcp_search_tools" || name === "mori_mcp_call_tool") {
+      const threadId = this.activeThreadId;
+      if (!threadId) throw new Error("MCP 调用的助手会话已结束。");
+      if (name === "mori_mcp_search_tools")
+        return this.deps.mcp.search(threadId, this.settings.mcpServerIds, typeof args.query === "string" ? args.query : "", signal);
+      const toolId = str("name");
+      const input = (args.arguments ?? {}) as Record<string, unknown>;
+      const target = this.deps.mcp.approvalTarget(this.settings.mcpServerIds, toolId);
+      if (!this.deps.mcp.isApproved(target)) {
+        const decision = await this.requestInput(
+          { id: callId, kind: "approval", title: `允许 Mori 调用 ${toolId} 吗？`, detail: JSON.stringify(input, null, 2) },
+          signal,
+        );
+        if (decision !== "允许") throw new Error("用户拒绝了本次 MCP 工具调用，工具未执行。");
+      }
+      signal.throwIfAborted();
+      return this.deps.mcp.call(threadId, this.settings.mcpServerIds, toolId, input, target, signal);
+    }
     if (name === "mori_computer_tools")
       return { ...this.deps.computerUse.status(), ...(await this.deps.computerUse.listTools(signal)) };
     if (name === "mori_computer_view")
@@ -1364,6 +1397,7 @@ export class MoriAssistantService {
     await this.prepareQueue;
     await this.sendQueue;
     this.deps.computerUse.close();
+    await this.deps.mcp.close();
     await this.scheduledActions.close();
     await this.store.save();
   }

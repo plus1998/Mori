@@ -2,6 +2,7 @@ import http from "node:http";
 import { randomBytes } from "node:crypto";
 import type { AddressInfo } from "node:net";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import {
   StreamableHTTPClientTransport,
   StreamableHTTPError,
@@ -87,6 +88,20 @@ export class McpHubGateway {
     this.servers.set(name, { name, server });
   }
 
+  async searchThreadTools(threadId: string, query: string, signal: AbortSignal) {
+    return this.hub.searchTools({ token: this.requireThreadToken(threadId), query, signal });
+  }
+
+  async callThreadTool(threadId: string, toolId: string, args: Record<string, unknown>, signal: AbortSignal) {
+    return this.hub.callTool({ token: this.requireThreadToken(threadId), toolId, arguments: args, signal });
+  }
+
+  private requireThreadToken(threadId: string): string {
+    const token = this.threadTokens.get(threadId);
+    if (!token) throw new Error("MCP 会话尚未授权或已撤销。");
+    return token;
+  }
+
   /**
    * Attach an existing thread-bound Eco gateway endpoint to the Hub.
    *
@@ -132,8 +147,8 @@ export class McpHubGateway {
   /**
    * Synchronize the user MCP config into Hub adapters.
    * Built-in gateway entries are skipped because their dedicated gateway owns
-   * approval and thread routing. Unsupported SSE entries are returned to the
-   * caller instead of silently disappearing.
+   * approval and thread routing. Remote entries use their configured HTTP or
+   * legacy SSE transport; malformed entries are reported to the caller.
    */
   syncSdkConfig(config: McpSdkConfig): { registered: string[]; unsupported: string[] } {
     const registered: string[] = [];
@@ -151,11 +166,6 @@ export class McpHubGateway {
         continue;
       }
       const type = typeof entry.type === "string" ? entry.type : undefined;
-      if (type === "sse") {
-        this.removeServer(name);
-        unsupported.push(name);
-        continue;
-      }
       const existing = this.servers.get(name);
       // Keep a running adapter so stdio process / remote MCP session remains
       // stable across Pi runs. Config changes replace it below.
@@ -196,6 +206,7 @@ export class McpHubGateway {
           entry.url.trim(),
           recordOfStrings(entry.headers),
           resolveMcpRequestTimeoutMs(entry),
+          type === "sse" ? "sse" : "http",
         );
         this.hub.registerServer(adapter);
         this.servers.set(name, { name, server: adapter, close: () => adapter.close(), sourceEntry: entry });
@@ -424,7 +435,7 @@ export class McpHubGateway {
 
 type HttpMcpConnection = {
   client: Client;
-  transport: StreamableHTTPClientTransport;
+  transport: StreamableHTTPClientTransport | SSEClientTransport;
   ready: Promise<void>;
   inFlight: number;
   retired: boolean;
@@ -441,6 +452,7 @@ class HttpMcpHubServer implements McpHubServer {
     private readonly url: string,
     private readonly headers: Record<string, string>,
     private readonly requestTimeoutMs?: number,
+    private readonly transportType: "http" | "sse" = "http",
   ) {}
 
   async listTools(input: { signal: AbortSignal }): Promise<{ tools: McpToolDefinition[] }> {
@@ -500,7 +512,8 @@ class HttpMcpHubServer implements McpHubServer {
         // rejected the request before tool dispatch. Never replay ambiguous
         // network failures, application errors, or a failed initialize.
         const expired =
-          error instanceof StreamableHTTPError && error.code === 404 && connection.transport.sessionId;
+          error instanceof StreamableHTTPError && error.code === 404 &&
+          connection.transport instanceof StreamableHTTPClientTransport && connection.transport.sessionId;
         if (expired) this.retireConnection(connection);
         signal.throwIfAborted();
         if (!expired || retried || this.closed) throw error;
@@ -541,9 +554,10 @@ class HttpMcpHubServer implements McpHubServer {
     let connection = this.connection;
     if (!connection) {
       const client = new Client({ name: "eco_mcp_hub", version: "1.0.0" });
-      const transport = new StreamableHTTPClientTransport(new URL(this.url), {
-        requestInit: { headers: this.headers },
-      });
+      const options = { requestInit: { headers: this.headers } };
+      const transport = this.transportType === "sse"
+        ? new SSEClientTransport(new URL(this.url), options)
+        : new StreamableHTTPClientTransport(new URL(this.url), options);
       const created: HttpMcpConnection = {
         client,
         transport,

@@ -9,6 +9,7 @@ import { KeyboardShortcutsStore } from "./keyboard-shortcuts-store";
 import { checkGlobalShortcutConflicts } from "./global-shortcut-binding";
 import { matchesShortcut, validateShortcutBindings, type ShortcutBindings } from "../shared/keyboard-shortcuts";
 import { MoriComputerUse } from "./mori-computer-use";
+import { MoriAssistantMcp } from "./mori-assistant-mcp";
 import { recordProviderUsage } from "./provider-usage-recorder";
 import { APP_LINK_SCHEMES, isAppDeepLink } from "../shared/center-server";
 import { resolveGenerationToolContext } from "./generation-tool-context";
@@ -7995,6 +7996,7 @@ function registerIpcHandlers(): void {
     ...(appIcon ? { icon: appIcon } : {}),
     currentProject: () => currentWorkspace?.path,
     computerUse: new MoriComputerUse({ gateway: computerUseGateway, settings: () => computerUseSettingsStore.get(), imageView: imageViewGateway }),
+    mcp: new MoriAssistantMcp(mcpStore, new McpHubGateway()),
     defaultRuntimeConfig: () => buildThreadRuntimeConfigFromDefaults({ settings: getModelSettingsSnapshot(), workflowDefaults: { ...workflowSettingsStore.get(), sessionMode: "agent" }, mcpServers: mcpStore.listServers() }),
     manageModels: (name, args) => modelManagementService.invoke(name, args),
     defaultScheduleProfile: () => ({
@@ -22327,6 +22329,7 @@ function isBashApprovalGranted(
 }
 
 function emitSettingsUpdated(): void {
+  moriAssistantHost?.service.capabilitiesChanged();
   const { digest } = computeGlobalSettingsDigest({
     modelSettings: getModelSettingsSnapshot(),
     workflowSettings: workflowSettingsStore.get(),

@@ -2,13 +2,14 @@ import { randomBytes, randomUUID } from "node:crypto";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { buildCodexMcpServerOverride } from "@eco/runtime";
-import { handleMcpStreamableHttpRequest } from "./mcp-streamable-http";
+import { handleMcpStreamableHttpRequest, type McpToolCallResult } from "./mcp-streamable-http";
 import type { AssistantTool } from "./mori-assistant-runtime";
 
 export const MORI_COMPUTER_MCP_SERVER = "mori_computer";
 export const MORI_TASK_MCP_SERVER = "mori_tasks";
 export const MORI_MODEL_MCP_SERVER = "mori_models";
 export const MORI_SCHEDULING_MCP_SERVER = "mori_scheduling";
+export const MORI_EXTERNAL_MCP_SERVER = "mori_mcp";
 const SECRET_HEADER = "x-mori-tool-secret";
 
 /** Runtime-local capability endpoint. Existing native threads gain these tools on resume. */
@@ -39,6 +40,7 @@ export class MoriAssistantToolGateway {
             if (!this.tools.some((tool) => tool.name === name)) throw new Error("未知的 Mori 工具入口。");
             try {
               const result = await this.call(name, args, `${this.serverName}-${randomUUID()}`, signal);
+              if (name === "mori_mcp_call_tool") return result as McpToolCallResult;
               return { content: [{ type: "text", text: JSON.stringify(result) }] };
             } catch (error) {
               return {

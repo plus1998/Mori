@@ -3,6 +3,8 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import http from "node:http";
+import type { AddressInfo } from "node:net";
 import { DatabaseSync } from "node:sqlite";
 import { buildCodexGatewayModelAlias, buildCodexModelProviderSlug } from "@eco/runtime/codex-config-sync";
 import { defaultSubagentAvailability } from "@eco/runtime/subagent-availability";
@@ -18,6 +20,10 @@ import { SchedulingService } from "../src/main/scheduling-service";
 import { SchedulingStore } from "../src/main/scheduling-store";
 import { previewSchedule } from "../src/main/schedule-time";
 import { MORI_SCHEDULING_TOOLS, MoriAssistantScheduling } from "../src/main/mori-assistant-scheduling";
+import { MoriAssistantMcp } from "../src/main/mori-assistant-mcp";
+import { McpHubGateway } from "../src/main/mcp-hub-gateway";
+import { McpStore } from "../src/main/mcp-store";
+import { handleMcpStreamableHttpRequest } from "../src/main/mcp-streamable-http";
 import { MoriAssistantTodos } from "../src/main/mori-assistant-todos";
 import { parseWechatJson, validateWechatBaseUrl } from "../src/main/mori-assistant-wechat";
 import { OpenAIAccountService } from "../src/main/openai-account-service";
@@ -27,6 +33,7 @@ import { composerReferences } from "../src/shared/composer-references";
 import { IPC_CHANNELS, type ThreadStartRequest } from "../src/shared/ipc";
 import { DEFAULT_MORI_ASSISTANT_SETTINGS, moriPetSize } from "../src/shared/mori-assistant";
 import { removeTempDirectory } from "./helpers/temp-directory";
+import { startMcpSseServer } from "./helpers/mcp-sse-server";
 
 const roots: string[] = [];
 const scheduleStores: SchedulingStore[] = [];
@@ -51,6 +58,10 @@ test("assistant settings retain their independent account pool and exclude secre
     token: "must-not-save",
   });
   expect(settings.accountIds).toEqual(["a"]);
+  expect(parseAssistantSettings({ mcpServerIds: [" a ", "a", "b"] }).mcpServerIds).toEqual(["a", "b"]);
+  expect(parseAssistantSettings({}).mcpServerIds).toEqual([]);
+  expect(() => parseAssistantSettings({ mcpServerIds: "all" })).toThrow("MCP");
+  expect(() => parseAssistantSettings({ mcpServerIds: [null] })).toThrow("MCP");
   expect(settings).not.toHaveProperty("token");
   expect(parseAssistantSettings({ ...settings, autoSwitchAccounts: true }).autoSwitchAccounts).toBe(true);
 });
@@ -147,7 +158,7 @@ async function fixture(options: {
 const readline=require('node:readline');
 const send=x=>process.stdout.write(JSON.stringify(x)+'\\n');
 const epoch=require('node:crypto').randomUUID();
-let thread='native-assistant-'+epoch, turn=0, text='', computer, tasks, models, scheduling, accountId;
+let thread='native-assistant-'+epoch, turn=0, text='', computer, tasks, models, scheduling, mcp, accountId;
 const callMcp=async(server,name,args,quotaAfter=false)=>{
  const headers={...server.http_headers,'Content-Type':'application/json','Accept':'application/json, text/event-stream'};
  const init=await fetch(server.url,{method:'POST',headers,body:JSON.stringify({jsonrpc:'2.0',id:'init',method:'initialize',params:{protocolVersion:'2025-03-26',capabilities:{},clientInfo:{name:'test',version:'1'}}})});
@@ -183,6 +194,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
   tasks=m.params.config?.mcp_servers?.mori_tasks;
   models=m.params.config?.mcp_servers?.mori_models;
   scheduling=m.params.config?.mcp_servers?.mori_scheduling;
+  mcp=m.params.config?.mcp_servers?.mori_mcp;
   require('node:fs').appendFileSync(${JSON.stringify(path.join(root, "runtime-workspaces.jsonl"))},JSON.stringify({cwd:process.cwd(),threadCwd:m.params.cwd,method:m.method,taskTools:tasks?.enabled_tools,modelTools:models?.enabled_tools,schedulingTools:scheduling?.enabled_tools,model:m.params.model,modelProvider:m.params.modelProvider})+'\\n');
   result={thread:{id:thread}};
  }
@@ -198,7 +210,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
   }
   else if(text.startsWith('mcp-tool:')){
    const request=JSON.parse(text.slice('mcp-tool:'.length).split('\\n')[0]);
-   callMcp(computer?.enabled_tools.includes(request.name)?computer:scheduling?.enabled_tools.includes(request.name)?scheduling:models?.enabled_tools.includes(request.name)?models:tasks,request.name,request.args).catch(error=>send({method:'turn/completed',params:{threadId:thread,turn:{id:'turn-'+turn,status:'failed',error:{message:String(error)}}}}));
+   callMcp(mcp?.enabled_tools.includes(request.name)?mcp:computer?.enabled_tools.includes(request.name)?computer:scheduling?.enabled_tools.includes(request.name)?scheduling:models?.enabled_tools.includes(request.name)?models:tasks,request.name,request.args).catch(error=>send({method:'turn/completed',params:{threadId:thread,turn:{id:'turn-'+turn,status:'failed',error:{message:String(error)}}}}));
   }
   else if(text.includes('SCHEDULE_TOOL:')){
    const request=JSON.parse(text.slice(text.indexOf('SCHEDULE_TOOL:')+'SCHEDULE_TOOL:'.length));
@@ -287,7 +299,10 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
   const preparedProviders: string[] = [];
   const notifications: Array<{ threadId: string; channel: string; text: string; id: string }> = [];
   let notificationError: string | undefined;
+  const mcpStore = new McpStore(db);
+  mcpStore.initialize();
   const service = new MoriAssistantService({
+    mcp: new MoriAssistantMcp(mcpStore, new McpHubGateway()),
     schedules: schedulingStore,
     notifyScheduled: async (threadId, notification, text, id) => {
       if (notificationError) throw new Error(notificationError);
@@ -381,6 +396,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
   });
   return {
     service,
+    mcpStore,
     db,
     conversations,
     todos,
@@ -857,6 +873,185 @@ async function assistantTool(
   expect(tools[0]?.name).toBe(name);
   return tools[0]!;
 }
+
+async function assistantMcpServer(f: Awaited<ReturnType<typeof fixture>>) {
+  const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
+  const image = { type: "image", data: "aGVsbG8=", mimeType: "image/png" };
+  const server = http.createServer((req, res) => {
+    void handleMcpStreamableHttpRequest(req, res, {
+      serverName: "test-mcp",
+      listTools: async () => ({ tools: ["echo", "blocked"].map(name => ({ name, description: `Test ${name}`, inputSchema: { type: "object", properties: { value: { type: "string" } } } })) }),
+      callTool: async ({ name, arguments: args }) => {
+        calls.push({ name, args });
+        return { content: [{ type: "text", text: String(args.value) }, image], structuredContent: { value: args.value } };
+      },
+    }, { controlSecretHeader: "x-mcp-test-secret", controlSecret: "private-mcp-header" });
+  });
+  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+  const config = f.mcpStore.saveServer({ name: "test-mcp", enabled: true, transport: "http", url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/mcp`, headersJson: JSON.stringify({ "x-mcp-test-secret": "private-mcp-header" }), allowedTools: "mcp__test-mcp__echo" });
+  return { config, calls, image, close: async () => {
+    server.closeAllConnections();
+    await new Promise<void>(resolve => server.close(() => resolve()));
+  } };
+}
+
+test("Mori selects MCP independently, resumes with tools, preserves content and revokes deselected services", async () => {
+  const f = await fixture();
+  const upstream = await assistantMcpServer(f);
+  try {
+    const unselected = await assistantTool(f, "mori_mcp_search_tools", {});
+    expect(unselected.output).toMatchObject({ tools: [], total: 0 });
+    expect((await assistantTool(f, "mori_mcp_call_tool", { name: "test-mcp:echo" })).status).toBe("failed");
+    await f.service.saveSettings({ ...f.service.settings, mcpServerIds: [upstream.config.id] });
+    const snapshot = await f.service.snapshot();
+    expect(snapshot.mcpServers).toEqual([{ id: upstream.config.id, name: "test-mcp", transport: "http", available: true }]);
+    expect(JSON.stringify(snapshot)).not.toContain("private-mcp-header");
+    const persisted = JSON.parse(await fs.readFile(path.join(f.root, "mori-assistant.json"), "utf8"));
+    expect(persisted.settings.mcpServerIds).toEqual([upstream.config.id]);
+    const catalog = await assistantTool(f, "mori_mcp_search_tools", { query: "test-mcp" });
+    expect(catalog.output).toMatchObject({ tools: [{ name: "test-mcp:echo", inputSchema: { type: "object" } }], total: 1 });
+    const approved = f.mcpStore.getToolApprovalTarget("test-mcp", "echo")!;
+    f.mcpStore.rememberToolApproval(approved);
+    const result = await assistantTool(f, "mori_mcp_call_tool", { name: "test-mcp:echo", arguments: { value: "Mori MCP" } });
+    expect(result.status).toBe("completed");
+    expect(result.output).toEqual({ content: [{ type: "text", text: "Mori MCP" }, upstream.image], structuredContent: { value: "Mori MCP" } });
+    const nativeResults = (await fs.readFile(path.join(f.root, "runtime-tool-results.jsonl"), "utf8")).trim().split("\n").map(line => JSON.parse(line));
+    expect(nativeResults.at(-1).result).toEqual(result.output);
+    const configs = await fs.readFile(path.join(f.root, "runtime-workspaces.jsonl"), "utf8");
+    expect(configs).toContain("thread/resume");
+    expect(configs).not.toContain("private-mcp-header");
+    expect((await assistantTool(f, "mori_mcp_call_tool", { name: "test-mcp:blocked" })).status).toBe("failed");
+    await f.service.saveSettings({ ...f.service.settings, mcpServerIds: [] });
+    expect((await assistantTool(f, "mori_mcp_search_tools", {})).output).toMatchObject({ tools: [], total: 0 });
+    expect((await assistantTool(f, "mori_mcp_call_tool", { name: "test-mcp:echo" })).status).toBe("failed");
+    expect(upstream.calls).toEqual([{ name: "echo", args: { value: "Mori MCP" } }]);
+  } finally {
+    await f.service.close();
+    await upstream.close();
+    f.db.close();
+  }
+});
+
+test("Mori MCP calls require approval and reject changed permissions, refusal and cancellation", async () => {
+  const f = await fixture();
+  const upstream = await assistantMcpServer(f);
+  try {
+    await f.service.saveSettings({ ...f.service.settings, mcpServerIds: [upstream.config.id] });
+    const invoke = () => assistantTool(f, "mori_mcp_call_tool", { name: "test-mcp:echo", arguments: { value: "approved" } });
+    const rejected = invoke();
+    const first = await waitForApproval(f.service);
+    expect(first.title).toContain("test-mcp:echo");
+    expect(first.detail).toContain("approved");
+    expect(upstream.calls).toHaveLength(0);
+    await f.service.respond(first.id, "拒绝");
+    expect((await rejected).status).toBe("failed");
+    const allowed = invoke();
+    await f.service.respond((await waitForApproval(f.service)).id, "允许");
+    expect((await allowed).status).toBe("completed");
+    expect(upstream.calls).toHaveLength(1);
+    const changed = invoke();
+    const approval = await waitForApproval(f.service);
+    f.mcpStore.saveServer({ ...upstream.config, headersJson: '{"x-mcp-test-secret":"new-secret"}' });
+    await f.service.respond(approval.id, "允许");
+    expect((await changed).status).toBe("failed");
+    expect(upstream.calls).toHaveLength(1);
+    const cancelled = invoke();
+    void cancelled.catch(() => {});
+    await waitForApproval(f.service);
+    await f.service.cancel();
+    await expect(cancelled).rejects.toThrow("停止");
+    expect(upstream.calls).toHaveLength(1);
+    expect((await f.service.snapshot()).pendingInput).toBeUndefined();
+  } finally {
+    await f.service.close();
+    await upstream.close();
+    f.db.close();
+  }
+});
+
+test("Mori discovers and calls selected stdio MCP with private environment and reports upstream failures", async () => {
+  const f = await fixture();
+  try {
+    const script = path.join(f.root, "stdio-mcp.mjs");
+    await fs.writeFile(script, `
+import readline from "node:readline";
+readline.createInterface({ input: process.stdin }).on("line", line => {
+  const request = JSON.parse(line);
+  if (request.id === undefined) return;
+  const tools = [{ name: "echo", inputSchema: { type: "object" } }];
+  const result = request.method === "initialize"
+    ? { protocolVersion: "2024-11-05", capabilities: { tools: {} }, serverInfo: { name: "stdio-probe", version: "1" } }
+    : request.method === "tools/call"
+      ? { content: [{ type: "text", text: request.params.arguments.value }], isError: request.params.arguments.fail === true, structuredContent: { configured: process.env.MORI_MCP_TEST_SECRET === "private-stdio-env" } }
+      : { tools };
+  process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: request.id, result }) + "\\n");
+});
+`);
+    const server = f.mcpStore.saveServer({ name: "stdio-probe", enabled: true, transport: "stdio", command: process.execPath, argsJson: JSON.stringify([script]), envJson: '{"MORI_MCP_TEST_SECRET":"private-stdio-env"}' });
+    f.mcpStore.saveServer({ name: "unselected", enabled: true, transport: "stdio", command: "must-never-launch-this-server" });
+    await f.service.saveSettings({ ...f.service.settings, mcpServerIds: [server.id] });
+    expect((await assistantTool(f, "mori_mcp_search_tools", {})).output).toMatchObject({ tools: [{ name: "stdio-probe:echo" }], total: 1 });
+    f.mcpStore.rememberToolApproval(f.mcpStore.getToolApprovalTarget("stdio-probe", "echo")!);
+    const result = await assistantTool(f, "mori_mcp_call_tool", { name: "stdio-probe:echo", arguments: { value: "stdio success" } });
+    expect(result.status).toBe("completed");
+    expect(result.output).toMatchObject({ content: [{ type: "text", text: "stdio success" }], structuredContent: { configured: true } });
+    expect(JSON.stringify(await f.service.snapshot())).not.toContain("private-stdio-env");
+    const failed = await assistantTool(f, "mori_mcp_call_tool", { name: "stdio-probe:echo", arguments: { value: "upstream refused", fail: true } });
+    expect(failed.status).toBe("failed");
+    expect(JSON.stringify(failed.output)).toContain("upstream refused");
+  } finally {
+    await f.service.close();
+    f.db.close();
+  }
+});
+
+test("Mori exposes disabled MCP explicitly and never calls removed services", async () => {
+  const f = await fixture();
+  const upstream = await assistantMcpServer(f);
+  try {
+    await f.service.saveSettings({ ...f.service.settings, mcpServerIds: [upstream.config.id] });
+    f.mcpStore.saveServer({ ...upstream.config, enabled: false });
+    expect((await f.service.snapshot()).mcpServers[0]).toMatchObject({ available: false, reason: "已在 MCP 设置中禁用" });
+    expect((await assistantTool(f, "mori_mcp_search_tools", {})).status).toBe("failed");
+    f.mcpStore.deleteServer(upstream.config.id);
+    expect((await assistantTool(f, "mori_mcp_call_tool", { name: "test-mcp:echo" })).status).toBe("failed");
+    expect((await assistantTool(f, "mori_mcp_search_tools", {})).status).toBe("failed");
+    expect(upstream.calls).toHaveLength(0);
+  } finally {
+    await f.service.close();
+    await upstream.close();
+    f.db.close();
+  }
+});
+
+test("Mori can select legacy SSE, approve calls on resumed native threads and revoke selection", async () => {
+  const f = await fixture();
+  const upstream = await startMcpSseServer();
+  try {
+    const server = f.mcpStore.saveServer({ name: "legacy", transport: "sse", url: upstream.url, enabled: true, headersJson: JSON.stringify(upstream.headers), allowedTools: "mcp__legacy__echo" });
+    await f.service.send("prepare existing native conversation");
+    await f.service.saveSettings({ ...f.service.settings, mcpServerIds: [server.id] });
+    expect((await f.service.snapshot()).mcpServers).toEqual([{ id: server.id, name: "legacy", transport: "sse", available: true }]);
+    expect((await assistantTool(f, "mori_mcp_search_tools", {})).output).toMatchObject({ tools: [{ name: "legacy:echo" }], total: 1 });
+    const pending = assistantTool(f, "mori_mcp_call_tool", { name: "legacy:echo", arguments: { value: "Mori SSE works" } });
+    const approval = await waitForApproval(f.service);
+    expect(upstream.calls).toHaveLength(0);
+    await f.service.respond(approval.id, "允许");
+    const result = await pending;
+    expect(result.status).toBe("completed");
+    expect(result.output).toMatchObject({ content: [{ type: "text", text: "Mori SSE works" }] });
+    expect(JSON.stringify(await f.service.snapshot())).not.toContain("private-sse");
+    await f.service.saveSettings({ ...f.service.settings, mcpServerIds: [] });
+    expect((await assistantTool(f, "mori_mcp_search_tools", {})).output).toMatchObject({ tools: [], total: 0 });
+    expect((await assistantTool(f, "mori_mcp_call_tool", { name: "legacy:echo" })).status).toBe("failed");
+    expect(upstream.calls).toHaveLength(1);
+    expect(upstream.requests.every(request => request.authenticated)).toBe(true);
+  } finally {
+    await f.service.close();
+    await upstream.close();
+    f.db.close();
+  }
+});
 
 test("resumed Mori manages global schedules through MCP with revision checks and durable idempotency", async () => {
   const f = await fixture();

@@ -116,15 +116,17 @@ function useAssistant() {
 export function MoriAssistantSettingsPanel({
   onDone,
   onOpenComputerUse,
+  onOpenMcp,
 }: {
   onDone?: () => void;
   onOpenComputerUse?: () => void;
+  onOpenMcp?: () => void;
 }) {
   const { t } = useTranslation();
   const { conflicts: shortcutConflicts } = useKeyboardShortcuts();
   const { snapshot, error, setError, refresh } = useAssistant();
   const [settings, setSettings] = useState<MoriAssistantSettings>();
-  const [tab, setTab] = useState<"conversation" | "desktop" | "wechat">("conversation");
+  const [tab, setTab] = useState<"conversation" | "desktop" | "mcp" | "wechat">("conversation");
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
   const [accountsOpen, setAccountsOpen] = useState(false);
@@ -206,6 +208,7 @@ export function MoriAssistantSettingsPanel({
   const locked = busy || running;
   const tabs = [
     { id: "conversation", label: "对话", icon: Sparkles },
+    { id: "mcp", label: "MCP", icon: Settings },
     { id: "desktop", label: "桌面", icon: Monitor },
     { id: "wechat", label: "微信", icon: MessageCircle },
   ] as const;
@@ -491,6 +494,61 @@ export function MoriAssistantSettingsPanel({
               </details>
             </SettingsSection>
           </>
+        ) : null}
+        {tab === "mcp" ? (
+          <SettingsSection
+            className="mori-settings-section"
+            title="MCP 服务"
+            description="勾选允许 Mori 助手使用的服务，保存后生效。工具调用沿用 MCP 工具权限，未授权的调用会请求确认。"
+          >
+            <SettingsGroup>
+              {snapshot.mcpServers.map((server) => (
+                <SettingsRow
+                  key={server.id}
+                  label={server.name}
+                  description={`${server.transport.toUpperCase()}${server.reason ? ` · ${server.reason}` : ""}`}
+                  control={(controlProps) => (
+                    <input
+                      {...controlProps}
+                      type="checkbox"
+                      checked={settings.mcpServerIds.includes(server.id)}
+                      disabled={locked || (!server.available && !settings.mcpServerIds.includes(server.id))}
+                      onChange={(event) => patch("mcpServerIds", event.target.checked
+                        ? [...settings.mcpServerIds, server.id]
+                        : settings.mcpServerIds.filter((id) => id !== server.id))}
+                    />
+                  )}
+                />
+              ))}
+              {settings.mcpServerIds
+                .filter((id) => !snapshot.mcpServers.some((server) => server.id === id))
+                .map((id) => (
+                  <SettingsRow
+                    key={id}
+                    label="已删除的 MCP 服务"
+                    description="取消勾选并保存以移除。"
+                    control={(controlProps) => (
+                      <input
+                        {...controlProps}
+                        type="checkbox"
+                        checked
+                        onChange={() => patch("mcpServerIds", settings.mcpServerIds.filter((value) => value !== id))}
+                      />
+                    )}
+                  />
+                ))}
+            </SettingsGroup>
+            <p className="mori-settings-note">
+              {snapshot.mcpServers.length
+                ? `已勾选 ${settings.mcpServerIds.length} 个服务。可在全局 MCP 设置中添加和管理服务。`
+                : "尚未配置 MCP 服务，请先在全局 MCP 设置中添加服务。"}
+            </p>
+            {onOpenMcp ? (
+              <SettingsButton variant="secondary" type="button" onClick={onOpenMcp}>
+                管理 MCP 服务<ChevronRight size={13} />
+              </SettingsButton>
+            ) : null}
+          </SettingsSection>
         ) : null}
         {tab === "desktop" ? (
           <SettingsSection className="mori-settings-section" title={<>{t("moriUi.moriAssistant.invoke")}</>}>

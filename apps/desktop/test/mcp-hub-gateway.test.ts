@@ -5,6 +5,7 @@ import path from "node:path";
 import { expect, test } from "bun:test";
 import { McpHubGateway } from "../src/main/mcp-hub-gateway";
 import { IMAGE_GENERATION_MCP_TOOL_TIMEOUT_MS } from "../src/shared/image-generation";
+import { startMcpSseServer } from "./helpers/mcp-sse-server";
 
 function headers(entry: Record<string, unknown>): Record<string, string> {
   return (entry.headers ?? {}) as Record<string, string>;
@@ -199,7 +200,7 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
   }
 });
 
-test("MCP Hub gateway reports unsupported transports instead of silently dropping them", async () => {
+test("MCP Hub registers SSE and reports malformed entries instead of silently dropping them", async () => {
   const gateway = new McpHubGateway();
   try {
     gateway.syncSdkConfig({
@@ -214,16 +215,68 @@ test("MCP Hub gateway reports unsupported transports instead of silently droppin
         },
         allowedTools: [],
       }),
-    ).toEqual({ registered: [], unsupported: ["legacy", "invalid"] });
+    ).toEqual({ registered: ["legacy"], unsupported: ["invalid"] });
     await expect(
       gateway.prepareThreadFromSdkConfig({
         threadId: "unsupported-thread",
-        config: { mcpServers: { legacy: { type: "sse", url: "http://127.0.0.1:9/sse" } }, allowedTools: [] },
+        config: { mcpServers: { legacy: { type: "invalid" } }, allowedTools: [] },
         allowedServers: ["legacy"],
       }),
     ).rejects.toThrow("legacy");
   } finally {
     await gateway.close();
+  }
+});
+
+test("MCP Hub proxies legacy SSE discovery and calls with both-channel auth, isolation and cancellation", async () => {
+  const upstream = await startMcpSseServer();
+  const gateway = new McpHubGateway();
+  try {
+    const injection = (await gateway.prepareThreadFromSdkConfig({
+      threadId: "sse-thread",
+      config: { mcpServers: { legacy: { type: "sse", url: upstream.url, headers: upstream.headers } }, allowedTools: ["mcp__legacy__echo"] },
+      allowedServers: ["legacy"],
+    }))!;
+    expect(injection.promptAppend).toContain("legacy:echo");
+    expect(injection.promptAppend).not.toContain("legacy:blocked");
+    expect(injection.promptAppend).not.toContain("private-sse");
+    const { url, h, sid } = await initialize(injection.sdkEntry);
+    const called = await rpc(url, h, { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "call_tool", arguments: { name: "legacy:echo", arguments: { value: "SSE works" } } } }, sid);
+    expect(called.body.result).toMatchObject({ content: [{ type: "text", text: "SSE works" }] });
+    const signal = new AbortController();
+    const pending = gateway.callThreadTool("sse-thread", "legacy:echo", { wait: true }, signal.signal);
+    void pending.catch(() => {});
+    for (let i = 0; i < 100 && upstream.calls.length < 2; i++) await new Promise(resolve => setTimeout(resolve, 5));
+    signal.abort(new Error("cancel SSE call"));
+    await expect(pending).rejects.toThrow("cancel SSE call");
+    expect(await gateway.callThreadTool("sse-thread", "legacy:echo", { fail: true }, new AbortController().signal)).toMatchObject({ isError: true });
+    await gateway.prepareThread({ threadId: "sse-denied", allowedServers: [] });
+    await expect(gateway.callThreadTool("sse-denied", "legacy:echo", {}, new AbortController().signal)).rejects.toThrow("denied");
+    await expect(gateway.callThreadTool("sse-thread", "legacy:blocked", {}, new AbortController().signal)).rejects.toThrow("denied");
+    gateway.revokeThread("sse-thread");
+    await expect(gateway.searchThreadTools("sse-thread", "", new AbortController().signal)).rejects.toThrow("已撤销");
+    expect(upstream.calls).toHaveLength(3);
+    expect(upstream.requests.some(request => request.method === "GET")).toBe(true);
+    expect(upstream.requests.some(request => request.method === "POST")).toBe(true);
+    expect(upstream.requests.every(request => request.authenticated)).toBe(true);
+  } finally {
+    await gateway.close();
+    await upstream.close();
+  }
+});
+
+test("MCP Hub surfaces SSE authentication failures without dispatching or changing transport", async () => {
+  const upstream = await startMcpSseServer();
+  const gateway = new McpHubGateway();
+  try {
+    expect(gateway.syncSdkConfig({ mcpServers: { legacy: { type: "sse", url: upstream.url, headers: { Authorization: "wrong" } } }, allowedTools: [] })).toEqual({ registered: ["legacy"], unsupported: [] });
+    await gateway.prepareThread({ threadId: "unauthorized-sse", allowedServers: ["legacy"] });
+    await expect(gateway.searchThreadTools("unauthorized-sse", "", new AbortController().signal)).rejects.toThrow("401");
+    expect(upstream.calls).toHaveLength(0);
+    expect(upstream.requests).toEqual([{ method: "GET", authenticated: false }]);
+  } finally {
+    await gateway.close();
+    await upstream.close();
   }
 });
 

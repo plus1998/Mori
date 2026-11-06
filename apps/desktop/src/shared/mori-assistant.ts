@@ -14,6 +14,8 @@ export interface MoriAssistantSettings {
   reasoningEffort: "low" | "medium" | "high";
   /** Ordered account pool used independently by the assistant's ChatGPT connection. */
   accountIds: string[];
+  /** Stable IDs of MCP servers explicitly assigned to Mori. */
+  mcpServerIds: string[];
   autoSwitchAccounts: boolean;
   floatingEnabled: boolean;
   petKey: string;
@@ -87,6 +89,7 @@ export interface MoriAssistantSnapshot {
   projects: string[];
   tasks: ThreadSummary[];
   computerUse: MoriComputerUseStatus;
+  mcpServers: Array<{ id: string; name: string; transport: string; available: boolean; reason?: string }>;
   wechat: {
     status: "disconnected" | "waiting" | "connected" | "error";
     qrContent?: string;
@@ -141,6 +144,7 @@ export const DEFAULT_MORI_ASSISTANT_SETTINGS: MoriAssistantSettings = {
   model: "gpt-6-luna",
   reasoningEffort: "high",
   accountIds: [],
+  mcpServerIds: [],
   autoSwitchAccounts: false,
   floatingEnabled: false,
   petKey: "",

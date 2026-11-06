@@ -13843,7 +13843,7 @@ function App() {
           <div className="settings-main">
             <div className={settingsSection === "mcp" ? "settings-content is-wide" : "settings-content"}>
               <SuspensePanel>
-                {settingsSection === "moriAssistant" && <MoriAssistantSettingsPanel onDone={() => { setSettingsOpen(false); setMoriOpen(true); }} onOpenComputerUse={() => setSettingsSection("computerUse")} />}
+                {settingsSection === "moriAssistant" && <MoriAssistantSettingsPanel onDone={() => { setSettingsOpen(false); setMoriOpen(true); }} onOpenComputerUse={() => setSettingsSection("computerUse")} onOpenMcp={() => setSettingsSection("mcp")} />}
                 {settingsSection === "preferences" && (
                   <LazyNotificationPreferencesPanel
                     settings={notificationSettings}
