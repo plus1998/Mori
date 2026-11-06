@@ -436,6 +436,7 @@ export class PromptImageFileStore {
   }
 
   async readContentRefAttachment(contentRef: string): Promise<{
+    path: string;
     mediaType: PromptImageAttachment["mediaType"];
     dataBase64: string;
     byteLength: number;
@@ -446,6 +447,7 @@ export class PromptImageFileStore {
       try {
         const buffer = await this.readContentObject(normalized, mediaType);
         return {
+          path: this.contentObjectPath(normalized, mediaType),
           mediaType,
           dataBase64: buffer.toString("base64"),
           byteLength: buffer.length,

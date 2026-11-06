@@ -1,8 +1,20 @@
 import { codexQuotaPeriod, codexQuotaResetAt } from "../src/renderer/codex-quota-reminder";
 import { expect, test } from "bun:test";
-import { associateOAuthModelEfforts, buildMainModelProviderOptions, resolvePickerThinkingEffort,
+import { associateOAuthModelEfforts, buildMainModelProviderOptions, modelPickerAccountMode, resolvePickerThinkingEffort,
   thinkingEffortsForModel } from "../src/renderer/ComposerMainModelPicker";
 import type { CandidateModelView, CommitModelOptionView } from "../src/shared/ipc";
+
+test("Login subagents inherit the process account while OAuth roles select their own account", () => {
+  expect(modelPickerAccountMode("login", "main")).toBe("select");
+  expect(modelPickerAccountMode("login", "subagent")).toBe("inherit");
+  for (const purpose of ["main", "subagent", "auxiliary", "vision", "approval"] as const) {
+    expect(modelPickerAccountMode("oauth", purpose)).toBe("select");
+    expect(modelPickerAccountMode("custom-provider", purpose)).toBe("none");
+  }
+  for (const purpose of ["auxiliary", "vision", "approval"] as const) {
+    expect(modelPickerAccountMode("login", purpose)).toBe("none");
+  }
+});
 
 test("groups candidate models by provider while preserving each model identity", () => {
   const candidates = [

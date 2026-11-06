@@ -102,6 +102,7 @@ import {
   resolvePackagedCodexExecutableCandidate,
 } from "./packaged-runtime-executables";
 import type { RequestAttemptResult } from "./request-retry";
+import { forwardCodexSessionTitle } from "./codex-session-title";
 import { buildDriverRoutesFromRuntime, type RuntimeConfigResolution } from "./thread-runtime-routes";
 
 export type ThreadRuntimeProxyResult = RequestAttemptResult & Record<string, unknown>;
@@ -232,6 +233,8 @@ export interface CodexRuntimeRunDeps {
   onCodexThreadAttributionRecorded?: (codexThreadId: string) => void;
   /** Runs only after the root Eco -> Codex thread mapping has been persisted successfully. */
   onCodexThreadMapped?: (codexThreadId: string) => void;
+  /** Only the mapped root can supply the user-facing session title. */
+  onCodexThreadName?: (ecoThreadId: string, name: string) => void;
   onCodexContextUpdated?: (resolution: CodexContextSnapshotResolution) => void;
   accountUsageObserver?: Pick<
     ConstructorParameters<typeof CodexEventAdapter>[0],
@@ -1841,6 +1844,9 @@ async function startSharedCodexRuntimeLifecycle(
         const id = payload.threadId ?? payload.thread?.id;
         if (id) recordCodexRuntimeThreadOwner(id, notificationClient);
       }
+      if (method === "thread/name/updated") {
+        forwardCodexSessionTitle(runtimeDeps.threadMap, params, runtimeDeps.onCodexThreadName);
+      }
       eventAdapter?.dispatch(method, params);
       approvalBridge?.handleNotification(method, params);
     },
@@ -2102,6 +2108,13 @@ export function createCodexRuntimeDriver(
         runtimeDeps.onCodexThreadMapped?.(codexThreadId);
       }
       eventAdapter?.flushAllPendingEvents();
+    },
+    onThreadName: (ecoThreadId: string, codexThreadId: string, name: string) => {
+      if (runtimeDeps.threadMap.getEcoThreadId(codexThreadId) === ecoThreadId) {
+        forwardCodexSessionTitle(runtimeDeps.threadMap, {
+          threadId: codexThreadId, threadName: name,
+        }, runtimeDeps.onCodexThreadName);
+      }
     },
     ...(enableMidTurn && options?.onTurnBound ? { onTurnBound: options.onTurnBound } : {}),
     ...(enableMidTurn && options?.onTurnClosing ? { onTurnClosing: options.onTurnClosing } : {}),

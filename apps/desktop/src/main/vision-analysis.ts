@@ -10,6 +10,7 @@ import {
 import { OAUTH_ACCOUNT_ID_HEADER } from "./chatgpt-gateway-account";
 import { resolveOrchestrationGuardrails } from "./orchestration-run-budget";
 import { ECO_PROXY_BILLING_HEADERS } from "./proxy-billing-stamp";
+import { ImageViewNativeRequiredError } from "./image-view-errors";
 
 const maxVisionRequestRuntimeMs = resolveOrchestrationGuardrails().maxSubagentRuntimeMs;
 
@@ -176,7 +177,15 @@ export async function runImageView(input: ImageViewRequest, host: ImageViewHost)
   if (!prompt) {
     throw new Error("image_view 调用必须提供 prompt。");
   }
-  const sourceRoute = host.resolveRoute(input.threadId, input.routesOverride);
+  let sourceRoute: RuntimeRoute;
+  try {
+    sourceRoute = host.resolveRoute(input.threadId, input.routesOverride);
+  } catch (error) {
+    if (error instanceof ImageViewNativeRequiredError) {
+      throw new ImageViewNativeRequiredError(input.attachments[0]?.path);
+    }
+    throw error;
+  }
   if (!sourceRoute) {
     throw new Error("image_view 缺少可用的模型路由。");
   }

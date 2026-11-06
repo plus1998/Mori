@@ -2,6 +2,7 @@ import type { VisionModelSelection } from "../shared/vision-model";
 import type { RuntimeRoute } from "./billing-resolver";
 import type { ProviderStore } from "./provider-store";
 import { resolveStatelessModelCandidate } from "./stateless-model-candidate";
+import { ImageViewNativeRequiredError } from "./image-view-errors";
 
 export function resolveThreadVisionAnalysisRoute(input: {
   coreKind?: string;
@@ -15,7 +16,11 @@ export function resolveThreadVisionAnalysisRoute(input: {
   if (input.coreKind === "acp") {
     throw new Error("未配置视觉模型。ACP 会话没有 Mori 主模型可回退，请在 Composer 运行配置中选择视觉模型。");
   }
-  return input.resolveEcoFallback();
+  const route = input.resolveEcoFallback();
+  if (route.provider.id === "openai") {
+    throw new ImageViewNativeRequiredError();
+  }
+  return route;
 }
 
 export function resolveVisionModelRoute(

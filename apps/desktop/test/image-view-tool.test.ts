@@ -8,5 +8,5 @@ test("prompt append names the image-view service and its vision capability", () 
   expect(text).toContain("returns a text answer");
   expect(text.toLowerCase()).not.toContain("integration");
   expect(text).toContain("view_image");
-  expect(text).toContain("built-in OpenAI account");
+  expect(text).toContain("Codex Login");
 });

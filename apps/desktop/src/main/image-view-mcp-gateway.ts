@@ -15,6 +15,7 @@ import { BrowserMcpToolClaimRouter } from "./browser-mcp-router";
 import { ImageViewReadError, type ImageViewReadFailureCode, readImageViewFile } from "./image-view-reader";
 import { buildEcoHttpCodexServer, buildEcoHttpInjection } from "./mcp-http-descriptor";
 import { handleMcpStreamableHttpRequest, type McpToolDefinition } from "./mcp-streamable-http";
+import { ImageViewNativeRequiredError } from "./image-view-errors";
 
 const CONTROL_SECRET_HEADER = "X-Eco-Image-View-Control-Secret";
 
@@ -273,9 +274,20 @@ export class ImageViewMcpGateway {
       ...(claim.toolUseId && { toolUseId: claim.toolUseId }),
       ...(signal ? { signal } : {}),
     };
-    const resultText = await this.deps.analyze({
-      ...analyzeInput,
-    });
+    let resultText: string;
+    try {
+      resultText = await this.deps.analyze(analyzeInput);
+    } catch (error) {
+      signal?.throwIfAborted();
+      if (error instanceof ImageViewNativeRequiredError) {
+        const nativePath = error.imagePath || imagePath;
+        return mcpErrorResult(error.message, error.code, {
+          nativeTool: "view_image",
+          ...(nativePath ? { path: nativePath } : {}),
+        });
+      }
+      return mcpErrorResult(error instanceof Error ? error.message : String(error), "analyze_failed");
+    }
     const { maybeSpillMcpTextContent } = await import("./mcp-tool-result-spill.js");
     const spilled = await maybeSpillMcpTextContent({
       text: resultText,
@@ -287,9 +299,13 @@ export class ImageViewMcpGateway {
   }
 }
 
-function mcpErrorResult(message: string, code: string): Record<string, unknown> {
+function mcpErrorResult(
+  message: string,
+  code: string,
+  details?: { nativeTool: string; path?: string },
+): Record<string, unknown> {
   return {
-    content: [{ type: "text", text: JSON.stringify({ status: "failed", code, message }) }],
+    content: [{ type: "text", text: JSON.stringify({ status: "failed", code, message, ...details }) }],
     isError: true,
   };
 }
@@ -298,7 +314,7 @@ function imageViewToolDefinition(): McpToolDefinition {
   return {
     name: ECO_IMAGE_VIEW_TOOL,
     description:
-      "Inspect an image with Mori's vision model using a caller-provided prompt. Provide either an absolute local path or a durable ref. The returned text is passed through without a prescribed response format. Keep image bytes out of the main prompt.",
+      "Inspect an image using Mori's current vision model configuration and a caller-provided prompt. Provide either an absolute local path or a durable ref. For Codex Login without an independent vision model, returns vision_model_unconfigured with a local path for Codex's native view_image tool. Other model or provider failures are reported without switching models. Keep image bytes out of the main prompt.",
     inputSchema: {
       type: "object",
       additionalProperties: false,

@@ -74,6 +74,7 @@ export interface CodexThreadStartResult {
     id: string;
     ephemeral?: boolean;
     path?: string | null;
+    name?: string | null;
   };
 }
 
@@ -117,6 +118,7 @@ export interface CodexAppServerDriverOptions {
   /** Exact immutable role config is known to own the existing child on this client. */
   threadConfigAlreadyApplied?: boolean;
   onThreadMapped?: (ecoThreadId: string, codexThreadId: string) => void;
+  onThreadName?: (ecoThreadId: string, codexThreadId: string, name: string) => void;
   /** Fires as soon as turn/start returns a turn id (before tools run). */
   onTurnBound?: (input: { ecoThreadId: string; codexThreadId: string; turnId: string }) => void;
   /**
@@ -183,6 +185,7 @@ export class CodexAppServerDriver implements AgentRuntimeDriver {
   private readonly existingCodexThreadId: string | undefined;
   private readonly threadConfigAlreadyApplied: boolean;
   private readonly onThreadMapped: ((ecoThreadId: string, codexThreadId: string) => void) | undefined;
+  private readonly onThreadName: CodexAppServerDriverOptions["onThreadName"];
   private readonly onTurnBound:
     | ((input: { ecoThreadId: string; codexThreadId: string; turnId: string }) => void)
     | undefined;
@@ -211,6 +214,7 @@ export class CodexAppServerDriver implements AgentRuntimeDriver {
     this.existingCodexThreadId = options.existingCodexThreadId;
     this.threadConfigAlreadyApplied = options.threadConfigAlreadyApplied ?? false;
     this.onThreadMapped = options.onThreadMapped;
+    this.onThreadName = options.onThreadName;
     this.onTurnBound = options.onTurnBound;
     this.onTurnClosing = options.onTurnClosing;
     this.onTurnClosed = options.onTurnClosed;
@@ -385,6 +389,7 @@ export class CodexAppServerDriver implements AgentRuntimeDriver {
       // Keep eco↔codex mapping current (resume may refresh the id) and unblock
       // any child events buffered before the parent map was available.
       this.onThreadMapped?.(input.threadId, codexThreadId);
+      if (resumed.thread.name) this.onThreadName?.(input.threadId, codexThreadId, resumed.thread.name);
       yield createAgentEvent({
         id: `${input.threadId}:codex-thread-resumed`,
         threadId: input.threadId,
@@ -412,6 +417,7 @@ export class CodexAppServerDriver implements AgentRuntimeDriver {
         recordAppliedCodexThreadConfig(this.client, codexThreadId, this.threadConfig);
       }
       this.onThreadMapped?.(input.threadId, codexThreadId);
+      if (thread.thread.name) this.onThreadName?.(input.threadId, codexThreadId, thread.thread.name);
       yield createAgentEvent({
         id: `${input.threadId}:codex-thread-started`,
         threadId: input.threadId,

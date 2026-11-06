@@ -361,7 +361,7 @@ function agentInstanceToForm(agent: AgentInstanceConfig): AgentResourceAgentForm
     themeColor: agent.themeColor ?? defaultThemeColorForAgentKey(agent.agentKey),
     providerId: agent.modelRef.providerId,
     modelId: agent.modelRef.modelId,
-    accountId: agent.modelRef.accountId ?? "",
+    accountId: agent.modelRef.providerId === "eco-coding-chatgpt" ? agent.modelRef.accountId ?? "" : "",
     thinkingEffort: agent.modelRef.thinkingEffort ?? "",
     apiCompat: agent.modelRef.apiCompat ?? "",
     enabled: agent.enabled,
@@ -410,7 +410,9 @@ function buildAgentsFromForm(
       if (agentForm.providerId === "eco-coding-chatgpt" && !agentForm.accountId?.trim()) {
         throw new Error(`${displayName} 的 ChatGPT OAuth 模型尚未选择账号，请先选择账号和模型。`);
       }
-      assertCandidateModelSelected(displayName, agentForm.candidateModelId);
+      if (agentForm.providerId !== "openai") {
+        assertCandidateModelSelected(displayName, agentForm.candidateModelId);
+      }
     }
     const themeColor = resolveStoredThemeColor(
       displayName,
@@ -428,7 +430,7 @@ function buildAgentsFromForm(
       displayName,
       ...(themeColor && { themeColor }),
       modelRef: buildModelRef(agentForm.providerId, agentForm.modelId, {
-        ...((agentForm.providerId === "eco-coding-chatgpt" || agentForm.providerId === "openai") && agentForm.accountId
+        ...(agentForm.providerId === "eco-coding-chatgpt" && agentForm.accountId
           ? { accountId: agentForm.accountId } : {}),
         thinkingEffort: agentForm.thinkingEffort,
         apiCompat: agentForm.providerId === "eco-coding-chatgpt" ? "openai_responses" : agentForm.apiCompat,

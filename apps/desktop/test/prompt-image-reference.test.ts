@@ -44,3 +44,13 @@ test("image-only prompts carry tool references without adding a user instruction
   expect(prompt.startsWith("Composer image references")).toBe(true);
   expect(prompt).not.toContain("Use the supplied image references");
 });
+
+test("local image references retain the Mori entry and never embed image bytes", () => {
+  const prompt = buildPromptWithImageReferences({
+    prompt: "这是什么？",
+    attachments: [{ mediaType: "image/png", path: "/tmp/图片.png", data: "secret-bytes" }],
+  });
+  expect(prompt).toContain('path="/tmp/图片.png"');
+  expect(prompt).toContain("image_view tool");
+  expect(prompt).not.toContain("secret-bytes");
+});

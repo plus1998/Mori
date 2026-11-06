@@ -5,7 +5,7 @@ import type { UpstreamAgentCore } from "../shared/ipc";
  * Gateway architecture diagram.
  *
  * Facts mirrored here come from the runtime wiring, not from marketing copy:
- *   - Codex / Claude Code / PI all point their base URL at the in-process Eco SDK Bridge
+ *   - For custom providers and ChatGPT OAuth, Codex / Claude Code / PI point their base URL at the in-process Eco SDK Bridge
  *     (`eco-gateway-lifecycle.ts` → `startEcoSdkBridge("127.0.0.1", 18765)`).
  *   - The bridge dispatches straight into the embedded gateway, so agent → gateway never
  *     leaves the machine and never passes through the outbound proxy.
@@ -13,6 +13,7 @@ import type { UpstreamAgentCore } from "../shared/ipc";
  *     `/v1/messages`, `/v1/chat/completions`) and converts to the provider's upstream kind.
  *   - The outbound proxy lives in the gateway → upstream leg (`gateway.setUpstreamProxyUrl`,
  *     plus per-provider / per-subscription overrides), together with the User-Agent override.
+ *   - ChatGPT Login uses Codex's native provider and process-scoped auth.json, bypassing this gateway.
  */
 export interface AgentCoreNode {
   readonly core: UpstreamAgentCore;
@@ -46,6 +47,34 @@ export function GatewayArchitectureDiagram() {
 
   return (
     <figure className="gateway-arch">
+      <div className="gateway-arch-accounts">
+        <h2>{t("settings.gateway.arch.accountsTitle")}</h2>
+        <section className="gateway-arch-account">
+          <h3>{t("settings.models.tab.openaiAccounts")}</h3>
+          <p className="gateway-arch-account-path">{t("settings.gateway.arch.loginPath")}</p>
+          <dl>
+            <dt>{t("settings.gateway.arch.accountScope")}</dt>
+            <dd>{t("settings.gateway.arch.loginAccount")}</dd>
+            <dt>{t("settings.gateway.arch.supportedUses")}</dt>
+            <dd>{t("settings.gateway.arch.loginUses")}</dd>
+          </dl>
+          <p>{t("settings.gateway.arch.loginDefaults")}</p>
+        </section>
+        <section className="gateway-arch-account">
+          <h3>{t("settings.models.tab.chatgptAccounts")}</h3>
+          <p className="gateway-arch-account-path">{t("settings.gateway.arch.oauthPath")}</p>
+          <dl>
+            <dt>{t("settings.gateway.arch.accountScope")}</dt>
+            <dd>{t("settings.gateway.arch.oauthAccount")}</dd>
+            <dt>{t("settings.gateway.arch.supportedUses")}</dt>
+            <dd>{t("settings.gateway.arch.oauthUses")}</dd>
+          </dl>
+        </section>
+        <p>{t("settings.gateway.arch.customAccounts")}</p>
+        <p>{t("settings.gateway.arch.independentProtocol")}</p>
+      </div>
+
+      <h2 className="gateway-arch-diagram-title">{t("settings.gateway.arch.diagramTitle")}</h2>
       <div className="gateway-arch-agents">
         {AGENT_CORE_NODES.map((node) => (
           <div className="gateway-arch-agent" key={node.core}>

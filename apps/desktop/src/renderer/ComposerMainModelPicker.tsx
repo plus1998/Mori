@@ -1,6 +1,6 @@
 import { ComposerHoverTooltip } from "./ComposerHoverTooltip";
 import { codexQuotaPeriod, codexQuotaResetAt } from "./codex-quota-reminder";
-import { Check, ChevronDown, Search } from "lucide-react";
+import { Check, ChevronDown, CircleHelp, Search } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import type { CandidateModelView, CommitModelOptionView, ModelRef, ThinkingEffort } from "../shared/ipc";
@@ -10,6 +10,12 @@ import { ComposerAbovePanel } from "./ComposerAbovePanel";
 import { ComposerModelLabel, formatComposerModelName, formatComposerThinkingEffortLabel } from "./ComposerModelLabel";
 
 type Source = "login" | "oauth" | string;
+type PickerPurpose = "main" | "subagent" | "auxiliary" | "vision" | "approval";
+export function modelPickerAccountMode(source: Source, purpose: PickerPurpose): "select" | "inherit" | "none" {
+  if (source === "oauth") return "select";
+  if (source === "login") return purpose === "subagent" ? "inherit" : purpose === "main" ? "select" : "none";
+  return "none";
+}
 type PickerDataKey = "custom" | "loginAccounts" | "oauthAccounts" | "loginModels";
 type Account = { id: string; name: string; available?: boolean; statusLabel?: string; quota?: OpenAIAccountQuota | undefined; quotaError?: string | undefined };
 type PickerModel = { id: string; name: string; candidateModelId?: string;
@@ -174,7 +180,7 @@ export function ComposerMainModelPicker({
   model?: ModelRef | undefined;
   coreKind: string;
   panelZIndex?: number | undefined;
-  purpose?: "main" | "subagent" | "auxiliary" | "vision" | "approval";
+  purpose?: PickerPurpose;
   /** Composer toolbar reserves its label for the model and thinking effort. */
   compactLabel?: boolean;
   mainAccountId?: string | undefined;
@@ -239,6 +245,7 @@ export function ComposerMainModelPicker({
         }
       }).catch((cause: unknown) => { if (!cancelled) setError(String(cause)); });
     } else if (model.providerId === "openai") {
+      if (purpose === "subagent") return;
       void window.eco.openAIAccountsList().then((accounts) => {
         if (!cancelled) setLoginAccounts(accounts.map((account) => ({ id: account.id, name: account.name })));
       }).catch((cause: unknown) => { if (!cancelled) setError(String(cause)); });
@@ -248,7 +255,7 @@ export function ComposerMainModelPicker({
       }).catch((cause: unknown) => { if (!cancelled) setError(String(cause)); });
     }
     return () => { cancelled = true; };
-  }, [model?.providerId]);
+  }, [model?.providerId, purpose]);
 
   useEffect(() => {
     if (!open) return;
@@ -266,7 +273,8 @@ export function ComposerMainModelPicker({
     const eco = window.eco;
     loadedAccountSourcesRef.current.clear();
     accountPositionedRef.current = false;
-    setLoadingData(new Set(["custom", "loginAccounts", "oauthAccounts", "loginModels"]));
+    setLoadingData(new Set<PickerDataKey>(["custom", "oauthAccounts", "loginModels",
+      ...(purpose === "main" ? ["loginAccounts" as const] : [])]));
     setLoadErrors({});
     setError(undefined);
     function load<T>(key: PickerDataKey, request: Promise<T>, apply: (value: T) => void) {
@@ -288,7 +296,7 @@ export function ComposerMainModelPicker({
     // Each local read publishes immediately; unrelated accounts and pricing never gate it.
     load("custom", (purpose === "approval" ? eco.listApprovalModelOptions({ includePricing: false }) : eco.listGitCommitModelOptions({ includePricing: false })),
       (result) => setCandidates(result.options));
-    load("loginAccounts", eco.openAIAccountsList(), (accounts) => {
+    if (purpose === "main") load("loginAccounts", eco.openAIAccountsList(), (accounts) => {
       loadedAccountSourcesRef.current.add("login");
       setLoginAccounts(accounts.filter((account) => account.isLoggedIn || account.authState === "refreshable" ||
         account.authState === "refreshing")
@@ -319,7 +327,7 @@ export function ComposerMainModelPicker({
 
   const loginAccountIds = loginAccounts.map((account) => account.id).join("\0");
   useEffect(() => {
-    if (!open || source !== "login" || !loginAccountIds || !window.eco) return;
+    if (!open || purpose !== "main" || source !== "login" || !loginAccountIds || !window.eco) return;
     let cancelled = false;
     const eco = window.eco;
     for (const id of loginAccountIds.split("\0")) {
@@ -332,7 +340,7 @@ export function ComposerMainModelPicker({
       });
     }
     return () => { cancelled = true; };
-  }, [open, source, loginAccountIds]);
+  }, [open, source, loginAccountIds, purpose]);
 
   useEffect(() => {
     if (!open || source === "login" || source === "oauth" || !source || !window.eco) return;
@@ -353,10 +361,11 @@ export function ComposerMainModelPicker({
   }, [open, source]);
 
   const providers = useMemo(() => buildMainModelProviderOptions(candidates, loginModels,
-    purpose === "main" && coreKind === "codex"), [candidates, loginModels, coreKind, purpose]);
+    purpose === "subagent" || (purpose === "main" && coreKind === "codex")), [candidates, loginModels, coreKind, purpose]);
   const selectedProvider = providers.find((provider) => provider.id === source);
-  const accountSource = source === "login" || source === "oauth";
-  const accounts = source === "login" ? loginAccounts : oauthAccounts;
+  const accountMode = modelPickerAccountMode(source, purpose);
+  const accountSource = accountMode === "select";
+  const accounts = !accountSource ? [] : source === "login" ? loginAccounts : oauthAccounts;
 
   const availableModels = source === "oauth"
     ? (accountModels?.accountId === accountId ? accountModels.models : [])
@@ -415,7 +424,9 @@ export function ComposerMainModelPicker({
   }, [open, source, accountId, activeProviderId, activeChoice?.accountId, accounts]);
 
   const saveChoice = (choice: ModelRef): Promise<boolean> => {
-    const next = saveQueueRef.current.catch(() => {}).then(() => onSelect(choice));
+    const { accountId: _accountId, ...withoutAccount } = choice;
+    const selection = purpose === "subagent" && choice.providerId === "openai" ? withoutAccount : choice;
+    const next = saveQueueRef.current.catch(() => {}).then(() => onSelect(selection));
     saveQueueRef.current = next;
     return next.then(() => true).catch((cause: unknown) => {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -512,7 +523,8 @@ export function ComposerMainModelPicker({
     : model?.providerId === "openai" ? "ChatGPT Login"
     : providers.find((provider) => provider.id === model?.providerId)?.name ?? model?.providerId;
   const accountName = model?.providerId === "eco-coding-chatgpt" ? selectedAccount?.name
-    : model?.providerId === "openai" ? loginAccounts.find((account) => account.id === model.accountId)?.name
+    : model?.providerId === "openai" ? purpose === "subagent" ? t("composer.mainPicker.inheritMainAccount")
+      : loginAccounts.find((account) => account.id === model.accountId)?.name
     : undefined;
   const hoverDetails = [providerName, accountName, invalid ? invalidLabel : bindingError].filter(Boolean).join(" · ");
   const trigger = (
@@ -525,7 +537,7 @@ export function ComposerMainModelPicker({
       onClick={() => setOpen((current) => !current)}>
       {model ? <span className="composer-model-picker-selection">
         {!compactLabel ? (model.providerId === "eco-coding-chatgpt" ? `ChatGPT · ${selectedAccount?.name ?? (model.accountId && oauthAccountsLoaded ? t("composer.mainPicker.accountRemoved") : model.accountId ? t("composer.mainPicker.selectedAccount") : t("composer.route.selectAccount"))} · `
-          : purpose !== "main" ? `${providers.find((provider) => provider.id === model.providerId)?.name ?? model.providerId} · ` : "") : null}
+          : purpose !== "main" ? `${providerName} · ` : "") : null}
         {supportsThinking ? <ComposerModelLabel modelId={model.modelId} thinkingEffort={model.thinkingEffort} size="medium" />
           : <span>{formatComposerModelName(model.modelId)}</span>}
       </span> : <span className="composer-model-empty-label">{t("composer.route.selectModel")}</span>}
@@ -567,6 +579,14 @@ export function ComposerMainModelPicker({
           </div>
         </div>
         <div className="composer-main-model-picker-content">
+          {accountMode === "inherit" ? <div className="composer-main-model-picker-account-heading">
+            <span className="composer-main-model-picker-section-label">{t("composer.mainPicker.inheritMainAccount")}</span>
+            <ComposerHoverTooltip content={t("composer.mainPicker.loginSubagentAccountHint")}>
+              <span tabIndex={0} aria-label={t("composer.mainPicker.loginSubagentAccountHint")}>
+                <CircleHelp size={13} aria-hidden />
+              </span>
+            </ComposerHoverTooltip>
+          </div> : null}
           {accountSource ? <div className={`composer-main-model-picker-accounts${source === "oauth" ? " is-oauth" : ""}`}>
             <div className="composer-main-model-picker-account-heading">
               <div className="composer-main-model-picker-section-label">{t("composer.mainPicker.accounts")}</div>

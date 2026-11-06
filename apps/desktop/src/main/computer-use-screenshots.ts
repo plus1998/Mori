@@ -50,7 +50,7 @@ async function saveScreenshot(
     await writeFile(imagePath, Buffer.from(data, "base64"), { mode: 0o600, flag: "wx" });
     return {
       type: "text",
-      text: `截图已保存：${JSON.stringify(imagePath)}。如需分析，请调用 eco_image_view:view_image，传入该 path 和具体的 prompt。`,
+      text: `截图已保存：${JSON.stringify(imagePath)}。如需分析，请使用当前会话的看图工具读取该 path。`,
     };
   } catch (error) {
     // The action may already have executed: report the screenshot failure without

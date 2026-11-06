@@ -5,6 +5,7 @@ import path from "node:path";
 import {
   createAgentOrchestrationStore,
   normalizeStoredAgentTemplate,
+  normalizeStoredSubagentOrchestration,
 } from "../src/main/agent-orchestration-store";
 import { createBuiltInAgentTemplates } from "../src/shared/agent-orchestration";
 import type { AgentTemplate } from "../src/shared/ipc";
@@ -119,4 +120,31 @@ test.skipIf(!sqliteAvailable)("saved OAuth subagent account bindings survive SQL
   expect(missing).toMatchObject({ ok: false });
   if (!missing.ok) expect(missing.reason).toContain("尚未选择账号");
   await fs.rm(dir, { recursive: true, force: true });
+});
+
+test("legacy Login subagent account fields are removed from resources and frozen runtime routes", async () => {
+  const { buildSubagentOrchestrationFromForm, createBlankSubagentOrchestrationForm } = await import("../src/renderer/agent-resource-form");
+  const { resolveOrchestrationSnapshot } = await import("../src/shared/agent-orchestration");
+  const { runtimeRoleRoutesFromOrchestrationSnapshot } = await import("../src/shared/thread-runtime-config");
+  const templates = createBuiltInAgentTemplates();
+  const form = createBlankSubagentOrchestrationForm({ templates });
+  for (const agent of form.agents) Object.assign(agent, {
+    providerId: "openai", modelId: "gpt-6.1-sol", candidateModelId: "", enabled: true,
+  });
+  const legacy = buildSubagentOrchestrationFromForm(form, { templates });
+  for (const agent of legacy.agents) agent.modelRef.accountId = "legacy-child-account";
+  const normalized = normalizeStoredSubagentOrchestration(legacy);
+  expect(normalized.agents.every((agent) => !agent.modelRef.accountId)).toBe(true);
+  expect(legacy.agents[0]?.modelRef.accountId).toBe("legacy-child-account");
+  const snapshot = resolveOrchestrationSnapshot({
+    mainModel: { providerId: "openai", modelId: "gpt-6.1-sol", accountId: "main-login-account" },
+    mainPrompt: { mode: "builtin" }, subagents: { mode: "orchestration", orchestrationId: legacy.id },
+  }, { mainAgentConfigs: [], mainAgentPrompts: [], subagentOrchestrations: [legacy] });
+  expect(snapshot.mainAgent.modelRef.accountId).toBe("main-login-account");
+  expect(snapshot.agents.every((agent) => !agent.modelRef.accountId)).toBe(true);
+  // Already persisted thread snapshots may predate resource normalization.
+  for (const agent of snapshot.agents) agent.modelRef.accountId = "legacy-frozen-account";
+  const routes = runtimeRoleRoutesFromOrchestrationSnapshot(snapshot);
+  expect(routes.find((route) => route.role === "main")?.accountId).toBe("main-login-account");
+  expect(routes.filter((route) => route.role !== "main").every((route) => !route.accountId)).toBe(true);
 });

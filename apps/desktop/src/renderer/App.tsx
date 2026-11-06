@@ -13234,7 +13234,7 @@ function App() {
                           setSettingsOpen(true);
                         }}
                       />
-                      {canRegenerateThreadTitle(
+                      {activeThread.runtimeConfig?.auxiliaryModel && canRegenerateThreadTitle(
                         activeThread.title,
                         titleGeneratingThreadIds.has(activeThread.id),
                         activeThread.coreKind,

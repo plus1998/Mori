@@ -216,7 +216,8 @@ function routeFromModelRef(
     role,
     providerId: modelRef.providerId,
     modelId: modelRef.modelId,
-    ...(modelRef.accountId ? { accountId: modelRef.accountId } : {}),
+    ...(modelRef.accountId && (role === "main" || modelRef.providerId !== "openai")
+      ? { accountId: modelRef.accountId } : {}),
     ...(modelRef.apiCompat && { apiCompat: modelRef.apiCompat }),
     ...(modelRef.thinkingEffort && { thinkingEffort: modelRef.thinkingEffort }),
     ...(modelRef.modelsDevMapping && { modelsDevMapping: modelRef.modelsDevMapping }),

@@ -3,6 +3,7 @@ import path from "node:path";
 import type { DatabaseSync as DatabaseSyncType } from "node:sqlite";
 import { validateClaudeSubagentCompactWindow } from "@eco/shared";
 import { migrateMainAgentConfigs } from "./main-agent-config-migration";
+import { normalizeSubagentModelRef } from "../shared/agent-orchestration";
 import type {
   AgentTemplate,
   AgentConfigSource,
@@ -212,6 +213,7 @@ export function normalizeStoredSubagentOrchestration(
     name: orchestration.name.trim(),
     agents: orchestration.agents.map((agent) => ({
       ...agent,
+      modelRef: normalizeSubagentModelRef(agent.modelRef),
     })),
     source: orchestration.source === "project" ? "project" : "user",
     updatedAt: orchestration.updatedAt || now,

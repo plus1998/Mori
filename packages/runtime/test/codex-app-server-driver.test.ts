@@ -296,7 +296,10 @@ test("CodexAppServerDriver pins the built-in OpenAI subscription route to Codex'
   const stdout = new PassThrough();
   const registry = new CodexTurnRouteRegistry();
   const client = new CodexAppServerClient(stdin, stdout);
-  const driver = new CodexAppServerDriver({ client, turnRouteRegistry: registry });
+  const names: string[] = [];
+  const driver = new CodexAppServerDriver({ client, turnRouteRegistry: registry,
+    onThreadName: (_ecoId, _codexId, name) => names.push(name),
+  });
   const controller = new AbortController();
 
   const handshake = client.initialize();
@@ -320,7 +323,7 @@ test("CodexAppServerDriver pins the built-in OpenAI subscription route to Codex'
   })();
 
   await Bun.sleep(0);
-  writeResponse(stdout, { id: 2, result: { thread: { id: "thr_codex_openai" } } });
+  writeResponse(stdout, { id: 2, result: { thread: { id: "thr_codex_openai", name: "Native title" } } });
   await Bun.sleep(0);
   writeResponse(stdout, { id: 3, result: { turn: { id: "turn_openai", items: [], status: "inProgress" } } });
   await Bun.sleep(0);
@@ -352,6 +355,7 @@ test("CodexAppServerDriver pins the built-in OpenAI subscription route to Codex'
   // The bridge resolves the gateway provider id from this registry record.
   expect(boundRoute?.providerId).toBe("openai");
   expect(boundRoute?.upstreamModelId).toBe("gpt-5.6-luna");
+  expect(names).toEqual(["Native title"]);
 
   driver.dispose();
 });
@@ -1416,9 +1420,11 @@ test("CodexAppServerDriver resumes existing map and starts an empty-input contin
   const stdin = new PassThrough();
   const stdout = new PassThrough();
   const client = new CodexAppServerClient(stdin, stdout);
+  const names: string[] = [];
   const driver = new CodexAppServerDriver({
     client,
     existingCodexThreadId: "thr_codex_existing",
+    onThreadName: (_ecoId, _codexId, name) => names.push(name),
     developerInstructions: ECO_DEVELOPER_INSTRUCTIONS,
     threadConfig: { mcp_servers: { browser: { enabled: false } } },
   });
@@ -1458,7 +1464,7 @@ test("CodexAppServerDriver resumes existing map and starts an empty-input contin
   await Bun.sleep(0);
   writeResponse(stdout, {
     id: 3,
-    result: { thread: { id: "thr_codex_existing", status: { type: "idle" } } },
+    result: { thread: { id: "thr_codex_existing", name: "Resumed title", status: { type: "idle" } } },
   });
   await Bun.sleep(0);
   writeResponse(stdout, {
@@ -1494,6 +1500,7 @@ test("CodexAppServerDriver resumes existing map and starts an empty-input contin
     mcp_servers: { browser: { enabled: false } },
   });
   expect(turnStart?.params?.threadId).toBe("thr_codex_existing");
+  expect(names).toEqual(["Resumed title"]);
   expect(turnStart?.params?.input).toEqual([]);
   expect(
     isCodexThreadConfigApplied(client, "thr_codex_existing", {

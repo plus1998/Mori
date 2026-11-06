@@ -17,7 +17,7 @@ export type AgentConfigSource = "built_in" | "user" | "project" | "derived";
 export interface ModelRef {
   providerId: string;
   modelId: string;
-  /** ChatGPT Login / OAuth: exact account bound to this conversation. */
+  /** Login main session or OAuth request account. Login subagents inherit the Codex process account. */
   accountId?: string;
   apiCompat?: UpstreamApiCompat;
   thinkingEffort?: ThinkingEffort;
@@ -735,12 +735,19 @@ function cloneAgentInstance(agent: AgentInstanceConfig): AgentInstanceConfig {
     templateId: agent.templateId,
     ...(agent.displayName ? { displayName: agent.displayName } : {}),
     ...(agent.themeColor ? { themeColor: agent.themeColor } : {}),
-    modelRef: cloneModelRef(agent.modelRef),
+    modelRef: normalizeSubagentModelRef(agent.modelRef),
     tools: cloneToolPolicy(agent.tools),
     mcpServers: [...agent.mcpServers],
     skills: [...agent.skills],
     enabled: agent.enabled,
   };
+}
+
+/** Native Login roles cannot own credentials independently of their Codex process. */
+export function normalizeSubagentModelRef(modelRef: ModelRef): ModelRef {
+  const normalized = cloneModelRef(modelRef);
+  if (normalized.providerId === "openai") delete normalized.accountId;
+  return normalized;
 }
 
 function cloneModelRef(modelRef: ModelRef): ModelRef {

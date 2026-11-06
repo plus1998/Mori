@@ -132,6 +132,22 @@ test("retry restores a readable original-image path from a durable reference aft
   }
 });
 
+test("ref lookup returns a verified local path for native image viewing", async () => {
+  const store = await createStore();
+  const original = Buffer.from("original-image");
+  const [persisted] = await store.persistMessageAttachments("thr_native", "message", [
+    { mediaType: "image/png", data: original.toString("base64") },
+  ]);
+  await store.deleteThreadMessages("thr_native");
+  const resolved = await store.readContentRefAttachment(persisted!.contentRef!);
+  expect(path.isAbsolute(resolved.path)).toBe(true);
+  expect(resolved.path).not.toBe(persisted!.path);
+  await expect(fs.readFile(resolved.path)).resolves.toEqual(original);
+  expect(resolved.dataBase64).toBe(original.toString("base64"));
+  await fs.writeFile(resolved.path, "corrupted");
+  await expect(store.readContentRefAttachment(persisted!.contentRef!)).rejects.toThrow("hash mismatch");
+});
+
 test("persisting a resolved runtime attachment preserves its shared content object", async () => {
   const store = await createStore();
   const [persisted] = await store.persistMessageAttachments("thr_first", "user:1", [

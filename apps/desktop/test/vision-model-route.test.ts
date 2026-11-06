@@ -114,6 +114,15 @@ describe("resolveThreadVisionAnalysisRoute", () => {
     listStatelessModelCandidates: () => [],
   } as unknown as ProviderStore;
 
+  test("native Login is never sent to the HTTP image analysis route", () => {
+    expect(() => resolveThreadVisionAnalysisRoute({
+      coreKind: "codex",
+      visionSelection: undefined,
+      providerStore,
+      resolveEcoFallback: () => ({ provider: { id: "openai" }, modelId: "gpt-test" }) as never,
+    })).toThrow("请使用 Codex 原生 view_image");
+  });
+
   test("uses the configured vision model before Eco fallback", () => {
     const provider = {
       id: "provider-1",

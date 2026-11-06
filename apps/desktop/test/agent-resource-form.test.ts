@@ -59,3 +59,19 @@ test("OAuth subagent accounts survive editing and copying and are required befor
   form.agents[0]!.enabled = false;
   expect(() => buildSubagentOrchestrationFromForm(form, { templates })).not.toThrow();
 });
+
+test("Login subagents save model and thinking effort without an account or provider candidate", () => {
+  const templates = createBuiltInAgentTemplates();
+  const form = createBlankSubagentOrchestrationForm({ templates });
+  for (const agent of form.agents) Object.assign(agent, {
+    providerId: "openai", modelId: "gpt-6.1-sol", candidateModelId: "",
+    accountId: "old-independent-login-account", thinkingEffort: "high",
+  });
+  const saved = buildSubagentOrchestrationFromForm(form, { templates });
+  for (const agent of saved.agents) {
+    expect(agent.modelRef).toEqual({ providerId: "openai", modelId: "gpt-6.1-sol", thinkingEffort: "high" });
+    agent.modelRef.accountId = "legacy-account";
+  }
+  const copied = createCopiedSubagentOrchestrationForm(saved);
+  expect(copied.agents.every((agent) => !agent.accountId)).toBe(true);
+});

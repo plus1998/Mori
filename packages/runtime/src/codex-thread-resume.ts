@@ -41,6 +41,7 @@ export interface CodexThreadResumeResult {
   modelProvider?: string;
   thread: {
     id: string;
+    name?: string | null;
     status?: CodexThreadStatusPayload;
     parentThreadId?: string | null;
     agentRole?: string | null;

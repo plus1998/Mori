@@ -3,7 +3,15 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { ECO_IMAGE_VIEW_FULL_TOOL, ECO_IMAGE_VIEW_MCP_SERVER, ECO_IMAGE_VIEW_TOOL } from "@eco/runtime";
-import { ImageViewMcpGateway } from "../src/main/image-view-mcp-gateway";
+import { ImageViewMcpGateway, type ImageViewAnalyzeInput } from "../src/main/image-view-mcp-gateway";
+import { McpHubGateway } from "../src/main/mcp-hub-gateway";
+import { ImageViewNativeRequiredError } from "../src/main/image-view-errors";
+import { runImageView, type ImageViewHost } from "../src/main/vision-analysis";
+import { resolveThreadVisionAnalysisRoute } from "../src/main/vision-model-route";
+import type { ProviderStore } from "../src/main/provider-store";
+import type { RuntimeRoute } from "../src/main/billing-resolver";
+import type { VisionModelSelection } from "../src/shared/vision-model";
+import { OAUTH_ACCOUNT_ID_HEADER } from "../src/main/chatgpt-gateway-account";
 import {
   ECO_IMAGE_GENERATION_FULL_TOOL,
   ECO_IMAGE_GENERATION_MCP_SERVER,
@@ -25,7 +33,7 @@ afterEach(async () => {
 });
 
 function createGateway(
-  analyze: (input: { threadId: string; path: string; question?: string }) => Promise<string>,
+  analyze: (input: ImageViewAnalyzeInput) => Promise<string>,
 ) {
   const gateway = new ImageViewMcpGateway({ analyze });
   gateways.push(gateway);
@@ -91,7 +99,7 @@ test("absolute PNG calls analyze once and returns text without image bytes", asy
   temporaryDirectories.push(directory);
   const imagePath = path.join(directory, "shot.png");
   await fs.writeFile(imagePath, PNG);
-  const calls: Array<{ path: string; question?: string; threadId: string }> = [];
+  const calls: ImageViewAnalyzeInput[] = [];
   const gateway = createGateway(async (input) => {
     calls.push(input);
     return "## Overview\nred pixel";
@@ -168,4 +176,111 @@ test("streamable HTTP /mcp initialize + tools/list + tools/call", async () => {
     result: { content: Array<{ text: string }> };
   };
   expect(callBody.result.content[0]?.text).toBe("ok-report");
+});
+
+test("one Hub registration follows live vision selection and never hides configured OAuth errors", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "eco-live-vision-"));
+  temporaryDirectories.push(directory);
+  const imagePath = path.join(directory, "image.png");
+  await fs.writeFile(imagePath, PNG);
+  let visionSelection: VisionModelSelection | undefined;
+  let failUpstream = false;
+  const requests: Array<{ accountId: string | null; path: string }> = [];
+  const upstream = Bun.serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    fetch(request) {
+      requests.push({ accountId: request.headers.get(OAUTH_ACCOUNT_ID_HEADER), path: new URL(request.url).pathname });
+      if (failUpstream) return new Response("upstream unavailable", { status: 503 });
+      return Response.json({ output: [{ type: "message", content: [{ type: "output_text", text: "image analyzed" }] }] });
+    },
+  });
+  const provider = {
+    id: "eco-coding-chatgpt", name: "OAuth", enabled: true, authMethod: "chatgpt_subscription",
+    baseUrl: upstream.url.origin, version: "v1",
+  };
+  const providerStore = {
+    listProvidersWithSecrets: () => [provider],
+    listStatelessModelCandidates: () => [],
+  } as unknown as ProviderStore;
+  let proxyStarts = 0;
+  const host: ImageViewHost = {
+    resolveRoute: () => resolveThreadVisionAnalysisRoute({
+      coreKind: "codex", visionSelection, providerStore,
+      resolveEcoFallback: () => ({ provider: { id: "openai" }, modelId: "login-model" }) as RuntimeRoute,
+    }),
+    startProxy: async () => {
+      proxyStarts++;
+      return { baseUrl: upstream.url.origin, apiKey: "test", aliasModelId: "vision", close: async () => {} };
+    },
+    registerBilling: () => {},
+    unregisterBilling: () => {},
+  };
+  const gateway = createGateway(async input => runImageView({
+    threadId: input.threadId, prompt: input.prompt!, billingAgentId: "vision-test",
+    attachments: [{ mediaType: "image/png", path: input.path, data: PNG.toString("base64") }],
+    signal: input.signal,
+  }, host));
+  const hub = new McpHubGateway();
+  const signal = new AbortController().signal;
+  const call = () => hub.callThreadTool("login", "eco_image_view:view_image", { path: imagePath, prompt: "describe" }, signal);
+  const errorText = (result: Awaited<ReturnType<typeof call>>) => JSON.parse((result.content[0] as { text: string }).text);
+  try {
+    const injection = await gateway.resolveInjection("login");
+    hub.registerThreadServerEntry({ name: ECO_IMAGE_VIEW_MCP_SERVER, threadId: "login", sdkEntry: injection.sdkEntry });
+    await hub.prepareThread({ threadId: "login", allowedServers: [ECO_IMAGE_VIEW_MCP_SERVER] });
+    const tools = await hub.searchThreadTools("login", ECO_IMAGE_VIEW_MCP_SERVER, signal);
+    expect(tools.tools).toHaveLength(1);
+    const missing = await call();
+    expect(missing.isError).toBe(true);
+    expect(errorText(missing)).toMatchObject({ code: "vision_model_unconfigured", nativeTool: "view_image", path: imagePath });
+    expect(proxyStarts).toBe(0);
+
+    visionSelection = { providerId: provider.id, modelId: "model-one", candidateModelId: "account:eco-coding-chatgpt:model-one", accountId: "account-a" };
+    expect((await call()).content).toEqual([{ type: "text", text: "image analyzed" }]);
+    visionSelection = { providerId: provider.id, modelId: "model-two", candidateModelId: "account:eco-coding-chatgpt:model-two", accountId: "account-b" };
+    expect((await call()).isError).toBeUndefined();
+    failUpstream = true;
+    const failed = await call();
+    expect(failed.isError).toBe(true);
+    expect(errorText(failed)).toMatchObject({ code: "analyze_failed", message: expect.stringContaining("HTTP 503") });
+    expect(errorText(failed).nativeTool).toBeUndefined();
+    expect(errorText(failed).path).toBeUndefined();
+
+    visionSelection = { ...visionSelection, accountId: undefined };
+    const unauthorized = await call();
+    expect(errorText(unauthorized)).toMatchObject({ code: "analyze_failed", message: expect.stringContaining("尚未选择账号") });
+    expect(errorText(unauthorized).nativeTool).toBeUndefined();
+    expect(proxyStarts).toBe(3);
+
+    visionSelection = undefined;
+    expect(errorText(await call())).toMatchObject({ code: "vision_model_unconfigured", path: imagePath });
+    failUpstream = false;
+    visionSelection = { providerId: provider.id, modelId: "model-one", candidateModelId: "account:eco-coding-chatgpt:model-one", accountId: "account-a" };
+    expect((await call()).isError).toBeUndefined();
+    expect(await hub.searchThreadTools("login", ECO_IMAGE_VIEW_MCP_SERVER, signal)).toEqual(tools);
+    expect(await gateway.resolveInjection("login")).toEqual(injection);
+    expect(requests).toEqual([
+      { accountId: "account-a", path: "/v1/responses" },
+      { accountId: "account-b", path: "/v1/responses" },
+      { accountId: "account-b", path: "/v1/responses" },
+      { accountId: "account-a", path: "/v1/responses" },
+    ]);
+  } finally {
+    await hub.close();
+    upstream.stop(true);
+  }
+});
+
+test("native-viewer errors retain a resolved path for ref-only calls", async () => {
+  const ref = `sha256:${"a".repeat(64)}`;
+  const gateway = createGateway(async input => {
+    expect(input.ref).toBe(ref);
+    throw new ImageViewNativeRequiredError("/tmp/resolved-image.png");
+  });
+  const result = await gateway.viewForThread("ref-thread", { ref, prompt: "describe" });
+  expect(result.isError).toBe(true);
+  expect(JSON.parse((result.content as Array<{ text: string }>)[0]!.text)).toMatchObject({
+    code: "vision_model_unconfigured", nativeTool: "view_image", path: "/tmp/resolved-image.png",
+  });
 });

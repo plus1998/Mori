@@ -143,6 +143,47 @@
 }
 
 .gateway-settings {
+  & .gateway-arch-accounts { width: 100%; }
+  & :is(.gateway-arch-accounts h2, .gateway-arch-diagram-title) {
+    align-self: flex-start;
+    margin: 0 0 16px;
+    color: var(--text-primary);
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 20px;
+  }
+  & .gateway-arch-account { padding: 0 0 16px; }
+  & .gateway-arch-account + .gateway-arch-account {
+    padding-top: 16px;
+    border-top: 1px solid var(--border-subtle);
+  }
+  & .gateway-arch-account h3 {
+    margin: 0 0 8px;
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 18px;
+  }
+  & .gateway-arch-accounts p {
+    margin: 8px 0 0;
+    color: var(--text-muted);
+    font-size: 12px;
+    line-height: 18px;
+    overflow-wrap: anywhere;
+  }
+  & .gateway-arch-account .gateway-arch-account-path { color: var(--text-secondary); }
+  & .gateway-arch-account dl {
+    display: grid;
+    grid-template-columns: minmax(0, 88px) minmax(0, 1fr);
+    gap: 8px 12px;
+    margin: 12px 0 0;
+    font-size: 12px;
+    line-height: 18px;
+    overflow-wrap: anywhere;
+  }
+  & .gateway-arch-account dt { color: var(--text-secondary); }
+  & .gateway-arch-account dd { margin: 0; color: var(--text-muted); }
+  & .gateway-arch > .gateway-arch-diagram-title { margin-top: 28px; }
   & .gateway-tab-lead { font-size: 13px; line-height: 18px; letter-spacing: inherit; }
   & .gateway-tab-panel .mcp-field + .mcp-field { margin-top: 24px; }
 

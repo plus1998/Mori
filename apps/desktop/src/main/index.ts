@@ -472,6 +472,7 @@ import {
 } from "../shared/prompt-cache-config";
 import { PROMPT_IMAGE_PREVIEWS_METADATA_KEY, type PromptImagePreview } from "../shared/prompt-image-metadata";
 import { buildPromptWithImageReferences } from "../shared/prompt-image-reference";
+import { usesChatGptLogin, usesCodexNativeTitle } from "../shared/codex-native-capabilities";
 import { BUILTIN_VISION_AGENT_ROLE } from "../shared/prompt-image-vision";
 import { computeRouteFingerprint, routesMatchFingerprint } from "../shared/route-fingerprint";
 import { resolveImplicitSkillReadRoots } from "../shared/skill-paths";
@@ -3072,6 +3073,7 @@ app
                 throw new Error("图片 ref 未授权给当前线程。");
               }
               return promptImageFileStore.readContentRefAttachment(ref).then((resolved) => ({
+                path: resolved.path,
                 mimeType: resolved.mediaType,
                 dataBase64: resolved.dataBase64,
               }));
@@ -3083,7 +3085,7 @@ app
           throw new Error(`Unsupported image media type: ${resolvedFile.mimeType}`);
         }
         const attachments: PromptImageAttachment[] = [
-          { mediaType: resolvedFile.mimeType, data: resolvedFile.dataBase64 },
+          { mediaType: resolvedFile.mimeType, data: resolvedFile.dataBase64, path: resolvedFile.path },
         ];
         const agentId = `image_view:${threadId}:${randomUUID()}`;
         const runAttemptId = agentLifecycle.currentRunAttemptId(threadId);
@@ -3747,6 +3749,11 @@ app
       },
       scheduleThreadRunProjectionUpdated,
       onCodexThreadMapped: flushPendingCodexGatewayUsage,
+      onCodexThreadName: (threadId, name) => {
+        const thread = conversationStore.getThread(threadId);
+        if (!thread || !usesCodexNativeTitle(ensureThreadRuntimeConfig(thread))) return;
+        applyCoreSessionTitle(threadId, name);
+      },
       onCodexThreadAttributionRecorded: flushPendingCodexGatewayUsage,
       onAccountRateLimitsUpdated: (accountId, chatgptAccountId, params) => {
         openaiAccountService?.observeQuotaUpdate(accountId, chatgptAccountId, params);
@@ -11148,8 +11155,8 @@ function applyThreadTitleSummary(threadId: string, title: string): void {
   emitThreadEvent(threadId, "thread.title_updated", "标题已更新", "system", false, { title });
 }
 
-/** ACP owns the sidebar title via session_info_update — do not require a placeholder. */
-function applyAcpSessionTitle(threadId: string, rawTitle: string): void {
+/** Native session names may change after the initial placeholder has been replaced. */
+function applyCoreSessionTitle(threadId: string, rawTitle: string): void {
   const title = normalizeAcpSessionTitle(rawTitle);
   if (!title) {
     return;
@@ -11211,6 +11218,7 @@ function scheduleThreadTitleSummary(threadId: string): boolean {
   const thread = conversationStore.getThread(threadId);
   if (
     !thread ||
+    !thread.runtimeConfig?.auxiliaryModel ||
     !canRegenerateThreadTitle(thread.title, titleGeneratingThreadIds.has(threadId), thread.coreKind)
   ) {
     return false;
@@ -11221,13 +11229,6 @@ function scheduleThreadTitleSummary(threadId: string): boolean {
   emitThreadEvent(threadId, "thread.title_generating", "", "system", false, {
     titleGenerating: true,
   });
-  if (!thread.runtimeConfig?.auxiliaryModel) {
-    titleGeneratingThreadIds.delete(threadId);
-    emitThreadEvent(threadId, "thread.title_generating", "", "system", false, {
-      titleGenerating: false,
-    });
-    return true;
-  }
   // Keep the placeholder until the generated title passes parsing and sanitization.
   void (async () => {
     const outputOptions = await resolveSelectedModelOutputOptions(thread.runtimeConfig?.auxiliaryModel);
@@ -12231,7 +12232,7 @@ function acpRuntimeOrchestrationDeps(): import("./acp-runtime-run").AcpRuntimeOr
           }
           if (event.type !== "session.title" || !isRecord(event.payload)) return;
           const title = typeof event.payload.title === "string" ? event.payload.title : "";
-          applyAcpSessionTitle(threadId, title);
+          applyCoreSessionTitle(threadId, title);
         },
         emitActivity: emitSdkStreamActivity,
       }),
@@ -21014,6 +21015,13 @@ async function resolvePromptImagesForMainContext(input: {
 }): Promise<string> {
   imageViewGateway.noteThreadPrompt(input.threadId, input.prompt);
   const thread = conversationStore.getThread(input.threadId);
+  const loginImages = Boolean(thread && usesChatGptLogin(ensureThreadRuntimeConfig(thread)));
+  const attachments = loginImages && input.attachments?.length
+    ? await promptImageFileStore.resolveAttachmentsForRuntime(input.attachments)
+    : input.attachments;
+  if (loginImages && attachments?.some((attachment) => !attachment.path?.trim())) {
+    throw new Error("Codex 原生看图需要本地图片路径，请重新添加图片。");
+  }
   if (thread?.workLocation) {
     const hasRuntimeSession = Boolean(conversationStore.getThreadCoreSession(input.threadId));
     const rebuildContext = thread.workLocation.contextResetPending && !hasRuntimeSession;
@@ -21023,7 +21031,7 @@ async function resolvePromptImagesForMainContext(input: {
   }
   return buildPromptWithImageReferences({
     prompt: await composerReferenceService.resolvePrompt(input.threadId, input.prompt),
-    ...(input.attachments ? { attachments: input.attachments } : {}),
+    ...(attachments ? { attachments } : {}),
   });
 }
 

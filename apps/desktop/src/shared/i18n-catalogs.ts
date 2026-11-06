@@ -1238,11 +1238,31 @@ export const i18nCatalogs = {
       "settings.gateway.tab.headers": "请求头",
       "settings.gateway.headers.other": "其他（未识别来源）",
       "settings.gateway.arch.subtitle":
-        "三个 Harness 都只请求本机网关；协议转换、凭据、出站代理和请求头都发生在网关 → 上游这一段。",
+        "ChatGPT Login 由 Codex 登录并直接请求；ChatGPT OAuth 与自定义提供商由 Mori 通过本机网关请求，两者的账号范围与可用场景不同。",
+      "settings.gateway.arch.accountsTitle": "ChatGPT 的两种接入方式",
+      "settings.gateway.arch.loginPath": "Codex → ChatGPT（不经过 Mori 模型网关）",
+      "settings.gateway.arch.accountScope": "账号范围",
+      "settings.gateway.arch.supportedUses": "可用场景",
+      "settings.gateway.arch.loginAccount":
+        "依赖 Codex 的登录机制。每个 Codex 进程使用一份 auth.json；主模型选择进程账号，Login 子代理共享该账号，不能单独选择账号。",
+      "settings.gateway.arch.loginUses":
+        "用于 Codex 主模型，以及该 Login 主会话下的 Login 子代理。当前辅助模型、独立视觉模型走 Mori 请求链路，尚未接入 Codex 专用调用，因此不能选择 Login。",
+      "settings.gateway.arch.loginDefaults":
+        "Login 主模型未配置辅助模型时，只同步 Codex 已有标题；无标题时保留“新任务”。Mori 看图工具始终保留，调用时读取最新配置；未配置独立视觉模型时，返回未配置错误及本地图片路径，指引 Agent 使用 Codex 原生看图。已配置模型的调用错误会如实返回。",
+      "settings.gateway.arch.oauthPath": "Mori → 本机网关 → ChatGPT Responses API",
+      "settings.gateway.arch.oauthAccount":
+        "OAuth 授权由 Mori 管理，Mori 自行发起请求，不依赖 Codex 的 auth.json。先选账号池中的账号，再选模型；主模型、子代理、辅助模型和视觉模型可分别绑定账号。",
+      "settings.gateway.arch.oauthUses":
+        "可用于 Codex、Claude Code、PI 的主模型与子代理，也可用于独立辅助模型和视觉模型。上游固定使用 Responses 协议。",
+      "settings.gateway.arch.customAccounts":
+        "自定义提供商没有账号池选择，直接选择提供商及其模型，使用该提供商配置的凭据。",
+      "settings.gateway.arch.independentProtocol":
+        "辅助模型、独立视觉模型按自身提供商与模型配置选择协议，不随主 Harness 改变，也不做 Harness 协议转换；例如使用 Claude Code 时，ChatGPT OAuth 视觉模型仍使用 Responses。",
+      "settings.gateway.arch.diagramTitle": "经本机网关的请求",
       "settings.gateway.arch.core": "本机网关",
       "settings.gateway.arch.protocols": "协议入口",
       "settings.gateway.arch.credentials": "凭据",
-      "settings.gateway.arch.credentialsValue": "API Key · auth.json · ChatGPT 订阅（OpenID OAuth）",
+      "settings.gateway.arch.credentialsValue": "提供商凭据（如 API Key）· ChatGPT OAuth",
       "settings.gateway.arch.outbound": "出站代理（可选）",
       "settings.gateway.arch.outboundHint": "请求头也在这里注入",
       "settings.gateway.arch.upstream": "上游 API",
@@ -1250,9 +1270,9 @@ export const i18nCatalogs = {
       "settings.gateway.arch.noteLoopback":
         "Agent ↔ 网关是本机同进程直连（Bridge 面 = 127.0.0.1:18765），不经过代理，也不出网。",
       "settings.gateway.arch.noteProtocol":
-        "网关把三种入口协议（Responses / Messages / Chat Completions）转换成 Provider 需要的上游协议。",
+        "使用自定义提供商或 ChatGPT OAuth 时，网关将 Harness 的入口协议转换成提供商的上游协议；例如 Claude Code 的 Messages 可转换为 ChatGPT OAuth 的 Responses。",
       "settings.gateway.arch.noteCredentials":
-        "凭据按 Provider 认证方式解析：API Key、auth.json、或 ChatGPT 订阅（OAuth 令牌由桌面端登录并自动刷新）；Claude Code 与 PI 不使用 Claude 订阅登录。",
+        "Mori 管理网关请求的提供商凭据与 OAuth 令牌刷新。Codex Login 的 auth.json 由 Codex 使用，不属于这条网关链路；此处出站代理与请求头设置作用于网关请求。Claude Code 与 PI 不使用 Claude 订阅登录。",
       "settings.proxy.enabled": "启用出站代理",
       "settings.proxy.url": "代理地址",
       "settings.proxy.urlPlaceholder": "例如 socks5://127.0.0.1:7890 或 http://127.0.0.1:8080",
@@ -3215,6 +3235,8 @@ export const i18nCatalogs = {
       "composer.mainPicker.accounts": "账号",
       "composer.mainPicker.searchAccounts": "搜索提供商、账号或模型",
       "composer.mainPicker.useMainAccount": "使用主模型账号",
+      "composer.mainPicker.inheritMainAccount": "账号沿用主会话",
+      "composer.mainPicker.loginSubagentAccountHint": "Login 子代理共享主 Codex 进程的登录账号，不能单独切换。仅可用于 Codex Login 主会话；如需独立选择账号，请使用 ChatGPT OAuth。",
       "composer.mainPicker.manageAccounts": "管理账号",
       "composer.mainPicker.reselectModel": "该账号不支持原模型，请重新选择模型。",
       "composer.mainPicker.selectedAccount": "已绑定账号",
@@ -3239,7 +3261,7 @@ export const i18nCatalogs = {
       "composer.route.auxiliaryModelHint": "用于标题生成、Git 提交信息",
       "composer.route.auxiliaryModelHintAcp": "用于 Git 提交信息生成",
       "composer.route.visionModel": "视觉模型",
-      "composer.route.visionModelHint": "用于 image_view 工具；未配置时使用主模型",
+      "composer.route.visionModelHint": "用于独立看图；未配置时，ChatGPT Login 使用 Codex 原生看图，其他模型使用主模型",
       "composer.route.visionModelHintAcp": "用于看图（imageView）。ACP 没有 Mori 主模型可回退，必须单独配置",
       "composer.route.defaultBuiltinPrompt": "跟随 Agent 内置提示词",
       "composer.route.notConfigured": "未配置",
@@ -4999,11 +5021,31 @@ export const i18nCatalogs = {
       "settings.gateway.tab.headers": "Headers",
       "settings.gateway.headers.other": "Other (unidentified)",
       "settings.gateway.arch.subtitle":
-        "All three Harnesses call only the local gateway; protocol conversion, credentials, outbound proxy and request headers all happen on the gateway → upstream leg.",
+        "ChatGPT Login signs in and sends requests through Codex. Mori sends ChatGPT OAuth and custom-provider requests through the local gateway. Their account scope and supported uses differ.",
+      "settings.gateway.arch.accountsTitle": "Two ways to connect to ChatGPT",
+      "settings.gateway.arch.loginPath": "Codex → ChatGPT (bypasses the Mori model gateway)",
+      "settings.gateway.arch.accountScope": "Account scope",
+      "settings.gateway.arch.supportedUses": "Supported uses",
+      "settings.gateway.arch.loginAccount":
+        "Uses Codex sign-in. Each Codex process uses one auth.json; the main model selects the process account. Login subagents share that account and cannot select a separate one.",
+      "settings.gateway.arch.loginUses":
+        "Available for the Codex main model and Login subagents within that Login main session. Auxiliary and independent vision models currently use Mori's request path, with no dedicated Codex invocation path, so Login cannot be selected for them.",
+      "settings.gateway.arch.loginDefaults":
+        "Without an auxiliary model, a Login main model only syncs an existing Codex title; otherwise the title stays “New task”. Mori image viewing stays available and reads the latest configuration at each call. Without an independent vision model, it returns an unconfigured-model error and local image path, directing the agent to Codex's native viewer. Configured model failures are reported as received.",
+      "settings.gateway.arch.oauthPath": "Mori → Local gateway → ChatGPT Responses API",
+      "settings.gateway.arch.oauthAccount":
+        "Mori manages the OAuth authorization and sends requests itself, independently of Codex's auth.json. Select an account from the pool, then a model. Main models, subagents, auxiliary models and vision models can each bind their own account.",
+      "settings.gateway.arch.oauthUses":
+        "Available for main models and subagents in Codex, Claude Code and PI, as well as independent auxiliary and vision models. The upstream always uses the Responses protocol.",
+      "settings.gateway.arch.customAccounts":
+        "Custom providers have no account-pool selector. Select the provider and model directly; requests use the credentials configured for that provider.",
+      "settings.gateway.arch.independentProtocol":
+        "Auxiliary and independent vision models use their own provider and model protocol settings, without Harness protocol conversion. Changing the main Harness does not change their protocol: a ChatGPT OAuth vision model still uses Responses with Claude Code.",
+      "settings.gateway.arch.diagramTitle": "Requests through the local gateway",
       "settings.gateway.arch.core": "Local gateway",
       "settings.gateway.arch.protocols": "Protocol endpoints",
       "settings.gateway.arch.credentials": "Credentials",
-      "settings.gateway.arch.credentialsValue": "API key · auth.json · ChatGPT subscription (OpenID OAuth)",
+      "settings.gateway.arch.credentialsValue": "Provider credentials (e.g. API key) · ChatGPT OAuth",
       "settings.gateway.arch.outbound": "Outbound proxy (optional)",
       "settings.gateway.arch.outboundHint": "Request headers are injected here too",
       "settings.gateway.arch.upstream": "Upstream API",
@@ -5011,9 +5053,9 @@ export const i18nCatalogs = {
       "settings.gateway.arch.noteLoopback":
         "Agent ↔ gateway is an in-process loopback (the bridge face on 127.0.0.1:18765): it never goes through the proxy and never leaves the machine.",
       "settings.gateway.arch.noteProtocol":
-        "The gateway converts the three inbound protocols (Responses / Messages / Chat Completions) into whatever upstream protocol the provider needs.",
+        "For custom providers and ChatGPT OAuth, the gateway converts the Harness input protocol into the provider's upstream protocol. For example, Claude Code Messages can be converted to ChatGPT OAuth Responses.",
       "settings.gateway.arch.noteCredentials":
-        "Credentials follow each provider's auth method: API key, auth.json, or ChatGPT subscription (OAuth tokens are obtained by the desktop app and refreshed automatically); Claude Code and PI never use Claude subscription login.",
+        "Mori manages provider credentials and OAuth token refresh for gateway requests. Codex uses Login's auth.json outside this gateway path. The proxy and header settings here apply to gateway requests. Claude Code and PI do not use Claude subscription login.",
       "settings.proxy.enabled": "Enable outbound proxy",
       "settings.proxy.url": "Proxy URL",
       "settings.proxy.urlPlaceholder": "e.g. socks5://127.0.0.1:7890 or http://127.0.0.1:8080",
@@ -7058,6 +7100,8 @@ export const i18nCatalogs = {
       "composer.mainPicker.accounts": "Accounts",
       "composer.mainPicker.searchAccounts": "Search providers, accounts or models",
       "composer.mainPicker.useMainAccount": "Use main model account",
+      "composer.mainPicker.inheritMainAccount": "Account inherited from the main session",
+      "composer.mainPicker.loginSubagentAccountHint": "Login subagents share the main Codex process account and cannot switch accounts independently. A Codex Login main session is required. Use ChatGPT OAuth to select a separate account.",
       "composer.mainPicker.manageAccounts": "Manage accounts",
       "composer.mainPicker.reselectModel": "This account does not support the current model. Select another model.",
       "composer.mainPicker.selectedAccount": "Bound account",
@@ -7084,7 +7128,7 @@ export const i18nCatalogs = {
       "composer.route.auxiliaryModelHintAcp": "Used to generate Git commit messages",
       "composer.route.visionModel": "Vision model",
       "composer.route.visionModelHint":
-        "Used by the image_view tool; falls back to the main model when unset",
+        "Used for independent image analysis; when unset, ChatGPT Login uses Codex native image viewing, other providers use the main model",
       "composer.route.visionModelHintAcp":
         "Used by imageView. ACP has no Mori main model fallback, so this must be set",
       "composer.route.defaultBuiltinPrompt": "Use agent's built-in prompt",

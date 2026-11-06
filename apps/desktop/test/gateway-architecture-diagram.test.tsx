@@ -26,7 +26,7 @@ test("diagram places the outbound proxy, headers and credentials on the gateway 
   const markup = renderLocalized(createElement(GatewayArchitectureDiagram), "zh-CN");
   expect(markup).toContain("出站代理（可选）");
   expect(markup).toContain("请求头也在这里注入");
-  expect(markup).toContain("ChatGPT 订阅（OpenID OAuth）");
+  expect(markup).toContain("提供商凭据（如 API Key）· ChatGPT OAuth");
   expect(markup).toContain("上游 API");
   // The loopback hop must be described as proxy-free, that is the whole point of the diagram.
   expect(markup).toContain("不经过代理");
