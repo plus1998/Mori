@@ -1,7 +1,11 @@
 import { expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { isThreadWaitingForApproval, ProjectSidebarTree } from "../src/renderer/ProjectSidebarTree";
+import {
+  isThreadWaitingForApproval,
+  ProjectSidebarTree,
+  sidebarThreadStatus,
+} from "../src/renderer/ProjectSidebarTree";
 import type { ThreadSummary } from "../src/shared/ipc";
 
 test("renders stable reveal targets for projects and threads", () => {
@@ -95,4 +99,26 @@ test("detects waiting threads from status and pending approvals, not slogans", (
       message: "等待确认 Read：/etc/hosts",
     } satisfies ThreadSummary),
   ).toBe(false);
+});
+
+test("linked execution replaces plan approval presentation without changing source runtime status", () => {
+  const source = { status: "awaiting_plan" } as const;
+  for (const status of ["queued", "running", "completed", "failed", "cancelled", "interrupted"] as const) {
+    expect(isThreadWaitingForApproval(source, { planExecutionStatus: status })).toBe(false);
+    expect(
+      isThreadWaitingForApproval(source, {
+        planExecutionStatus: status,
+        hasPendingBashApproval: true,
+      }),
+    ).toBe(true);
+  }
+  expect(sidebarThreadStatus(source, "running")).toBe("running");
+  expect(sidebarThreadStatus(source, "queued")).toBe("queued");
+  expect(sidebarThreadStatus(source, "completed")).toBe("completed");
+  expect(sidebarThreadStatus(source, "failed")).toBe("failed");
+  expect(sidebarThreadStatus(source, "interrupted")).toBe("blocked");
+  expect(sidebarThreadStatus(source, "cancelled")).toBe("idle");
+  expect(sidebarThreadStatus(source)).toBe("awaiting_plan");
+  expect(sidebarThreadStatus({ status: "running" }, "completed")).toBe("running");
+  expect(source.status).toBe("awaiting_plan");
 });

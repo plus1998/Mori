@@ -17,11 +17,13 @@ import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import type { ThreadSummary } from "../shared/ipc";
 import type { AppLocale } from "../shared/locale";
+import type { PlanExecutionStatus } from "../shared/plan-execution";
 import { ICON_SIZE, ICON_STROKE } from "./icon-metrics";
 import { coreDisplayName, coreIconSrc } from "./SidebarCoreSelector";
 import type { ProjectReorderPosition } from "./project-sidebar-order";
 import { formatRelativeTime } from "./relative-time";
 import { OverflowFadeText } from "./OverflowFadeText";
+import { useSidebarPlanExecutions } from "./sidebar-plan-executions";
 
 const PROJECT_DRAG_MIME = "application/x-eco-project-path";
 
@@ -105,6 +107,13 @@ export function ProjectSidebarTree({
   pendingPlanThreadIds,
 }: ProjectSidebarTreeProps) {
   const { t, i18n } = useTranslation();
+  const planSourceIdsKey = JSON.stringify(
+    projectTree.flatMap((project) => project.collapsed ? [] : project.visibleThreads
+      .filter((thread) => thread.status === "awaiting_plan" || pendingPlanThreadIds?.has(thread.id))
+      .map((thread) => thread.id),
+    ).sort(),
+  );
+  const planExecutions = useSidebarPlanExecutions(planSourceIdsKey);
   const locale = (i18n.resolvedLanguage ?? i18n.language) as AppLocale;
   const [fileDropActive, setFileDropActive] = useState(false);
   const [draggingPath, setDraggingPath] = useState<string>();
@@ -519,17 +528,23 @@ export function ProjectSidebarTree({
           projectThreads.length > 0 ? (
             <>
               {visibleThreads.map((thread) => {
-                const isThreadBusy = thread.status === "running" || thread.status === "queued";
+                const execution = planExecutions[thread.id];
+                const displayStatus = sidebarThreadStatus(thread, execution?.status);
+                const isThreadBusy = displayStatus === "running" || displayStatus === "queued";
                 const isThreadAwaitingApproval = isThreadWaitingForApproval(thread, {
                   hasPendingBashApproval: pendingBashApprovalThreadIds?.has(thread.id) === true,
                   hasPendingPlan: pendingPlanThreadIds?.has(thread.id) === true,
+                  ...(execution?.status ? { planExecutionStatus: execution.status } : {}),
                 });
+                const executionError = execution?.error
+                  ? t("planExecution.loadFailed", { detail: execution.error }) : undefined;
                 const isThreadUnread = unreadThreadIds.has(thread.id);
                 const hasThreadStatusIndicator =
                   isThreadAwaitingApproval ||
                   isThreadBusy ||
-                  thread.status === "failed" ||
-                  thread.status === "blocked" ||
+                  executionError ||
+                  displayStatus === "failed" ||
+                  displayStatus === "blocked" ||
                   isThreadUnread;
                 const isThreadPinned = pinnedThreadIds.has(thread.id);
                 const rowClassName = [
@@ -569,7 +584,9 @@ export function ProjectSidebarTree({
                       </span>
                       {hasThreadStatusIndicator ? (
                         <span className="chat-item-meta">
-                          {isThreadAwaitingApproval ? (
+                          {executionError && !pendingBashApprovalThreadIds?.has(thread.id) ? (
+                            <span className="status-dot failed" title={executionError} role="img" aria-label={executionError} />
+                          ) : isThreadAwaitingApproval ? (
                             <span
                               className="chat-item-approval"
                               title={thread.message || t("projectTree.awaitingApproval")}
@@ -579,9 +596,9 @@ export function ProjectSidebarTree({
                           ) : isThreadBusy ? (
                             <span
                               className="chat-item-loading"
-                              title={thread.cancelling ? t("activity.stopping") : thread.status}
+                              title={thread.cancelling ? t("activity.stopping") : t("task.status.running")}
                               role="img"
-                              aria-label={thread.cancelling ? t("activity.stopping") : thread.status}
+                              aria-label={thread.cancelling ? t("activity.stopping") : t("task.status.running")}
                             >
                               <LoaderCircle
                                 size={ICON_SIZE.sm}
@@ -598,7 +615,7 @@ export function ProjectSidebarTree({
                               aria-label={t("projectTree.completedUnread")}
                             />
                           ) : (
-                            <span className={`status-dot ${thread.status}`} title={thread.status} />
+                            <span className={`status-dot ${displayStatus}`} title={displayStatus} />
                           )}
                         </span>
                       ) : null}
@@ -808,10 +825,26 @@ export function ProjectActionMenu({
 
 export function isThreadWaitingForApproval(
   thread: Pick<ThreadSummary, "status">,
-  input?: { hasPendingBashApproval?: boolean; hasPendingPlan?: boolean },
+  input?: {
+    hasPendingBashApproval?: boolean;
+    hasPendingPlan?: boolean;
+    planExecutionStatus?: PlanExecutionStatus;
+  },
 ): boolean {
+  if (input?.hasPendingBashApproval === true) return true;
   if (thread.status === "awaiting_plan" || input?.hasPendingPlan === true) {
-    return true;
+    return input?.planExecutionStatus === undefined;
   }
-  return input?.hasPendingBashApproval === true;
+  return false;
+}
+
+/** Presentation only: the source's runtime must keep its real approval state. */
+export function sidebarThreadStatus(
+  thread: Pick<ThreadSummary, "status">,
+  executionStatus?: PlanExecutionStatus,
+): ThreadSummary["status"] {
+  if (thread.status !== "awaiting_plan" || !executionStatus) return thread.status;
+  if (executionStatus === "interrupted") return "blocked";
+  if (executionStatus === "cancelled") return "idle";
+  return executionStatus;
 }

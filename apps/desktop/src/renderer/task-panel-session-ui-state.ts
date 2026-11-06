@@ -1,6 +1,6 @@
+import { type BrowserSplitLayout, normalizeBrowserSplitLayout } from "./browser-split-layout";
 import { TASK_PANEL_HOME_TAB_ID, type TaskPanelActiveTab } from "./SubagentTaskDrawer";
 import type { WorkspaceFileReference } from "./workspace-file-reference";
-import { normalizeBrowserSplitLayout, type BrowserSplitLayout } from "./browser-split-layout";
 
 export type TaskPanelSessionFileTarget = WorkspaceFileReference & {
   requestId?: number;
@@ -77,14 +77,13 @@ export function normalizeTaskPanelSessionUiState(value: unknown): TaskPanelSessi
     typeof record.selectedSubagentAgentId === "string" && record.selectedSubagentAgentId.trim()
       ? record.selectedSubagentAgentId.trim()
       : undefined;
-  const open = record.open === true;
+  // Home is a selection sentinel, not a renderable tab. An empty session must
+  // not restore an open (or fullscreen) panel when switching conversations.
+  const open = record.open === true && openTabIds.length > 0;
 
   return {
     open,
-    activeTab:
-      openTabIds.includes(activeTab) || activeTab === TASK_PANEL_HOME_TAB_ID
-        ? activeTab
-        : (openTabIds.at(-1) ?? TASK_PANEL_HOME_TAB_ID),
+    activeTab: openTabIds.includes(activeTab) ? activeTab : (openTabIds.at(-1) ?? TASK_PANEL_HOME_TAB_ID),
     openTabIds,
     fullscreen: open && record.fullscreen === true,
     ...(browserSplit ? { browserSplit } : {}),

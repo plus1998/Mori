@@ -6037,6 +6037,8 @@ function App() {
     return drafts.map(finishActivityUserMessageNavItem);
   }, [activeProjectionViewModel, activeThread?.id, activeThread?.prompt]);
 
+  const taskPanelSessionRestoring = taskPanelUiThreadIdRef.current !== browserScopeId;
+
   useEffect(() => {
     const nextThreadId = browserScopeId;
     const prevThreadId = taskPanelUiThreadIdRef.current;
@@ -6506,6 +6508,13 @@ function App() {
       return next;
     });
   }, [activeProjectionViewModel, activeSubagentCards, browserInstanceIds, browserScopeReady, taskPanelActiveTab]);
+
+  useEffect(() => {
+    // A scope switch first restores its own tabs. Do not close that panel using
+    // the previous conversation's empty list from the switching render.
+    if (taskPanelSessionRestoring || !browserScopeReady || openTaskPanelTabIds.length > 0) return;
+    dismissTaskPanel();
+  }, [browserScopeReady, dismissTaskPanel, openTaskPanelTabIds.length, taskPanelSessionRestoring]);
 
   const toggleWorkPanelForCurrentProject = useCallback(() => {
     toggleWorkspacePanelForCurrentProject();

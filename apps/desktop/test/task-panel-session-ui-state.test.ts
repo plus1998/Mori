@@ -87,9 +87,37 @@ describe("task panel session ui state", () => {
         fileTarget: { line: 4 },
       }),
     ).toEqual({
-      open: true,
+      open: false,
       activeTab: TASK_PANEL_HOME_TAB_ID,
       openTabIds: [],
+      fullscreen: false,
+    });
+  });
+
+  test("switching back to a session with no tabs restores a closed panel", () => {
+    for (const activeTab of [TASK_PANEL_HOME_TAB_ID, "browser:closed"]) {
+      const saved = captureTaskPanelSessionUiState({
+        open: true,
+        activeTab,
+        openTabIds: [],
+        fullscreen: true,
+      });
+      expect(normalizeTaskPanelSessionUiState(saved)).toEqual(emptyTaskPanelSessionUiState());
+    }
+  });
+
+  test("home selection restores the last remaining tab instead of an empty body", () => {
+    expect(
+      normalizeTaskPanelSessionUiState({
+        open: true,
+        activeTab: TASK_PANEL_HOME_TAB_ID,
+        openTabIds: [TASK_PANEL_FILES_TAB_ID, TASK_PANEL_REVIEW_TAB_ID],
+        fullscreen: false,
+      }),
+    ).toEqual({
+      open: true,
+      activeTab: TASK_PANEL_REVIEW_TAB_ID,
+      openTabIds: [TASK_PANEL_FILES_TAB_ID, TASK_PANEL_REVIEW_TAB_ID],
       fullscreen: false,
     });
   });
