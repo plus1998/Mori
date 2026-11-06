@@ -1,13 +1,3 @@
-import { SettingsPage, SettingsSection } from "./components/SettingsPage";
-import { SettingsGroup, SettingsRow } from "./components/SettingsRow";
-import {
-  SettingsButton,
-  SettingsInput,
-  SettingsSelect,
-  SettingsTextarea,
-} from "./components/SettingsControls";
-import { Switch } from "./components/Switch";
-import { useTranslation } from "react-i18next";
 import type { ConversationMessage } from "@eco/shared";
 import {
   ArrowDown,
@@ -34,6 +24,7 @@ import {
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   DEFAULT_MORI_ASSISTANT_SETTINGS,
   type MoriAssistantSettings,
@@ -46,13 +37,23 @@ import {
   type MoriPetHitMap,
   moriPetHitTest,
 } from "../shared/mori-pet";
+import {
+  SettingsButton,
+  SettingsInput,
+  SettingsSelect,
+  SettingsTextarea,
+} from "./components/SettingsControls";
+import { SettingsPage, SettingsSection } from "./components/SettingsPage";
+import { SettingsGroup, SettingsRow } from "./components/SettingsRow";
+import { Switch } from "./components/Switch";
+import { ICON_SIZE, ICON_STROKE } from "./icon-metrics";
 import { shortcutMatches, useKeyboardShortcuts } from "./keyboard-shortcuts";
 import { LazyOpenAIAccountsPanel } from "./lazy-app-panels";
 import { MarkdownContent } from "./MarkdownContent";
 import { MoriIcon } from "./MoriIcon";
-import { MoriScheduledCards } from "./MoriScheduledCards";
 import { MoriPetSettings } from "./MoriPetSettings";
 import { MoriPetSprite } from "./MoriPetSprite";
+import { MoriScheduledCards } from "./MoriScheduledCards";
 import { DEFAULT_MORI_PET } from "./mori-default-pet";
 import "./mori-assistant.css";
 
@@ -513,9 +514,14 @@ export function MoriAssistantSettingsPanel({
                       type="checkbox"
                       checked={settings.mcpServerIds.includes(server.id)}
                       disabled={locked || (!server.available && !settings.mcpServerIds.includes(server.id))}
-                      onChange={(event) => patch("mcpServerIds", event.target.checked
-                        ? [...settings.mcpServerIds, server.id]
-                        : settings.mcpServerIds.filter((id) => id !== server.id))}
+                      onChange={(event) =>
+                        patch(
+                          "mcpServerIds",
+                          event.target.checked
+                            ? [...settings.mcpServerIds, server.id]
+                            : settings.mcpServerIds.filter((id) => id !== server.id),
+                        )
+                      }
                     />
                   )}
                 />
@@ -532,7 +538,12 @@ export function MoriAssistantSettingsPanel({
                         {...controlProps}
                         type="checkbox"
                         checked
-                        onChange={() => patch("mcpServerIds", settings.mcpServerIds.filter((value) => value !== id))}
+                        onChange={() =>
+                          patch(
+                            "mcpServerIds",
+                            settings.mcpServerIds.filter((value) => value !== id),
+                          )
+                        }
                       />
                     )}
                   />
@@ -545,7 +556,8 @@ export function MoriAssistantSettingsPanel({
             </p>
             {onOpenMcp ? (
               <SettingsButton variant="secondary" type="button" onClick={onOpenMcp}>
-                管理 MCP 服务<ChevronRight size={13} />
+                管理 MCP 服务
+                <ChevronRight size={13} />
               </SettingsButton>
             ) : null}
           </SettingsSection>
@@ -1065,7 +1077,7 @@ export function MoriAssistantPanel({
           />
         </span>
         <div className="mori-heading">
-          <strong>{snapshot?.settings.name ?? "Mori"}</strong>
+          <strong title={snapshot?.settings.name ?? "Mori"}>{snapshot?.settings.name ?? "Mori"}</strong>
           <small>
             <span className={`mori-presence ${busy ? "is-busy" : ""}`} />
             {!snapshot
@@ -1083,7 +1095,8 @@ export function MoriAssistantPanel({
                       : "随时可以开始"}
           </small>
         </div>
-        <button
+        <SettingsButton
+          variant="ghost"
           type="button"
           title={t("moriUi.moriAssistant.history")}
           aria-label={t("moriUi.moriAssistant.history")}
@@ -1096,27 +1109,30 @@ export function MoriAssistantPanel({
             setHistoryQuery("");
           }}
         >
-          <History size={16} />
-        </button>
-        <button
+          <History strokeWidth={ICON_STROKE} aria-hidden size={ICON_SIZE.md} />
+        </SettingsButton>
+        <SettingsButton
+          variant="ghost"
           type="button"
           title={t("moriUi.moriAssistant.newChat")}
           aria-label={t("moriUi.moriAssistant.newChat")}
           disabled={sessionBusy}
           onClick={() => void switchSession()}
         >
-          <Plus size={17} />
-        </button>
-        <button
+          <Plus strokeWidth={ICON_STROKE} aria-hidden size={ICON_SIZE.md} />
+        </SettingsButton>
+        <SettingsButton
+          variant="ghost"
           type="button"
           title={t("moriUi.moriAssistant.assistantSettings")}
           aria-label={t("moriUi.moriAssistant.assistantSettings")}
           onClick={openSettings}
         >
-          <Settings size={16} />
-        </button>
+          <Settings strokeWidth={ICON_STROKE} aria-hidden size={ICON_SIZE.md} />
+        </SettingsButton>
         {floating ? (
-          <button
+          <SettingsButton
+            variant="ghost"
             type="button"
             title={t("moriUi.moriAssistant.expandMain")}
             aria-label={t("moriUi.moriAssistant.expandMain")}
@@ -1127,10 +1143,11 @@ export function MoriAssistantPanel({
               })
             }
           >
-            <Maximize2 size={15} />
-          </button>
+            <Maximize2 strokeWidth={ICON_STROKE} aria-hidden size={ICON_SIZE.md} />
+          </SettingsButton>
         ) : null}
-        <button
+        <SettingsButton
+          variant="ghost"
           type="button"
           title={floating ? "收起 Mori" : "返回工作页"}
           aria-label={floating ? "收起 Mori" : "返回工作页"}
@@ -1142,14 +1159,19 @@ export function MoriAssistantPanel({
             })
           }
         >
-          {floating ? <Minus size={17} /> : <ArrowLeft size={17} />}
-        </button>
+          {floating ? (
+            <Minus strokeWidth={ICON_STROKE} aria-hidden size={ICON_SIZE.md} />
+          ) : (
+            <ArrowLeft strokeWidth={ICON_STROKE} aria-hidden size={ICON_SIZE.md} />
+          )}
+        </SettingsButton>
       </header>
       {historyOpen ? (
         <div className="mori-history" id="mori-history" ref={history}>
           <div className="mori-history-heading">
             <strong>{t("moriUi.moriAssistant.conversation")}</strong>
-            <button
+            <SettingsButton
+              variant="ghost"
               type="button"
               aria-label={t("moriUi.moriAssistant.closeHistory")}
               onClick={() => {
@@ -1157,12 +1179,12 @@ export function MoriAssistantPanel({
                 historyTrigger.current?.focus();
               }}
             >
-              <X size={14} />
-            </button>
+              <X strokeWidth={ICON_STROKE} aria-hidden size={ICON_SIZE.sm} />
+            </SettingsButton>
           </div>
           <label className="mori-history-search">
-            <Search size={14} />
-            <input
+            <Search strokeWidth={ICON_STROKE} aria-hidden size={ICON_SIZE.sm} />
+            <SettingsInput
               aria-label={t("moriUi.moriAssistant.searchHistory")}
               placeholder={t("moriUi.moriAssistant.searchPlaceholder")}
               value={historyQuery}
@@ -1175,7 +1197,8 @@ export function MoriAssistantPanel({
               snapshot.sessions
                 .filter((item) => item.title.toLocaleLowerCase().includes(historyQuery.toLocaleLowerCase()))
                 .map((item) => (
-                  <button
+                  <SettingsButton
+                    variant="ghost"
                     type="button"
                     key={item.threadId}
                     disabled={sessionBusy}
@@ -1192,8 +1215,10 @@ export function MoriAssistantPanel({
                         })}
                       </small>
                     </span>
-                    {item.threadId === snapshot.currentThreadId ? <Check size={14} /> : null}
-                  </button>
+                    {item.threadId === snapshot.currentThreadId ? (
+                      <Check strokeWidth={ICON_STROKE} aria-hidden size={ICON_SIZE.sm} />
+                    ) : null}
+                  </SettingsButton>
                 ))
             ) : (
               <p>{t("moriUi.moriAssistant.noHistory")}</p>
@@ -1209,10 +1234,10 @@ export function MoriAssistantPanel({
       ) : null}
       {settingsOpen ? (
         <div className="mori-embedded-settings">
-          <button type="button" onClick={() => setSettingsOpen(false)}>
-            <ArrowLeft size={14} />
+          <SettingsButton variant="ghost" type="button" onClick={() => setSettingsOpen(false)}>
+            <ArrowLeft strokeWidth={ICON_STROKE} aria-hidden size={ICON_SIZE.sm} />
             {t("moriUi.moriAssistant.backToChat")}
-          </button>
+          </SettingsButton>
           <MoriAssistantSettingsPanel onDone={() => setSettingsOpen(false)} />
         </div>
       ) : (
@@ -1239,17 +1264,17 @@ export function MoriAssistantPanel({
                 <p>{t("moriUi.moriAssistant.greetingHint")}</p>
                 <div className="mori-onboarding">
                   <span>
-                    <Check size={13} />
+                    <Check strokeWidth={ICON_STROKE} aria-hidden size={ICON_SIZE.sm} />
                     {t("moriUi.moriAssistant.chooseChatgpt")}
                   </span>
                   <span>
-                    <Check size={13} />
+                    <Check strokeWidth={ICON_STROKE} aria-hidden size={ICON_SIZE.sm} />
                     {t("moriUi.moriAssistant.configureModel")}
                   </span>
                 </div>
-                <button type="button" className="mori-primary" onClick={openSettings}>
+                <SettingsButton variant="primary" type="button" onClick={openSettings}>
                   {t("moriUi.moriAssistant.configure")}
-                </button>
+                </SettingsButton>
               </div>
             ) : null}
             {snapshot?.settings.enabled && !messages.length ? (
@@ -1260,46 +1285,63 @@ export function MoriAssistantPanel({
                 <h2>{t("moriUi.moriAssistant.todayPrompt")}</h2>
                 <p>{t("moriUi.moriAssistant.todayHint")}</p>
                 <div className="mori-starters">
-                  <button type="button" onClick={() => insertPrompt("帮我看看最近的工作会话，整理一下进展")}>
-                    <History size={17} />
+                  <SettingsButton
+                    variant="ghost"
+                    type="button"
+                    onClick={() => insertPrompt("帮我看看最近的工作会话，整理一下进展")}
+                  >
+                    <History strokeWidth={ICON_STROKE} aria-hidden size={ICON_SIZE.md} />
                     <span>
                       <strong>{t("moriUi.moriAssistant.resumeWork")}</strong>
                       <small>{t("moriUi.moriAssistant.resumeWorkHint")}</small>
                     </span>
-                    <ChevronRight size={14} />
-                  </button>
-                  <button type="button" onClick={() => insertPrompt("帮我新建一个工作任务：")}>
-                    <Plus size={17} />
+                    <ChevronRight strokeWidth={ICON_STROKE} aria-hidden size={ICON_SIZE.sm} />
+                  </SettingsButton>
+                  <SettingsButton
+                    variant="ghost"
+                    type="button"
+                    onClick={() => insertPrompt("帮我新建一个工作任务：")}
+                  >
+                    <Plus strokeWidth={ICON_STROKE} aria-hidden size={ICON_SIZE.md} />
                     <span>
                       <strong>{t("moriUi.moriAssistant.newTask")}</strong>
                       <small>{t("moriUi.moriAssistant.newTaskHint")}</small>
                     </span>
-                    <ChevronRight size={14} />
-                  </button>
-                  <button
+                    <ChevronRight strokeWidth={ICON_STROKE} aria-hidden size={ICON_SIZE.sm} />
+                  </SettingsButton>
+                  <SettingsButton
+                    variant="ghost"
                     type="button"
                     onClick={() => insertPrompt("看看有哪些任务正在运行，哪些需要我处理")}
                   >
-                    <Sparkles size={17} />
+                    <Sparkles strokeWidth={ICON_STROKE} aria-hidden size={ICON_SIZE.md} />
                     <span>
                       <strong>{t("moriUi.moriAssistant.attention")}</strong>
                       <small>{t("moriUi.moriAssistant.attentionHint")}</small>
                     </span>
-                    <ChevronRight size={14} />
-                  </button>
+                    <ChevronRight strokeWidth={ICON_STROKE} aria-hidden size={ICON_SIZE.sm} />
+                  </SettingsButton>
                 </div>
               </div>
             ) : null}
             {snapshot?.hasMoreMessages && !olderDone ? (
-              <button
+              <SettingsButton
+                variant="ghost"
                 className="mori-history-more"
                 type="button"
                 disabled={olderLoading}
                 onClick={() => void olderMessages()}
               >
-                {olderLoading ? <LoaderCircle size={13} className="spinning" /> : null}
+                {olderLoading ? (
+                  <LoaderCircle
+                    strokeWidth={ICON_STROKE}
+                    aria-hidden
+                    size={ICON_SIZE.sm}
+                    className="spinning"
+                  />
+                ) : null}
                 {olderLoading ? "正在加载…" : "查看更早的消息"}
-              </button>
+              </SettingsButton>
             ) : null}
             {snapshot && (
               <MoriScheduledCards
@@ -1311,65 +1353,92 @@ export function MoriAssistantPanel({
             {snapshot?.activeThreadId && snapshot.activeThreadId !== snapshot.currentThreadId && (
               <p className="mori-activity">
                 {t("moriUi.moriAssistant.runningElsewhere")}
-                <button type="button" onClick={() => void switchSession(snapshot.activeThreadId)}>
+                <SettingsButton
+                  variant="ghost"
+                  type="button"
+                  onClick={() => void switchSession(snapshot.activeThreadId)}
+                >
                   {t("moriUi.moriAssistant.openRunningChat")}
-                </button>
+                </SettingsButton>
               </p>
             )}
-            {messages.map((message) => (
-              <article className={`mori-message is-${message.role}`} key={message.messageId}>
-                <div className="mori-message-label">
-                  {message.role === "user"
-                    ? snapshot?.sourceByMessage[message.messageId] === "wechat"
-                      ? "你 · 来自微信"
-                      : snapshot?.sourceByMessage[message.messageId] === "task"
-                        ? "任务更新"
-                        : snapshot?.sourceByMessage[message.messageId] === "schedule"
-                          ? "定时操作"
-                          : "你"
-                    : (snapshot?.settings.name ?? "Mori")}
-                  {message.status === "queued"
-                    ? " · 排队中"
-                    : message.status === "cancelled"
-                      ? " · 已停止"
-                      : ""}
-                </div>
-                {message.role === "assistant" ? (
-                  <MarkdownContent text={message.body} />
-                ) : (
-                  <p>{message.body}</p>
-                )}
-                {message.role === "assistant" && message.status !== "streaming" ? (
-                  <div className="mori-message-actions">
-                    <button
-                      type="button"
-                      aria-label={copiedId === message.messageId ? "已复制回复" : "复制回复"}
-                      title={t("moriUi.moriAssistant.copyReply")}
-                      onClick={() => void copyMessage(message)}
+            {messages.map((message) => {
+              const origin = snapshot?.sourceByMessage[message.messageId];
+              const originLabel =
+                message.role === "user"
+                  ? origin === "wechat"
+                    ? "你 · 来自微信"
+                    : origin === "task"
+                      ? "任务更新"
+                      : origin === "schedule"
+                        ? "定时操作"
+                        : ""
+                  : "";
+              const statusLabel =
+                message.status === "queued" ? "排队中" : message.status === "cancelled" ? "已停止" : "";
+              const messageLabel = [originLabel, statusLabel].filter(Boolean).join(" · ");
+              return (
+                <article
+                  className={`mori-message is-${message.role} ${message.role === "assistant" ? "run-log-narrative" : "run-log-user-prompt"}`}
+                  key={message.messageId}
+                >
+                  {messageLabel ? (
+                    <div
+                      className={
+                        message.role === "user" ? "run-log-user-prompt-origin" : "mori-message-label"
+                      }
                     >
-                      {copiedId === message.messageId ? <Check size={13} /> : <Copy size={13} />}
-                      <span>{copiedId === message.messageId ? "已复制" : "复制"}</span>
-                    </button>
-                  </div>
-                ) : null}
-              </article>
-            ))}
+                      {messageLabel}
+                    </div>
+                  ) : null}
+                  {message.role === "assistant" ? (
+                    <MarkdownContent text={message.body} />
+                  ) : (
+                    <div className="run-log-user-prompt-content mori-user-message-content">
+                      <p className="run-log-user-prompt-body">{message.body}</p>
+                    </div>
+                  )}
+                  {message.role === "assistant" && message.status !== "streaming" ? (
+                    <div className="mori-message-actions">
+                      <SettingsButton
+                        variant="ghost"
+                        aria-label={copiedId === message.messageId ? "已复制回复" : "复制回复"}
+                        title={t("moriUi.moriAssistant.copyReply")}
+                        onClick={() => void copyMessage(message)}
+                      >
+                        {copiedId === message.messageId ? (
+                          <Check size={ICON_SIZE.sm} strokeWidth={ICON_STROKE} aria-hidden />
+                        ) : (
+                          <Copy size={ICON_SIZE.sm} strokeWidth={ICON_STROKE} aria-hidden />
+                        )}
+                      </SettingsButton>
+                    </div>
+                  ) : null}
+                </article>
+              );
+            })}
             {snapshot?.activity ? (
               <div className="mori-activity" role="status">
-                <LoaderCircle size={13} className="spinning" />
+                <LoaderCircle
+                  strokeWidth={ICON_STROKE}
+                  aria-hidden
+                  size={ICON_SIZE.sm}
+                  className="spinning"
+                />
                 {snapshot.activity.startsWith("mori_") ? "正在操作桌面" : snapshot.activity}
               </div>
             ) : null}
             {snapshot?.tasks.length ? (
               <details className="mori-tasks" aria-label={t("moriUi.moriAssistant.tasksLabel")}>
                 <summary>
-                  <FolderOpen size={14} />
+                  <FolderOpen strokeWidth={ICON_STROKE} aria-hidden size={ICON_SIZE.sm} />
                   <span>{t("moriUi.moriAssistant.tasks")}</span>
                   <small>{snapshot.tasks.length}</small>
-                  <ChevronDown size={13} />
+                  <ChevronDown strokeWidth={ICON_STROKE} aria-hidden size={ICON_SIZE.sm} />
                 </summary>
                 {snapshot.tasks.slice(-8).map((task) => (
-                  <button
+                  <SettingsButton
+                    variant="ghost"
                     type="button"
                     key={task.id}
                     className="mori-task"
@@ -1380,8 +1449,8 @@ export function MoriAssistantPanel({
                       <strong>{task.title}</strong>
                       <small>{taskStatus[task.status]}</small>
                     </span>
-                    <ExternalLink size={13} />
-                  </button>
+                    <ExternalLink strokeWidth={ICON_STROKE} aria-hidden size={ICON_SIZE.sm} />
+                  </SettingsButton>
                 ))}
               </details>
             ) : null}
@@ -1393,10 +1462,10 @@ export function MoriAssistantPanel({
             <div ref={end} />
           </div>
           {awayFromEnd ? (
-            <button type="button" className="mori-to-latest" onClick={goToEnd}>
-              <ArrowDown size={14} />
+            <SettingsButton variant="ghost" type="button" className="mori-to-latest" onClick={goToEnd}>
+              <ArrowDown strokeWidth={ICON_STROKE} aria-hidden size={ICON_SIZE.sm} />
               {t("moriUi.moriAssistant.latest")}
-            </button>
+            </SettingsButton>
           ) : null}
           {pendingInput ? (
             <form
@@ -1416,10 +1485,10 @@ export function MoriAssistantPanel({
               {pendingInput.kind === "approval" ? (
                 <div className="mori-approval-actions">
                   {["拒绝", "允许"].map((decision) => (
-                    <button
+                    <SettingsButton
+                      variant={decision === "允许" ? "primary" : "secondary"}
                       key={decision}
                       type="button"
-                      className={decision === "允许" ? "mori-primary" : ""}
                       disabled={answering}
                       onClick={() => {
                         setAnswering(true);
@@ -1429,22 +1498,29 @@ export function MoriAssistantPanel({
                       }}
                     >
                       {decision === "允许" ? "允许本次操作" : "拒绝"}
-                    </button>
+                    </SettingsButton>
                   ))}
                 </div>
               ) : (
                 <>
-                  <input
+                  <SettingsInput
                     value={answer}
                     onChange={(event) => setAnswer(event.target.value)}
                     placeholder={t("moriUi.moriAssistant.answerPlaceholder")}
                     aria-label={t("moriUi.moriAssistant.answerLabel")}
                     disabled={answering}
                   />
-                  <button type="submit" disabled={!answer.trim() || answering}>
-                    {answering ? <LoaderCircle size={13} className="spinning" /> : null}
+                  <SettingsButton variant="primary" type="submit" disabled={!answer.trim() || answering}>
+                    {answering ? (
+                      <LoaderCircle
+                        strokeWidth={ICON_STROKE}
+                        aria-hidden
+                        size={ICON_SIZE.sm}
+                        className="spinning"
+                      />
+                    ) : null}
                     {t("moriUi.moriAssistant.answerContinue")}
-                  </button>
+                  </SettingsButton>
                 </>
               )}
             </form>
@@ -1453,10 +1529,10 @@ export function MoriAssistantPanel({
             <div className="mori-disabled-footer">
               <span>{t("moriUi.moriAssistant.configureToChat")}</span>
               {messages.length ? (
-                <button type="button" className="mori-primary" onClick={openSettings}>
+                <SettingsButton variant="primary" type="button" onClick={openSettings}>
                   {t("moriUi.moriAssistant.configure")}
-                  <ChevronRight size={14} />
-                </button>
+                  <ChevronRight strokeWidth={ICON_STROKE} aria-hidden size={ICON_SIZE.sm} />
+                </SettingsButton>
               ) : null}
             </div>
           ) : (
@@ -1493,9 +1569,10 @@ export function MoriAssistantPanel({
                 }}
               />
               <div className="mori-composer-bottom">
+                <span className="mori-composer-spacer" />
                 <label className="mori-model" title={busy ? "回复结束后可切换模型" : "切换助手模型"}>
-                  <Sparkles size={12} />
-                  <select
+                  <SettingsSelect
+                    variant="inline"
                     aria-label={t("moriUi.moriAssistant.conversationModel")}
                     value={snapshot?.settings.model ?? ""}
                     disabled={busy || configSaving || !snapshot}
@@ -1516,12 +1593,13 @@ export function MoriAssistantPanel({
                           {id}
                         </option>
                       ))}
-                  </select>
-                  <ChevronDown size={11} />
+                  </SettingsSelect>
+                  <ChevronDown strokeWidth={ICON_STROKE} aria-hidden size={ICON_SIZE.xs} />
                 </label>
-                <span className="mori-composer-spacer" />
+
                 {busy ? (
-                  <button
+                  <SettingsButton
+                    variant="ghost"
                     type="button"
                     className="mori-stop"
                     title={t("moriUi.moriAssistant.stopAndCancelQueue")}
@@ -1534,19 +1612,36 @@ export function MoriAssistantPanel({
                       );
                     }}
                   >
-                    {stopping ? <LoaderCircle size={13} className="spinning" /> : <Square size={12} />}
-                    <span>{stopping ? "停止中" : "停止"}</span>
-                  </button>
+                    {stopping ? (
+                      <LoaderCircle
+                        strokeWidth={ICON_STROKE}
+                        aria-hidden
+                        size={ICON_SIZE.sm}
+                        className="spinning"
+                      />
+                    ) : (
+                      <Square strokeWidth={ICON_STROKE} aria-hidden size={ICON_SIZE.sm} />
+                    )}
+                  </SettingsButton>
                 ) : null}
                 <button
                   type="button"
-                  className="mori-send primary"
+                  className="mori-send send-button"
                   title={busy ? "排队发送" : "发送"}
                   aria-label={busy ? "排队发送" : "发送"}
                   disabled={!draft.trim() || sending || !snapshot?.settings.enabled}
                   onClick={() => void send()}
                 >
-                  {sending ? <LoaderCircle size={16} className="spinning" /> : <ArrowUp size={17} />}
+                  {sending ? (
+                    <LoaderCircle
+                      strokeWidth={ICON_STROKE}
+                      aria-hidden
+                      size={ICON_SIZE.md}
+                      className="spinning"
+                    />
+                  ) : (
+                    <ArrowUp strokeWidth={ICON_STROKE} aria-hidden size={ICON_SIZE.md} />
+                  )}
                 </button>
               </div>
               {busy ? (

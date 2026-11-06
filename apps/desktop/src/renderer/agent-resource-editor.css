@@ -1,0 +1,608 @@
+.agent-resource-editor-backdrop {
+  padding: 16px;
+}
+
+.settings-modal.agent-resource-editor {
+  width: min(640px, calc(100vw - 32px));
+  max-width: calc(100vw - 32px);
+  max-height: min(900px, calc(100dvh - 48px));
+  border: 1px solid var(--border-subtle);
+  border-radius: 20px;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 430;
+  line-height: 20px;
+  transition: none;
+
+  &.is-agent-side-open {
+    width: min(1080px, calc(100vw - 32px));
+  }
+  & .settings-modal-header {
+    flex: 0 0 auto;
+    gap: 16px;
+    padding: 24px 24px 20px;
+  }
+  & .settings-modal-title {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 500;
+    line-height: 24px;
+    letter-spacing: inherit;
+  }
+  & .models-agent-resource-modal-heading {
+    gap: 4px;
+  }
+  & .models-agent-resource-modal-heading p {
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 20px;
+  }
+  & .settings-modal-body {
+    display: block;
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
+    max-width: none;
+    padding: 0 24px 24px;
+    overflow-y: auto;
+  }
+  & .settings-modal-footer {
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 16px 24px 20px;
+    border-top: 1px solid var(--border-subtle);
+  }
+  & .agent-resource-icon-button {
+    width: 28px;
+    height: 28px;
+    min-height: 28px;
+    padding: 0;
+    border-radius: 8px;
+  }
+
+  & .models-agent-resource-editor-layout {
+    min-width: 0;
+    gap: 0;
+    transition: none;
+  }
+  & .models-agent-resource-editor-layout.is-side-open {
+    grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+    gap: 24px;
+  }
+  & .models-agent-resource-editor-main {
+    gap: 28px;
+  }
+  & .models-agent-resource-form-section {
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+  & .settings-modal-body > .models-agent-resource-form-section + .models-agent-resource-form-section {
+    margin-top: 28px;
+  }
+  & .settings-modal-body > .settings-form-error {
+    margin-top: 20px;
+  }
+  & .models-agent-resource-meta-grid {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 16px;
+  }
+  & .models-agent-source-badge {
+    padding: 0;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 18px;
+  }
+  & .mcp-field {
+    min-width: 0;
+    gap: 6px;
+  }
+  & .mcp-field-label {
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 18px;
+  }
+  & .composition-field-hint {
+    margin: 0 0 4px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 18px;
+    letter-spacing: inherit;
+  }
+  & .composition-guidance-textarea {
+    min-height: 132px;
+  }
+  & .models-agent-prompt-textarea {
+    min-height: 240px;
+  }
+  & .settings-form-error {
+    margin: 0;
+    color: var(--danger);
+    font-size: 12px;
+    line-height: 18px;
+    overflow-wrap: anywhere;
+  }
+
+  & .orchestration-roster {
+    min-width: 0;
+    gap: 16px;
+  }
+  & .orchestration-roster-header {
+    align-items: center;
+    gap: 16px;
+  }
+  & .orchestration-roster-title {
+    color: var(--text-primary);
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 20px;
+    letter-spacing: inherit;
+  }
+  & .orchestration-roster-subtitle {
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 18px;
+    letter-spacing: inherit;
+  }
+  & .orchestration-roster-count {
+    min-width: 0;
+    height: auto;
+    padding: 0;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 400;
+    letter-spacing: inherit;
+  }
+  & .orchestration-roster-add-bar {
+    min-width: 0;
+    gap: 8px;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  & .orchestration-roster-add-label {
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 18px;
+    letter-spacing: inherit;
+    text-transform: none;
+  }
+  & .orchestration-roster-add-button {
+    min-height: 36px;
+  }
+  & .composer-field-select,
+  & .composer-model-selector {
+    width: 100%;
+    min-width: 0;
+  }
+  & :is(.composer-field-select-trigger, .composer-model-trigger) {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    min-height: 36px;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 7px 10px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: var(--nav-hover);
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 430;
+    line-height: 20px;
+    text-align: left;
+    box-shadow: none;
+  }
+  & :is(.composer-field-select-trigger, .composer-model-trigger):focus-visible {
+    outline: 2px solid var(--border-strong);
+    outline-offset: 2px;
+  }
+  & .composer-model-picker-selection {
+    min-width: 0;
+    max-width: 100%;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  & .composer-model-picker-selection .composer-model-label {
+    max-width: 100%;
+    overflow: hidden;
+  }
+  & .composer-model-picker-chevron {
+    display: block;
+    flex: 0 0 auto;
+  }
+  & .orchestration-roster-group {
+    border-color: var(--border-subtle);
+    border-radius: 16px;
+    background: var(--card-surface-bg, var(--bg-elevated));
+    box-shadow: none;
+  }
+  & .orchestration-roster-row {
+    position: relative;
+    min-width: 0;
+    border: 0;
+  }
+  & .orchestration-roster-row + .orchestration-roster-row::before {
+    content: "";
+    position: absolute;
+    inset: 0 16px auto;
+    height: 1px;
+    background: var(--border-subtle);
+    pointer-events: none;
+  }
+  & .orchestration-roster-row.is-selected {
+    background: var(--nav-hover);
+  }
+  & .orchestration-roster-row.is-selected .orchestration-roster-row-hit {
+    background: transparent;
+  }
+  & .orchestration-roster-row-hit {
+    gap: 12px;
+    padding: 14px 8px 14px 16px;
+    transition: none;
+  }
+  & .orchestration-roster-row-hit:hover:not(:disabled) {
+    background: var(--nav-hover);
+  }
+  & .orchestration-roster-row-hit:active:not(:disabled) {
+    transform: none;
+  }
+  & .orchestration-roster-row-hit:focus-visible {
+    outline: 2px solid var(--text-primary);
+    outline-offset: -2px;
+  }
+  & .orchestration-roster-avatar {
+    width: 24px;
+    height: 24px;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    font-weight: 500;
+    letter-spacing: inherit;
+  }
+  & .orchestration-roster-row-top {
+    flex-wrap: wrap;
+    gap: 2px 8px;
+  }
+  & .orchestration-roster-row-name {
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 20px;
+    letter-spacing: inherit;
+  }
+  & .orchestration-roster-status {
+    padding: 0;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 400;
+    line-height: 16px;
+    letter-spacing: inherit;
+  }
+  & .orchestration-roster-row.is-disabled .orchestration-roster-status {
+    background: transparent;
+    color: var(--text-muted);
+  }
+  & .orchestration-roster-row-meta {
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 18px;
+    letter-spacing: inherit;
+  }
+  & .orchestration-roster-row-foot {
+    font-size: 11px;
+    line-height: 16px;
+  }
+  & .orchestration-roster-chevron {
+    color: var(--text-secondary);
+    transition: none;
+  }
+  & .orchestration-roster-row-hit:hover:not(:disabled) .orchestration-roster-chevron {
+    transform: none;
+  }
+  & .orchestration-roster-row-controls {
+    gap: 8px;
+    padding: 12px 12px 12px 0;
+  }
+  & .orchestration-roster-remove {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border-radius: 8px;
+    opacity: 1;
+  }
+  & .orchestration-roster-remove:hover:not(:disabled) {
+    color: var(--danger);
+    background: var(--danger-soft);
+  }
+  & .orchestration-roster-empty-state {
+    align-items: flex-start;
+    gap: 6px;
+    padding: 24px;
+    border-color: var(--border-subtle);
+    border-radius: 16px;
+    background: transparent;
+    text-align: left;
+  }
+  & .orchestration-roster-empty-icon {
+    display: none;
+  }
+  & .orchestration-roster-empty-title {
+    color: var(--text-primary);
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 20px;
+    letter-spacing: inherit;
+  }
+  & .orchestration-roster-empty-copy {
+    max-width: none;
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 18px;
+    letter-spacing: inherit;
+  }
+
+  & .models-agent-resource-side-panel {
+    position: static;
+    top: auto;
+    max-height: none;
+    overflow: visible;
+    padding: 0 0 0 24px;
+    border: 0;
+    border-left: 1px solid var(--border-subtle);
+    border-radius: 0;
+    background: transparent;
+    animation: none;
+  }
+  & .models-agent-resource-side-panel-inner {
+    gap: 20px;
+  }
+  & .models-agent-resource-side-panel-title {
+    min-width: 0;
+    color: var(--text-primary);
+    font-size: 16px;
+    font-weight: 500;
+    line-height: 24px;
+    letter-spacing: inherit;
+    overflow-wrap: anywhere;
+  }
+  & .models-agent-resource-template-summary {
+    gap: 4px;
+    padding: 0;
+    border-radius: 0;
+    background: transparent;
+  }
+  & .models-agent-resource-title-row {
+    min-width: 0;
+    flex-wrap: wrap;
+  }
+  & .models-route-role {
+    font-size: 13px;
+    font-weight: 500;
+  }
+  & .models-route-role-id {
+    min-width: 0;
+    font-size: 11px;
+    overflow-wrap: anywhere;
+  }
+  & .models-subagent-card-desc {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 18px;
+    overflow-wrap: anywhere;
+  }
+  & .models-agent-resource-node-config-form {
+    gap: 24px;
+  }
+  & .profile-node-model-fields {
+    min-width: 0;
+    gap: 12px;
+  }
+  & .mcp-advanced {
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+  }
+  & .mcp-advanced > summary {
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 20px;
+  }
+  & .mcp-advanced[open] > summary {
+    margin-bottom: 12px;
+  }
+  & .models-agent-theme-color-custom {
+    min-width: 0;
+    max-width: 100%;
+    flex: 1 1 180px;
+  }
+  & .models-agent-theme-color-swatches {
+    gap: 8px;
+  }
+  & .models-agent-theme-color-swatch {
+    width: 20px;
+    height: 20px;
+    box-shadow: none;
+  }
+  & .models-agent-theme-color-hex {
+    min-width: 0;
+    min-height: 36px;
+    padding: 7px 10px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: var(--nav-hover);
+    font-size: 13px;
+    font-weight: 430;
+    line-height: 20px;
+  }
+  & .models-agent-theme-color-hex:focus-visible {
+    outline: 2px solid var(--border-strong);
+    outline-offset: 2px;
+  }
+  & .models-agent-theme-color-hex.is-invalid {
+    border-color: var(--danger);
+  }
+
+  & .models-tool-capability-panel {
+    gap: 20px;
+  }
+  & .models-core-capability-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  & .models-core-capability-status {
+    border-radius: 12px;
+    background: transparent;
+  }
+  & .models-core-capability-status strong {
+    font-size: 13px;
+    font-weight: 500;
+  }
+  & .models-core-capability-status span {
+    font-size: 12px;
+    font-weight: 400;
+  }
+  & .models-agent-template-preset-grid {
+    gap: 8px;
+  }
+  & .models-agent-template-preset {
+    min-width: 0;
+    min-height: 64px;
+    align-items: flex-start;
+    gap: 4px;
+    padding: 10px 12px;
+    border-color: var(--border-subtle);
+    border-radius: 8px;
+    background: transparent;
+    box-shadow: none;
+    text-align: left;
+  }
+  & .models-agent-template-preset.active {
+    border-color: var(--text-primary);
+    background: var(--nav-hover);
+  }
+  & .models-agent-template-preset > span {
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 18px;
+  }
+  & .models-agent-template-preset > small {
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 16px;
+  }
+  & .models-tool-capability-list {
+    gap: 0;
+    padding: 0 16px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 16px;
+  }
+  & .models-agent-template-delegation-card {
+    min-width: 0;
+    gap: 24px;
+    padding: 12px 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+  }
+  & .models-tool-capability-list > .models-agent-template-delegation-card:not(:first-child) {
+    border-top: 1px solid var(--border-subtle);
+  }
+  & .models-agent-template-delegation-card > span {
+    flex: 1;
+    gap: 2px;
+  }
+  & .models-agent-template-delegation-card strong {
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 18px;
+  }
+  & .models-agent-template-delegation-card small {
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 16px;
+  }
+  & .models-tool-capability-subfield {
+    margin: 0 0 12px;
+  }
+  & .models-tool-capability-advanced-toggle {
+    font-size: 13px;
+  }
+  & .models-agent-token-option {
+    min-width: 0;
+    background: transparent;
+    font-size: 12px;
+  }
+  & .models-agent-token-option.active:not(.danger) {
+    background: var(--nav-hover);
+    border-color: var(--border-strong);
+  }
+}
+
+@media (max-width: 840px) {
+  .settings-modal.agent-resource-editor .models-agent-resource-editor-layout.is-side-open {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 28px;
+  }
+  .settings-modal.agent-resource-editor .models-agent-resource-side-panel {
+    padding: 24px 0 0;
+    border-left: 0;
+    border-top: 1px solid var(--border-subtle);
+  }
+}
+
+@media (max-width: 420px) {
+  .settings-modal.agent-resource-editor .composer-model-trigger {
+    height: auto;
+  }
+  .settings-modal.agent-resource-editor .composer-model-picker-selection {
+    white-space: normal;
+    line-height: 20px;
+    overflow-wrap: anywhere;
+  }
+  .settings-modal.agent-resource-editor .settings-modal-header {
+    padding: 20px 16px 16px;
+  }
+  .settings-modal.agent-resource-editor .settings-modal-body {
+    padding: 0 16px 20px;
+  }
+  .settings-modal.agent-resource-editor .settings-modal-footer {
+    padding: 16px;
+  }
+  .settings-modal.agent-resource-editor .orchestration-roster-add-bar {
+    flex-wrap: wrap;
+  }
+  .settings-modal.agent-resource-editor .orchestration-roster-add-field {
+    flex-basis: 100%;
+  }
+  .settings-modal.agent-resource-editor .orchestration-roster-row-hit {
+    gap: 8px;
+    padding-left: 12px;
+  }
+  .settings-modal.agent-resource-editor .orchestration-roster-row-controls {
+    gap: 4px;
+    padding-right: 8px;
+  }
+}

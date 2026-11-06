@@ -22,6 +22,9 @@ import { ComposerMainModelPicker } from "./ComposerMainModelPicker";
 import { CandidateModelSpecPanel } from "./ModelSpecSummary";
 import { SubagentOrchestrationRosterEditor } from "./SubagentOrchestrationRosterEditor";
 import { ToolCapabilityPanel } from "./ToolCapabilityPanel";
+import { SettingsButton, SettingsInput, SettingsTextarea } from "./components/SettingsControls";
+import { ICON_SIZE, ICON_STROKE } from "./icon-metrics";
+import "./agent-resource-editor.css";
 
 export type AgentCompositionEditorScope = "prompt" | "orchestration";
 export type AgentCompositionEditorMode = "create" | "edit" | "copy";
@@ -84,12 +87,6 @@ export function AgentResourceEditorModal({
       : mode === "copy"
         ? t("settings.models.editor.copyTitle")
         : t("settings.models.editor.createTitle"));
-  const modalBadge =
-    mode === "edit"
-      ? t("common.edit")
-      : mode === "copy"
-        ? t("settings.models.editor.copyBadge")
-        : t("settings.models.editor.newBadge");
   const modalHint =
     mode === "edit"
       ? t("settings.models.editor.editHint")
@@ -183,9 +180,8 @@ export function AgentResourceEditorModal({
     <section className="models-agent-resource-form-section">
       <div className="models-agent-resource-meta-grid">
         <label className="mcp-field">
-          <span className="mcp-field-label">{t("settings.models.editor.resourceName")}</span>
-          <input
-            className="mcp-field-input"
+          <span className="settings-ui-field-label">{t("settings.models.editor.resourceName")}</span>
+          <SettingsInput
             value={form.name}
             disabled={busy}
             onChange={(event) => patchName(event.target.value)}
@@ -203,7 +199,7 @@ export function AgentResourceEditorModal({
   );
 
   return (
-    <div className="settings-modal-backdrop">
+    <div className="settings-modal-backdrop agent-resource-editor-backdrop">
       <button
         type="button"
         className="settings-modal-backdrop-close"
@@ -213,7 +209,7 @@ export function AgentResourceEditorModal({
         disabled={busy}
       />
       <div
-        className={`settings-modal settings-modal-agent-resource${agentSideOpen ? " is-agent-side-open" : ""}`}
+        className={`settings-modal settings-modal-agent-resource agent-resource-editor${agentSideOpen ? " is-agent-side-open" : ""}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="agent-resource-modal-title"
@@ -224,20 +220,20 @@ export function AgentResourceEditorModal({
               <h2 id="agent-resource-modal-title" className="settings-modal-title">
                 {modalTitle}
               </h2>
-              <span className="models-agent-source-badge">{modalBadge}</span>
             </div>
             <p>{modalHint}</p>
           </div>
-          <button
+          <SettingsButton
             type="button"
-            className="mcp-icon-button"
+            variant="ghost"
+            className="agent-resource-icon-button"
             onClick={onClose}
             aria-label={t("common.close")}
             title={t("common.close")}
             disabled={busy}
           >
-            <X size={18} />
-          </button>
+            <X size={ICON_SIZE.md} strokeWidth={ICON_STROKE} aria-hidden />
+          </SettingsButton>
         </header>
 
         <div className="settings-modal-body mcp-editor-form models-agent-resource-form">
@@ -247,10 +243,10 @@ export function AgentResourceEditorModal({
                 {metaSection}
                 <section className="models-agent-resource-form-section composition-editor-section composition-editor-section--guidance">
                   <label className="mcp-field composition-guidance-field">
-                    <span className="mcp-field-label">{t("settings.models.editor.guidanceLabel")}</span>
+                    <span className="settings-ui-field-label">{t("settings.models.editor.guidanceLabel")}</span>
                     <span className="composition-field-hint">{t("settings.models.editor.guidanceHint")}</span>
-                    <textarea
-                      className="mcp-field-input mcp-field-textarea composition-guidance-textarea"
+                    <SettingsTextarea
+                      className="composition-guidance-textarea"
                       value={form.guidancePrompt}
                       disabled={busy}
                       onChange={(event) => patch({ guidancePrompt: event.target.value })}
@@ -296,10 +292,10 @@ export function AgentResourceEditorModal({
               {scope === "prompt" ? (
                 <section className="models-agent-resource-form-section composition-editor-section composition-editor-section--prompt">
                   <label className="mcp-field composition-guidance-field">
-                    <span className="mcp-field-label">{t("settings.models.node.mainPrompt")}</span>
+                    <span className="settings-ui-field-label">{t("settings.models.node.mainPrompt")}</span>
                     <span className="composition-field-hint">{t("settings.models.editor.promptHint")}</span>
-                    <textarea
-                      className="mcp-field-input mcp-field-textarea composition-guidance-textarea models-agent-prompt-textarea"
+                    <SettingsTextarea
+                      className="composition-guidance-textarea models-agent-prompt-textarea"
                       value={form.mainPrompt}
                       disabled={busy}
                       onChange={(event) => patch({ mainPrompt: event.target.value })}
@@ -315,12 +311,12 @@ export function AgentResourceEditorModal({
         </div>
 
         <footer className="settings-modal-footer">
-          <button type="button" className="settings-modal-cancel" onClick={onClose} disabled={busy}>
+          <SettingsButton size="dialog" onClick={onClose} disabled={busy}>
             {t("common.cancel")}
-          </button>
-          <button type="button" className="mcp-save-button" disabled={busy} onClick={onSave}>
+          </SettingsButton>
+          <SettingsButton variant="primary" size="dialog" disabled={busy} onClick={onSave}>
             {saveLabel}
-          </button>
+          </SettingsButton>
         </footer>
       </div>
     </div>
@@ -419,16 +415,17 @@ function SubagentRosterAgentConfigPanel({
         <h3 id="agent-resource-node-config-title" className="models-agent-resource-side-panel-title">
           {nodeTitle}
         </h3>
-        <button
+        <SettingsButton
           type="button"
-          className="mcp-icon-button"
+          variant="ghost"
+          className="agent-resource-icon-button"
           onClick={onClose}
           aria-label={t("common.close")}
           title={t("common.close")}
           disabled={busy}
         >
-          <X size={18} />
-        </button>
+          <X size={ICON_SIZE.md} strokeWidth={ICON_STROKE} aria-hidden />
+        </SettingsButton>
       </header>
 
       <div className="models-agent-resource-node-config-form">
@@ -481,9 +478,8 @@ function SubagentRosterAgentConfigPanel({
         <details className="mcp-advanced">
           <summary>{t("settings.models.editor.claudeCompactionAdvanced")}</summary>
           <label className="mcp-field">
-            <span className="mcp-field-label">{t("settings.models.editor.claudeCompactionWindow")}</span>
-            <input
-              className="mcp-field-input"
+            <span className="settings-ui-field-label">{t("settings.models.editor.claudeCompactionWindow")}</span>
+            <SettingsInput
               type="number"
               min={100000}
               max={1000000}

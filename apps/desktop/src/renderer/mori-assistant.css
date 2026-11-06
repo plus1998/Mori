@@ -1,53 +1,32 @@
 .mori-panel,
 .mori-settings {
-  --mori-accent: #344d40;
-  --mori-accent-hover: #42614f;
-  --mori-on-accent: #f5f8f4;
+  --mori-accent: var(--text-primary);
+  --mori-accent-hover: var(--text-secondary);
+  --mori-on-accent: var(--bg-main);
   --mori-soft: color-mix(in srgb, var(--text-primary) 4%, transparent);
-  --mori-border: var(--border-sidebar);
+  --mori-border: var(--border-subtle);
   color: var(--text-primary);
   font-family: var(--font-sans);
   font-size: 14px;
 }
-.mori-panel button,
 .mori-panel input:not(.settings-ui-input),
 .mori-panel select:not(.settings-ui-input),
 .mori-panel textarea:not(.settings-ui-input) {
   font: inherit;
   color: inherit;
 }
-.mori-panel button {
-  cursor: pointer;
-  border: 1px solid var(--mori-border);
-  border-radius: 9px;
-  background: transparent;
-  padding: 8px 12px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  transition:
-    background-color 120ms ease,
-    border-color 120ms ease;
-}
-.mori-panel button:hover:not(:disabled) {
-  background: var(--mori-soft);
-}
-.mori-panel button:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-.mori-panel :focus-visible {
-  outline: 2px solid #799985;
-  outline-offset: 3px;
-}
+
 .mori-panel {
+  --mori-feed-width: var(--feed-max-width, 750px);
+  --mori-gutter: 24px;
   display: flex;
   flex-direction: column;
   height: 100%;
+  min-width: 0;
   min-height: 0;
   background: var(--bg-main);
   position: relative;
+  font-weight: 400;
 }
 .shell > .codex-main {
   grid-column: -2 / -1;
@@ -61,22 +40,23 @@
   pointer-events: none;
 }
 .mori-panel-header {
-  min-height: 68px;
+  min-height: 64px;
   box-sizing: border-box;
   flex: none;
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 12px 22px;
-  border-bottom: 1px solid var(--mori-border);
+  border-bottom: 0;
   -webkit-app-region: drag;
 }
-.mori-panel-header button {
+.mori-panel .mori-panel-header .settings-ui-button {
   width: 32px;
   height: 32px;
   padding: 0;
   border: 0;
-  color: var(--text-muted);
+  border-radius: 8px;
+  color: var(--text-secondary);
   -webkit-app-region: no-drag;
 }
 .shell-sidebar-hidden .mori-main-view {
@@ -94,8 +74,8 @@ html[data-platform="win32"] .mori-main-view .mori-panel-header,
 html[data-platform="linux"] .mori-main-view .mori-panel-header {
   padding-right: calc(22px + var(--window-controls-overlay-end, 0px));
 }
-.mori-panel-header button:hover:not(:disabled),
-.mori-panel-header button.is-selected {
+.mori-panel .mori-panel-header .settings-ui-button:hover:not(:disabled),
+.mori-panel .mori-panel-header .settings-ui-button.is-selected {
   color: var(--text-primary);
   background: var(--mori-soft);
 }
@@ -108,7 +88,12 @@ html[data-platform="linux"] .mori-main-view .mori-panel-header {
   margin-left: 3px;
 }
 .mori-heading strong {
-  font-weight: 600;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 22px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .mori-heading small,
 .mori-muted,
@@ -121,16 +106,23 @@ html[data-platform="linux"] .mori-main-view .mori-panel-header {
 .mori-heading small {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  line-height: 18px;
 }
 .mori-presence {
   width: 5px;
   height: 5px;
+  flex: none;
   border-radius: 50%;
-  background: #7b9483;
+  background: var(--text-muted);
 }
 .mori-presence.is-busy {
-  background: #c5a363;
+  background: var(--text-secondary);
 }
 .mori-mark {
   display: inline-flex;
@@ -149,8 +141,9 @@ html[data-platform="linux"] .mori-main-view .mori-panel-header {
 .mori-messages {
   overflow-y: auto;
   flex: 1;
+  min-width: 0;
   min-height: 0;
-  padding: 28px max(24px, calc((100% - 720px) / 2));
+  padding: 28px max(var(--mori-gutter), calc((100% - var(--mori-feed-width)) / 2));
   scrollbar-gutter: stable;
   overscroll-behavior: contain;
 }
@@ -166,9 +159,10 @@ html[data-platform="linux"] .mori-main-view .mori-panel-header {
   gap: 12px;
 }
 .mori-empty h2 {
-  font-size: 25px;
-  letter-spacing: -0.7px;
-  font-weight: 550;
+  font-size: 26px;
+  letter-spacing: -0.4px;
+  font-weight: 400;
+  line-height: 1.25;
   margin: 0;
 }
 .mori-empty p {
@@ -202,12 +196,14 @@ html[data-platform="linux"] .mori-main-view .mori-panel-header {
   max-width: 390px;
   margin-top: 8px;
 }
-.mori-starters button {
+.mori-panel .mori-starters .settings-ui-button {
   justify-content: flex-start;
-  padding: 13px 14px;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: transparent;
   text-align: left;
-  border-color: transparent;
-  background: var(--mori-soft);
 }
 .mori-starters svg {
   color: var(--text-muted);
@@ -223,19 +219,20 @@ html[data-platform="linux"] .mori-main-view .mori-panel-header {
 }
 .mori-starters small {
   display: block;
-  font-size: 11px;
-  color: var(--text-muted);
-  margin-top: 5px;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
+  color: var(--text-secondary);
+  margin-top: 2px;
 }
 .mori-message {
-  margin: 0 0 22px;
-  line-height: 1.75;
+  min-width: 0;
+  max-width: 100%;
+  margin: 0 0 28px;
+  line-height: 1.625;
   overflow-wrap: anywhere;
 }
-.mori-message p {
-  white-space: pre-wrap;
-  margin: 5px 0;
-}
+
 .mori-message.is-user {
   width: fit-content;
   /* Keep short replies ("好", "OK") from collapsing into slivers, but never demand more
@@ -245,71 +242,78 @@ html[data-platform="linux"] .mori-main-view .mori-panel-header {
   min-width: min(180px, 100%);
   max-width: 85%;
   box-sizing: border-box;
-  background: var(--mori-soft);
-  padding: 12px 16px;
-  border-radius: 15px 15px 4px 15px;
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
   margin-left: auto;
 }
 .mori-message-label {
-  font-size: 11px;
-  color: var(--text-muted);
-  margin-bottom: 6px;
-  font-weight: 550;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+  font-weight: 400;
+  line-height: 18px;
 }
-.mori-message .markdown-content {
-  font-size: 14px;
-}
+
 .mori-message-actions {
   display: flex;
+  gap: 4px;
   margin-top: 8px;
 }
-.mori-message-actions button {
+.mori-panel .mori-message-actions .settings-ui-button {
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0;
   border: 0;
-  padding: 4px 6px;
-  color: var(--text-muted);
-  font-size: 11px;
+  border-radius: 8px;
+  color: var(--text-secondary);
   opacity: 0;
 }
-.mori-message:hover .mori-message-actions button,
-.mori-message:focus-within .mori-message-actions button {
+.mori-panel .mori-message:hover .mori-message-actions .settings-ui-button,
+.mori-panel .mori-message:focus-within .mori-message-actions .settings-ui-button {
   opacity: 1;
 }
 .mori-activity {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
-  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--text-secondary);
   padding-bottom: 16px;
 }
 .mori-error,
 .mori-field-error {
-  color: #c96557;
+  color: var(--danger);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  font-size: 12px;
-  line-height: 1.6;
+  font-size: 13px;
+  line-height: 20px;
 }
 .mori-chat-error {
-  border-left: 2px solid #c96557;
-  padding: 9px 12px;
-  background: color-mix(in srgb, #c96557 5%, transparent);
-  border-radius: 0 7px 7px 0;
+  margin: 16px 0;
+  padding: 12px 16px;
+  border: 1px solid color-mix(in srgb, var(--danger) 20%, var(--border-subtle));
+  border-radius: 12px;
+  background: var(--danger-soft);
 }
 .mori-composer {
   margin: 0 auto 20px;
-  padding: 12px 14px 10px;
-  border: 1px solid var(--mori-border);
-  border-radius: 18px;
-  width: calc(100% - 48px);
-  max-width: 720px;
-  background: var(--bg-main);
-  box-shadow: 0 4px 22px #00000008;
+  padding: 12px 12px 10px;
+  border: 0;
+  border-radius: var(--composer-outer-radius);
+  width: calc(100% - var(--mori-gutter) * 2);
+  max-width: var(--mori-feed-width);
+  min-width: 0;
+  background: var(--composer-surface-bg);
+  box-shadow: var(--composer-primary-shadow);
   flex: none;
   box-sizing: border-box;
 }
 .mori-composer:focus-within {
-  border-color: #7b948377;
+  outline: none;
 }
 /* Roomier input surface that grows with the draft, like the main Composer. The
    min/max heights are mirrored by MORI_COMPOSER_MIN_HEIGHT/MAX_HEIGHT in
@@ -345,19 +349,30 @@ html[data-platform="linux"] .mori-main-view .mori-panel-header {
 .mori-model {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   min-width: 0;
-  color: var(--text-muted);
+  max-width: min(240px, calc(100% - 88px));
+  padding: 0 4px;
+  border-radius: 8px;
+  color: var(--composer-toolbar-icon);
+  font-size: 13px;
 }
-.mori-model select {
+.mori-panel .mori-model .settings-ui-select[data-variant="inline"] {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 28px;
+  padding: 3px 0;
   border: 0;
+  border-radius: 0;
   appearance: none;
   background: transparent;
-  font-size: 11px;
+  color: inherit;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 20px;
+  text-overflow: ellipsis;
   cursor: pointer;
-  max-width: 180px;
-  min-width: 0;
-  padding: 6px 0;
 }
 .mori-model select:disabled {
   cursor: default;
@@ -372,52 +387,37 @@ html[data-platform="linux"] .mori-main-view .mori-panel-header {
 }
 .mori-composer-spacer {
   flex: 1;
+  min-width: 0;
 }
-.mori-composer-bottom .mori-send {
+
+.mori-panel .mori-composer-bottom .mori-stop {
   width: 32px;
   height: 32px;
-  padding: 0;
-  border-radius: 50%;
-  flex: none;
-}
-.mori-composer-bottom .mori-stop {
+  min-height: 32px;
   border: 0;
-  font-size: 11px;
-  color: var(--text-muted);
-  padding: 7px;
+  border-radius: 50%;
+  color: var(--composer-toolbar-icon);
+  padding: 0;
   flex: none;
 }
 .mori-composer-hint {
   margin-top: 8px;
-  font-size: 10px;
-  color: var(--text-muted);
-  line-height: 1.5;
-  opacity: 0.8;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 16px;
 }
-.mori-panel .mori-primary,
-.mori-settings .mori-primary,
-.mori-send.primary {
-  background: var(--mori-accent);
-  color: var(--mori-on-accent);
-  border-color: var(--mori-accent);
-}
-.mori-panel .mori-primary:hover:not(:disabled),
-.mori-settings .mori-primary:hover:not(:disabled),
-.mori-send.primary:hover:not(:disabled) {
-  background: var(--mori-accent-hover);
-}
+
 .mori-disabled-footer {
-  width: calc(100% - 48px);
-  max-width: 720px;
-  margin: 0 auto 24px;
-  border-top: 1px solid var(--mori-border);
+  width: calc(100% - var(--mori-gutter) * 2);
+  max-width: var(--mori-feed-width);
+  margin: 0 auto 20px;
   padding-top: 16px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   font-size: 12px;
-  color: var(--text-muted);
+  color: var(--text-secondary);
   flex: none;
 }
 .mori-disabled-footer button {
@@ -430,23 +430,25 @@ html[data-platform="linux"] .mori-main-view .mori-panel-header {
   z-index: 2;
   box-shadow: 0 3px 12px #0002;
 }
-.mori-panel .mori-to-latest {
-  background: var(--bg-main);
-  border-radius: 20px;
-  font-size: 11px;
-  padding: 8px 13px;
+.mori-panel .mori-to-latest.settings-ui-button {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  box-shadow: var(--shadow-popover);
+  font-size: 12px;
+  padding: 6px 12px;
 }
 .mori-history {
   position: absolute;
-  top: 61px;
-  right: 20px;
-  width: min(320px, calc(100% - 40px));
+  top: 60px;
+  right: 16px;
+  width: min(340px, calc(100% - 32px));
   z-index: 5;
-  border: 1px solid var(--mori-border);
-  background: var(--bg-main);
-  box-shadow: 0 14px 40px #0003;
-  padding: 10px;
-  border-radius: 13px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-popover);
+  padding: 8px;
+  border-radius: 16px;
   box-sizing: border-box;
 }
 .mori-history-heading {
@@ -456,8 +458,8 @@ html[data-platform="linux"] .mori-main-view .mori-panel-header {
   padding: 0 3px 6px;
 }
 .mori-history-heading strong {
-  font-size: 12px;
-  font-weight: 550;
+  font-size: 13px;
+  font-weight: 500;
 }
 .mori-history-heading button {
   border: 0;
@@ -473,13 +475,15 @@ html[data-platform="linux"] .mori-main-view .mori-panel-header {
   padding: 8px;
   color: var(--text-muted);
 }
-.mori-history-search input {
+.mori-history-search .settings-ui-input {
   min-width: 0;
   width: 100%;
+  min-height: 24px;
+  padding: 0;
   border: 0;
   outline: 0;
   background: transparent;
-  font-size: 12px;
+  font-size: 13px;
 }
 .mori-history-list {
   margin-top: 8px;
@@ -491,13 +495,14 @@ html[data-platform="linux"] .mori-main-view .mori-panel-header {
   font-size: 12px;
   padding: 6px;
 }
-.mori-history-list button {
+.mori-panel .mori-history-list .settings-ui-button {
   text-align: left;
   justify-content: space-between;
   width: 100%;
   border: 0;
-  gap: 10px;
-  padding: 9px 10px;
+  border-radius: 8px;
+  gap: 12px;
+  padding: 10px;
 }
 .mori-history-list button > span {
   min-width: 0;
@@ -514,7 +519,7 @@ html[data-platform="linux"] .mori-main-view .mori-panel-header {
 }
 .mori-history-list button > svg {
   flex: none;
-  color: #8ea997;
+  color: var(--text-primary);
 }
 .mori-history-list button.is-selected {
   background: var(--mori-soft);
@@ -525,10 +530,11 @@ html[data-platform="linux"] .mori-main-view .mori-panel-header {
   margin: 0 auto 24px;
 }
 .mori-tasks {
-  margin: 20px 0;
-  border: 1px solid var(--mori-border);
-  border-radius: 10px;
+  margin: 24px 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
   padding: 4px;
+  min-width: 0;
 }
 .mori-tasks summary {
   display: flex;
@@ -551,7 +557,7 @@ html[data-platform="linux"] .mori-main-view .mori-panel-header {
 .mori-tasks[open] summary > svg:last-child {
   transform: rotate(180deg);
 }
-.mori-tasks .mori-task {
+.mori-panel .mori-tasks .mori-task {
   display: flex;
   width: 100%;
   text-align: left;
@@ -565,8 +571,9 @@ html[data-platform="linux"] .mori-main-view .mori-panel-header {
 }
 .mori-task strong {
   display: block;
-  font-size: 12px;
-  font-weight: 550;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -581,40 +588,36 @@ html[data-platform="linux"] .mori-main-view .mori-panel-header {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #86978c;
+  background: var(--text-muted);
 }
 .mori-task-dot.is-running {
-  background: #6c997f;
+  background: var(--text-secondary);
 }
 .mori-task-dot.is-failed,
 .mori-task-dot.is-blocked {
-  background: #c96557;
+  background: var(--danger);
 }
 .mori-task-dot.is-awaiting_plan {
-  background: #b18b48;
+  background: var(--text-secondary);
 }
 .mori-question {
   display: grid;
-  gap: 10px;
-  padding: 14px 16px;
-  border: 1px solid #859c8d;
-  border-radius: 12px;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  background: var(--bg-elevated);
   font-size: 13px;
   margin: 0 auto 12px;
-  width: calc(100% - 48px);
-  max-width: 720px;
+  width: calc(100% - var(--mori-gutter) * 2);
+  max-width: var(--mori-feed-width);
+  min-width: 0;
   box-sizing: border-box;
   flex: none;
   max-height: 38%;
   overflow: auto;
 }
-.mori-question input {
-  border: 1px solid var(--mori-border);
-  border-radius: 7px;
-  background: transparent;
-  padding: 9px;
-  min-width: 0;
-}
+
 .mori-question button {
   justify-self: start;
 }
@@ -1111,12 +1114,9 @@ html[data-mori-surface="panel"] #root {
 .mori-panel.is-floating .mori-heading small {
   font-size: 10px;
 }
-.mori-panel.is-floating .mori-messages {
-  padding: 22px 18px;
-}
+
 .mori-panel.is-floating .mori-composer {
   margin-bottom: 12px;
-  width: calc(100% - 24px);
 }
 .mori-panel.is-floating .mori-empty {
   padding: 20px 4px;
@@ -1130,9 +1130,7 @@ html[data-mori-surface="panel"] #root {
 .mori-panel.is-floating .mori-starters button {
   padding: 10px 12px;
 }
-.mori-panel.is-floating .mori-question {
-  width: calc(100% - 24px);
-}
+
 .mori-panel.is-floating .mori-settings-grid {
   grid-template-columns: 1fr;
 }
@@ -1158,8 +1156,8 @@ html[data-mori-surface="panel"] #root {
   .mori-panel-header {
     padding: 12px 16px;
   }
-  .mori-messages {
-    padding: 20px;
+  .mori-panel {
+    --mori-gutter: 16px;
   }
   .mori-settings {
     padding: 0;
@@ -1215,15 +1213,58 @@ html[data-mori-surface="panel"] #root {
   gap: 8px;
   justify-content: flex-end;
 }
-.mori-schedules { display: grid; gap: 8px; margin: 12px 0; }
-.mori-schedules h3 { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 12px; }
-.mori-schedules article { display: grid; gap: 5px; padding: 12px; border: 1px solid var(--mori-border); border-radius: 12px; }
-.mori-schedules time, .mori-schedules small, .mori-schedules article > span { font-size: 12px; opacity: .75; }
-.mori-schedules p { margin: 0; font-size: 12px; }
-.mori-schedule-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
-.mori-schedules button { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; }
-.mori-schedules form { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; }
-.mori-schedules label { display: grid; gap: 4px; font-size: 12px; }
+.mori-schedules {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+}
+.mori-schedules h3 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 12px;
+}
+.mori-schedules article {
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+  border: 1px solid var(--mori-border);
+  border-radius: 12px;
+}
+.mori-schedules time,
+.mori-schedules small,
+.mori-schedules article > span {
+  font-size: 12px;
+  opacity: 0.75;
+}
+.mori-schedules p {
+  margin: 0;
+  font-size: 12px;
+}
+.mori-schedule-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+.mori-schedules button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+}
+.mori-schedules form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 8px;
+}
+.mori-schedules label {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+}
 
 /* Mori-specific content uses the shared Codex settings primitives above. */
 .mori-settings .settings-ui-section-header {
@@ -1296,5 +1337,93 @@ html[data-mori-surface="panel"] #root {
   }
   .mori-settings .mori-pet-preview > div:not(.mori-pet-sprite) {
     flex-basis: 180px;
+  }
+}
+
+/* Feed typography, user bubbles and send controls come from the main chat classes. */
+.mori-panel.is-floating {
+  --mori-gutter: 16px;
+}
+.mori-messages > * {
+  min-width: 0;
+  max-width: 100%;
+}
+.mori-message.is-user .mori-user-message-content {
+  width: 100%;
+  max-width: min(456px, 100%);
+}
+.mori-composer .mori-send {
+  padding: 0;
+}
+.mori-model:hover {
+  background: var(--composer-toolbar-hover-bg);
+}
+.mori-model:focus-within {
+  outline: 2px solid var(--border-strong);
+  outline-offset: 2px;
+}
+.mori-model .settings-ui-input:focus-visible,
+.mori-history-search .settings-ui-input:focus-visible {
+  outline: none;
+}
+.mori-history-search:focus-within {
+  outline: 2px solid var(--border-strong);
+  outline-offset: 2px;
+}
+.mori-question > strong {
+  font-size: 13px;
+  font-weight: 500;
+}
+.mori-activity > svg {
+  flex: none;
+}
+.mori-panel .mori-tasks .mori-task {
+  border-radius: 8px;
+}
+.mori-schedules {
+  gap: 12px;
+  margin: 24px 0;
+}
+.mori-schedules h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
+}
+.mori-schedules article {
+  min-width: 0;
+  gap: 6px;
+  padding: 16px;
+  border-color: var(--border-subtle);
+  border-radius: 16px;
+  background: transparent;
+}
+.mori-schedules article > strong {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
+}
+.mori-schedules p {
+  overflow-wrap: anywhere;
+}
+.mori-schedules time,
+.mori-schedules small,
+.mori-schedules article > span {
+  font-size: 12px;
+  line-height: 18px;
+  opacity: 1;
+  color: var(--text-secondary);
+}
+.mori-schedules input {
+  min-width: 0;
+  max-width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--nav-hover);
+  font-size: 13px;
+}
+@media (hover: none) {
+  .mori-panel .mori-message-actions .settings-ui-button {
+    opacity: 1;
   }
 }

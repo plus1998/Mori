@@ -1,4 +1,3 @@
-import { Switch } from "./components/Switch";
 import { ChevronRight, Plus, Trash2, Users } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -7,6 +6,10 @@ import { defaultThemeColorForAgentKey } from "../shared/subagent-theme";
 import type { AgentResourceAgentFormState } from "./agent-resource-form";
 import { ComposerFieldSelect } from "./ComposerFieldSelect";
 import { formatComposerThinkingEffortLabel } from "./ComposerModelLabel";
+import { SettingsButton } from "./components/SettingsControls";
+import { SettingsGroup } from "./components/SettingsRow";
+import { Switch } from "./components/Switch";
+import { ICON_SIZE, ICON_STROKE } from "./icon-metrics";
 
 interface SubagentOrchestrationRosterEditorProps {
   agents: AgentResourceAgentFormState[];
@@ -56,16 +59,16 @@ export function SubagentOrchestrationRosterEditor({
           <h3 className="orchestration-roster-title">{t("settings.models.editor.rosterLabel")}</h3>
           <p className="orchestration-roster-subtitle">{t("settings.models.editor.rosterSubtitle")}</p>
         </div>
-        <span
+        <output
           className="orchestration-roster-count"
           aria-label={t("settings.models.editor.rosterCountAria", { count: agents.length })}
         >
           {agents.length}
-        </span>
+        </output>
       </header>
 
       <div className="orchestration-roster-add-bar">
-        <label className="orchestration-roster-add-field">
+        <div className="orchestration-roster-add-field">
           <span className="orchestration-roster-add-label">{t("settings.models.editor.rosterAddLabel")}</span>
           <ComposerFieldSelect
             value={pendingTemplateId}
@@ -87,16 +90,16 @@ export function SubagentOrchestrationRosterEditor({
               </option>
             ))}
           </ComposerFieldSelect>
-        </label>
-        <button
+        </div>
+        <SettingsButton
           type="button"
-          className="mcp-add-button orchestration-roster-add-button"
+          className="orchestration-roster-add-button"
           disabled={busy || !pendingTemplateId}
           onClick={handleAddAgent}
         >
-          <Plus size={16} strokeWidth={2.25} />
+          <Plus size={ICON_SIZE.sm} strokeWidth={ICON_STROKE} aria-hidden />
           {t("settings.models.editor.rosterAddButton")}
-        </button>
+        </SettingsButton>
       </div>
 
       {agents.length === 0 ? (
@@ -108,7 +111,7 @@ export function SubagentOrchestrationRosterEditor({
           <p className="orchestration-roster-empty-copy">{t("settings.models.editor.rosterEmptyCopy")}</p>
         </div>
       ) : (
-        <ul className="orchestration-roster-group">
+        <SettingsGroup className="orchestration-roster-group">
           {agents.map((agent, index) => {
             const template = templates.find((entry) => entry.id === agent.templateId);
             const provider = providers.find((entry) => entry.id === agent.providerId);
@@ -144,19 +147,30 @@ export function SubagentOrchestrationRosterEditor({
                   </span>
                   <span className="orchestration-roster-row-body">
                     <span className="orchestration-roster-row-top">
-                      <span className="orchestration-roster-row-name">{displayName}</span>
+                      <span className="orchestration-roster-row-name" title={displayName}>
+                        {displayName}
+                      </span>
                       <span className="orchestration-roster-status">
                         {agent.enabled
                           ? t("settings.models.editor.rosterEnabled")
                           : t("settings.models.editor.rosterDisabled")}
                       </span>
                     </span>
-                    <span className="orchestration-roster-row-meta">{modelMetaLabel}</span>
+                    <span className="orchestration-roster-row-meta" title={modelMetaLabel}>
+                      {modelMetaLabel}
+                    </span>
                     <span className="orchestration-roster-row-foot">
-                      <span className="orchestration-roster-key">{agent.agentKey}</span>
+                      <span className="orchestration-roster-key" title={agent.agentKey}>
+                        {agent.agentKey}
+                      </span>
                     </span>
                   </span>
-                  <ChevronRight size={16} className="orchestration-roster-chevron" aria-hidden />
+                  <ChevronRight
+                    size={ICON_SIZE.sm}
+                    strokeWidth={ICON_STROKE}
+                    className="orchestration-roster-chevron"
+                    aria-hidden
+                  />
                 </button>
                 <div className="orchestration-roster-row-controls">
                   <Switch
@@ -176,21 +190,22 @@ export function SubagentOrchestrationRosterEditor({
                         : t("settings.models.editor.rosterToggleDisabled")
                     }
                   />
-                  <button
+                  <SettingsButton
                     type="button"
-                    className="mcp-icon-button danger orchestration-roster-remove"
+                    variant="ghost"
+                    className="orchestration-roster-remove"
                     disabled={busy}
                     onClick={() => onRemoveAgent(index)}
                     aria-label={t("settings.models.editor.rosterRemoveAria", { name: displayName })}
                     title={t("settings.models.editor.rosterRemoveTitle", { name: displayName })}
                   >
-                    <Trash2 size={17} strokeWidth={2} />
-                  </button>
+                    <Trash2 size={ICON_SIZE.sm} strokeWidth={ICON_STROKE} aria-hidden />
+                  </SettingsButton>
                 </div>
               </li>
             );
           })}
-        </ul>
+        </SettingsGroup>
       )}
     </section>
   );

@@ -1,8 +1,10 @@
-import { useTranslation } from "react-i18next";
 import { Clock3, Pencil, RefreshCw, Trash2 } from "lucide-react";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { moriScheduledActionLabel } from "../shared/mori-scheduled-action";
 import type { ScheduleDefinition, ScheduleOccurrence } from "../shared/scheduling";
+import { SettingsButton } from "./components/SettingsControls";
+import { ICON_SIZE, ICON_STROKE } from "./icon-metrics";
 import { localScheduleDate } from "./schedule-form";
 
 export function MoriScheduledCards({
@@ -42,7 +44,7 @@ export function MoriScheduledCards({
   return (
     <section className="mori-schedules" aria-label={t("moriUi.moriScheduledCards.label")}>
       <h3>
-        <Clock3 size={15} />
+        <Clock3 strokeWidth={ICON_STROKE} aria-hidden size={ICON_SIZE.md} />
         {t("moriUi.moriScheduledCards.title")}
       </h3>
       {error && <p role="alert">{error}</p>}
@@ -92,7 +94,8 @@ export function MoriScheduledCards({
                 ).toLocaleString()}
               </time>
               <small>
-                {t("moriUi.moriScheduledCards.notification")}{definition.notification?.channel === "wechat" ? "微信" : "桌面"}
+                {t("moriUi.moriScheduledCards.notification")}
+                {definition.notification?.channel === "wechat" ? "微信" : "桌面"}
                 {notification
                   ? ` · ${{ sending: "正在发送", sent: "已发送", failed: "发送失败", unknown: "送达状态不确定" }[notification.status]}`
                   : ""}
@@ -101,7 +104,8 @@ export function MoriScheduledCards({
               {notification?.error && <p role="status">{notification.error}</p>}
               <div className="mori-schedule-actions">
                 {live && (
-                  <button
+                  <SettingsButton
+                    variant="ghost"
                     type="button"
                     disabled={!!busy}
                     onClick={() => {
@@ -113,12 +117,13 @@ export function MoriScheduledCards({
                       );
                     }}
                   >
-                    <Pencil size={13} />
+                    <Pencil strokeWidth={ICON_STROKE} aria-hidden size={ICON_SIZE.sm} />
                     {t("moriUi.moriScheduledCards.changeTime")}
-                  </button>
+                  </SettingsButton>
                 )}
                 {live && (
-                  <button
+                  <SettingsButton
+                    variant="ghost"
                     type="button"
                     disabled={!!busy}
                     onClick={() =>
@@ -127,31 +132,33 @@ export function MoriScheduledCards({
                       )
                     }
                   >
-                    <Trash2 size={13} />
+                    <Trash2 strokeWidth={ICON_STROKE} aria-hidden size={ICON_SIZE.sm} />
                     {t("moriUi.moriScheduledCards.cancel")}
-                  </button>
+                  </SettingsButton>
                 )}
                 {targetId && (
-                  <button
+                  <SettingsButton
+                    variant="ghost"
                     type="button"
                     onClick={() =>
                       void action(definition.id, () => window.eco!.moriAssistantOpenTask(targetId))
                     }
                   >
                     {t("moriUi.moriScheduledCards.openTask")}
-                  </button>
+                  </SettingsButton>
                 )}
                 {occurrence && notification && ["failed", "unknown"].includes(notification.status) && (
-                  <button
+                  <SettingsButton
+                    variant="ghost"
                     type="button"
                     disabled={!!busy}
                     onClick={() =>
                       void action(definition.id, () => window.eco!.retryScheduleNotification(occurrence.id))
                     }
                   >
-                    <RefreshCw size={13} />
+                    <RefreshCw strokeWidth={ICON_STROKE} aria-hidden size={ICON_SIZE.sm} />
                     {notification.status === "unknown" ? "重发通知（可能重复）" : "重试通知"}
-                  </button>
+                  </SettingsButton>
                 )}
               </div>
               {editing === definition.id && (
@@ -177,17 +184,17 @@ export function MoriScheduledCards({
                     <input
                       required
                       type="datetime-local"
-                    step={1}
+                      step={1}
                       value={at}
                       onChange={(event) => setAt(event.target.value)}
                     />
                   </label>
-                  <button type="submit" disabled={!!busy}>
+                  <SettingsButton variant="primary" type="submit" disabled={!!busy}>
                     {t("moriUi.moriScheduledCards.save")}
-                  </button>
-                  <button type="button" onClick={() => setEditing("")}>
+                  </SettingsButton>
+                  <SettingsButton variant="ghost" type="button" onClick={() => setEditing("")}>
                     {t("moriUi.moriScheduledCards.back")}
-                  </button>
+                  </SettingsButton>
                 </form>
               )}
             </article>
