@@ -2,6 +2,8 @@ export interface VisionModelSelection {
   providerId: string;
   modelId: string;
   candidateModelId: string;
+  /** Explicit account binding for ChatGPT OAuth; absent for API-key providers. */
+  accountId?: string;
 }
 
 export function isVisionModelSelection(value: unknown): value is VisionModelSelection {
@@ -10,6 +12,8 @@ export function isVisionModelSelection(value: unknown): value is VisionModelSele
   }
   const record = value as Record<string, unknown>;
   return (
+    (record.accountId === undefined ||
+      (typeof record.accountId === "string" && Boolean(record.accountId.trim()))) &&
     typeof record.providerId === "string" &&
     Boolean(record.providerId.trim()) &&
     typeof record.modelId === "string" &&
@@ -27,5 +31,6 @@ export function normalizeVisionModelSelection(value: unknown): VisionModelSelect
     providerId: value.providerId.trim(),
     modelId: value.modelId.trim(),
     candidateModelId: value.candidateModelId.trim(),
+    ...(value.accountId?.trim() ? { accountId: value.accountId.trim() } : {}),
   };
 }

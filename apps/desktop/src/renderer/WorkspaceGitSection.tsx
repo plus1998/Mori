@@ -1,3 +1,4 @@
+import type { AuxiliaryModelSelection } from "../shared/auxiliary-model";
 import {
   Check,
   ChevronDown,
@@ -39,7 +40,7 @@ export interface WorkspaceGitSectionProps {
   gitStatus?: GitWorkingTreeStatus;
   gitBusy?: boolean;
   commitDisabled?: boolean;
-  defaultCommitCandidateModelId?: string;
+  defaultCommitModelSelection?: AuxiliaryModelSelection;
   agentModelLabels?: ComposerAgentModelLabel[];
   routes?: readonly RuntimeRoleRouteConfig[];
   routePricingHints?: RoutePricingHint[];
@@ -48,7 +49,8 @@ export interface WorkspaceGitSectionProps {
   onCheckoutGitBranch?: (branch: string) => void | Promise<void>;
   onCreateGitBranch?: (branch: string) => void | Promise<void>;
   onOpenGitSettings?: () => void;
-  onSaveCommitModelPreference?: (candidateModelId: string) => void | Promise<void>;
+  onManageModelAccounts?: () => void;
+  onSaveCommitModelPreference?: (selection: AuxiliaryModelSelection) => void | Promise<void>;
   onCommitSuccess?: () => void | Promise<void>;
   onPushSuccess?: () => void | Promise<void>;
   onOpenChangesReview?: () => void | Promise<void>;
@@ -77,7 +79,7 @@ export function WorkspaceGitSection({
   gitStatus,
   gitBusy,
   commitDisabled,
-  defaultCommitCandidateModelId,
+  defaultCommitModelSelection,
   agentModelLabels = [],
   routes = [],
   routePricingHints = [],
@@ -86,6 +88,7 @@ export function WorkspaceGitSection({
   onCheckoutGitBranch,
   onCreateGitBranch,
   onSaveCommitModelPreference,
+  onManageModelAccounts,
   onCommitSuccess,
   onPushSuccess,
   onOpenChangesReview,
@@ -731,8 +734,8 @@ export function WorkspaceGitSection({
         <GitCommitDialog
           open={commitDialogOpen && commitDialogWorkspacePath === workspacePath}
           workspacePath={commitDialogWorkspacePath}
-          {...(defaultCommitCandidateModelId
-            ? { defaultCandidateModelId: defaultCommitCandidateModelId }
+          {...(defaultCommitModelSelection
+            ? { defaultModelSelection: defaultCommitModelSelection }
             : {})}
           {...(gitStatus && commitDialogWorkspacePath === workspacePath ? { gitStatus } : {})}
           {...(gitBusy !== undefined && { busy: gitBusy })}
@@ -743,6 +746,7 @@ export function WorkspaceGitSection({
             setCommitDialogOpen(false);
             setCommitDialogWorkspacePath(undefined);
           }}
+          onManageModelAccounts={onManageModelAccounts}
           onSaveModelPreference={onSaveCommitModelPreference!}
           {...(onRefreshGitStatus && {
             onBeforeAction: () => onRefreshGitStatus(true),

@@ -1,5 +1,6 @@
 import { buildCommitModelOptions } from "../shared/commit-model-options";
 import type {
+  AuxiliaryModelSelection,
   CommitModelOptionView,
   GitCommitRequest,
   GitCommitResult,
@@ -20,8 +21,9 @@ import {
   listCommitMessageCandidateModels,
 } from "../shared/resolve-commit-message-route";
 import type { AgentOrchestrationStore } from "./agent-orchestration-store";
-import { type AnthropicProxyRoute, runtimeRouteToProxyRoute } from "./anthropic-proxy";
-import { lookupCommitModelPricingHints, type RuntimeRoute } from "./billing-resolver";
+import type { AnthropicProxyRoute } from "./anthropic-proxy";
+import { resolveAuxiliaryModelRoute } from "./auxiliary-model-route";
+import { lookupCommitModelPricingHints } from "./billing-resolver";
 import { summarizeCommitMessage } from "./git-commit-message";
 import {
   checkoutGitBranch,
@@ -55,78 +57,26 @@ async function listCommitCandidates(input: { providerStore: ProviderStore }) {
   );
 }
 
-async function resolveSavedCommitCandidateModel(input: {
-  candidateModelIdPreference?: CommitMessageModelPreference;
-  gitSettingsStore: GitSettingsStore;
-  providerStore: ProviderStore;
-  agentOrchestrationStore: AgentOrchestrationStore;
-  pricingCache: ModelsDevPricingCache;
-}) {
-  const candidates = await listCommitCandidates({ providerStore: input.providerStore });
-  if (candidates.length === 0) {
-    throw new Error("没有已配置的候选模型，无法生成提交信息。请在 Provider 设置中添加候选模型。");
-  }
-  const providers = input.providerStore.listProvidersWithSecrets();
-  const hints = await lookupCommitModelPricingHints(
-    input.pricingCache,
-    providers,
-    candidates.map((candidate) => ({
-      candidateModelId: candidate.candidateModelId,
-      providerId: candidate.providerId,
-      providerName: candidate.providerName,
-      modelId: candidate.modelId,
-      ...(candidate.modelsDevMapping ? { modelsDevMapping: candidate.modelsDevMapping } : {}),
-      ...(candidate.manualSpec ? { manualSpec: candidate.manualSpec } : {}),
-    })),
-  );
-  const savedCandidateModelId = input.candidateModelIdPreference;
-  if (!savedCandidateModelId || savedCandidateModelId === "auto") {
-    throw new Error("未指定 Git 提交模型，无法生成提交信息。请在提交窗口中选择生成模型。");
-  }
-  const selected = candidates.find((candidate) => candidate.candidateModelId === savedCandidateModelId);
-  if (!selected) {
-    throw new Error(`Git 提交模型已不在候选模型列表中：${savedCandidateModelId}`);
-  }
-  return { selected, hints, candidates };
-}
-
-async function resolveCommitProxyRoute(input: {
+export async function resolveCommitProxyRoute(input: {
+  modelSelection?: AuxiliaryModelSelection;
   candidateModelIdPreference?: CommitMessageModelPreference;
   providerStore: ProviderStore;
-  agentOrchestrationStore: AgentOrchestrationStore;
-  gitSettingsStore: GitSettingsStore;
-  pricingCache: ModelsDevPricingCache;
 }): Promise<{ route: AnthropicProxyRoute; candidateModelId: string }> {
-  const { selected } = await resolveSavedCommitCandidateModel(input);
-  const provider = input.providerStore
-    .listProvidersWithSecrets()
-    .find((entry) => entry.id === selected.providerId);
-  if (!provider) {
-    throw new Error(`候选模型所属 Provider 未配置或已禁用：${selected.providerName}`);
+  let selection = input.modelSelection;
+  if (!selection) {
+    requireCommitCandidateModelId(input.candidateModelIdPreference);
+    const candidates = await listCommitCandidates({ providerStore: input.providerStore });
+    const selected = candidates.find((entry) => entry.candidateModelId === input.candidateModelIdPreference);
+    if (!selected) throw new Error(`Git 提交模型已不在候选模型列表中：${input.candidateModelIdPreference}`);
+    selection = {
+      providerId: selected.providerId,
+      modelId: selected.modelId,
+      candidateModelId: selected.candidateModelId,
+    };
   }
-  const candidate = input.providerStore.listStatelessModelCandidates(provider.id)
-    .find((entry) => entry.id === selected.candidateModelId);
-  if (!candidate?.baseUrl || !candidate.apiCompat || candidate.apiCompat === "system_one") {
-    throw new Error(`提交模型 ${selected.modelId} 的端点或协议无效，请重新选择。`);
-  }
-  const runtimeRoute: RuntimeRoute = {
-    role: COMMIT_MESSAGE_ROLE,
-    provider: {
-      ...provider,
-      baseUrl: candidate.baseUrl,
-      requestPath: candidate.requestPath ?? "",
-      version: candidate.version ?? "v1",
-      apiCompat: candidate.apiCompat,
-      ...(candidate.tokenCountMode ? { tokenCountMode: candidate.tokenCountMode } : {}),
-    },
-    modelId: selected.modelId,
-    apiCompat: candidate.apiCompat,
-    ...(selected.manualSpec ? { manualSpec: selected.manualSpec } : {}),
-    ...(selected.modelsDevMapping ? { modelsDevMapping: selected.modelsDevMapping } : {}),
-  };
   return {
-    route: runtimeRouteToProxyRoute(runtimeRoute),
-    candidateModelId: selected.candidateModelId,
+    route: resolveAuxiliaryModelRoute(selection, input.providerStore),
+    candidateModelId: selection.candidateModelId,
   };
 }
 
@@ -146,18 +96,21 @@ export async function handleGitListCommitModelOptions(
     (providerId) => deps.providerStore.listStatelessModelCandidates(providerId),
     purpose,
   );
-  const hints = request.includePricing === false ? [] : await lookupCommitModelPricingHints(
-    deps.pricingCache,
-    providers,
-    candidates.map((candidate) => ({
-      candidateModelId: candidate.candidateModelId,
-      providerId: candidate.providerId,
-      providerName: candidate.providerName,
-      modelId: candidate.modelId,
-      ...(candidate.modelsDevMapping ? { modelsDevMapping: candidate.modelsDevMapping } : {}),
-      ...(candidate.manualSpec ? { manualSpec: candidate.manualSpec } : {}),
-    })),
-  );
+  const hints =
+    request.includePricing === false
+      ? []
+      : await lookupCommitModelPricingHints(
+          deps.pricingCache,
+          providers,
+          candidates.map((candidate) => ({
+            candidateModelId: candidate.candidateModelId,
+            providerId: candidate.providerId,
+            providerName: candidate.providerName,
+            modelId: candidate.modelId,
+            ...(candidate.modelsDevMapping ? { modelsDevMapping: candidate.modelsDevMapping } : {}),
+            ...(candidate.manualSpec ? { manualSpec: candidate.manualSpec } : {}),
+          })),
+        );
   const options: CommitModelOptionView[] = buildCommitModelOptions(candidates, hints);
   return {
     options,
@@ -178,14 +131,18 @@ export async function handleGitSaveCommitModelPreference(
   if (!selected) {
     throw new Error(`Git 提交模型已不在候选模型列表中：${request.candidateModelId}`);
   }
+  const selection: AuxiliaryModelSelection = {
+    providerId: selected.providerId,
+    modelId: selected.modelId,
+    candidateModelId: selected.candidateModelId,
+    ...(request.accountId ? { accountId: request.accountId } : {}),
+  };
+  // Validate before overwriting the preference; OAuth requires an explicit account.
+  resolveAuxiliaryModelRoute(selection, deps.providerStore);
   const workflow = deps.workflowSettingsStore.get();
   deps.workflowSettingsStore.save({
     ...workflow,
-    defaultAuxiliaryModel: {
-      providerId: selected.providerId,
-      modelId: selected.modelId,
-      candidateModelId: selected.candidateModelId,
-    },
+    defaultAuxiliaryModel: selection,
   });
   return { savedCandidateModelId: request.candidateModelId };
 }
@@ -201,23 +158,18 @@ export async function handleGitGenerateCommitMessage(
     onCommitMessageDelta?: (text: string) => void;
   },
 ): Promise<GitGenerateCommitMessageResult> {
-  requireCommitCandidateModelId(request.candidateModelId);
+  if (!request.modelSelection) requireCommitCandidateModelId(request.candidateModelId);
+  const { route, candidateModelId } = await resolveCommitProxyRoute({
+    ...(request.modelSelection ? { modelSelection: request.modelSelection } : {}),
+    ...(request.candidateModelId ? { candidateModelIdPreference: request.candidateModelId } : {}),
+    providerStore: deps.providerStore,
+  });
   const run = deps.run ?? defaultGitRunner;
   await stageChanges(request.workspacePath, { includeUnstaged: request.includeUnstaged }, run);
   const context = await collectCommitDiffContext(request.workspacePath, request.includeUnstaged, run);
   if (!context.stagedNameStatus.trim() && !context.unstagedNameStatus?.trim()) {
     throw new Error("没有可提交的变更。");
   }
-  const candidateModelIdPreference = request.candidateModelId;
-  const { route, candidateModelId } = await resolveCommitProxyRoute({
-    ...(candidateModelIdPreference !== undefined && {
-      candidateModelIdPreference,
-    }),
-    providerStore: deps.providerStore,
-    agentOrchestrationStore: deps.agentOrchestrationStore,
-    gitSettingsStore: deps.gitSettingsStore,
-    pricingCache: deps.pricingCache,
-  });
   const commitInstructions = deps.gitSettingsStore.get().commitMessageInstructions;
   const message = await summarizeCommitMessage(
     route,
@@ -256,7 +208,7 @@ export async function handleGitCommit(
     run?: GitRunner;
   },
 ): Promise<GitCommitResult> {
-  if (!request.message?.trim()) {
+  if (!request.message?.trim() && !request.modelSelection) {
     requireCommitCandidateModelId(request.candidateModelId);
   }
   const run = deps.run ?? defaultGitRunner;

@@ -344,9 +344,8 @@ describe("1B: 辅助 HTTP 只打 Bridge，不直连 provider baseUrl", () => {
 
     const result = await postAuxiliaryBridgeRequest({
       route,
-      anthropicBody: {
-        model: "ignored-alias",
-        max_tokens: 32,
+      prompt: {
+        maxTokens: 32,
         messages: [{ role: "user", content: "hi" }],
       },
       logEventPrefix: "refactor-test-aux",
@@ -386,7 +385,8 @@ describe("1B: 辅助 HTTP 只打 Bridge，不直连 provider baseUrl", () => {
   test("H3 ChatGPT 订阅辅助请求使用 stream:true", async () => {
     let seenBody: Record<string, unknown> | undefined;
     const route: AnthropicProxyRoute = {
-      role: "main",
+      role: "auxiliary",
+      accountId: "bound-aux-account",
       provider: providerSecret({
         baseUrl: "https://api.openai.com",
         authMethod: "chatgpt_subscription",
@@ -397,19 +397,19 @@ describe("1B: 辅助 HTTP 只打 Bridge，不直连 provider baseUrl", () => {
 
     const result = await postAuxiliaryBridgeRequest({
       route,
-      anthropicBody: {
-        model: "ignored-alias",
-        max_tokens: 32,
+      prompt: {
+        maxTokens: 32,
         messages: [{ role: "user", content: "hi" }],
       },
       logEventPrefix: "refactor-test-chatgpt-aux",
       fetcher: async (_input, init) => {
+        expect(String(_input)).toEndWith("/v1/responses");
+        expect(new Headers(init?.headers).get("x-eco-oauth-account-id")).toBe("bound-aux-account");
         seenBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
         return Response.json({
-          id: "msg_chatgpt",
-          type: "message",
-          role: "assistant",
-          content: [{ type: "text", text: "aux-ok" }],
+          id: "resp_chatgpt",
+          status: "completed",
+          output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "aux-ok" }] }],
         });
       },
     });
@@ -575,7 +575,7 @@ describe("Claude 主路径：alias 登记 + Bridge messages 转发", () => {
         },
         body: JSON.stringify({
           model: proxy.routes[0]?.aliasModelId,
-          max_tokens: 32,
+          maxTokens: 32,
           stream: false,
           messages: [{ role: "user", content: "hi" }],
         }),

@@ -11,7 +11,7 @@ export function computeRouteFingerprint(routes: readonly RuntimeRoleRouteConfig[
       }
       const compat = route.apiCompat ?? "";
       const thinkingEffort = route.thinkingEffort ?? "";
-      return `${role}:${route.providerId}:${route.modelId.trim()}:${compat}:${thinkingEffort}`;
+      return `${role}:${route.providerId}:${route.modelId.trim()}:${compat}:${thinkingEffort}${route.accountId ? `:account=${encodeURIComponent(route.accountId)}` : ""}`;
     })
     .join("|");
 }

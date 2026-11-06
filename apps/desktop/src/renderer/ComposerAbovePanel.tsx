@@ -25,6 +25,7 @@ export function ComposerAbovePanel({
   minHeight = 80,
   gap = 10,
   children,
+  zIndex,
 }: {
   anchorRef: RefObject<HTMLElement | null>;
   triggerRef?: RefObject<HTMLElement | null> | undefined;
@@ -34,6 +35,7 @@ export function ComposerAbovePanel({
   role?: "dialog" | "menu" | "listbox";
   autoFocus?: boolean;
   width?: number;
+  zIndex?: number | undefined;
   fixedHeight?: number;
   minHeight?: number;
   gap?: number;
@@ -112,7 +114,7 @@ export function ComposerAbovePanel({
       className={`composer-codex-popover composer-above-panel ${className}`}
       role={role}
       aria-label={label}
-      style={style}
+      style={{ ...style, ...(zIndex !== undefined ? { zIndex } : {}) }}
     >
       {children}
     </div>,

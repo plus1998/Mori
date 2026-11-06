@@ -3,6 +3,7 @@ import type { ApprovalModelSelection } from "../shared/approval-model";
 import type { AnthropicProxyRoute } from "./anthropic-proxy";
 import { resolveAuxiliaryModelRoute } from "./auxiliary-model-route";
 import type { ProviderConfigSecret, ProviderStore } from "./provider-store";
+import { resolveStatelessModelCandidate } from "./stateless-model-candidate";
 
 export interface SystemOneApprovalRoute {
   kind: "system_one";
@@ -26,9 +27,7 @@ export function resolveApprovalModelRoute(
     .listProvidersWithSecrets()
     .find((entry) => entry.id === selection.providerId && entry.enabled);
   if (!provider) throw new Error(`审批模型所属 Provider 不存在或已禁用：${selection.providerId}`);
-  const candidate = providerStore
-    .listStatelessModelCandidates(provider.id)
-    .find((entry) => entry.id === selection.candidateModelId);
+  const candidate = resolveStatelessModelCandidate(selection, provider, providerStore);
   if (!candidate) throw new Error(`审批模型已不在候选模型列表中：${selection.candidateModelId}`);
   if (candidate.modelId.trim() !== selection.modelId.trim()) {
     throw new Error(

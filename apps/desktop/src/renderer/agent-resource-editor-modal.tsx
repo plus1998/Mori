@@ -1,11 +1,12 @@
 import { X } from "lucide-react";
-import { type Dispatch, type SetStateAction, useEffect, useMemo, useState } from "react";
+import { type Dispatch, type SetStateAction, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { UPSTREAM_API_COMPAT_OPTIONS } from "../shared/api-compat";
 import type {
   AgentTemplate,
   CandidateModelView,
   McpServerConfigView,
+  ModelRef,
+  ThinkingEffort,
   ProviderConfigView,
 } from "../shared/ipc";
 import {
@@ -17,7 +18,7 @@ import {
 } from "./agent-resource-form";
 import { buildAgentTemplateCapabilityOptions } from "./agent-template-form";
 import { AgentThemeColorField } from "./agent-theme-color-field";
-import { ComposerFieldSelect } from "./ComposerFieldSelect";
+import { ComposerMainModelPicker } from "./ComposerMainModelPicker";
 import { CandidateModelSpecPanel } from "./ModelSpecSummary";
 import { SubagentOrchestrationRosterEditor } from "./SubagentOrchestrationRosterEditor";
 import { ToolCapabilityPanel } from "./ToolCapabilityPanel";
@@ -42,6 +43,7 @@ export function AgentResourceEditorModal({
   providers,
   templates,
   mcpServers,
+  mainModel,
   error,
   busy,
   mode,
@@ -54,6 +56,7 @@ export function AgentResourceEditorModal({
   providers: ProviderConfigView[];
   templates: AgentTemplate[];
   mcpServers: McpServerConfigView[];
+  mainModel?: ModelRef | undefined;
   error?: string | undefined;
   busy?: boolean | undefined;
   mode: AgentCompositionEditorMode;
@@ -278,7 +281,7 @@ export function AgentResourceEditorModal({
                     template={selectedAgentTemplate}
                     templates={templates}
                     mcpServers={mcpServers}
-                    providers={providers.filter((provider) => provider.apiCompat !== "system_one")}
+                    mainModel={mainModel}
                     busy={busy}
                     onClose={() => setSelectedNode(null)}
                     onPatchAgent={patchAgent}
@@ -324,48 +327,6 @@ export function AgentResourceEditorModal({
   );
 }
 
-function CandidateModelSelectField({
-  value,
-  candidates,
-  loading,
-  disabled,
-  onChange,
-}: {
-  value: string;
-  candidates: CandidateModelView[];
-  loading: boolean;
-  disabled?: boolean;
-  onChange: (candidateId: string) => void;
-}) {
-  const { t } = useTranslation();
-  return (
-    <div className="mcp-field">
-      <span className="mcp-field-label">{t("settings.models.candidateModels")}</span>
-      {loading ? (
-        <span className="mcp-field-hint">{t("settings.models.loading")}</span>
-      ) : candidates.length === 0 ? (
-        <span className="mcp-field-hint candidate-model-empty-hint">
-          {t("settings.models.addCandidatesFirst")}
-        </span>
-      ) : (
-        <ComposerFieldSelect
-          value={value}
-          disabled={disabled || candidates.length === 0}
-          showPlaceholder
-          placeholder={t("settings.models.selectCandidate")}
-          onChange={onChange}
-        >
-          {candidates.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.displayName || c.modelId}
-            </option>
-          ))}
-        </ComposerFieldSelect>
-      )}
-    </div>
-  );
-}
-
 function useCandidateModels(providerId: string): {
   candidates: CandidateModelView[];
   loading: boolean;
@@ -397,152 +358,13 @@ function useCandidateModels(providerId: string): {
   return { candidates, loading };
 }
 
-function ThinkingEffortSelect({
-  value,
-  disabled,
-  onChange,
-}: {
-  value: string;
-  disabled?: boolean;
-  onChange: (value: string) => void;
-}) {
-  const { t } = useTranslation();
-  return (
-    <label className="mcp-field">
-      <span className="mcp-field-label">{t("settings.models.thinkingEffort")}</span>
-      <ComposerFieldSelect
-        value={value}
-        {...(disabled !== undefined ? { disabled } : {})}
-        onChange={onChange}
-      >
-        <option value="">{t("common.default")}</option>
-        <option value="off">{t("settings.models.effort.off")}</option>
-        <option value="low">{t("settings.models.effort.low")}</option>
-        <option value="medium">{t("settings.models.effort.medium")}</option>
-        <option value="high">{t("settings.models.effort.high")}</option>
-        <option value="xhigh">{t("settings.models.effort.xhigh")}</option>
-        <option value="max">{t("settings.models.effort.max")}</option>
-      </ComposerFieldSelect>
-    </label>
-  );
-}
-
-function ApiCompatSelect({
-  value,
-  disabled,
-  onChange,
-}: {
-  value: string;
-  disabled?: boolean;
-  onChange: (value: string) => void;
-}) {
-  const { t } = useTranslation();
-  return (
-    <label className="mcp-field">
-      <span className="mcp-field-label">{t("settings.models.apiCompat")}</span>
-      <ComposerFieldSelect
-        value={value}
-        {...(disabled !== undefined ? { disabled } : {})}
-        onChange={onChange}
-      >
-        <option value="">{t("common.default")}</option>
-        {UPSTREAM_API_COMPAT_OPTIONS.filter((option) => option.value !== "system_one").map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </ComposerFieldSelect>
-    </label>
-  );
-}
-
-function ResourceNodeCandidateModelFields({
-  providerId,
-  candidateModelId,
-  thinkingEffort,
-  apiCompat,
-  providers,
-  candidates,
-  candidatesLoading,
-  selectedCandidate,
-  busy,
-  onProviderChange,
-  onCandidateChange,
-  onThinkingEffortChange,
-  onApiCompatChange,
-}: {
-  providerId: string;
-  candidateModelId: string;
-  thinkingEffort: string;
-  apiCompat: string;
-  providers: ProviderConfigView[];
-  candidates: CandidateModelView[];
-  candidatesLoading: boolean;
-  selectedCandidate?: CandidateModelView;
-  busy?: boolean;
-  onProviderChange: (providerId: string) => void;
-  onCandidateChange: (candidateId: string, modelId: string) => void;
-  onThinkingEffortChange: (value: string) => void;
-  onApiCompatChange: (value: string) => void;
-}) {
-  const { t } = useTranslation();
-  return (
-    <div className="profile-node-model-fields">
-      <div className="models-agent-template-form-grid">
-        <label className="mcp-field">
-          <span className="mcp-field-label">{t("settings.models.providers")}</span>
-          <ComposerFieldSelect
-            value={providerId}
-            disabled={busy || providers.length === 0}
-            showPlaceholder={providers.length === 0}
-            placeholder={t("settings.models.addCandidatesFirst")}
-            renderOptionIcon={(option) =>
-              option.value === "eco-coding-chatgpt" ? <img src="./provider-icons/openai.svg" alt="" /> : null
-            }
-            onChange={onProviderChange}
-          >
-            {providers
-              .filter((provider) => provider.apiCompat !== "system_one")
-              .map((provider) => (
-                <option key={provider.id} value={provider.id}>
-                  {provider.name}
-                </option>
-              ))}
-          </ComposerFieldSelect>
-        </label>
-        <CandidateModelSelectField
-          value={candidateModelId}
-          candidates={candidates}
-          loading={candidatesLoading}
-          {...(busy !== undefined ? { disabled: busy } : {})}
-          onChange={(nextCandidateId) => {
-            const candidate = candidates.find((entry) => entry.id === nextCandidateId);
-            onCandidateChange(nextCandidateId, candidate?.modelId ?? "");
-          }}
-        />
-        <ThinkingEffortSelect
-          value={thinkingEffort}
-          {...(busy !== undefined ? { disabled: busy } : {})}
-          onChange={onThinkingEffortChange}
-        />
-        <ApiCompatSelect
-          value={apiCompat}
-          {...(busy !== undefined ? { disabled: busy } : {})}
-          onChange={onApiCompatChange}
-        />
-      </div>
-      <CandidateModelSpecPanel {...(selectedCandidate ? { candidate: selectedCandidate } : {})} />
-    </div>
-  );
-}
-
 function SubagentRosterAgentConfigPanel({
   agent,
   agentIndex,
   template,
   templates,
   mcpServers,
-  providers,
+  mainModel,
   busy,
   onClose,
   onPatchAgent,
@@ -552,13 +374,14 @@ function SubagentRosterAgentConfigPanel({
   template?: AgentTemplate | undefined;
   templates: AgentTemplate[];
   mcpServers: McpServerConfigView[];
-  providers: ProviderConfigView[];
+  mainModel?: ModelRef | undefined;
   busy?: boolean | undefined;
   onClose: () => void;
   onPatchAgent: (index: number, patch: Partial<AgentResourceAgentFormState>) => void;
 }) {
   const { t } = useTranslation();
-  const { candidates: nodeCandidates, loading: nodeCandidatesLoading } = useCandidateModels(agent.providerId);
+  const modelAnchorRef = useRef<HTMLDivElement>(null);
+  const { candidates: nodeCandidates } = useCandidateModels(agent.providerId);
   const selectedCandidate = nodeCandidates.find((candidate) => candidate.id === agent.candidateModelId);
   const modelContextTokens =
     selectedCandidate?.manualSpec?.contextTokens ?? selectedCandidate?.resolvedContextTokens;
@@ -585,14 +408,6 @@ function SubagentRosterAgentConfigPanel({
       }),
     [agent.advancedDisallowedTools, templates],
   );
-
-  function handleProviderChange(nextProviderId: string, fallbackModelId: string) {
-    return {
-      providerId: nextProviderId,
-      modelId: fallbackModelId,
-      candidateModelId: "",
-    };
-  }
 
   return (
     <div
@@ -633,31 +448,35 @@ function SubagentRosterAgentConfigPanel({
           </p>
         </div>
 
-        <ResourceNodeCandidateModelFields
-          providerId={agent.providerId}
-          candidateModelId={agent.candidateModelId}
-          thinkingEffort={agent.thinkingEffort}
-          apiCompat={agent.apiCompat}
-          providers={providers.filter((provider) => provider.apiCompat !== "system_one")}
-          candidates={nodeCandidates}
-          candidatesLoading={nodeCandidatesLoading}
-          {...(selectedCandidate ? { selectedCandidate } : {})}
-          {...(busy !== undefined ? { busy } : {})}
-          onProviderChange={(nextProviderId) => {
-            const provider = providers.find((entry) => entry.id === nextProviderId);
-            onPatchAgent(agentIndex, {
-              ...handleProviderChange(nextProviderId, provider?.defaultModel || agent.modelId || ""),
-            });
-          }}
-          onCandidateChange={(candidateId, modelId) =>
-            onPatchAgent(agentIndex, {
-              candidateModelId: candidateId,
-              modelId,
-            })
-          }
-          onThinkingEffortChange={(value) => onPatchAgent(agentIndex, { thinkingEffort: value })}
-          onApiCompatChange={(value) => onPatchAgent(agentIndex, { apiCompat: value })}
-        />
+        <div className="profile-node-model-fields">
+          <div ref={modelAnchorRef} className="stateless-model-control">
+            <ComposerMainModelPicker
+              key={agent.agentKey}
+              anchorRef={modelAnchorRef}
+              coreKind=""
+              purpose="subagent"
+              panelZIndex={11500}
+              disabled={busy}
+              mainAccountId={mainModel?.providerId === "eco-coding-chatgpt" ? mainModel.accountId : undefined}
+              model={agent.providerId && agent.modelId ? {
+                providerId: agent.providerId,
+                modelId: agent.modelId,
+                ...(agent.accountId ? { accountId: agent.accountId } : {}),
+                ...(agent.candidateModelId ? { candidateModelId: agent.candidateModelId } : {}),
+                ...(agent.thinkingEffort ? { thinkingEffort: agent.thinkingEffort as ThinkingEffort } : {}),
+              } : undefined}
+              onSelect={(model) => onPatchAgent(agentIndex, {
+                providerId: model.providerId,
+                modelId: model.modelId,
+                accountId: model.accountId ?? "",
+                candidateModelId: model.candidateModelId ?? "",
+                thinkingEffort: model.thinkingEffort ?? "",
+                apiCompat: model.providerId === "eco-coding-chatgpt" ? "openai_responses" : "",
+              })}
+            />
+          </div>
+          <CandidateModelSpecPanel {...(selectedCandidate ? { candidate: selectedCandidate } : {})} />
+        </div>
 
         <details className="mcp-advanced">
           <summary>{t("settings.models.editor.claudeCompactionAdvanced")}</summary>

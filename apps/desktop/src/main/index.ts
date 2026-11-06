@@ -645,6 +645,7 @@ import {
   createChatGptSubscriptionFetchForProxy,
 } from "./chatgpt-subscription-fetch";
 import type { ChatGptSubscriptionService } from "./chatgpt-subscription-service";
+import { resolveChatGptGatewayAccountId } from "./chatgpt-gateway-account";
 import {
   buildAskUserQuestionUpdatedInput,
   buildClarificationToolMetadata,
@@ -3314,12 +3315,11 @@ app
       getGatewayCredentialResolver:
         () =>
         async ({ provider, request }) => {
-          const threadId = request?.headers.get("x-gateway-thread-id")?.trim();
-          if (!threadId) throw new Error("ChatGPT OAuth 请求没有会话标识，无法确定绑定账号。");
-          const thread = conversationStore.getThread(threadId);
-          if (!thread) throw new Error(`找不到 ChatGPT OAuth 请求所属会话：${threadId}`);
-          const accountId = thread.runtimeConfig?.orchestrationSelection?.mainModel?.accountId?.trim();
-          if (!accountId) throw new Error("此会话尚未选择 ChatGPT OAuth 账号，请先选择账号和模型。");
+          const accountId = resolveChatGptGatewayAccountId(
+            request?.headers,
+            (threadId) => conversationStore.getThread(threadId),
+            (codexThreadId) => resolveCodexThreadAttribution(codexThreadMap, codexThreadId),
+          );
           const service = await getChatGptSubscriptionService();
           return service.resolveCredential(provider, accountId);
         },
@@ -8645,6 +8645,11 @@ function registerIpcHandlers(): void {
       throw new Error("子代理编排 id 不能为空。");
     }
     for (const agent of orchestration.agents ?? []) {
+      if (agent.enabled &&
+        providerStore.getProviderWithSecret(agent.modelRef.providerId)?.authMethod === "chatgpt_subscription" &&
+        !agent.modelRef.accountId?.trim()) {
+        throw new Error(`${agent.displayName || agent.agentKey} 的 ChatGPT OAuth 模型尚未选择账号，请先选择账号和模型。`);
+      }
       resolveUpstreamApiCompat(
         agent.modelRef.apiCompat,
         providerStore.getProviderWithSecret(agent.modelRef.providerId)?.apiCompat,
@@ -20966,7 +20971,8 @@ function createThreadImageViewHost(runAttemptId?: string): ImageViewHost {
           if (!sourceRoute) {
             throw new Error("image_view 缺少可用的模型路由。");
           }
-          return sourceRoute;
+          const accountId = thread?.runtimeConfig?.orchestrationSelection?.mainModel?.accountId;
+          return { ...sourceRoute, ...(accountId ? { accountId } : {}) };
         },
       });
     },

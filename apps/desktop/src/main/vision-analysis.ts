@@ -1,12 +1,13 @@
 import type { PromptImageAttachment, RuntimeRoleRouteConfig } from "../shared/ipc";
-import {
-  BUILTIN_VISION_AGENT_ROLE,
-  buildImageViewRequestBody,
-  buildVisionAnalysisRequestBody,
-  readImageViewResponse,
-  readVisionAnalysisResponse,
-} from "../shared/prompt-image-vision";
+import { BUILTIN_VISION_AGENT_ROLE, buildVisionObservationPrompt } from "../shared/prompt-image-vision";
+import { runtimeRouteToProxyRoute } from "./anthropic-proxy";
 import type { RuntimeRoute } from "./billing-resolver";
+import {
+  buildStatelessModelRequest,
+  readStatelessModelText,
+  resolveRouteApiCompat,
+} from "./bridge-auxiliary-request";
+import { OAUTH_ACCOUNT_ID_HEADER } from "./chatgpt-gateway-account";
 import { resolveOrchestrationGuardrails } from "./orchestration-run-budget";
 import { ECO_PROXY_BILLING_HEADERS } from "./proxy-billing-stamp";
 
@@ -77,6 +78,9 @@ export async function runVisionAnalysis(
   if (!sourceRoute) {
     throw new Error("看图子代理缺少可用的模型路由。");
   }
+  if (sourceRoute.provider.authMethod === "chatgpt_subscription" && !sourceRoute.accountId?.trim()) {
+    throw new Error("ChatGPT OAuth 视觉模型尚未选择账号，请先选择账号和模型。");
+  }
   if (sourceRoute.manualSpec?.supportsImageInput === false) {
     const label = sourceRoute.role === BUILTIN_VISION_AGENT_ROLE ? "视觉模型" : "主 Agent 模型";
     throw new Error(`${label} ${sourceRoute.modelId} 已明确配置为不支持图片输入。`);
@@ -104,39 +108,50 @@ export async function runVisionAnalysis(
   let failure: unknown;
   let proxy: Awaited<ReturnType<VisionAnalysisHost["startProxy"]>> | undefined;
   try {
-    proxy = await host.startProxy(visionRoute, input.attachments, {
+    proxy = await host.startProxy(visionRoute, [], {
       threadId: input.threadId,
       ...(input.runAttemptId ? { runAttemptId: input.runAttemptId } : {}),
     });
     if (!proxy.aliasModelId) {
       throw new Error("看图子代理没有生成可调用的模型别名。");
     }
-    const response = await fetch(`${proxy.baseUrl.replace(/\/$/, "")}/v1/messages`, {
+    const modelRoute = runtimeRouteToProxyRoute(visionRoute);
+    const visionPrompt = buildVisionObservationPrompt({
+      prompt: input.prompt,
+      imageCount: input.attachments.length,
+    });
+    const native = buildStatelessModelRequest(
+      { ...modelRoute, modelId: proxy.aliasModelId },
+      {
+        system: visionPrompt.system,
+        messages: [{ role: "user", content: visionPrompt.userMessage }],
+        images: input.attachments,
+        maxTokens: visionRoute.manualSpec?.maxOutputTokens ?? 1600,
+      },
+    );
+    const response = await fetch(`${proxy.baseUrl.replace(/\/$/, "")}${native.path}`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
         "anthropic-version": "2023-06-01",
         "x-api-key": proxy.apiKey,
+        "x-eco-route-role": "vision",
+        ...(visionRoute.accountId ? { [OAUTH_ACCOUNT_ID_HEADER]: visionRoute.accountId } : {}),
         [ECO_PROXY_BILLING_HEADERS.agentId]: input.billingAgentId,
         [ECO_PROXY_BILLING_HEADERS.billingRole]: BUILTIN_VISION_AGENT_ROLE,
         ...(input.runAttemptId ? { [ECO_PROXY_BILLING_HEADERS.runAttemptId]: input.runAttemptId } : {}),
       },
-      body: JSON.stringify(
-        buildVisionAnalysisRequestBody({
-          model: proxy.aliasModelId,
-          prompt: input.prompt,
-          imageCount: input.attachments.length,
-        }),
-      ),
+      body: JSON.stringify(native.body),
       signal: input.signal
         ? AbortSignal.any([input.signal, AbortSignal.timeout(maxVisionRequestRuntimeMs)])
         : AbortSignal.timeout(maxVisionRequestRuntimeMs),
     });
-    const payload = (await response.json()) as unknown;
     if (!response.ok) {
-      throw new Error(`看图子代理请求失败（HTTP ${response.status}）：${readVisionError(payload)}`);
+      throw new Error(`视觉模型请求失败（HTTP ${response.status}）：${await response.text()}`);
     }
-    report = readVisionAnalysisResponse(payload);
+    const text = await readStatelessModelText(response, resolveRouteApiCompat(modelRoute));
+    if (!text) throw new Error("视觉模型未返回可用正文。");
+    report = text;
     return report;
   } catch (error) {
     failure = error;
@@ -165,6 +180,9 @@ export async function runImageView(input: ImageViewRequest, host: ImageViewHost)
   if (!sourceRoute) {
     throw new Error("image_view 缺少可用的模型路由。");
   }
+  if (sourceRoute.provider.authMethod === "chatgpt_subscription" && !sourceRoute.accountId?.trim()) {
+    throw new Error("ChatGPT OAuth 视觉模型尚未选择账号，请先选择账号和模型。");
+  }
   if (sourceRoute.manualSpec?.supportsImageInput === false) {
     const label = sourceRoute.role === BUILTIN_VISION_AGENT_ROLE ? "视觉模型" : "主 Agent 模型";
     throw new Error(`${label} ${sourceRoute.modelId} 已明确配置为不支持图片输入。`);
@@ -178,63 +196,51 @@ export async function runImageView(input: ImageViewRequest, host: ImageViewHost)
 
   let proxy: Awaited<ReturnType<ImageViewHost["startProxy"]>> | undefined;
   try {
-    proxy = await host.startProxy(imageViewRoute, input.attachments, {
+    proxy = await host.startProxy(imageViewRoute, [], {
       threadId: input.threadId,
       ...(input.runAttemptId ? { runAttemptId: input.runAttemptId } : {}),
     });
     if (!proxy.aliasModelId) {
       throw new Error("image_view 没有生成可调用的模型别名。");
     }
-    const response = await fetch(`${proxy.baseUrl.replace(/\/$/, "")}/v1/messages`, {
+    const modelRoute = runtimeRouteToProxyRoute(imageViewRoute);
+    const native = buildStatelessModelRequest(
+      { ...modelRoute, modelId: proxy.aliasModelId },
+      {
+        messages: [{ role: "user", content: prompt }],
+        images: input.attachments,
+        maxTokens: imageViewRoute.manualSpec?.maxOutputTokens ?? 4096,
+      },
+    );
+    const response = await fetch(`${proxy.baseUrl.replace(/\/$/, "")}${native.path}`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
         "anthropic-version": "2023-06-01",
         "x-api-key": proxy.apiKey,
+        "x-eco-route-role": "vision",
+        ...(imageViewRoute.accountId ? { [OAUTH_ACCOUNT_ID_HEADER]: imageViewRoute.accountId } : {}),
         [ECO_PROXY_BILLING_HEADERS.agentId]: input.billingAgentId,
         [ECO_PROXY_BILLING_HEADERS.billingRole]: BUILTIN_VISION_AGENT_ROLE,
         ...(input.runAttemptId ? { [ECO_PROXY_BILLING_HEADERS.runAttemptId]: input.runAttemptId } : {}),
       },
-      body: JSON.stringify(
-        buildImageViewRequestBody({
-          model: proxy.aliasModelId,
-          prompt,
-          ...(imageViewRoute.manualSpec?.maxOutputTokens
-            ? { maxTokens: imageViewRoute.manualSpec.maxOutputTokens }
-            : {}),
-        }),
-      ),
+      body: JSON.stringify(native.body),
       signal: input.signal
         ? AbortSignal.any([input.signal, AbortSignal.timeout(maxVisionRequestRuntimeMs)])
         : AbortSignal.timeout(maxVisionRequestRuntimeMs),
     });
-    const payload = (await response.json()) as unknown;
     if (!response.ok) {
-      throw new Error(`image_view 请求失败（HTTP ${response.status}）：${readVisionError(payload)}`);
+      throw new Error(`视觉模型请求失败（HTTP ${response.status}）：${await response.text()}`);
     }
-    return readImageViewResponse(payload);
+    const text = await readStatelessModelText(response, resolveRouteApiCompat(modelRoute));
+    if (!text) throw new Error("视觉模型未返回可用正文。");
+    return text;
   } catch (error) {
     throw new Error(`图片查看失败（model=${sourceRoute.modelId}）：${errorMessage(error)}`);
   } finally {
     await proxy?.close().catch(() => {});
     host.unregisterBilling(input.threadId, input.billingAgentId);
   }
-}
-
-function readVisionError(value: unknown): string {
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    const error = (value as { error?: unknown }).error;
-    if (typeof error === "string" && error.trim()) {
-      return error.trim();
-    }
-    if (error && typeof error === "object" && !Array.isArray(error)) {
-      const message = (error as { message?: unknown }).message;
-      if (typeof message === "string" && message.trim()) {
-        return message.trim();
-      }
-    }
-  }
-  return "上游未返回错误详情。";
 }
 
 function errorMessage(error: unknown): string {

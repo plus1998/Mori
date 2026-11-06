@@ -6,7 +6,7 @@ import {
   resolveAgentTemplateCatalog,
   type SubagentOrchestrationResource,
 } from "../shared/agent-orchestration";
-import type { McpServerConfigView, ModelSettingsSnapshot } from "../shared/ipc";
+import type { McpServerConfigView, ModelRef, ModelSettingsSnapshot } from "../shared/ipc";
 import {
   type AgentCompositionEditorMode,
   type AgentCompositionEditorScope,
@@ -26,6 +26,7 @@ import {
 
 interface AgentCompositionResourcesSectionProps {
   settings: ModelSettingsSnapshot;
+  mainModel?: ModelRef | undefined;
   mcpServers?: McpServerConfigView[] | undefined;
   busy?: boolean | undefined;
   activeScope: AgentCompositionEditorScope;
@@ -42,6 +43,7 @@ interface CompositionEditorSession {
 
 export function AgentCompositionResourcesSection({
   settings,
+  mainModel,
   mcpServers = [],
   busy = false,
   activeScope,
@@ -362,6 +364,7 @@ export function AgentCompositionResourcesSection({
           providers={settings.providers.filter((provider) => provider.apiCompat !== "system_one")}
           templates={templates}
           mcpServers={mcpServers}
+          mainModel={mainModel}
           error={error || undefined}
           busy={busy}
           onClose={() => setEditorSession(undefined)}

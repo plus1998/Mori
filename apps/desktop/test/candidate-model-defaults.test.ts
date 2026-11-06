@@ -77,8 +77,23 @@ test("OAuth catalog selections retain the managed provider route without a candi
     candidateModelId: chatGptCatalogCandidateId("gpt-6-luna"),
   };
   expect(resolveCandidateModelRouteDefaults([route], source)).toEqual([
-    { role: "reviewer", providerId: "eco-coding-chatgpt", modelId: "gpt-6-luna" },
+    { role: "reviewer", providerId: "eco-coding-chatgpt", modelId: "gpt-6-luna", apiCompat: "openai_responses" },
   ]);
+});
+
+test("per-account OAuth selections use Responses and preserve the exact account without the shared catalog", () => {
+  const route: RuntimeRoleRouteConfig = {
+    role: "custom_researcher", providerId: "eco-coding-chatgpt", modelId: "gpt-6-luna",
+    candidateModelId: "account:eco-coding-chatgpt:gpt-6-luna", accountId: "research-account",
+    apiCompat: "anthropic",
+  };
+  const resolved = resolveCandidateModelRouteDefaults([route], {
+    ...source, listCandidateModels: () => { throw new Error("Must use the account catalog"); },
+  });
+  expect(resolved[0]).toEqual({ role: route.role, providerId: route.providerId,
+    modelId: route.modelId, accountId: "research-account", apiCompat: "openai_responses" });
+  expect(() => resolveCandidateModelRouteDefaults([{ ...route,
+    candidateModelId: "account:eco-coding-chatgpt:different-model" }], source)).toThrow("已不存在");
 });
 
 test("catalog-shaped IDs do not bypass missing stored candidate validation", () => {

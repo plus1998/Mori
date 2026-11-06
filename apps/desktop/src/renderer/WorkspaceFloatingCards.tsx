@@ -1,3 +1,4 @@
+import type { AuxiliaryModelSelection } from "../shared/auxiliary-model";
 import type { TtsArtifact } from "../shared/tts";
 import { TtsArtifactPlayer } from "./TtsArtifactPlayer";
 import {
@@ -94,12 +95,13 @@ export interface WorkspaceFloatingCardsProps {
   gitStatus?: GitWorkingTreeStatus;
   gitBusy?: boolean;
   commitDisabled?: boolean;
-  defaultCommitCandidateModelId?: string;
+  defaultCommitModelSelection?: AuxiliaryModelSelection;
   gitSettings?: GitSettingsSnapshot;
   onCheckoutGitBranch?: (branch: string) => void | Promise<void>;
   onCreateGitBranch?: (branch: string) => void | Promise<void>;
   onOpenGitSettings?: () => void;
-  onSaveCommitModelPreference?: (candidateModelId: string) => void | Promise<void>;
+  onManageModelAccounts?: () => void;
+  onSaveCommitModelPreference?: (selection: AuxiliaryModelSelection) => void | Promise<void>;
   onCommitSuccess?: () => void | Promise<void>;
   onPushSuccess?: () => void | Promise<void>;
   onOpenChangesReview?: () => void;
@@ -778,12 +780,13 @@ export function WorkspaceFloatingCards({
   gitStatus,
   gitBusy,
   commitDisabled,
-  defaultCommitCandidateModelId,
+  defaultCommitModelSelection,
   gitSettings,
   onCheckoutGitBranch,
   onCreateGitBranch,
   onOpenGitSettings,
   onSaveCommitModelPreference,
+  onManageModelAccounts,
   onCommitSuccess,
   onPushSuccess,
   onOpenChangesReview,
@@ -931,11 +934,12 @@ export function WorkspaceFloatingCards({
               {...(gitStatus && { gitStatus })}
               gitBusy={gitBusy ?? false}
               commitDisabled={commitDisabled ?? false}
-              {...(defaultCommitCandidateModelId && { defaultCommitCandidateModelId })}
+              {...(defaultCommitModelSelection && { defaultCommitModelSelection })}
               {...(gitSettings && { gitSettings })}
               {...(onCheckoutGitBranch && { onCheckoutGitBranch })}
               {...(onCreateGitBranch && { onCreateGitBranch })}
               {...(onOpenGitSettings && { onOpenGitSettings })}
+              {...(onManageModelAccounts && { onManageModelAccounts })}
               {...(onSaveCommitModelPreference && { onSaveCommitModelPreference })}
               onCommitSuccess={() => void handleCommitSuccess()}
               {...(onPushSuccess && { onPushSuccess })}

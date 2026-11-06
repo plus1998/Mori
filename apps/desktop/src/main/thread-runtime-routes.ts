@@ -60,8 +60,11 @@ export function resolveThreadRuntimeConfig(
       role: route.role,
       provider: resolvedProvider,
       modelId: route.modelId,
+      ...(route.accountId ? { accountId: route.accountId.trim() } : {}),
       ...(route.candidateModelId ? { candidateModelId: route.candidateModelId } : {}),
-      apiCompat: resolveUpstreamApiCompat(route.apiCompat, resolvedProvider.apiCompat),
+      apiCompat: provider.authMethod === "chatgpt_subscription"
+        ? "openai_responses"
+        : resolveUpstreamApiCompat(route.apiCompat, resolvedProvider.apiCompat),
       ...(route.thinkingEffort && { thinkingEffort: route.thinkingEffort }),
       ...(route.modelsDevMapping && { modelsDevMapping: route.modelsDevMapping }),
       ...(route.manualSpec && { manualSpec: route.manualSpec }),
@@ -75,6 +78,9 @@ export function resolveThreadRuntimeConfig(
 
   const resolvedRoutes = routes.filter((route): route is RuntimeRoute => Boolean(route));
   for (const route of resolvedRoutes) {
+    if (route.provider.authMethod === "chatgpt_subscription" && !route.accountId) {
+      return { ok: false, reason: `${route.role} 的 ChatGPT OAuth 模型尚未选择账号，请先选择账号和模型。` };
+    }
     if (!route.modelId.trim()) {
       return { ok: false, reason: `Model id is required for ${route.role}.` };
     }
@@ -108,6 +114,7 @@ export function roleRoutesFromRuntime(routes: readonly RuntimeRoute[]): RuntimeR
     role: route.role,
     providerId: route.provider.id,
     modelId: route.modelId,
+    ...(route.accountId ? { accountId: route.accountId } : {}),
     ...(route.candidateModelId ? { candidateModelId: route.candidateModelId } : {}),
     apiCompat: resolveUpstreamApiCompat(route.apiCompat, route.provider.apiCompat),
     ...(route.thinkingEffort && { thinkingEffort: route.thinkingEffort }),

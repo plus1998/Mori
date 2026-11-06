@@ -1,8 +1,7 @@
+import { ModelFieldLabel } from "./ModelFieldLabel";
 import { ArrowLeft, ChevronDown, LayoutTemplate, RotateCcw, Settings2, X } from "lucide-react";
 import {
   type RefObject,
-  useEffect,
-  useMemo,
   useRef,
   useState,
 } from "react";
@@ -10,7 +9,6 @@ import { useTranslation } from "react-i18next";
 import type {
   ApprovalModelSelection,
   AuxiliaryModelSelection,
-  CommitModelOptionView,
   MainAgentPromptSelection,
   ModelRef,
   ModelSettingsSnapshot,
@@ -22,13 +20,8 @@ import { ComposerFieldSelect } from "./ComposerFieldSelect";
 import { ComposerAbovePanel } from "./ComposerAbovePanel";
 import { ComposerMainModelPicker } from "./ComposerMainModelPicker";
 import { COMPOSER_TOOLBAR_ICON_PX, COMPOSER_TOOLBAR_ICON_STROKE } from "./composer-icon-metrics";
-import { ModelCascadeSelect } from "./ModelCascadeSelect";
-import {
-  createCommitModelPricingExtra,
-  mapCommitModelOptions,
-  toCandidateModelSelection,
-  toModelCascadeSelection,
-} from "./model-cascade-options";
+import { StatelessModelControl } from "./StatelessModelControl";
+
 import type { OrchestrationFieldIssue, OrchestrationFieldKey } from "./orchestration-readiness";
 import { orchestrationIssueDetailKey } from "./orchestration-readiness";
 
@@ -106,6 +99,7 @@ interface ComposerRoutePopoverProps extends CompositionControlHandlers {
   onAddProvider: () => void;
   onResetToGlobalSettings: () => void | Promise<void>;
   onOpenFullSettings: () => void;
+  onManageAccounts: () => void;
 }
 
 interface ComposerRouteCardBodyProps extends CompositionControlHandlers {
@@ -119,6 +113,7 @@ interface ComposerRouteCardBodyProps extends CompositionControlHandlers {
   orchestrationIssues?: readonly OrchestrationFieldIssue[] | undefined;
   coreKind?: string | undefined;
   onOpenFullSettings: () => void;
+  onManageAccounts: () => void;
 }
 
 export function ComposerRoutePopover({
@@ -145,6 +140,7 @@ export function ComposerRoutePopover({
   onSelectApprovalModel,
   onSelectVisionModel,
   onOpenFullSettings,
+  onManageAccounts,
 }: ComposerRoutePopoverProps) {
   const { t } = useTranslation();
   const [singleColumn, setSingleColumn] = useState(false);
@@ -194,6 +190,7 @@ export function ComposerRoutePopover({
           onClose();
           onAddProvider();
         }}
+        onManageAccounts={onManageAccounts}
         onSelectMainModel={onSelectMainModel}
         onSelectMainPrompt={onSelectMainPrompt}
         onSelectSubagents={onSelectSubagents}
@@ -221,6 +218,7 @@ export function ComposerRouteCardBody({
   onSelectApprovalModel,
   onSelectVisionModel,
   onOpenFullSettings,
+  onManageAccounts,
 }: ComposerRouteCardBodyProps) {
   const { t } = useTranslation();
 
@@ -236,6 +234,7 @@ export function ComposerRouteCardBody({
         orchestrationIssues={orchestrationIssues}
         coreKind={coreKind}
         onAddProvider={onOpenFullSettings}
+        onManageAccounts={onManageAccounts}
         onSelectMainModel={onSelectMainModel}
         onSelectMainPrompt={onSelectMainPrompt}
         onSelectSubagents={onSelectSubagents}
@@ -269,6 +268,7 @@ function ComposerRouteCompositionControls({
   invalidFields,
   orchestrationIssues,
   onAddProvider,
+  onManageAccounts,
   onSelectMainModel,
   onSelectMainPrompt,
   onSelectSubagents,
@@ -286,34 +286,13 @@ function ComposerRouteCompositionControls({
   orchestrationIssues?: readonly OrchestrationFieldIssue[] | undefined;
   coreKind?: string | undefined;
   onAddProvider: () => void;
+  onManageAccounts: () => void;
 } & CompositionControlHandlers) {
   const { t } = useTranslation();
   const mainAgentPrompts = (settings.mainAgentPrompts ?? []).filter(
     (prompt) => prompt.mode === "custom_append",
   );
   const subagentOrchestrations = settings.subagentOrchestrations ?? [];
-  const [auxiliaryModelOptions, setAuxiliaryModelOptions] = useState<CommitModelOptionView[]>([]);
-  const [auxiliaryModelsLoading, setAuxiliaryModelsLoading] = useState(false);
-  const [auxiliaryModelsError, setAuxiliaryModelsError] = useState<string>();
-  const auxiliaryModelCascadeOptions = useMemo(
-    () => mapCommitModelOptions(auxiliaryModelOptions),
-    [auxiliaryModelOptions],
-  );
-  const auxiliaryModelPricingExtra = useMemo(
-    () => createCommitModelPricingExtra(auxiliaryModelOptions),
-    [auxiliaryModelOptions],
-  );
-  const [approvalModelOptions, setApprovalModelOptions] = useState<CommitModelOptionView[]>([]);
-  const [approvalModelsLoading, setApprovalModelsLoading] = useState(false);
-  const [approvalModelsError, setApprovalModelsError] = useState<string>();
-  const approvalModelCascadeOptions = useMemo(
-    () => mapCommitModelOptions(approvalModelOptions),
-    [approvalModelOptions],
-  );
-  const approvalModelPricingExtra = useMemo(
-    () => createCommitModelPricingExtra(approvalModelOptions),
-    [approvalModelOptions],
-  );
   const selection = runtimeConfig?.orchestrationSelection;
   const mainAgentInvalid = Boolean(invalidFields?.includes("mainAgent"));
   const subagentOrchestrationInvalid = Boolean(invalidFields?.includes("subagentOrchestration"));
@@ -334,70 +313,6 @@ function ComposerRouteCompositionControls({
         provider: subagentIssue.providerName,
       }).replace(/^[:：]\s*/, "")
     : t("composer.route.fieldInvalid");
-  useEffect(() => {
-    if (!window.eco) {
-      setAuxiliaryModelOptions([]);
-      setAuxiliaryModelsLoading(false);
-      setAuxiliaryModelsError(undefined);
-      return;
-    }
-    let cancelled = false;
-    setAuxiliaryModelsLoading(true);
-    setAuxiliaryModelsError(undefined);
-    void window.eco
-      .listGitCommitModelOptions({})
-      .then((result) => {
-        if (!cancelled) {
-          setAuxiliaryModelOptions(result.options);
-        }
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          setAuxiliaryModelOptions([]);
-          setAuxiliaryModelsError(error instanceof Error ? error.message : String(error));
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setAuxiliaryModelsLoading(false);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [settings.providers]);
-  useEffect(() => {
-    if (!window.eco) {
-      setApprovalModelOptions([]);
-      setApprovalModelsLoading(false);
-      setApprovalModelsError(undefined);
-      return;
-    }
-    let cancelled = false;
-    setApprovalModelsLoading(true);
-    setApprovalModelsError(undefined);
-    void window.eco
-      .listApprovalModelOptions({})
-      .then((result) => {
-        if (!cancelled) {
-          setApprovalModelOptions(result.options);
-        }
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          setApprovalModelOptions([]);
-          setApprovalModelsError(error instanceof Error ? error.message : String(error));
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setApprovalModelsLoading(false);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [settings.providers]);
   const auxiliaryHint = showOrchestration
     ? t("composer.route.auxiliaryModelHint")
     : t("composer.route.auxiliaryModelHintAcp");
@@ -431,61 +346,37 @@ function ComposerRouteCompositionControls({
         onSelect={onSelectMainModel}
       /> : null}
       <div className="composer-route-prompt-control">
-        <span className="composer-route-prompt-label">{t("composer.route.auxiliaryModel")}</span>
-        <ModelCascadeSelect
-          value={toModelCascadeSelection(runtimeConfig?.auxiliaryModel)}
-          options={auxiliaryModelCascadeOptions}
-          loading={auxiliaryModelsLoading}
-          error={auxiliaryModelsError}
+        <ModelFieldLabel className="composer-route-prompt-label" label={t("composer.route.auxiliaryModel")} hint={auxiliaryHint} />
+        <StatelessModelControl
+          value={runtimeConfig?.auxiliaryModel} purpose="auxiliary"
+          mainModel={runtimeConfig?.orchestrationSelection?.mainModel}
           disabled={statelessModelsDisabled ?? disabled}
-          clearable
-          clearLabel={t("common.clear")}
-          hint={auxiliaryHint}
-          placeholder={t("composer.route.auxiliaryModel")}
-          renderExtra={auxiliaryModelPricingExtra}
-          onChange={(selection) => {
-            void onSelectAuxiliaryModel(selection ? toCandidateModelSelection(selection) : undefined);
-          }}
+          onManageAccounts={onManageAccounts}
+          onAddProvider={onAddProvider}
+          onChange={onSelectAuxiliaryModel}
         />
-        <span className="composer-route-prompt-hint">{auxiliaryHint}</span>
       </div>
       <div className="composer-route-prompt-control">
-        <span className="composer-route-prompt-label">{t("composer.route.approvalModel")}</span>
-        <ModelCascadeSelect
-          value={toModelCascadeSelection(runtimeConfig?.approvalModel)}
-          options={approvalModelCascadeOptions}
-          loading={approvalModelsLoading}
-          error={approvalModelsError}
+        <ModelFieldLabel className="composer-route-prompt-label" label={t("composer.route.approvalModel")} hint={t("composer.route.approvalModelHint")} />
+        <StatelessModelControl
+          value={runtimeConfig?.approvalModel} purpose="approval"
+          mainModel={runtimeConfig?.orchestrationSelection?.mainModel}
           disabled={statelessModelsDisabled ?? disabled}
-          hint={t("composer.route.approvalModelHint")}
-          placeholder={t("composer.route.approvalModel")}
-          renderExtra={approvalModelPricingExtra}
-          onChange={(selection) => {
-            if (selection) {
-              void onSelectApprovalModel(toCandidateModelSelection(selection));
-            }
-          }}
+          onManageAccounts={onManageAccounts}
+          onAddProvider={onAddProvider}
+          onChange={(next) => { if (next) return onSelectApprovalModel(next); }}
         />
-        <span className="composer-route-prompt-hint">{t("composer.route.approvalModelHint")}</span>
       </div>
       <div className="composer-route-prompt-control">
-        <span className="composer-route-prompt-label">{t("composer.route.visionModel")}</span>
-        <ModelCascadeSelect
-          value={toModelCascadeSelection(runtimeConfig?.visionModel)}
-          options={auxiliaryModelCascadeOptions}
-          loading={auxiliaryModelsLoading}
-          error={auxiliaryModelsError}
+        <ModelFieldLabel className="composer-route-prompt-label" label={t("composer.route.visionModel")} hint={visionHint} />
+        <StatelessModelControl
+          value={runtimeConfig?.visionModel} purpose="vision"
+          mainModel={runtimeConfig?.orchestrationSelection?.mainModel}
           disabled={statelessModelsDisabled ?? disabled}
-          clearable
-          clearLabel={t("common.clear")}
-          hint={visionHint}
-          placeholder={t("composer.route.visionModel")}
-          renderExtra={auxiliaryModelPricingExtra}
-          onChange={(selection) => {
-            void onSelectVisionModel(selection ? toCandidateModelSelection(selection) : undefined);
-          }}
+          onManageAccounts={onManageAccounts}
+          onAddProvider={onAddProvider}
+          onChange={onSelectVisionModel}
         />
-        <span className="composer-route-prompt-hint">{visionHint}</span>
       </div>
       {showOrchestration ? (
         <>

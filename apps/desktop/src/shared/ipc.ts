@@ -1,3 +1,4 @@
+import { isAuxiliaryModelSelection, type AuxiliaryModelSelection } from "./auxiliary-model";
 import type {
   ThreadRunProjectionRequestSpan,
   ThreadRunProjectionSnapshot,
@@ -1336,6 +1337,7 @@ export interface GitListCommitsResult {
 }
 
 export interface GitGenerateCommitMessageRequest {
+  modelSelection?: AuxiliaryModelSelection;
   workspacePath: string;
   includeUnstaged: boolean;
   /** Correlates streaming deltas pushed on gitGenerateCommitMessageDelta. */
@@ -1361,6 +1363,7 @@ export interface GitGenerateCommitMessageResult {
 }
 
 export interface GitCommitRequest {
+  modelSelection?: AuxiliaryModelSelection;
   workspacePath: string;
   includeUnstaged: boolean;
   message?: string;
@@ -1381,6 +1384,7 @@ export interface GitListCommitModelOptionsResult {
 
 export interface GitSaveCommitModelPreferenceRequest {
   candidateModelId: string;
+  accountId?: string;
 }
 
 export interface GitSaveCommitModelPreferenceResult {
@@ -1745,6 +1749,8 @@ export interface RuntimeRoleRouteConfig {
   role: RuntimeAgentRole;
   providerId: string;
   modelId: string;
+  /** Exact OAuth account bound to this role, independent of the main role. */
+  accountId?: string;
   /** Overrides provider default when set. */
   apiCompat?: UpstreamApiCompat;
   /** Concrete candidate endpoint; populated before runtime routing. */
@@ -3031,7 +3037,8 @@ export function isGitGenerateCommitMessageRequest(value: unknown): value is GitG
   const record = value as Record<string, unknown>;
   return (
     typeof record.workspacePath === "string" &&
-    typeof record.includeUnstaged === "boolean"
+    typeof record.includeUnstaged === "boolean" &&
+    (record.modelSelection === undefined || isAuxiliaryModelSelection(record.modelSelection))
   );
 }
 
@@ -3063,7 +3070,10 @@ export function parseGitSaveCommitModelPreferenceRequest(
   if (!candidateModelId || candidateModelId === "auto") {
     throw new Error("Invalid git save commit model preference request.");
   }
-  return { candidateModelId };
+  if (record.accountId !== undefined && (typeof record.accountId !== "string" || !record.accountId.trim())) {
+    throw new Error("Invalid Git commit model account.");
+  }
+  return { candidateModelId, ...(typeof record.accountId === "string" ? { accountId: record.accountId.trim() } : {}) };
 }
 
 export function isGitSaveCommitModelPreferenceRequest(
@@ -3076,7 +3086,7 @@ export function isGitSaveCommitModelPreferenceRequest(
   if (typeof record.candidateModelId !== "string" || !record.candidateModelId.trim()) {
     return false;
   }
-  return true;
+  return record.accountId === undefined || (typeof record.accountId === "string" && Boolean(record.accountId.trim()));
 }
 
 export function isGitListCommitsRequest(value: unknown): value is GitListCommitsRequest {
@@ -3101,7 +3111,8 @@ export function isGitCommitRequest(value: unknown): value is GitCommitRequest {
   const record = value as Record<string, unknown>;
   return (
     typeof record.workspacePath === "string" &&
-    typeof record.includeUnstaged === "boolean"
+    typeof record.includeUnstaged === "boolean" &&
+    (record.modelSelection === undefined || isAuxiliaryModelSelection(record.modelSelection))
   );
 }
 

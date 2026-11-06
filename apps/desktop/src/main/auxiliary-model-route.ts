@@ -6,6 +6,7 @@ import {
 import type { AuxiliaryModelSelection } from "../shared/auxiliary-model";
 import { type AnthropicProxyRoute, runtimeRouteToProxyRoute } from "./anthropic-proxy";
 import type { ProviderStore } from "./provider-store";
+import { resolveStatelessModelCandidate } from "./stateless-model-candidate";
 
 export function resolveAuxiliaryModelRoute(
   selection: AuxiliaryModelSelection | undefined,
@@ -26,9 +27,10 @@ export function resolveAuxiliaryModelRoute(
   if (!provider) {
     throw new Error(`辅助模型所属 Provider 不存在或已禁用：${selection.providerId}`);
   }
-  const candidate = providerStore
-    .listStatelessModelCandidates(provider.id)
-    .find((model) => model.id === selection.candidateModelId);
+  if (provider.authMethod === "chatgpt_subscription" && !selection.accountId?.trim()) {
+    throw new Error("ChatGPT OAuth 模型尚未选择账号，请重新选择账号和模型。");
+  }
+  const candidate = resolveStatelessModelCandidate(selection, provider, providerStore);
   if (!candidate) {
     throw new Error(`辅助模型已不在候选模型列表中：${selection.candidateModelId}`);
   }
@@ -47,6 +49,7 @@ export function resolveAuxiliaryModelRoute(
   return runtimeRouteToProxyRoute(
     {
       role: "auxiliary",
+      ...(provider.authMethod === "chatgpt_subscription" ? { accountId: selection.accountId } : {}),
       provider: {
         ...provider,
         baseUrl: candidate.baseUrl,
@@ -57,6 +60,7 @@ export function resolveAuxiliaryModelRoute(
           ? { tokenCountMode: candidate.tokenCountMode ?? provider.tokenCountMode }
           : {}),
       },
+      candidateModelId: candidate.id,
       modelId: candidate.modelId,
       apiCompat: candidate.apiCompat,
       ...(candidate.manualSpec ? { manualSpec: candidate.manualSpec } : {}),

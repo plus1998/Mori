@@ -21,19 +21,19 @@ function fakeRoute(overrides: Partial<RuntimeRoute> = {}): RuntimeRoute {
       id: "provider-1",
       name: "Provider",
       enabled: true,
-      apiCompat: "openai",
+      apiCompat: "openai_responses",
       baseUrl: "https://example.test",
       apiKey: "secret",
     } as RuntimeRoute["provider"],
     modelId: "main-model",
-    apiCompat: "openai",
+    apiCompat: "openai_responses",
     manualSpec: { supportsImageInput: true },
     ...overrides,
   };
 }
 
 function visionResponse(text = "## Overview\nbutton overlap"): Response {
-  return new Response(JSON.stringify({ content: [{ type: "text", text }] }), {
+  return new Response(JSON.stringify({ status: "completed", output: [{ type: "message", content: [{ type: "output_text", text }] }] }), {
     status: 200,
     headers: { "content-type": "application/json" },
   });

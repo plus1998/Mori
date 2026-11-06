@@ -81,13 +81,13 @@ test("sanitizeCommitMessage truncates overly long output", () => {
 
 test("buildCommitMessageRequestBody disables thinking", () => {
   const body = buildCommitMessageRequestBody(route, context);
-  expect(body.thinking).toEqual({ type: "disabled" });
-  expect(body.max_tokens).toBeUndefined();
+  expect(body.disableThinking).toBe(true);
+  expect(body.maxTokens).toBeUndefined();
 });
 
 test("buildCommitMessageRequestBody uses route max output tokens when configured", () => {
   const body = buildCommitMessageRequestBody({ ...route, maxOutputTokens: 4096 }, context);
-  expect(body.max_tokens).toBe(4096);
+  expect(body.maxTokens).toBe(4096);
 });
 
 test("extractCommitMessageText ignores thinking-only responses", () => {

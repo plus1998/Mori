@@ -9637,20 +9637,8 @@ function App() {
     await runAsrProfilesMutation(() => eco.saveAsrInputDevice({ inputDeviceId: inputDeviceId || null }));
   }
 
-  async function saveCommitMessageModelPreference(candidateModelId: string) {
-    if (!window.eco?.listGitCommitModelOptions) {
-      return;
-    }
-    const result = await window.eco.listGitCommitModelOptions({});
-    const option = result.options.find((candidate) => candidate.candidateModelId === candidateModelId);
-    if (!option) {
-      throw new Error("所选 Git 提交模型已不在候选模型列表中。");
-    }
-    await selectComposerAuxiliaryModel({
-      providerId: option.providerId,
-      modelId: option.modelId,
-      candidateModelId: option.candidateModelId,
-    });
+  async function saveCommitMessageModelPreference(selection: AuxiliaryModelSelection) {
+    await selectComposerAuxiliaryModel(selection);
   }
 
   async function handleGitCheckoutBranch(branch: string) {
@@ -12278,6 +12266,7 @@ function App() {
       coreKind={composerCoreKind}
       onResetToGlobalSettings={() => void resetComposerToGlobalSettings()}
       onOpenFullSettings={() => openModelsSettings("compositionParts")}
+      onManageAccounts={() => { setComposerRoutePopoverOpen(false); openProviderSettings("chatgptAccounts"); }}
     />
   );
 
@@ -12367,6 +12356,7 @@ function App() {
       <ComposerMainModelPicker
         anchorRef={anchorRef}
         model={composerPickerModel}
+        compactLabel
         openRequest={modelPickerOpenRequest}
         coreKind={composerCoreKind}
         disabled={disabled || isSavingSettings || (!canEditComposerModel && !composerModelReadOnly)}
@@ -13581,11 +13571,12 @@ function App() {
                   onCheckoutGitBranch={handleGitCheckoutBranch}
                   onCreateGitBranch={handleGitCreateBranch}
                   onOpenGitSettings={openGitSettings}
-                  {...(composerRuntimeConfig?.auxiliaryModel?.candidateModelId && {
-                    defaultCommitCandidateModelId: composerRuntimeConfig.auxiliaryModel.candidateModelId,
+                  {...(composerRuntimeConfig?.auxiliaryModel && {
+                    defaultCommitModelSelection: composerRuntimeConfig.auxiliaryModel,
                   })}
                   gitSettings={gitSettings}
                   onSaveCommitModelPreference={saveCommitMessageModelPreference}
+                  onManageModelAccounts={() => openProviderSettings("chatgptAccounts")}
                   onCommitSuccess={() => void handleGitCommitSuccess()}
                   onPushSuccess={() => {
                     showAppMessageSuccessRef.current(t("git.pushSucceeded", { project: currentProjectName }));

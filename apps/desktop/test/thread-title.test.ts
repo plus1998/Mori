@@ -260,13 +260,13 @@ test("buildThreadTitleUserMessage truncates long prompts", () => {
 
 test("buildThreadTitleRequestBody disables thinking", () => {
   const body = buildThreadTitleRequestBody(routes[0]!, "实现导出筛选", true);
-  expect(body.thinking).toEqual({ type: "disabled" });
+  expect(body.disableThinking).toBe(true);
   expect(String(body.system)).toContain("不要输出思考过程");
 });
 
 test("buildThreadTitleRequestBody uses route max output tokens when configured", () => {
   const body = buildThreadTitleRequestBody({ ...routes[0]!, maxOutputTokens: 4096 }, "实现导出筛选", false);
-  expect(body.max_tokens).toBe(4096);
+  expect(body.maxTokens).toBe(4096);
 });
 
 test("extractTitleText ignores thinking-only responses", () => {
@@ -293,7 +293,7 @@ test("extractTitleJsonFromThinking reads JSON embedded in thinking blocks", () =
   expect(parseThreadTitleJson(text)).toBe("模型身份询问");
 });
 
-test("summarizeThreadTitle recovers title from thinking-only upstream responses", async () => {
+test("summarizeThreadTitle does not treat truncated reasoning as a completed answer", async () => {
   const title = await summarizeThreadTitle(routes, "你是什么模型", async () => {
     return new Response(
       JSON.stringify({
@@ -310,7 +310,7 @@ test("summarizeThreadTitle recovers title from thinking-only upstream responses"
     );
   });
 
-  expect(title).toBe("模型身份询问");
+  expect(title).toBeUndefined();
 });
 
 test("previewThreadTitleFromStream reads partial JSON while streaming", () => {
@@ -341,7 +341,7 @@ test("summarizeThreadTitle streams title preview through onTitleDelta", async ()
   expect(previews).toEqual(["导出筛选功能"]);
 });
 
-test("summarizeThreadTitle routes openai chat through bridge with messages face", async () => {
+test("summarizeThreadTitle uses native Chat Completions for a chat provider", async () => {
   const qwenRoutes: AnthropicProxyRoute[] = [
     {
       role: "auxiliary",
@@ -371,23 +371,22 @@ test("summarizeThreadTitle routes openai chat through bridge with messages face"
     requestUrl = String(url);
     requestHeaders = Object.fromEntries(new Headers(init?.headers).entries());
     bridgeBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
-    // Bridge face stays Anthropic Messages; Gateway converts upstream.
+    // Product calls already use the selected provider protocol.
     return new Response(
       JSON.stringify({
-        type: "message",
-        content: [{ type: "text", text: '{"title":"导出筛选"}' }],
+        choices: [{ message: { content: '{"title":"导出筛选"}' }, finish_reason: "stop" }],
       }),
       { status: 200, headers: { "content-type": "application/json" } },
     );
   });
 
   expect(title).toBe("导出筛选");
-  expect(requestUrl).toMatch(/\/v1\/messages$/);
+  expect(requestUrl).toMatch(/\/v1\/chat\/completions$/);
   expect(requestUrl).not.toContain("127.0.0.1:8080");
   expect(requestHeaders[GATEWAY_PROVIDER_ID_HEADER]).toBe("p0");
   expect(requestHeaders[GATEWAY_UPSTREAM_KIND_HEADER]).toBe("openai-chat");
   expect(requestHeaders[GATEWAY_REQUESTED_MODEL_HEADER]).toBe("qwen3.6-27b");
   expect(bridgeBody?.model).toBe("qwen3.6-27b");
   expect(bridgeBody?.stream).toBe(false);
-  expect(bridgeBody?.thinking).toEqual({ type: "disabled" });
+  expect(bridgeBody?.thinking).toBeUndefined();
 });

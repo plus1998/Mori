@@ -1,5 +1,6 @@
 import type { AnthropicProxyRoute } from "./anthropic-proxy";
 import { postAuxiliaryBridgeRequest } from "./bridge-auxiliary-request";
+import type { StatelessModelPrompt } from "./bridge-auxiliary-request";
 import type { CommitDiffContext } from "./git-operations";
 import { logUpstreamError } from "./upstream-log";
 
@@ -50,7 +51,7 @@ export function buildCommitMessageRequestBody(
   route: AnthropicProxyRoute,
   context: CommitDiffContext,
   instructions?: string,
-): Record<string, unknown> {
+): StatelessModelPrompt {
   const trimmedInstructions = instructions?.trim();
   const systemParts = [
     "你是 Git 提交信息生成器。",
@@ -61,10 +62,9 @@ export function buildCommitMessageRequestBody(
     "不要输出思考过程，只输出 commit message 正文。",
     ...(trimmedInstructions ? [`遵循以下用户提交指令：${trimmedInstructions}`] : []),
   ];
-  const body: Record<string, unknown> = {
-    model: route.modelId,
+  const body: StatelessModelPrompt = {
     temperature: 0,
-    thinking: { type: "disabled" },
+    disableThinking: true,
     system: systemParts.join(" "),
     messages: [
       {
@@ -74,7 +74,7 @@ export function buildCommitMessageRequestBody(
     ],
   };
   if (route.maxOutputTokens !== undefined && route.maxOutputTokens > 0) {
-    body.max_tokens = route.maxOutputTokens;
+    body.maxTokens = route.maxOutputTokens;
   }
   return body;
 }
@@ -91,7 +91,7 @@ export async function summarizeCommitMessage(
   try {
     const result = await postAuxiliaryBridgeRequest({
       route,
-      anthropicBody: buildCommitMessageRequestBody(route, context, instructions),
+      prompt: buildCommitMessageRequestBody(route, context, instructions),
       signal: controller.signal,
       logEventPrefix: "git-commit-message",
       fetcher,

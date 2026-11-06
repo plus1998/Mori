@@ -30,6 +30,7 @@ import type { ProviderConfigSecret } from "./provider-store";
 
 export interface RuntimeRoute {
   candidateModelId?: string;
+  accountId?: string;
   role: RuntimeAgentRole;
   provider: ProviderConfigSecret;
   modelId: string;
@@ -249,6 +250,7 @@ export function resolveRuntimeRoutesFromSettings(
         role: route.role,
         provider,
         modelId: route.modelId,
+        ...(route.accountId ? { accountId: route.accountId } : {}),
         apiCompat: resolveUpstreamApiCompat(route.apiCompat, provider.apiCompat),
         ...(route.thinkingEffort && { thinkingEffort: route.thinkingEffort }),
         ...(route.modelsDevMapping && { modelsDevMapping: route.modelsDevMapping }),

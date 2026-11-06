@@ -28,6 +28,7 @@ export interface AgentResourceAgentFormState extends AgentResourceAgentCapabilit
   themeColor: string;
   providerId: string;
   modelId: string;
+  accountId?: string;
   thinkingEffort: string;
   apiCompat: string;
   enabled: boolean;
@@ -360,6 +361,7 @@ function agentInstanceToForm(agent: AgentInstanceConfig): AgentResourceAgentForm
     themeColor: agent.themeColor ?? defaultThemeColorForAgentKey(agent.agentKey),
     providerId: agent.modelRef.providerId,
     modelId: agent.modelRef.modelId,
+    accountId: agent.modelRef.accountId ?? "",
     thinkingEffort: agent.modelRef.thinkingEffort ?? "",
     apiCompat: agent.modelRef.apiCompat ?? "",
     enabled: agent.enabled,
@@ -405,6 +407,9 @@ function buildAgentsFromForm(
     if (claudeAutoCompactWindow !== undefined)
       validateClaudeSubagentCompactWindow(claudeAutoCompactWindow, displayName);
     if (agentForm.enabled) {
+      if (agentForm.providerId === "eco-coding-chatgpt" && !agentForm.accountId?.trim()) {
+        throw new Error(`${displayName} 的 ChatGPT OAuth 模型尚未选择账号，请先选择账号和模型。`);
+      }
       assertCandidateModelSelected(displayName, agentForm.candidateModelId);
     }
     const themeColor = resolveStoredThemeColor(
@@ -423,8 +428,10 @@ function buildAgentsFromForm(
       displayName,
       ...(themeColor && { themeColor }),
       modelRef: buildModelRef(agentForm.providerId, agentForm.modelId, {
+        ...((agentForm.providerId === "eco-coding-chatgpt" || agentForm.providerId === "openai") && agentForm.accountId
+          ? { accountId: agentForm.accountId } : {}),
         thinkingEffort: agentForm.thinkingEffort,
-        apiCompat: agentForm.apiCompat,
+        apiCompat: agentForm.providerId === "eco-coding-chatgpt" ? "openai_responses" : agentForm.apiCompat,
         candidateModelId: agentForm.candidateModelId,
       }),
       tools,
@@ -513,6 +520,7 @@ function buildModelRef(
   providerId: string,
   modelId: string,
   options?: {
+    accountId?: string;
     thinkingEffort?: string;
     apiCompat?: string;
     candidateModelId?: string;
@@ -529,6 +537,7 @@ function buildModelRef(
   const modelRef: ModelRef = {
     providerId: provider,
     modelId: model,
+    ...(options?.accountId?.trim() ? { accountId: options.accountId.trim() } : {}),
   };
   if (thinkingEffort) {
     modelRef.thinkingEffort = thinkingEffort as ThinkingEffort;

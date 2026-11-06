@@ -56,3 +56,10 @@ test("routesMatchFingerprint includes dynamic runtime roles", () => {
     ),
   ).toBe(false);
 });
+
+test("routesMatchFingerprint detects an OAuth account change even with the same provider and model", () => {
+  const routes = sampleRoutes.map(route => ({ ...route, accountId: `account-${route.role}` }));
+  const fingerprint = computeRouteFingerprint(routes);
+  expect(routesMatchFingerprint(routes.map(route => route.role === "coder"
+    ? { ...route, accountId: "another-account" } : route), fingerprint)).toBe(false);
+});

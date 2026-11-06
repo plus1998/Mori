@@ -14,6 +14,7 @@ export type ClaudeBridgeBindingState = "active" | "closing";
 
 export interface ClaudeBridgeBindingRoute {
   candidateModelId?: string;
+  accountId?: string;
   role: RuntimeAgentRole;
   provider: ProviderConfigSecret;
   modelId: string;

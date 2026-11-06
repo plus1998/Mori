@@ -81,6 +81,7 @@ export interface EcoSdkBridgeOptions {
         resolution: BridgeRouteResolution;
         clientModel: string;
         role?: string;
+        accountId?: string;
         threadId?: string;
         bridgeBindingId?: string;
         runAttemptId?: string;
@@ -106,6 +107,8 @@ export interface EcoSdkBridgeOptions {
         kind: "forward";
         resolution: BridgeRouteResolution;
         clientModel: string;
+        role?: string;
+        accountId?: string;
         threadId?: string;
         bridgeBindingId?: string;
         runAttemptId?: string;
@@ -361,6 +364,9 @@ async function forwardWithResolvedRoute(
       if (prepared.resolution.upstreamKind) {
         headers.set(GATEWAY_UPSTREAM_KIND_HEADER, prepared.resolution.upstreamKind);
       }
+      if (prepared.role) headers.set("x-eco-route-role", prepared.role);
+      if (prepared.accountId) headers.set("x-eco-oauth-account-id", prepared.accountId);
+      else if (prepared.role) headers.delete("x-eco-oauth-account-id");
       if (prepared.threadId?.trim()) {
         headers.set(GATEWAY_THREAD_ID_HEADER, prepared.threadId.trim());
       }
@@ -420,6 +426,9 @@ async function forwardWithResolvedRoute(
       if (prepared.resolution.upstreamKind) {
         headers.set(GATEWAY_UPSTREAM_KIND_HEADER, prepared.resolution.upstreamKind);
       }
+      if (prepared.role) headers.set("x-eco-route-role", prepared.role);
+      if (prepared.accountId) headers.set("x-eco-oauth-account-id", prepared.accountId);
+      else if (prepared.role) headers.delete("x-eco-oauth-account-id");
       if (prepared.threadId?.trim()) {
         headers.set(GATEWAY_THREAD_ID_HEADER, prepared.threadId.trim());
       }

@@ -98,7 +98,7 @@ interface ThreadInfoPanelProps {
   onCheckoutGitBranch?: (branch: string) => void | Promise<void>;
   onCreateGitBranch?: (branch: string) => void | Promise<void>;
   onOpenGitSettings?: () => void;
-  onSaveCommitModelPreference?: (candidateModelId: string) => void | Promise<void>;
+  onSaveCommitModelPreference?: (selection: import("../shared/auxiliary-model").AuxiliaryModelSelection) => void | Promise<void>;
   onCommitSuccess?: () => void | Promise<void>;
   onChangesDiffLoaded?: (diff: WorkspaceDiffResult) => void | Promise<void>;
   onPullSuccess?: () => void | Promise<void>;

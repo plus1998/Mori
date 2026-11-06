@@ -76,6 +76,7 @@ export interface ClaudeMessagesRouteEntry {
 }
 export interface AnthropicProxyRoute {
   candidateModelId?: string;
+  accountId?: string;
   role: RuntimeAgentRole;
   provider: ProviderConfigSecret;
   modelId: string;
@@ -92,6 +93,7 @@ export interface AnthropicProxyRoute {
 
 export interface RuntimeRouteProxySource {
   candidateModelId?: string;
+  accountId?: string;
   role: RuntimeAgentRole;
   provider: ProviderConfigSecret;
   modelId: string;
@@ -155,6 +157,7 @@ export function runtimeRouteToProxyRoute(
   });
   return {
     role: route.role,
+    ...(route.accountId ? { accountId: route.accountId } : {}),
     provider: route.provider,
     modelId: route.modelId,
     ...(route.candidateModelId ? { candidateModelId: route.candidateModelId } : {}),
@@ -300,6 +303,7 @@ export async function startAnthropicModelProxy(
 
   const resolvedRoutes: AnthropicProxyResolvedRoute[] = routes.map((route) => ({
     role: route.role,
+    ...(route.accountId ? { accountId: route.accountId } : {}),
     provider: route.provider,
     modelId: route.modelId,
     ...(route.candidateModelId ? { candidateModelId: route.candidateModelId } : {}),
@@ -320,6 +324,7 @@ export async function startAnthropicModelProxy(
 
   const bindingRoutes: ClaudeBridgeBindingRoute[] = resolvedRoutes.map((route) => ({
     role: route.role,
+    ...(route.accountId ? { accountId: route.accountId } : {}),
     provider: route.provider,
     modelId: route.modelId,
     ...(route.candidateModelId ? { candidateModelId: route.candidateModelId } : {}),
@@ -417,6 +422,7 @@ export async function prepareClaudeBridgeMessagesRequest(input: {
       resolution: BridgeRouteResolution;
       clientModel: string;
       role: RuntimeAgentRole;
+      accountId?: string;
       entry: ClaudeMessagesRouteEntry;
       /** Eco thread for gateway prompt_cache_key (PI / Claude multi-tool turns). */
       threadId?: string;
@@ -492,6 +498,8 @@ export async function prepareGatewayBindingForwardRequest(input: {
       kind: "forward";
       resolution: BridgeRouteResolution;
       clientModel: string;
+      role: RuntimeAgentRole;
+      accountId?: string;
       threadId?: string;
       bridgeBindingId: string;
       runAttemptId?: string;
@@ -603,6 +611,8 @@ export async function prepareGatewayBindingForwardRequest(input: {
         ),
       },
       clientModel,
+      role: route.role,
+      ...(route.accountId ? { accountId: route.accountId } : {}),
       bridgeBindingId: binding.bindingId,
       ...(binding.threadId.trim() ? { threadId: binding.threadId } : {}),
       ...(binding.runAttemptId ? { runAttemptId: binding.runAttemptId } : {}),
@@ -632,6 +642,7 @@ async function prepareAgainstBinding(
       resolution: BridgeRouteResolution;
       clientModel: string;
       role: RuntimeAgentRole;
+      accountId?: string;
       entry: ClaudeMessagesRouteEntry;
       threadId?: string;
       bridgeBindingId: string;
@@ -813,6 +824,7 @@ async function prepareAgainstBinding(
     },
     clientModel: input.requestedModel?.trim() || route.aliasModelId,
     role: route.role,
+    ...(route.accountId ? { accountId: route.accountId } : {}),
     bridgeBindingId: binding.bindingId,
     ...(binding.threadId ? { threadId: binding.threadId } : {}),
     ...(binding.runAttemptId ? { runAttemptId: binding.runAttemptId } : {}),

@@ -151,14 +151,13 @@ export async function reviewEcoApproval(input: {
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const response = await postAuxiliaryBridgeRequest({
         route,
-        anthropicBody: {
-          model: route.modelId,
+        prompt: {
           temperature: 0,
-          thinking: { type: "disabled" },
-          max_tokens: Math.min(route.maxOutputTokens ?? 800, 800),
+          disableThinking: true,
+          maxTokens: Math.min(route.maxOutputTokens ?? 800, 800),
           system: systemPrompt,
           messages: [{ role: "user", content: serialized }],
-          output_format: { type: "json_schema", schema: REVIEW_SCHEMA },
+          jsonSchema: REVIEW_SCHEMA,
         },
         ...(resolveRouteApiCompat(route) === "anthropic"
           ? { anthropicExtraHeaders: { "anthropic-beta": "structured-outputs-2025-11-13" } }

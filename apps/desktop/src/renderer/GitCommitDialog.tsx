@@ -9,16 +9,11 @@ import {
   Plus,
   Sparkles,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
-import {
-  findCommitModelOptionForCandidateId,
-  resolveInitialCommitModelOption,
-} from "../shared/commit-model-options";
-import type { CommitModelOptionView, GitWorkingTreeStatus } from "../shared/ipc";
-import { ModelCascadeSelect } from "./ModelCascadeSelect";
-import { createCommitModelPricingExtra, mapCommitModelOptions } from "./model-cascade-options";
+import type { AuxiliaryModelSelection, GitWorkingTreeStatus } from "../shared/ipc";
+import { StatelessModelControl } from "./StatelessModelControl";
 import {
   beginWorkspaceGitAction,
   clearWorkspaceGitAction,
@@ -32,14 +27,15 @@ export type CommitDialogAction = "commit" | "commit-push" | "push";
 interface GitCommitDialogProps {
   open: boolean;
   workspacePath: string;
-  defaultCandidateModelId?: string;
+  defaultModelSelection?: AuxiliaryModelSelection;
   gitStatus?: GitWorkingTreeStatus;
   busy?: boolean;
   disabled?: boolean;
   onCheckoutBranch?: (branch: string) => void | Promise<void>;
   onCreateBranch?: (branch: string) => void | Promise<void>;
   onClose: () => void;
-  onSaveModelPreference: (candidateModelId: string) => void | Promise<void>;
+  onManageModelAccounts?: (() => void) | undefined;
+  onSaveModelPreference: (selection: AuxiliaryModelSelection) => void | Promise<void>;
   onBeforeAction?: () => void | Promise<void>;
   onSuccess: () => void | Promise<void>;
   onPushSuccess?: () => void | Promise<void>;
@@ -48,7 +44,7 @@ interface GitCommitDialogProps {
 export function GitCommitDialog({
   open,
   workspacePath,
-  defaultCandidateModelId,
+  defaultModelSelection,
   gitStatus,
   busy,
   disabled,
@@ -56,6 +52,7 @@ export function GitCommitDialog({
   onCreateBranch,
   onClose,
   onSaveModelPreference,
+  onManageModelAccounts,
   onBeforeAction,
   onSuccess,
   onPushSuccess,
@@ -63,9 +60,7 @@ export function GitCommitDialog({
   const { t } = useTranslation();
   const [message, setMessage] = useState("");
   const [includeUnstaged, setIncludeUnstaged] = useState(true);
-  const [modelOptions, setModelOptions] = useState<CommitModelOptionView[]>([]);
-  const [selectedCandidateModelId, setSelectedCandidateModelId] = useState<string | undefined>();
-  const [modelOptionsLoading, setModelOptionsLoading] = useState(false);
+  const [selectedModel, setSelectedModel] = useState<AuxiliaryModelSelection | undefined>();
   const [branchMenuOpen, setBranchMenuOpen] = useState(false);
   const [branchCreateMode, setBranchCreateMode] = useState(false);
   const [newBranchName, setNewBranchName] = useState("");
@@ -78,18 +73,6 @@ export function GitCommitDialog({
   const generatingMessage = actionPhase === "generating";
   const submitting = activeAction !== null || actionPhase === "committing" || actionPhase === "pushing";
   const operationIdRef = useRef<number | null>(null);
-
-  const selectedOption = useMemo(
-    () => findCommitModelOptionForCandidateId(modelOptions, selectedCandidateModelId),
-    [modelOptions, selectedCandidateModelId],
-  );
-
-  const modelLabel =
-    selectedOption?.modelLabel ??
-    (modelOptionsLoading ? t("git.commit.loadingModels") : t("git.commit.noModel"));
-
-  const commitModelCascadeOptions = useMemo(() => mapCommitModelOptions(modelOptions), [modelOptions]);
-  const commitModelPricingExtra = useMemo(() => createCommitModelPricingExtra(modelOptions), [modelOptions]);
 
   useEffect(() => {
     if (!open || !window.eco) {
@@ -112,40 +95,20 @@ export function GitCommitDialog({
     setBranchCreateMode(false);
     setNewBranchName("");
     setBranchError(undefined);
-    setModelOptionsLoading(true);
-    void window.eco
-      .listGitCommitModelOptions({})
-      .then((result) => {
-        setModelOptions(result.options);
-        const matched = resolveInitialCommitModelOption(
-          result.options,
-          result.savedCandidateModelId,
-          defaultCandidateModelId,
-        );
-        setSelectedCandidateModelId(matched?.candidateModelId);
-      })
-      .catch((caught) => {
-        setError(caught instanceof Error ? caught.message : String(caught));
-        setModelOptions([]);
-        setSelectedCandidateModelId(undefined);
-      })
-      .finally(() => {
-        setModelOptionsLoading(false);
-      });
-  }, [open, defaultCandidateModelId]);
+    setSelectedModel(defaultModelSelection);
+  }, [open, defaultModelSelection]);
 
-  const handleSelectCandidateModel = useCallback(
-    async (candidateModelId: string) => {
-      setError(undefined);
-      try {
-        await onSaveModelPreference(candidateModelId);
-        setSelectedCandidateModelId(candidateModelId);
-      } catch (caught) {
-        setError(caught instanceof Error ? caught.message : String(caught));
-      }
-    },
-    [onSaveModelPreference],
-  );
+  const handleSelectModel = useCallback(async (selection: AuxiliaryModelSelection | undefined) => {
+    if (!selection) return;
+    setError(undefined);
+    try {
+      await onSaveModelPreference(selection);
+      setSelectedModel(selection);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+      throw caught;
+    }
+  }, [onSaveModelPreference]);
 
   const closeBranchMenu = useCallback(() => {
     setBranchMenuOpen(false);
@@ -193,7 +156,7 @@ export function GitCommitDialog({
     if (!window.eco || generatingMessage || submitting || busy || disabled || workspaceAction) {
       return;
     }
-    if (!selectedCandidateModelId) {
+    if (!selectedModel) {
       setError(t("git.commit.selectModel"));
       return;
     }
@@ -209,7 +172,7 @@ export function GitCommitDialog({
         {
           workspacePath,
           includeUnstaged,
-          candidateModelId: selectedCandidateModelId,
+          modelSelection: selectedModel,
         },
         {
           onDelta: (text) => {
@@ -234,7 +197,7 @@ export function GitCommitDialog({
     workspaceAction,
     workspacePath,
     includeUnstaged,
-    selectedCandidateModelId,
+    selectedModel,
     t,
   ]);
 
@@ -269,14 +232,14 @@ export function GitCommitDialog({
             let commitMessage = trimmed;
 
             if (!trimmed) {
-              if (!selectedCandidateModelId) {
+              if (!selectedModel) {
                 throw new Error(t("git.commit.selectModel"));
               }
               const generated = await window.eco.generateGitCommitMessage(
                 {
                   workspacePath: operationWorkspacePath,
                   includeUnstaged,
-                  candidateModelId: selectedCandidateModelId,
+                  modelSelection: selectedModel,
                 },
                 {
                   onDelta: (text) => {
@@ -364,7 +327,7 @@ export function GitCommitDialog({
       activeAction,
       disabled,
       workspaceAction,
-      selectedCandidateModelId,
+      selectedModel,
       message,
       workspacePath,
       includeUnstaged,
@@ -388,7 +351,7 @@ export function GitCommitDialog({
       if (event.key === "Escape") {
         // A portaled model cascade panel owns its own Escape handling.
         const target = event.target as HTMLElement | null;
-        if (target?.closest?.(".model-cascade-panel")) {
+        if (target?.closest?.(".model-cascade-panel, .composer-main-model-picker")) {
           return;
         }
         if (branchCreateMode) {
@@ -423,7 +386,7 @@ export function GitCommitDialog({
     gitStatus?.isGitRepository && gitStatus.branches.length > 0 && onCheckoutBranch,
   );
   const modelPickerDisabled =
-    submitting || busy || disabled || generatingMessage || modelOptionsLoading || modelOptions.length === 0;
+    submitting || busy || disabled || generatingMessage;
   const messageFieldDisabled = submitting || busy || disabled || generatingMessage;
   const showModelPicker = message.trim().length === 0;
 
@@ -577,28 +540,14 @@ export function GitCommitDialog({
 
           {showModelPicker ? (
             <div className="git-commit-popover-header-model">
-              <ModelCascadeSelect
-                value={
-                  selectedOption
-                    ? {
-                        key: selectedOption.candidateModelId,
-                        providerId: selectedOption.providerId,
-                        modelId: selectedOption.modelId,
-                      }
-                    : undefined
-                }
-                options={commitModelCascadeOptions}
-                loading={modelOptionsLoading}
+              <StatelessModelControl
+                value={selectedModel}
+                purpose="auxiliary"
+                allowClear={false}
                 disabled={modelPickerDisabled}
-                placeholder={modelLabel}
-                hint={t("git.commit.generationModel")}
-                renderExtra={commitModelPricingExtra}
                 panelZIndex={11500}
-                onChange={(selection) => {
-                  if (selection) {
-                    void handleSelectCandidateModel(selection.key ?? selection.modelId);
-                  }
-                }}
+                onManageAccounts={onManageModelAccounts ? () => { onClose(); onManageModelAccounts(); } : undefined}
+                onChange={handleSelectModel}
               />
             </div>
           ) : null}

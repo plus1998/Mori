@@ -1,3 +1,5 @@
+import { ModelFieldLabel } from "./ModelFieldLabel";
+import { StatelessModelControl } from "./StatelessModelControl";
 import { Switch } from "./components/Switch";
 import { ProviderEndpointEditor } from "./ProviderEndpointEditor";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
@@ -35,7 +37,6 @@ import type {
   AuxiliaryModelSelection,
   ApprovalModelSelection,
   CandidateModelView,
-  CommitModelOptionView,
   McpServerConfigView,
   ModelSettingsSnapshot,
   ModelsDevModelOption,
@@ -57,14 +58,8 @@ import { AgentThemeColorField } from "./agent-theme-color-field";
 import { CandidateModelPanel } from "./CandidateModelListSection";
 import { CandidateModelEditor, type CandidateModelEditorHandle } from "./CandidateModelEditor";
 import { ComposerFieldSelect } from "./ComposerFieldSelect";
-import { ModelCascadeSelect } from "./ModelCascadeSelect";
 import { CandidateModelSpecPanel } from "./ModelSpecSummary";
-import {
-  createCommitModelPricingExtra,
-  mapCommitModelOptions,
-  toCandidateModelSelection,
-  toModelCascadeSelection,
-} from "./model-cascade-options";
+
 import {
   applyProviderPreset,
   DEFAULT_NEW_PROVIDER_PRESET_ID,
@@ -298,20 +293,6 @@ export function ModelsSettingsPanel({
         subagents: { mode: "none" },
       },
   );
-  const [auxiliaryModelOptions, setAuxiliaryModelOptions] = useState<CommitModelOptionView[]>([]);
-  const [auxiliaryModelsLoading, setAuxiliaryModelsLoading] = useState(false);
-  const [auxiliaryModelsError, setAuxiliaryModelsError] = useState<string>();
-  const commitModelPricingExtra = useMemo(
-    () => createCommitModelPricingExtra(auxiliaryModelOptions),
-    [auxiliaryModelOptions],
-  );
-  const [approvalModelOptions, setApprovalModelOptions] = useState<CommitModelOptionView[]>([]);
-  const [approvalModelsLoading, setApprovalModelsLoading] = useState(false);
-  const [approvalModelsError, setApprovalModelsError] = useState<string>();
-  const approvalModelPricingExtra = useMemo(
-    () => createCommitModelPricingExtra(approvalModelOptions),
-    [approvalModelOptions],
-  );
 
   useEffect(() => {
     setDefaultOrchestrationDraft(
@@ -343,72 +324,6 @@ export function ModelsSettingsPanel({
     [defaultOrchestrationDraft, onDefaultOrchestrationSelectionChange],
   );
 
-
-  useEffect(() => {
-    if (!window.eco?.listGitCommitModelOptions) {
-      setAuxiliaryModelOptions([]);
-      setAuxiliaryModelsLoading(false);
-      setAuxiliaryModelsError(undefined);
-      return;
-    }
-    let cancelled = false;
-    setAuxiliaryModelsLoading(true);
-    setAuxiliaryModelsError(undefined);
-    void window.eco
-      .listGitCommitModelOptions({})
-      .then((result) => {
-        if (!cancelled) {
-          setAuxiliaryModelOptions(result.options);
-        }
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          setAuxiliaryModelOptions([]);
-          setAuxiliaryModelsError(error instanceof Error ? error.message : String(error));
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setAuxiliaryModelsLoading(false);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [settings.providers]);
-
-  useEffect(() => {
-    if (!window.eco?.listApprovalModelOptions) {
-      setApprovalModelOptions([]);
-      setApprovalModelsLoading(false);
-      setApprovalModelsError(undefined);
-      return;
-    }
-    let cancelled = false;
-    setApprovalModelsLoading(true);
-    setApprovalModelsError(undefined);
-    void window.eco
-      .listApprovalModelOptions({})
-      .then((result) => {
-        if (!cancelled) {
-          setApprovalModelOptions(result.options);
-        }
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          setApprovalModelOptions([]);
-          setApprovalModelsError(error instanceof Error ? error.message : String(error));
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setApprovalModelsLoading(false);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [settings.providers]);
 
   const selectDefaultAuxiliaryModel = useCallback(
     (selection: AuxiliaryModelSelection | undefined) => {
@@ -996,76 +911,45 @@ export function ModelsSettingsPanel({
                     onSelect={(mainModel) => updateDefaultOrchestrationDraft({ mainModel })}
                   />
                 </div>
-                <label className="settings-global-orchestration-row settings-global-orchestration-row-with-hint">
-                  <span className="settings-global-orchestration-label">
-                    {t("composer.route.auxiliaryModel")}
-                    <span className="settings-global-orchestration-hint">
-                      {t("composer.route.auxiliaryModelHint")}
-                    </span>
-                  </span>
-                  <ModelCascadeSelect
-                    value={toModelCascadeSelection(defaultAuxiliaryModel)}
-                    options={mapCommitModelOptions(auxiliaryModelOptions)}
-                    loading={auxiliaryModelsLoading}
-                    error={auxiliaryModelsError}
+                <div className="settings-global-orchestration-row">
+                  <ModelFieldLabel className="settings-global-orchestration-label"
+                    label={t("composer.route.auxiliaryModel")}
+                    hint={t("composer.route.auxiliaryModelHint")} />
+                  <StatelessModelControl
+                    value={defaultAuxiliaryModel} purpose="auxiliary"
+                    mainModel={defaultOrchestrationDraft.mainModel}
                     disabled={busy}
-                    clearable
-                    clearLabel={t("common.clear")}
-                    hint={t("composer.route.auxiliaryModelHint")}
-                    placeholder={t("composer.route.auxiliaryModel")}
-                    renderExtra={commitModelPricingExtra}
-                    onChange={(selection) =>
-                      selectDefaultAuxiliaryModel(
-                        selection ? toCandidateModelSelection(selection) : undefined,
-                      )
-                    }
+                    onManageAccounts={() => setActiveTab("chatgptAccounts")}
+                    onAddProvider={() => setActiveTab("providers")}
+                    onChange={selectDefaultAuxiliaryModel}
                   />
-                </label>
-                <label className="settings-global-orchestration-row settings-global-orchestration-row-with-hint">
-                  <span className="settings-global-orchestration-label">
-                    {t("composer.route.approvalModel")}
-                    <span className="settings-global-orchestration-hint">
-                      {t("composer.route.approvalModelHint")}
-                    </span>
-                  </span>
-                  <ModelCascadeSelect
-                    value={toModelCascadeSelection(defaultApprovalModel)}
-                    options={mapCommitModelOptions(approvalModelOptions)}
-                    loading={approvalModelsLoading}
-                    error={approvalModelsError}
+                </div>
+                <div className="settings-global-orchestration-row">
+                  <ModelFieldLabel className="settings-global-orchestration-label"
+                    label={t("composer.route.approvalModel")}
+                    hint={t("composer.route.approvalModelHint")} />
+                  <StatelessModelControl
+                    value={defaultApprovalModel} purpose="approval"
+                    mainModel={defaultOrchestrationDraft.mainModel}
                     disabled={busy}
-                    clearable
-                    hint={t("composer.route.approvalModelHint")}
-                    placeholder={t("composer.route.approvalModel")}
-                    renderExtra={approvalModelPricingExtra}
-                    onChange={(selection) =>
-                      selectDefaultApprovalModel(selection ? toCandidateModelSelection(selection) : undefined)
-                    }
+                    onManageAccounts={() => setActiveTab("chatgptAccounts")}
+                    onAddProvider={() => setActiveTab("providers")}
+                    onChange={selectDefaultApprovalModel}
                   />
-                </label>
-                <label className="settings-global-orchestration-row settings-global-orchestration-row-with-hint">
-                  <span className="settings-global-orchestration-label">
-                    {t("composer.route.visionModel")}
-                    <span className="settings-global-orchestration-hint">
-                      {t("composer.route.visionModelHint")}
-                    </span>
-                  </span>
-                  <ModelCascadeSelect
-                    value={toModelCascadeSelection(defaultVisionModel)}
-                    options={mapCommitModelOptions(auxiliaryModelOptions)}
-                    loading={auxiliaryModelsLoading}
-                    error={auxiliaryModelsError}
+                </div>
+                <div className="settings-global-orchestration-row">
+                  <ModelFieldLabel className="settings-global-orchestration-label"
+                    label={t("composer.route.visionModel")}
+                    hint={t("composer.route.visionModelHint")} />
+                  <StatelessModelControl
+                    value={defaultVisionModel} purpose="vision"
+                    mainModel={defaultOrchestrationDraft.mainModel}
                     disabled={busy}
-                    clearable
-                    clearLabel={t("common.clear")}
-                    hint={t("composer.route.visionModelHint")}
-                    placeholder={t("composer.route.visionModel")}
-                    renderExtra={commitModelPricingExtra}
-                    onChange={(selection) =>
-                      selectDefaultVisionModel(selection ? toCandidateModelSelection(selection) : undefined)
-                    }
+                    onManageAccounts={() => setActiveTab("chatgptAccounts")}
+                    onAddProvider={() => setActiveTab("providers")}
+                    onChange={selectDefaultVisionModel}
                   />
-                </label>
+                </div>
                 <label className="settings-global-orchestration-row">
                   <span className="settings-global-orchestration-label">{t("composer.route.prompt")}</span>
                   <ComposerFieldSelect
@@ -1129,6 +1013,7 @@ export function ModelsSettingsPanel({
           ) : (
             <AgentCompositionResourcesSection
               settings={settings}
+              mainModel={defaultOrchestrationDraft.mainModel}
               mcpServers={mcpServers}
               busy={busy}
               activeScope={runtimeConfigTab}

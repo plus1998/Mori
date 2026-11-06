@@ -106,24 +106,31 @@ Keep the report concise and factual.`;
 const DEFAULT_OBSERVATION_FOCUS =
   "Describe these images. Report only visible facts useful to the main agent.";
 
+export function buildVisionObservationPrompt(input: { prompt: string; imageCount: number }) {
+  const focus = input.prompt.trim() || DEFAULT_OBSERVATION_FOCUS;
+  return { system: VISION_SYSTEM_PROMPT,
+    userMessage: `Observation focus (not a user message to answer):\n${focus}\n\nThere are ${input.imageCount} image(s) in this turn. Describe each image separately.`,
+  };
+}
+
 export function buildVisionAnalysisRequestBody(input: {
   model: string;
   prompt: string;
   imageCount: number;
 }): VisionAnalysisRequestBody {
-  const focus = input.prompt.trim() || DEFAULT_OBSERVATION_FOCUS;
+  const observation = buildVisionObservationPrompt(input);
   return {
     model: input.model,
     max_tokens: 1600,
     stream: false,
-    system: VISION_SYSTEM_PROMPT,
+    system: observation.system,
     messages: [
       {
         role: "user",
         content: [
           {
             type: "text",
-            text: `Observation focus (not a user message to answer):\n${focus}\n\nThere are ${input.imageCount} image(s) in this turn. Describe each image separately.`,
+            text: observation.userMessage,
           },
         ],
       },

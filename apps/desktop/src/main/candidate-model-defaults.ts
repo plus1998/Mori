@@ -20,6 +20,9 @@ export function resolveCandidateModelRouteDefaults(
   },
 ): RuntimeRoleRouteConfig[] {
   return routes.map((route) => {
+    if (source.isChatGptSubscriptionProvider(route.providerId)) {
+      route = { ...route, apiCompat: "openai_responses" };
+    }
     if (!route.candidateModelId && !source.isBuiltInCodexProvider(route.providerId) && !source.isChatGptSubscriptionProvider(route.providerId)) {
       const existing = source.listCandidateModels(route.providerId).find((candidate) => candidate.modelId === route.modelId);
       if (existing) route = { ...route, candidateModelId: existing.id };
@@ -32,7 +35,8 @@ export function resolveCandidateModelRouteDefaults(
       (source.isBuiltInCodexProvider(route.providerId) &&
         route.candidateModelId === codexCatalogCandidateId(route.modelId)) ||
       (source.isChatGptSubscriptionProvider(route.providerId) &&
-        route.candidateModelId === chatGptCatalogCandidateId(route.modelId));
+        (route.candidateModelId === chatGptCatalogCandidateId(route.modelId) ||
+          route.candidateModelId === `account:${encodeURIComponent(route.providerId)}:${encodeURIComponent(route.modelId)}`));
     if (catalogSelection) {
       const { candidateModelId: _catalogSelectionId, ...modelRoute } = route;
       return modelRoute;

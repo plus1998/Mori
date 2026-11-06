@@ -197,6 +197,7 @@ export function applyMainAgentModelOverride(
       role: "main",
       providerId: applicableOverride.providerId,
       modelId: applicableOverride.modelId,
+      ...(route.accountId ? { accountId: route.accountId } : {}),
       ...(applicableOverride.thinkingEffort !== undefined
         ? { thinkingEffort: applicableOverride.thinkingEffort }
         : {}),
@@ -215,6 +216,7 @@ function routeFromModelRef(
     role,
     providerId: modelRef.providerId,
     modelId: modelRef.modelId,
+    ...(modelRef.accountId ? { accountId: modelRef.accountId } : {}),
     ...(modelRef.apiCompat && { apiCompat: modelRef.apiCompat }),
     ...(modelRef.thinkingEffort && { thinkingEffort: modelRef.thinkingEffort }),
     ...(modelRef.modelsDevMapping && { modelsDevMapping: modelRef.modelsDevMapping }),

@@ -1,21 +1,271 @@
 /**
  * Product auxiliary LLM calls (title, compact summary, git commit, approval).
  * Always go through the Eco SDK Bridge → embedded Gateway (1B).
- * Never post conversion payloads directly to the provider.
+ * Build the selected provider's native wire format; no cross-protocol conversion.
  */
 import {
   GATEWAY_PROVIDER_ID_HEADER,
   GATEWAY_REQUESTED_MODEL_HEADER,
   GATEWAY_UPSTREAM_KIND_HEADER,
+  IncrementalSseParser,
   mapApiCompatToUpstreamKind,
 } from "@eco/gateway";
+import { isCandidateModelId } from "@eco/shared";
 import { resolveUpstreamApiCompat, type UpstreamApiCompat } from "../shared/api-compat";
-import { type AnthropicProxyRoute, applyRouteMaxOutputTokens } from "./anthropic-proxy";
+import type { PromptImageAttachment } from "../shared/ipc";
+import type { AnthropicProxyRoute } from "./anthropic-proxy";
+import { OAUTH_ACCOUNT_ID_HEADER } from "./chatgpt-gateway-account";
 import { ensureGlobalEcoGateway, getGlobalEcoBridgeBaseUrl } from "./eco-gateway-lifecycle";
 import { applyProxyCchToAnthropicMessagesBody } from "./proxy-cch-audit";
 import { headersToLoggable, logUpstream, logUpstreamError, truncateForLog } from "./upstream-log";
 
 type Fetcher = typeof fetch;
+
+/** Product input, independent of every Harness and provider wire format. */
+export interface StatelessModelPrompt {
+  system?: string;
+  messages: Array<{ role: "user" | "assistant"; content: string }>;
+  images?: readonly PromptImageAttachment[];
+  maxTokens?: number;
+  temperature?: number;
+  disableThinking?: boolean;
+  jsonSchema?: Record<string, unknown>;
+}
+
+function record(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function nativeResponseText(value: unknown, protocol: UpstreamApiCompat): string {
+  const body = record(value);
+  if (body.error) throw new Error(String(record(body.error).message ?? body.error));
+  if (protocol === "openai_responses") {
+    if (body.status === "failed" || body.status === "incomplete") {
+      throw new Error(
+        `Responses 请求未完成：${JSON.stringify(body.error ?? body.incomplete_details ?? body.status)}`,
+      );
+    }
+    if (typeof body.output_text === "string") return body.output_text;
+    return (Array.isArray(body.output) ? body.output : [])
+      .flatMap((item) => {
+        const content = record(item).content;
+        return (Array.isArray(content) ? content : []).flatMap((part) => {
+          const block = record(part);
+          if (block.type === "refusal") throw new Error(String(block.refusal ?? "模型拒绝了请求"));
+          return block.type === "output_text" && typeof block.text === "string" ? [block.text] : [];
+        });
+      })
+      .join("\n");
+  }
+  if (protocol === "openai_chat_completions") {
+    const choice = record(Array.isArray(body.choices) ? body.choices[0] : undefined);
+    if (choice.finish_reason === "length") throw new Error("模型输出预算已耗尽，请提高输出上限后重试。");
+    const message = record(choice.message);
+    if (message.refusal) throw new Error(String(message.refusal));
+    return typeof message.content === "string" ? message.content : "";
+  }
+  if (body.stop_reason === "max_tokens") throw new Error("模型输出预算已耗尽，请提高输出上限后重试。");
+  return (Array.isArray(body.content) ? body.content : [])
+    .flatMap((part) => {
+      const block = record(part);
+      return block.type === "text" && typeof block.text === "string" ? [block.text] : [];
+    })
+    .join("\n");
+}
+
+export async function readStatelessModelText(
+  response: Response,
+  protocol: UpstreamApiCompat,
+  onTextDelta?: (delta: string, text: string) => void,
+): Promise<string> {
+  if (!response.headers.get("content-type")?.includes("text/event-stream") || !response.body) {
+    const text = nativeResponseText(await response.json(), protocol).trim();
+    if (text) onTextDelta?.(text, text);
+    return text;
+  }
+  const reader = response.body.getReader();
+  let text = "";
+  let completed = false;
+  const consume = (data: string) => {
+    if (data === "[DONE]") {
+      if (protocol === "openai_responses" && !completed) throw new Error("Responses 响应流缺少完成事件。");
+      completed = true;
+      return;
+    }
+    const event = record(JSON.parse(data));
+    if (event.type === "error" || event.type === "response.failed" || event.type === "response.incomplete") {
+      throw new Error(JSON.stringify(event.error ?? record(event.response).error ?? event));
+    }
+    let delta = "";
+    if (protocol === "openai_responses") {
+      if (event.type === "response.output_text.delta" && typeof event.delta === "string") delta = event.delta;
+      if (event.type === "response.completed") {
+        completed = true;
+        const finalText = nativeResponseText(event.response, protocol);
+        if (!text && finalText) delta = finalText;
+      }
+    } else if (protocol === "anthropic") {
+      const block = record(event.delta);
+      if (
+        event.type === "content_block_delta" &&
+        block.type === "text_delta" &&
+        typeof block.text === "string"
+      )
+        delta = block.text;
+      if (event.type === "message_delta" && block.stop_reason === "max_tokens")
+        throw new Error("模型输出预算已耗尽。");
+      if (event.type === "message_stop") completed = true;
+    } else {
+      const choice = record(Array.isArray(event.choices) ? event.choices[0] : undefined);
+      const content = record(choice.delta).content;
+      if (typeof content === "string") delta = content;
+      if (choice.finish_reason === "length") throw new Error("模型输出预算已耗尽。");
+      if (choice.finish_reason === "stop") completed = true;
+    }
+    if (delta) {
+      text += delta;
+      onTextDelta?.(delta, text);
+    }
+  };
+  const parser = new IncrementalSseParser();
+  const consumeFrames = (frames: ReturnType<IncrementalSseParser["push"]>) => {
+    for (const frame of frames) if (frame.data.trim()) consume(frame.data);
+  };
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      consumeFrames(parser.push(value));
+    }
+    consumeFrames(parser.finish());
+    if (!completed) throw new Error("模型响应流意外结束，未收到完成事件。");
+    return text.trim();
+  } finally {
+    await reader.cancel().catch(() => {});
+    reader.releaseLock();
+  }
+}
+
+export function buildStatelessModelRequest(route: AnthropicProxyRoute, prompt: StatelessModelPrompt) {
+  const protocol = resolveRouteApiCompat(route);
+  const oauth = route.provider.authMethod === "chatgpt_subscription";
+  if (oauth && protocol !== "openai_responses") throw new Error("ChatGPT OAuth 必须使用 Responses 协议。");
+  const maxTokens = route.maxOutputTokens ?? prompt.maxTokens ?? 4096;
+  const lastUserIndex = prompt.messages.findLastIndex((message) => message.role === "user");
+  const images = prompt.images ?? [];
+  if (protocol === "anthropic") {
+    const body: Record<string, unknown> = {
+      model: route.modelId,
+      stream: false,
+      max_tokens: maxTokens,
+      ...(prompt.system ? { system: prompt.system } : {}),
+      ...(prompt.temperature !== undefined ? { temperature: prompt.temperature } : {}),
+      ...(prompt.disableThinking ? { thinking: { type: "disabled" } } : {}),
+      ...(prompt.jsonSchema ? { output_format: { type: "json_schema", schema: prompt.jsonSchema } } : {}),
+      messages: prompt.messages.map((message, index) => ({
+        role: message.role,
+        content:
+          index === lastUserIndex && images.length
+            ? [
+                ...images.map((image) => ({
+                  type: "image",
+                  source: {
+                    type: "base64",
+                    media_type: image.mediaType,
+                    data: image.data,
+                  },
+                })),
+                { type: "text", text: message.content },
+              ]
+            : message.content,
+      })),
+    };
+    return { path: "/v1/messages", body: applyProxyCchToAnthropicMessagesBody(body) };
+  }
+  if (protocol === "openai_responses") {
+    return {
+      path: "/v1/responses",
+      body: {
+        model: route.modelId,
+        stream: oauth,
+        store: false,
+        ...(prompt.system ? { instructions: prompt.system } : {}),
+        ...(!oauth
+          ? {
+              max_output_tokens: maxTokens,
+              ...(prompt.temperature !== undefined ? { temperature: prompt.temperature } : {}),
+            }
+          : {}),
+        ...(prompt.jsonSchema
+          ? {
+              text: {
+                format: {
+                  type: "json_schema",
+                  name: "result",
+                  strict: true,
+                  schema: prompt.jsonSchema,
+                },
+              },
+            }
+          : {}),
+        input: prompt.messages.map((message, index) => ({
+          type: "message",
+          role: message.role,
+          content: [
+            { type: message.role === "assistant" ? "output_text" : "input_text", text: message.content },
+            ...(index === lastUserIndex
+              ? images.map((image) => ({
+                  type: "input_image",
+                  image_url: `data:${image.mediaType};base64,${image.data}`,
+                }))
+              : []),
+          ],
+        })),
+      },
+    };
+  }
+  return {
+    path: "/v1/chat/completions",
+    body: {
+      model: route.modelId,
+      stream: false,
+      max_tokens: maxTokens,
+      ...(prompt.temperature !== undefined ? { temperature: prompt.temperature } : {}),
+      ...(prompt.jsonSchema
+        ? {
+            response_format: {
+              type: "json_schema",
+              json_schema: {
+                name: "result",
+                strict: true,
+                schema: prompt.jsonSchema,
+              },
+            },
+          }
+        : {}),
+      messages: [
+        ...(prompt.system ? [{ role: "system", content: prompt.system }] : []),
+        ...prompt.messages.map((message, index) => ({
+          role: message.role,
+          content:
+            index === lastUserIndex && images.length
+              ? [
+                  { type: "text", text: message.content },
+                  ...images.map((image) => ({
+                    type: "image_url",
+                    image_url: {
+                      url: `data:${image.mediaType};base64,${image.data}`,
+                    },
+                  })),
+                ]
+              : message.content,
+        })),
+      ],
+    },
+  };
+}
 
 export function resolveRouteApiCompat(route: AnthropicProxyRoute): UpstreamApiCompat {
   return resolveUpstreamApiCompat(route.apiCompat, route.provider.apiCompat);
@@ -23,7 +273,8 @@ export function resolveRouteApiCompat(route: AnthropicProxyRoute): UpstreamApiCo
 
 export interface PostAuxiliaryBridgeRequestInput {
   route: AnthropicProxyRoute;
-  anthropicBody: Record<string, unknown>;
+  prompt: StatelessModelPrompt;
+  headers?: Record<string, string>;
   signal?: AbortSignal;
   /** Extra client headers forwarded on the Bridge request (e.g. structured-outputs beta). */
   anthropicExtraHeaders?: Record<string, string>;
@@ -68,27 +319,31 @@ export async function postAuxiliaryBridgeRequest(
     }
   }
 
-  const requestUrl = `${bridgeBaseUrl}/v1/messages`;
-  // ChatGPT 订阅的 Responses API 只接受流式请求。辅助请求虽然对产品层
-  // 表现为一次性调用，但 Bridge 仍然可以消费 Anthropic SSE 并聚合文本。
-  // 普通提供商继续沿用非流式请求，避免改变既有行为。
-  const requiresChatGptSubscriptionStream =
-    input.route.provider.authMethod === "chatgpt_subscription";
-
-  let body: Record<string, unknown> = {
-    ...input.anthropicBody,
-    model: input.route.modelId,
-    stream: requiresChatGptSubscriptionStream,
-  };
-  applyRouteMaxOutputTokens(body, input.route.maxOutputTokens);
-  body = applyProxyCchToAnthropicMessagesBody(body);
+  if (input.route.provider.authMethod === "chatgpt_subscription" && !input.route.accountId?.trim()) {
+    return { ok: false, error: "ChatGPT OAuth 模型尚未选择账号，请先选择账号和模型。" };
+  }
+  const native = buildStatelessModelRequest(
+    {
+      ...input.route,
+      modelId:
+        input.route.candidateModelId && isCandidateModelId(input.route.candidateModelId)
+          ? input.route.candidateModelId
+          : input.route.modelId,
+    },
+    input.prompt,
+  );
+  const requestUrl = `${bridgeBaseUrl}${native.path}`;
+  const body = native.body;
 
   // real upstream model only — never synthetic eco-aux-* (must not participate in resolution)
   const headers: Record<string, string> = {
+    ...input.headers,
     "content-type": "application/json",
     [GATEWAY_PROVIDER_ID_HEADER]: input.route.provider.id,
     [GATEWAY_UPSTREAM_KIND_HEADER]: upstreamKind,
     [GATEWAY_REQUESTED_MODEL_HEADER]: input.route.modelId,
+    "x-eco-route-role": input.route.role,
+    ...(input.route.accountId ? { [OAUTH_ACCOUNT_ID_HEADER]: input.route.accountId } : {}),
   };
   if (input.anthropicExtraHeaders) {
     for (const [key, value] of Object.entries(input.anthropicExtraHeaders)) {
@@ -106,7 +361,7 @@ export async function postAuxiliaryBridgeRequest(
     via: "eco-bridge",
     url: requestUrl,
     headers: headersToLoggable(headers),
-    anthropicBody: body,
+    body,
   });
 
   try {
@@ -131,7 +386,7 @@ export async function postAuxiliaryBridgeRequest(
       return { ok: false, status: response.status, error: truncateForLog(raw) };
     }
 
-    const text = await readAnthropicMessagesText(response, input.onTextDelta);
+    const text = await readStatelessModelText(response, apiCompat, input.onTextDelta);
     if (!text) {
       logUpstreamError(`${input.logEventPrefix}-invalid`, {
         role: input.route.role,
@@ -163,106 +418,4 @@ export async function postAuxiliaryBridgeRequest(
     });
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }
-}
-
-/**
- * Bridge /v1/messages returns Anthropic Messages wire (Gateway converts as needed).
- */
-async function readAnthropicMessagesText(
-  response: Response,
-  onTextDelta?: (delta: string, text: string) => void,
-): Promise<string | undefined> {
-  const contentType = response.headers.get("content-type") ?? "";
-  if (contentType.includes("text/event-stream") && response.body) {
-    return collectAnthropicSseText(response, onTextDelta);
-  }
-
-  const raw = await response.text();
-  try {
-    const message = JSON.parse(raw) as {
-      type?: string;
-      content?: Array<{ type?: string; text?: string; thinking?: string }>;
-      error?: { message?: string };
-    };
-    if (message.error?.message) {
-      return undefined;
-    }
-    const text = extractAnthropicContentText(message.content);
-    if (text) {
-      onTextDelta?.(text, text);
-    }
-    return text;
-  } catch {
-    return undefined;
-  }
-}
-
-async function collectAnthropicSseText(
-  response: Response,
-  onTextDelta?: (delta: string, text: string) => void,
-): Promise<string | undefined> {
-  const parts: string[] = [];
-  const thinkingParts: string[] = [];
-  const reader = response.body!.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const chunks = buffer.split("\n\n");
-    buffer = chunks.pop() ?? "";
-    for (const chunk of chunks) {
-      for (const line of chunk.split("\n")) {
-        const trimmed = line.trim();
-        if (!trimmed.startsWith("data:")) continue;
-        const payload = trimmed.slice("data:".length).trim();
-        if (!payload || payload === "[DONE]") continue;
-        try {
-          const event = JSON.parse(payload) as {
-            type?: string;
-            delta?: { type?: string; text?: string; thinking?: string };
-          };
-          if (event.type === "content_block_delta") {
-            if (event.delta?.type === "text_delta" && event.delta.text) {
-              parts.push(event.delta.text);
-              onTextDelta?.(event.delta.text, parts.join(""));
-            }
-            if (event.delta?.type === "thinking_delta" && event.delta.thinking) {
-              thinkingParts.push(event.delta.thinking);
-            }
-          }
-        } catch {
-          // skip bad event
-        }
-      }
-    }
-  }
-  const text = parts.join("").trim() || thinkingParts.join("").trim();
-  return text || undefined;
-}
-
-function extractAnthropicContentText(
-  content: Array<{ type?: string; text?: string; thinking?: string }> | undefined,
-): string | undefined {
-  if (!Array.isArray(content)) {
-    return undefined;
-  }
-  const texts: string[] = [];
-  const thinking: string[] = [];
-  for (const block of content) {
-    if (block.type === "text" && block.text?.trim()) {
-      texts.push(block.text.trim());
-    }
-    if (block.type === "thinking" && block.thinking?.trim()) {
-      thinking.push(block.thinking.trim());
-    }
-  }
-  if (texts.length > 0) {
-    return texts.join("\n").trim();
-  }
-  if (thinking.length > 0) {
-    return thinking.join("\n").trim();
-  }
-  return undefined;
 }

@@ -473,6 +473,7 @@ function routeToModelRef(route: RoleRouteConfig): ModelRef {
   return {
     providerId: route.providerId,
     modelId: route.modelId,
+    ...(route.accountId ? { accountId: route.accountId } : {}),
     ...(route.apiCompat && { apiCompat: route.apiCompat }),
     ...(route.thinkingEffort && { thinkingEffort: route.thinkingEffort }),
     ...(route.modelsDevMapping && { modelsDevMapping: route.modelsDevMapping }),

@@ -9,6 +9,7 @@ import {
 } from "../shared/thread-title-pending";
 import type { AnthropicProxyRoute } from "./anthropic-proxy";
 import { postAuxiliaryBridgeRequest, resolveRouteApiCompat } from "./bridge-auxiliary-request";
+import type { StatelessModelPrompt } from "./bridge-auxiliary-request";
 import { logUpstreamError } from "./upstream-log";
 
 export {
@@ -107,11 +108,10 @@ export function buildThreadTitleRequestBody(
   titleRoute: AnthropicProxyRoute,
   prompt: string,
   useStructuredOutput: boolean,
-): Record<string, unknown> {
-  const body: Record<string, unknown> = {
-    model: titleRoute.modelId,
+): StatelessModelPrompt {
+  const body: StatelessModelPrompt = {
     temperature: 0,
-    thinking: { type: "disabled" },
+    disableThinking: true,
     system: THREAD_TITLE_SYSTEM_PROMPT,
     messages: [
       {
@@ -121,13 +121,10 @@ export function buildThreadTitleRequestBody(
     ],
   };
   if (titleRoute.maxOutputTokens !== undefined && titleRoute.maxOutputTokens > 0) {
-    body.max_tokens = titleRoute.maxOutputTokens;
+    body.maxTokens = titleRoute.maxOutputTokens;
   }
   if (useStructuredOutput) {
-    body.output_format = {
-      type: "json_schema",
-      schema: THREAD_TITLE_JSON_SCHEMA,
-    };
+    body.jsonSchema = THREAD_TITLE_JSON_SCHEMA;
   }
   return body;
 }
@@ -295,7 +292,7 @@ async function requestThreadTitle(
   let lastPreview = "";
   const result = await postAuxiliaryBridgeRequest({
     route: titleRoute,
-    anthropicBody: buildThreadTitleRequestBody(titleRoute, prompt, tryStructuredOutput),
+    prompt: buildThreadTitleRequestBody(titleRoute, prompt, tryStructuredOutput),
     signal,
     ...(tryStructuredOutput && {
       anthropicExtraHeaders: { "anthropic-beta": ANTHROPIC_STRUCTURED_OUTPUTS_BETA },
