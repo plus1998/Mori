@@ -1,5 +1,4 @@
-import { resolveAppliedMaxOutputTokens } from "@eco/runtime";
-import { resolveCandidateModelRequestRoute } from "./candidate-model-request-route";
+import { resolveCandidateModelRequestRouteWithLimits } from "./candidate-model-request-route";
 import { buildThreadWorkLocationPrompt } from "./thread-work-location-context";
 import { ThreadWorktreeService } from "./thread-worktree-service";
 import { createWorktreeSettingsStore, type WorktreeSettingsStore } from "./worktree-settings-store";
@@ -3215,21 +3214,10 @@ app
         return candidate.id;
       },
       ecoDataDir: app.getPath("userData"),
-      resolveCandidateModel: async (id) => {
-        const snapshot = resolveCandidateModelRequestRoute(providerStore, id);
-        const { candidate, gatewayProvider } = snapshot;
-        const resolved = await pricingCache.resolveContextLimit(candidate.baseUrl!, candidate.modelId, candidate.modelsDevMapping,
-          candidate.manualSpec?.contextTokens, candidate.manualSpec?.maxOutputTokens);
-        const maxOutputTokens = resolveAppliedMaxOutputTokens({
-          ...(resolved.maxOutputTokens !== undefined ? { modelMaxOutputTokens: resolved.maxOutputTokens } : {}),
-          globalMaxOutputTokens: workflowSettingsStore.get().maxOutputLimitTokens,
-        });
-        if (maxOutputTokens !== undefined) gatewayProvider.modelMaxOutputTokens = { [candidate.modelId]: maxOutputTokens };
-        if (workflowSettingsStore.get().maxOutputLimitTokens === "dynamic") {
-          gatewayProvider.modelContextTokens = { [candidate.modelId]: resolveEffectiveContextLimit(resolved.limit, workflowSettingsStore.get().contextWindowLimitTokens) };
-        }
-        return snapshot;
-      },
+      resolveCandidateModel: (id) => resolveCandidateModelRequestRouteWithLimits(providerStore, id, {
+        pricingCache,
+        ...workflowSettingsStore.get(),
+      }),
       listProviders: async () => {
         // The built-in ChatGPT provider may have been persisted by an older
         // version. Migrate it before every Gateway sync so stale auth metadata

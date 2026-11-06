@@ -1,12 +1,50 @@
 import { type GatewayProvider, mapApiCompatToUpstreamKind, normalizeProvider } from "@eco/gateway";
+import {
+  type GlobalMaxOutputTokens,
+  resolveAppliedMaxOutputTokens,
+  resolveEffectiveContextLimit,
+} from "@eco/runtime";
 import type { CandidateModelView } from "../shared/ipc";
 import { normalizeProviderTokenCountMode } from "../shared/provider-token-count";
+import type { ModelsDevPricingCache } from "./models-dev-pricing-cache";
 import type { ProviderConfigSecret, ProviderStore } from "./provider-store";
 
 export interface CandidateModelRequestRoute {
   candidate: CandidateModelView;
   provider: ProviderConfigSecret;
   gatewayProvider: GatewayProvider;
+}
+
+/** Resolve both budgets from the same model/settings snapshot for this request. */
+export async function resolveCandidateModelRequestRouteWithLimits(
+  store: Pick<ProviderStore, "getCandidateModel" | "getProviderWithSecret">,
+  candidateId: string,
+  options: {
+    pricingCache: Pick<ModelsDevPricingCache, "resolveContextLimit">;
+    contextWindowLimitTokens: number;
+    maxOutputLimitTokens: GlobalMaxOutputTokens;
+  },
+): Promise<CandidateModelRequestRoute> {
+  const snapshot = resolveCandidateModelRequestRoute(store, candidateId);
+  const { candidate, gatewayProvider } = snapshot;
+  const resolved = await options.pricingCache.resolveContextLimit(
+    snapshot.provider.baseUrl,
+    candidate.modelId,
+    candidate.modelsDevMapping,
+    candidate.manualSpec?.contextTokens,
+    candidate.manualSpec?.maxOutputTokens,
+  );
+  const contextTokens = resolveEffectiveContextLimit(resolved.limit, options.contextWindowLimitTokens);
+  const maxOutputTokens = resolveAppliedMaxOutputTokens({
+    ...(resolved.maxOutputTokens !== undefined ? { modelMaxOutputTokens: resolved.maxOutputTokens } : {}),
+    globalMaxOutputTokens: options.maxOutputLimitTokens,
+    contextTokens,
+  });
+  gatewayProvider.modelMaxOutputTokens = { [candidate.modelId]: maxOutputTokens };
+  if (options.maxOutputLimitTokens === "dynamic") {
+    gatewayProvider.modelContextTokens = { [candidate.modelId]: contextTokens };
+  }
+  return snapshot;
 }
 
 /** Capture one database snapshot for this physical request, including count_tokens. */

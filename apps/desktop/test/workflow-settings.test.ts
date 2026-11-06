@@ -28,7 +28,7 @@ const defaultWorkflowSettingsExpectation = {
   defaultCoreKind: "codex",
   showBilling: true,
   contextWindowLimitTokens: 262_144,
-  maxOutputLimitTokens: "dynamic",
+  maxOutputLimitTokens: 32_768,
   followUpDeliveryMode: "steer",
   defaultBashReviewMode: "always",
 } as const;

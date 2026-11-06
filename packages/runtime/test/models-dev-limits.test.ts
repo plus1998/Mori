@@ -293,8 +293,17 @@ test("normalizeGlobalContextWindowLimit clamps and snaps to step", () => {
   expect(isGlobalContextWindowLimit(4_000)).toBe(false);
 });
 
+test("missing output settings default to fixed 32K without requiring a context window", () => {
+  expect(normalizeGlobalMaxOutputTokens(undefined)).toBe(32_768);
+  expect(
+    resolveAppliedMaxOutputTokens({
+      globalMaxOutputTokens: normalizeGlobalMaxOutputTokens(undefined),
+    }),
+  ).toBe(32_768);
+});
+
 test("dynamic output follows the effective window and model output limit", () => {
-  expect(normalizeGlobalMaxOutputTokens(undefined)).toBe("dynamic");
+  expect(normalizeGlobalMaxOutputTokens("dynamic")).toBe("dynamic");
   expect(isGlobalMaxOutputTokens("dynamic")).toBe(true);
   expect(isGlobalMaxOutputTokens("auto")).toBe(false);
   for (const [contextTokens, expected] of [

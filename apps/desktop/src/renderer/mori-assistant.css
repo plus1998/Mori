@@ -233,19 +233,18 @@ html[data-platform="linux"] .mori-main-view .mori-panel-header {
   overflow-wrap: anywhere;
 }
 
-.mori-message.is-user {
-  width: fit-content;
-  /* Keep short replies ("好", "OK") from collapsing into slivers, but never demand more
-     room than the feed has: the 100% clamp wins on narrow panels, and max-width still
-     caps long messages. Paired with the responsive assertions in
-     mori-message-bubble.test.ts. */
-  min-width: min(180px, 100%);
-  max-width: 85%;
+.mori-panel .mori-messages > .mori-message.is-user {
+  /* Mori owns row geometry, including inside .codex-main where the virtual Feed
+     clears .run-log-user-prompt margins. The inner bubble keeps shared visuals. */
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  width: 100%;
+  margin: 0 0 28px;
   box-sizing: border-box;
   background: transparent;
   padding: 0;
   border-radius: 0;
-  margin-left: auto;
 }
 .mori-message-label {
   font-size: 12px;
@@ -1349,8 +1348,16 @@ html[data-mori-surface="panel"] #root {
   max-width: 100%;
 }
 .mori-message.is-user .mori-user-message-content {
-  width: 100%;
-  max-width: min(456px, 100%);
+  --run-log-user-prompt-bg: color-mix(in srgb, var(--codex-log-chip) 94%, white 6%);
+  --run-log-user-prompt-fg: var(--codex-log-chip-text);
+  --run-log-user-prompt-muted: color-mix(in srgb, var(--codex-log-chip-text) 62%, transparent);
+  width: fit-content;
+  max-width: min(456px, 85%);
+  min-width: 0;
+}
+.mori-user-message-content .run-log-user-prompt-body {
+  font-size: var(--ui-font-size);
+  line-height: calc(var(--ui-font-size) + 6px);
 }
 .mori-composer .mori-send {
   padding: 0;

@@ -73,7 +73,7 @@ class SettingsScreen extends ConsumerWidget {
     final contextValue = contextWindowLimitLabel(contextLimit);
     final maxOutputLimit =
         workflow?.maxOutputLimitTokens ?? defaultMaxOutputLimitTokens;
-    final maxOutputValue = maxOutputLimit == defaultMaxOutputLimitTokens
+    final maxOutputValue = maxOutputLimit == dynamicMaxOutputLimitTokens
         ? l10n.settingsMaxOutputDynamic
         : maxOutputLimitLabel(maxOutputLimit as int);
 

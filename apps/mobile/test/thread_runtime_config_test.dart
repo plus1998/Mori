@@ -421,6 +421,26 @@ void main() {
     expect(config.bashReviewMode, 'allow_all');
   });
 
+  test(
+    'WorkflowSettingsSnapshot defaults output to fixed 32K and preserves explicit modes',
+    () {
+      const fresh = WorkflowSettingsSnapshot(sessionMode: 'agent');
+      expect(fresh.maxOutputLimitTokens, 32768);
+      final missing = WorkflowSettingsSnapshot.fromJson({
+        'sessionMode': 'agent',
+      });
+      expect(missing.maxOutputLimitTokens, 32768);
+      for (final limit in <Object>['dynamic', 65536]) {
+        final snapshot = WorkflowSettingsSnapshot.fromJson({
+          'sessionMode': 'agent',
+          'maxOutputLimitTokens': limit,
+        });
+        expect(snapshot.maxOutputLimitTokens, limit);
+        expect(snapshot.toJson()['maxOutputLimitTokens'], limit);
+      }
+    },
+  );
+
   test('WorkflowSettingsSnapshot defaults bash review to always', () {
     final snapshot = WorkflowSettingsSnapshot.fromJson(const {
       'sessionMode': 'agent',

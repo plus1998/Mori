@@ -53,7 +53,7 @@ export function resolveEffectiveContextLimit(
 
 /** Aligns with Claude Code default for unknown / gateway model ids. */
 export const DEFAULT_GLOBAL_MAX_OUTPUT_TOKENS = 32_768;
-export const DEFAULT_GLOBAL_MAX_OUTPUT_LIMIT = "dynamic";
+export const DEFAULT_GLOBAL_MAX_OUTPUT_LIMIT = DEFAULT_GLOBAL_MAX_OUTPUT_TOKENS;
 export const GLOBAL_MAX_OUTPUT_TOKEN_MIN = 8_192;
 export const GLOBAL_MAX_OUTPUT_TOKEN_MAX = 262_144;
 export const GLOBAL_MAX_OUTPUT_TOKEN_STEP = 256;
@@ -66,7 +66,7 @@ export const GLOBAL_MAX_OUTPUT_TOKEN_PRESETS = [
   262_144,
 ] as const;
 
-export type GlobalMaxOutputTokens = number | typeof DEFAULT_GLOBAL_MAX_OUTPUT_LIMIT;
+export type GlobalMaxOutputTokens = number | "dynamic";
 
 export function isGlobalMaxOutputTokens(value: unknown): value is GlobalMaxOutputTokens {
   return (

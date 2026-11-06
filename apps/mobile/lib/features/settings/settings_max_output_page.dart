@@ -53,7 +53,7 @@ class _SettingsMaxOutputPageState extends ConsumerState<SettingsMaxOutputPage> {
               children: [
                 EcoGroupedSection(
                   caption: desktopConnected
-                      ? (selected == defaultMaxOutputLimitTokens
+                      ? (selected == dynamicMaxOutputLimitTokens
                             ? l10n.settingsMaxOutputDynamicCaption
                             : l10n.settingsMaxOutputCaption)
                       : l10n.settingsConnectPcFirst,
@@ -64,13 +64,13 @@ class _SettingsMaxOutputPageState extends ConsumerState<SettingsMaxOutputPage> {
                         title: l10n.settingsMaxOutputDynamic,
                         subtitle: l10n.settingsMaxOutputDynamicCaption,
                         icon: EcoIcons.send,
-                        selected: selected == defaultMaxOutputLimitTokens,
+                        selected: selected == dynamicMaxOutputLimitTokens,
                         enabled: desktopConnected,
                         onTap: () async {
                           await saveSettingsMaxOutputLimit(
                             ref,
                             context: context,
-                            nextLimit: defaultMaxOutputLimitTokens,
+                            nextLimit: dynamicMaxOutputLimitTokens,
                             previousLimit: selected,
                             onOptimistic: (value) =>
                                 setState(() => _maxOutputLimitTokens = value),

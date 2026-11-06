@@ -473,12 +473,13 @@ const contextWindowLimitMin = 32768;
 const contextWindowLimitMax = 1048576;
 const contextWindowLimitPresets = <int>[131072, 262144, 524288, 1048576];
 
-const defaultMaxOutputLimitTokens = 'dynamic';
+const defaultMaxOutputLimitTokens = 32768;
+const dynamicMaxOutputLimitTokens = 'dynamic';
 const maxOutputLimitMin = 8192;
 const maxOutputLimitMax = 262144;
 Object normalizeMaxOutputLimitTokens(Object? value) =>
-    value == defaultMaxOutputLimitTokens
-    ? defaultMaxOutputLimitTokens
+    value == dynamicMaxOutputLimitTokens
+    ? dynamicMaxOutputLimitTokens
     : (_optionalLimitInRange(value, maxOutputLimitMin, maxOutputLimitMax) ??
           defaultMaxOutputLimitTokens);
 
