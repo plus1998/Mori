@@ -96,13 +96,50 @@ Future<void> showComposerMainModelPickerSheet(
   );
 }
 
+/// API models can be selected directly; OAuth models require an explicit account.
+class ComposerStatelessModelPicker extends StatelessWidget {
+  const ComposerStatelessModelPicker({
+    super.key,
+    required this.selectedModel,
+    required this.onSelected,
+    required this.enabled,
+    this.mainAgentConfigId = '',
+    this.approval = false,
+  });
+
+  final OrchestrationModelRef? selectedModel;
+  final ValueChanged<OrchestrationModelRef> onSelected;
+  final bool enabled;
+  final String mainAgentConfigId;
+  final bool approval;
+
+  @override
+  Widget build(BuildContext context) => _MainModelPicker(
+    selectedModel: selectedModel,
+    coreKind: null,
+    onSelected: onSelected,
+    stateless: true,
+    enabled: enabled,
+    approval: approval,
+    mainAgentConfigId: mainAgentConfigId,
+  );
+}
+
 class _MainModelPicker extends ConsumerStatefulWidget {
   const _MainModelPicker({
     required this.selectedModel,
     required this.coreKind,
     required this.onSelected,
+    this.stateless = false,
+    this.enabled = true,
+    this.approval = false,
+    this.mainAgentConfigId = '',
   });
 
+  final bool stateless;
+  final bool enabled;
+  final bool approval;
+  final String mainAgentConfigId;
   final OrchestrationModelRef? selectedModel;
   final String? coreKind;
   final FutureOr<void> Function(OrchestrationModelRef) onSelected;
@@ -114,7 +151,7 @@ class _MainModelPicker extends ConsumerStatefulWidget {
 class _MainModelPickerState extends ConsumerState<_MainModelPicker> {
   late OrchestrationModelRef? _selectedModel = widget.selectedModel;
   late String _source = switch (widget.selectedModel?.providerId) {
-    'openai' => 'login',
+    'openai' => widget.stateless ? '' : 'login',
     'eco-coding-chatgpt' => 'oauth',
     final id? => id,
     _ => '',
@@ -126,10 +163,10 @@ class _MainModelPickerState extends ConsumerState<_MainModelPicker> {
   List<_PickerAccount> _oauthAccounts = [];
   List<_PickerModel> _loginModels = [];
   List<_PickerModel> _oauthModels = [];
-  final Set<String> _catalogPending = {
-    'loginAccounts',
+  late final Set<String> _catalogPending = {
+    if (!widget.stateless) 'loginAccounts',
     'oauthAccounts',
-    'loginModels',
+    if (!widget.stateless) 'loginModels',
   };
   final Map<String, Object> _catalogErrors = {};
   bool _oauthModelsLoading = false;
@@ -148,6 +185,45 @@ class _MainModelPickerState extends ConsumerState<_MainModelPicker> {
     unawaited(_loadCatalog());
     if (_source == 'oauth' && _accountId.isNotEmpty) {
       unawaited(_loadOauthModels(_accountId));
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _MainModelPicker oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final previous = oldWidget.selectedModel;
+    final next = widget.selectedModel;
+    if ((
+          previous?.providerId,
+          previous?.accountId,
+          previous?.modelId,
+          previous?.candidateModelId,
+        ) ==
+        (
+          next?.providerId,
+          next?.accountId,
+          next?.modelId,
+          next?.candidateModelId,
+        )) {
+      return;
+    }
+    _selectedModel = next;
+    _source = switch (next?.providerId) {
+      'openai' => widget.stateless ? '' : 'login',
+      'eco-coding-chatgpt' => 'oauth',
+      final id? => id,
+      _ => '',
+    };
+    final accountChanged = _accountId != (next?.accountId ?? '');
+    _accountId = next?.accountId ?? '';
+    if (accountChanged) {
+      _oauthRequest++;
+      _oauthModels = [];
+      _oauthModelsLoading = false;
+      _error = null;
+      if (_source == 'oauth' && _accountId.isNotEmpty) {
+        unawaited(_loadOauthModels(_accountId));
+      }
     }
   }
 
@@ -183,17 +259,18 @@ class _MainModelPickerState extends ConsumerState<_MainModelPicker> {
       return;
     }
     await Future.wait([
-      _loadCatalogPart('loginAccounts', rpc.listCodexAccounts(), (accounts) {
-        _loginAccounts = [
-          for (final account in accounts)
-            if (account.canUseCredentials)
-              _PickerAccount(
-                id: account.id,
-                name: account.name,
-                quota: account.quota,
-              ),
-        ];
-      }),
+      if (!widget.stateless)
+        _loadCatalogPart('loginAccounts', rpc.listCodexAccounts(), (accounts) {
+          _loginAccounts = [
+            for (final account in accounts)
+              if (account.canUseCredentials)
+                _PickerAccount(
+                  id: account.id,
+                  name: account.name,
+                  quota: account.quota,
+                ),
+          ];
+        }),
       _loadCatalogPart('oauthAccounts', rpc.listChatGptOauthAccounts(), (
         accounts,
       ) {
@@ -208,20 +285,21 @@ class _MainModelPickerState extends ConsumerState<_MainModelPicker> {
               ),
         ];
       }),
-      _loadCatalogPart('loginModels', rpc.listCodexAccountModels(), (models) {
-        _loginModels = [
-          for (final model in models)
-            if (model['hidden'] != true)
-              (
-                id: model['modelId'] as String,
-                name:
-                    model['displayName'] as String? ??
-                    model['modelId'] as String,
-                candidateId: null,
-                efforts: _parseEfforts(model['reasoningEfforts']),
-              ),
-        ];
-      }),
+      if (!widget.stateless)
+        _loadCatalogPart('loginModels', rpc.listCodexAccountModels(), (models) {
+          _loginModels = [
+            for (final model in models)
+              if (model['hidden'] != true)
+                (
+                  id: model['modelId'] as String,
+                  name:
+                      model['displayName'] as String? ??
+                      model['modelId'] as String,
+                  candidateId: null,
+                  efforts: _parseEfforts(model['reasoningEfforts']),
+                ),
+          ];
+        }),
     ]);
   }
 
@@ -266,7 +344,9 @@ class _MainModelPickerState extends ConsumerState<_MainModelPicker> {
             (
               id: model['id'] as String,
               name: model['displayName'] as String? ?? model['id'] as String,
-              candidateId: null,
+              candidateId: widget.stateless
+                  ? 'account:eco-coding-chatgpt:${Uri.encodeComponent(model['id'] as String)}'
+                  : null,
               efforts: _parseEfforts(model['reasoningEfforts']),
             ),
         ];
@@ -283,7 +363,7 @@ class _MainModelPickerState extends ConsumerState<_MainModelPicker> {
   }
 
   Future<void> _chooseAccount(List<_PickerAccount> accounts) async {
-    if (_saving || accounts.isEmpty) return;
+    if (!widget.enabled || _saving || accounts.isEmpty) return;
     final nextAccountId = await showEcoActionSheet<String>(
       context: context,
       isScrollControlled: true,
@@ -347,8 +427,11 @@ class _MainModelPickerState extends ConsumerState<_MainModelPicker> {
   }
 
   Future<void> _selectModel(_PickerModel model, List<String> efforts) async {
-    if (_saving ||
-        ((_source == 'login' || _source == 'oauth') && _accountId.isEmpty)) {
+    final accounts = _source == 'login' ? _loginAccounts : _oauthAccounts;
+    if (!widget.enabled ||
+        _saving ||
+        ((_source == 'login' || _source == 'oauth') &&
+            !accounts.any((account) => account.id == _accountId))) {
       return;
     }
     final providerId = switch (_source) {
@@ -361,7 +444,7 @@ class _MainModelPickerState extends ConsumerState<_MainModelPicker> {
       modelId: model.id,
       candidateModelId: model.candidateId,
       accountId: _source == 'login' || _source == 'oauth' ? _accountId : null,
-      thinkingEffort: _normalizedEffort(efforts),
+      thinkingEffort: widget.stateless ? null : _normalizedEffort(efforts),
     );
     await _save(next);
   }
@@ -395,14 +478,19 @@ class _MainModelPickerState extends ConsumerState<_MainModelPicker> {
   @override
   Widget build(BuildContext context) {
     final eco = ecoColors(context);
-    final optionsAsync = ref.watch(auxiliaryModelOptionsProvider(''));
+    final optionsAsync = ref.watch(
+      widget.approval
+          ? approvalModelOptionsProvider(widget.mainAgentConfigId)
+          : auxiliaryModelOptionsProvider(widget.mainAgentConfigId),
+    );
     final options = optionsAsync.valueOrNull ?? const <CommitModelOptionView>[];
     final providers = <String, String>{
       for (final option in options)
         if (option.providerId != 'openai' &&
             option.providerId != 'eco-coding-chatgpt')
           option.providerId: option.providerName,
-      if (widget.coreKind == 'codex' || _source == 'login')
+      if (!widget.stateless &&
+          (widget.coreKind == 'codex' || _source == 'login'))
         'login': 'ChatGPT Login',
       'oauth': 'ChatGPT OAuth',
     };
@@ -412,7 +500,8 @@ class _MainModelPickerState extends ConsumerState<_MainModelPicker> {
     final selectedAccount = accounts
         .where((account) => account.id == _accountId)
         .firstOrNull;
-    final candidateAsync = !accountSource && _source.isNotEmpty
+    final candidateAsync =
+        !widget.stateless && !accountSource && _source.isNotEmpty
         ? ref.watch(candidateModelsProvider(_source))
         : const AsyncValue<List<CandidateModelView>>.data([]);
     final capabilities = {
@@ -428,7 +517,7 @@ class _MainModelPickerState extends ConsumerState<_MainModelPicker> {
               (
                 id: model.id,
                 name: model.name,
-                candidateId: null,
+                candidateId: model.candidateId,
                 efforts:
                     model.efforts ??
                     _loginModels
@@ -521,7 +610,9 @@ class _MainModelPickerState extends ConsumerState<_MainModelPicker> {
             : _source == 'oauth'
             ? _catalogErrors['oauthAccounts']
             : null);
-    if (!_initialEffortApplied &&
+    if (!widget.stateless &&
+        widget.enabled &&
+        !_initialEffortApplied &&
         !modelLoading &&
         error == null &&
         selectedEntry != null &&
@@ -548,255 +639,249 @@ class _MainModelPickerState extends ConsumerState<_MainModelPicker> {
       }
     }
 
-    return EcoSheetScaffold(
-      title: context.l10n.composerMainModelPickerTitle,
-      maxHeightFactor: 0.78,
-      bottomPadding: 8,
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final desiredHeight = MediaQuery.sizeOf(context).height * 0.66;
-          final contentHeight = constraints.maxHeight.isFinite
-              ? constraints.maxHeight.clamp(0.0, desiredHeight).toDouble()
-              : desiredHeight;
-          return SizedBox(
-            height: contentHeight,
-            child: Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
-                  child: TextField(
-                    controller: _queryController,
-                    onChanged: (value) => setState(() => _query = value),
-                    decoration: InputDecoration(
-                      hintText: context.l10n.modelCascadeSearchHint,
-                      prefixIcon: Icon(
-                        EcoIcons.search,
-                        size: 18,
-                        color: eco.textMuted,
-                      ),
-                      suffixIcon: _query.isEmpty
-                          ? null
-                          : IconButton(
-                              tooltip: MaterialLocalizations.of(
-                                context,
-                              ).clearButtonTooltip,
-                              onPressed: () {
-                                _queryController.clear();
-                                setState(() {
-                                  _query = '';
-                                });
-                              },
-                              icon: const Icon(EcoIcons.close, size: 17),
-                            ),
-                      isDense: true,
-                      filled: true,
-                      fillColor: eco.composerPillBg,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide.none,
-                      ),
+    final picker = LayoutBuilder(
+      builder: (context, constraints) {
+        final desiredHeight = MediaQuery.sizeOf(context).height * 0.66;
+        final contentHeight = constraints.maxHeight.isFinite
+            ? constraints.maxHeight.clamp(0.0, desiredHeight).toDouble()
+            : desiredHeight;
+        return SizedBox(
+          height: contentHeight,
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
+                child: TextField(
+                  controller: _queryController,
+                  onChanged: (value) => setState(() => _query = value),
+                  decoration: InputDecoration(
+                    hintText: context.l10n.modelCascadeSearchHint,
+                    prefixIcon: Icon(
+                      EcoIcons.search,
+                      size: 18,
+                      color: eco.textMuted,
+                    ),
+                    suffixIcon: _query.isEmpty
+                        ? null
+                        : IconButton(
+                            tooltip: MaterialLocalizations.of(
+                              context,
+                            ).clearButtonTooltip,
+                            onPressed: () {
+                              _queryController.clear();
+                              setState(() {
+                                _query = '';
+                              });
+                            },
+                            icon: const Icon(EcoIcons.close, size: 17),
+                          ),
+                    isDense: true,
+                    filled: true,
+                    fillColor: eco.composerPillBg,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
                     ),
                   ),
                 ),
-                Expanded(
-                  child: CustomScrollView(
-                    slivers: [
+              ),
+              Expanded(
+                child: CustomScrollView(
+                  slivers: [
+                    SliverToBoxAdapter(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _PickerSectionLabel(
+                            title: context.l10n.composerMainModelPickerProvider,
+                          ),
+                          SizedBox(
+                            height: 44,
+                            child: SingleChildScrollView(
+                              controller: _providersScroll,
+                              scrollDirection: Axis.horizontal,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  for (final provider in visibleProviders)
+                                    Padding(
+                                      padding: const EdgeInsets.only(right: 7),
+                                      child: ConstrainedBox(
+                                        constraints: const BoxConstraints(
+                                          maxWidth: 196,
+                                        ),
+                                        child: _PickerChoice(
+                                          key: provider.key == _source
+                                              ? _selectedProviderKey
+                                              : null,
+                                          title: provider.value,
+                                          selected: provider.key == _source,
+                                          icon: _providerIcon(provider.value),
+                                          onTap: !widget.enabled || _saving
+                                              ? null
+                                              : () =>
+                                                    _changeSource(provider.key),
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (accountSource)
                       SliverToBoxAdapter(
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             _PickerSectionLabel(
-                              title:
-                                  context.l10n.composerMainModelPickerProvider,
+                              title: context.l10n.settingsAccount,
                             ),
-                            SizedBox(
-                              height: 44,
-                              child: SingleChildScrollView(
-                                controller: _providersScroll,
-                                scrollDirection: Axis.horizontal,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    for (final provider in visibleProviders)
-                                      Padding(
-                                        padding: const EdgeInsets.only(
-                                          right: 7,
-                                        ),
-                                        child: ConstrainedBox(
-                                          constraints: const BoxConstraints(
-                                            maxWidth: 196,
-                                          ),
-                                          child: _PickerChoice(
-                                            key: provider.key == _source
-                                                ? _selectedProviderKey
-                                                : null,
-                                            title: provider.value,
-                                            selected: provider.key == _source,
-                                            icon: _providerIcon(provider.value),
-                                            onTap: _saving
-                                                ? null
-                                                : () => _changeSource(
-                                                    provider.key,
-                                                  ),
-                                          ),
-                                        ),
-                                      ),
-                                  ],
-                                ),
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(12, 6, 12, 12),
+                              child: _SelectedAccountSummary(
+                                account: selectedAccount,
+                                showQuota: _source == 'login',
+                                enabled:
+                                    widget.enabled &&
+                                    !_saving &&
+                                    accounts.isNotEmpty,
+                                onTap: accounts.isEmpty
+                                    ? null
+                                    : () => _chooseAccount(accounts),
                               ),
                             ),
+                            Divider(height: 1, color: eco.borderSubtle),
                           ],
                         ),
                       ),
-                      if (accountSource)
-                        SliverToBoxAdapter(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              _PickerSectionLabel(
-                                title: context.l10n.settingsAccount,
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+                        child: Row(
+                          children: [
+                            Text(
+                              context.l10n.composerModel,
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: eco.textMuted,
                               ),
-                              Padding(
-                                padding: const EdgeInsets.fromLTRB(
-                                  12,
-                                  6,
-                                  12,
-                                  12,
-                                ),
-                                child: _SelectedAccountSummary(
-                                  account: selectedAccount,
-                                  showQuota: _source == 'login',
-                                  enabled: !_saving && accounts.isNotEmpty,
-                                  onTap: accounts.isEmpty
-                                      ? null
-                                      : () => _chooseAccount(accounts),
-                                ),
-                              ),
-                              Divider(height: 1, color: eco.borderSubtle),
-                            ],
-                          ),
-                        ),
-                      SliverToBoxAdapter(
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-                          child: Row(
-                            children: [
+                            ),
+                            const Spacer(),
+                            if (visibleModels.isNotEmpty && !modelLoading)
                               Text(
-                                context.l10n.composerModel,
+                                '${visibleModels.length}',
                                 style: TextStyle(
                                   fontSize: 12,
-                                  fontWeight: FontWeight.w600,
                                   color: eco.textMuted,
                                 ),
                               ),
-                              const Spacer(),
-                              if (visibleModels.isNotEmpty && !modelLoading)
-                                Text(
-                                  '${visibleModels.length}',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: eco.textMuted,
-                                  ),
-                                ),
-                            ],
-                          ),
+                          ],
                         ),
                       ),
-                      if (modelLoading)
-                        const SliverFillRemaining(
-                          hasScrollBody: false,
-                          child: Center(
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          ),
-                        )
-                      else if (accountSource && accounts.isEmpty)
-                        SliverFillRemaining(
-                          hasScrollBody: false,
-                          child: Center(
-                            child: Text(
-                              context.l10n.composerMainModelPickerNoAccounts,
-                              style: TextStyle(color: eco.textMuted),
-                            ),
-                          ),
-                        )
-                      else if (accountSource && _accountId.isEmpty)
-                        SliverFillRemaining(
-                          hasScrollBody: false,
-                          child: Center(
-                            child: Text(
-                              context.l10n.composerMainModelPickerSelectAccount,
-                              style: TextStyle(color: eco.textMuted),
-                            ),
-                          ),
-                        )
-                      else if (visibleModels.isEmpty)
-                        SliverFillRemaining(
-                          hasScrollBody: false,
-                          child: Center(
-                            child: Text(
-                              needle.isEmpty
-                                  ? context.l10n.modelCascadeEmpty
-                                  : context.l10n.modelCascadeNoMatch,
-                              style: TextStyle(color: eco.textMuted),
-                            ),
-                          ),
-                        )
-                      else
-                        SliverPadding(
-                          padding: const EdgeInsets.symmetric(horizontal: 10),
-                          sliver: SliverGrid(
-                            gridDelegate:
-                                const SliverGridDelegateWithFixedCrossAxisCount(
-                                  crossAxisCount: 2,
-                                  mainAxisExtent: 46,
-                                  mainAxisSpacing: 6,
-                                  crossAxisSpacing: 7,
-                                ),
-                            delegate: SliverChildBuilderDelegate((
-                              context,
-                              index,
-                            ) {
-                              final model = visibleModels[index];
-                              final selected =
-                                  _selectedModel?.modelId == model.id &&
-                                  _selectedModel?.providerId ==
-                                      (_source == 'login'
-                                          ? 'openai'
-                                          : _source == 'oauth'
-                                          ? 'eco-coding-chatgpt'
-                                          : _source) &&
-                                  (!accountSource ||
-                                      _selectedModel?.accountId ==
-                                          _accountId) &&
-                                  (model.candidateId == null ||
-                                      _selectedModel?.candidateModelId ==
-                                          model.candidateId);
-                              return _PickerTile(
-                                title: model.name,
-                                selected: selected,
-                                onTap: _saving || candidateAsync.hasError
-                                    ? null
-                                    : () => _selectModel(
-                                        model,
-                                        _supportedEfforts(
-                                          model,
-                                          model.candidateId == null
-                                              ? null
-                                              : capabilities[model.candidateId]
-                                                    ?.resolvedSupportsReasoning,
-                                        ),
-                                      ),
-                              );
-                            }, childCount: visibleModels.length),
+                    ),
+                    if (modelLoading)
+                      const SliverFillRemaining(
+                        hasScrollBody: false,
+                        child: Center(
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      )
+                    else if (accountSource && accounts.isEmpty)
+                      SliverFillRemaining(
+                        hasScrollBody: false,
+                        child: Center(
+                          child: Text(
+                            context.l10n.composerMainModelPickerNoAccounts,
+                            style: TextStyle(color: eco.textMuted),
                           ),
                         ),
-                    ],
-                  ),
+                      )
+                    else if (accountSource && _accountId.isEmpty)
+                      SliverFillRemaining(
+                        hasScrollBody: false,
+                        child: Center(
+                          child: Text(
+                            context.l10n.composerMainModelPickerSelectAccount,
+                            style: TextStyle(color: eco.textMuted),
+                          ),
+                        ),
+                      )
+                    else if (visibleModels.isEmpty)
+                      SliverFillRemaining(
+                        hasScrollBody: false,
+                        child: Center(
+                          child: Text(
+                            needle.isEmpty
+                                ? context.l10n.modelCascadeEmpty
+                                : context.l10n.modelCascadeNoMatch,
+                            style: TextStyle(color: eco.textMuted),
+                          ),
+                        ),
+                      )
+                    else
+                      SliverPadding(
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                        sliver: SliverGrid(
+                          gridDelegate:
+                              const SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: 2,
+                                mainAxisExtent: 46,
+                                mainAxisSpacing: 6,
+                                crossAxisSpacing: 7,
+                              ),
+                          delegate: SliverChildBuilderDelegate((
+                            context,
+                            index,
+                          ) {
+                            final model = visibleModels[index];
+                            final selected =
+                                _selectedModel?.modelId == model.id &&
+                                _selectedModel?.providerId ==
+                                    (_source == 'login'
+                                        ? 'openai'
+                                        : _source == 'oauth'
+                                        ? 'eco-coding-chatgpt'
+                                        : _source) &&
+                                (!accountSource ||
+                                    _selectedModel?.accountId == _accountId) &&
+                                (model.candidateId == null ||
+                                    _selectedModel?.candidateModelId ==
+                                        model.candidateId);
+                            return _PickerTile(
+                              title: model.name,
+                              selected: selected,
+                              onTap:
+                                  !widget.enabled ||
+                                      _saving ||
+                                      candidateAsync.hasError ||
+                                      (accountSource && selectedAccount == null)
+                                  ? null
+                                  : () => _selectModel(
+                                      model,
+                                      _supportedEfforts(
+                                        model,
+                                        model.candidateId == null
+                                            ? null
+                                            : capabilities[model.candidateId]
+                                                  ?.resolvedSupportsReasoning,
+                                      ),
+                                    ),
+                            );
+                          }, childCount: visibleModels.length),
+                        ),
+                      ),
+                  ],
                 ),
-                Divider(height: 1, color: eco.borderSubtle),
+              ),
+              Divider(height: 1, color: eco.borderSubtle),
+              if (!widget.stateless)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
                   child: Column(
@@ -824,6 +909,7 @@ class _MainModelPickerState extends ConsumerState<_MainModelPicker> {
                     ],
                   ),
                 ),
+              if (!widget.stateless)
                 SliderTheme(
                   data: SliderTheme.of(context).copyWith(
                     trackHeight: 22,
@@ -898,28 +984,35 @@ class _MainModelPickerState extends ConsumerState<_MainModelPicker> {
                     },
                   ),
                 ),
-                if (error != null)
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxHeight: 64),
-                      child: SingleChildScrollView(
-                        child: Text(
-                          error.toString(),
-                          style: TextStyle(
-                            color: eco.statusDenyText,
-                            fontSize: 12,
-                          ),
+              if (error != null)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 64),
+                    child: SingleChildScrollView(
+                      child: Text(
+                        error.toString(),
+                        style: TextStyle(
+                          color: eco.statusDenyText,
+                          fontSize: 12,
                         ),
                       ),
                     ),
                   ),
-              ],
-            ),
-          );
-        },
-      ),
+                ),
+            ],
+          ),
+        );
+      },
     );
+    return widget.stateless
+        ? SizedBox(height: 360, child: picker)
+        : EcoSheetScaffold(
+            title: context.l10n.composerMainModelPickerTitle,
+            maxHeightFactor: 0.78,
+            bottomPadding: 8,
+            child: picker,
+          );
   }
 }
 

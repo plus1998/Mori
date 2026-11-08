@@ -68,13 +68,68 @@ test("keeps the state chip as the only activation control", () => {
     }),
     "en-US",
   );
-  const activeChip = markup.match(/<button(?=[^>]*class="settings-ui-resource-state")(?=[^>]*aria-pressed="true")[^>]*>/)?.[0] ?? "";
+  const activeChip =
+    markup.match(
+      /<button(?=[^>]*class="settings-ui-resource-state")(?=[^>]*aria-pressed="true")[^>]*>/,
+    )?.[0] ?? "";
   expect(activeChip).toContain('aria-pressed="true"');
   expect(activeChip).toContain("disabled");
-  const inactiveChip = markup.match(/<button(?=[^>]*class="settings-ui-resource-state")(?=[^>]*aria-pressed="false")[^>]*>/)?.[0] ?? "";
+  const inactiveChip =
+    markup.match(
+      /<button(?=[^>]*class="settings-ui-resource-state")(?=[^>]*aria-pressed="false")[^>]*>/,
+    )?.[0] ?? "";
   expect(inactiveChip).toContain('aria-pressed="false"');
   expect(inactiveChip).not.toContain("disabled");
   // No separate activation button: the chip itself carries the click.
   expect(markup).not.toContain("image-generation-profile-action-primary");
   expect(markup).not.toContain("设为启用</button>");
+});
+
+test("Login goes directly to its account pool and preserves the existing Codex method", () => {
+  const markup = renderLocalized(
+    createElement(ImageGenerationSettingsPanel, {
+      settings: {
+        ...settings,
+        apiKeyEncryptionAvailable: false,
+        activeProfileId: "login",
+        profiles: [
+          ...settings.profiles,
+          profile({ id: "login", name: "Old login profile", provider: "codex", hasApiKey: false }),
+        ],
+      },
+      onChange: () => {},
+      onError: () => {},
+      onManageAccounts: () => {},
+    }),
+    "en-US",
+  );
+  expect(markup).toContain('value="chatgpt_login" selected=""');
+  expect(markup).toContain('value="codex" selected=""');
+  expect(markup).toContain("ChatGPT Login account pool");
+  expect(markup).toContain("Manage login accounts");
+  expect(markup).toContain("Plus / Team / Pro");
+  expect(markup).not.toContain("Old login profile");
+  expect(markup).not.toContain("Add profile");
+  expect(markup).not.toContain("2 profiles");
+  expect(markup).not.toMatch(/[\u3400-\u9fff]/u);
+});
+
+test("API profiles exclude legacy login cards and keep the API profile count", () => {
+  const markup = renderLocalized(
+    createElement(ImageGenerationSettingsPanel, {
+      settings: {
+        ...settings,
+        profiles: [
+          ...settings.profiles,
+          profile({ id: "login", name: "Legacy web profile", provider: "chatgpt_web" }),
+        ],
+      },
+      onChange: () => {},
+      onError: () => {},
+    }),
+    "en-US",
+  );
+  expect(markup).toContain("2 profiles");
+  expect(markup).not.toContain("Legacy web profile");
+  expect(markup).not.toContain("ChatGPT Login account pool");
 });

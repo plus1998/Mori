@@ -24,8 +24,27 @@ export function parseImageGenerationTaskTabId(tabId: string): string | undefined
     : undefined;
 }
 
-export const IMAGE_GENERATION_PROVIDERS = ["openai", "gemini", "openai_compatible", "codex", "chatgpt_web"] as const;
+export const IMAGE_GENERATION_PROVIDERS = [
+  "openai",
+  "gemini",
+  "openai_compatible",
+  "codex",
+  "chatgpt_web",
+] as const;
 export type ImageGenerationProvider = (typeof IMAGE_GENERATION_PROVIDERS)[number];
+
+export type ImageGenerationLoginRoute = "chatgpt_web" | "codex";
+export type ImageGenerationSource = "api" | "chatgpt_login";
+export interface ImageGenerationSourceInput {
+  source: ImageGenerationSource;
+  route?: ImageGenerationLoginRoute;
+}
+
+export function isImageGenerationLoginProvider(
+  provider: ImageGenerationProvider,
+): provider is ImageGenerationLoginRoute {
+  return provider === "chatgpt_web" || provider === "codex";
+}
 
 export interface ImageGenerationProfileSnapshot {
   id: string;

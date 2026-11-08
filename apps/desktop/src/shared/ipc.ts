@@ -418,6 +418,7 @@ export const IPC_CHANNELS = {
   integrationAvailabilityGet: "integration-availability:get",
   imageGenerationSettingsGet: "image-generation-settings:get",
   imageGenerationSettingsSave: "image-generation-settings:save",
+  imageGenerationSourceSelect: "image-generation-source:select",
   imageGenerationProfileSave: "image-generation-profile:save",
   imageGenerationProfileDelete: "image-generation-profile:delete",
   imageGenerationProfileActivate: "image-generation-profile:activate",

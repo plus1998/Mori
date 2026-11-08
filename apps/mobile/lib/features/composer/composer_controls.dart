@@ -9,7 +9,6 @@ import '../../core/constants/bash_review_ui.dart';
 import 'composer_toolbar_icon.dart';
 import '../../core/models/acp_models.dart';
 import '../../core/models/composer_mcp.dart';
-import '../../core/models/git_models.dart';
 import '../../core/models/integration_models.dart';
 import '../../core/models/mcp_models.dart';
 import '../../core/models/project_orchestration_settings.dart';
@@ -1566,15 +1565,14 @@ class ComposerAuxiliaryModelSection extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final options = ref.watch(auxiliaryModelOptionsProvider(mainAgentConfigId));
-
-    void select(CommitModelOptionView? option) {
+    void select(OrchestrationModelRef? option) {
       final selection = option == null
           ? null
           : AuxiliaryModelSelection(
               providerId: option.providerId,
               modelId: option.modelId,
-              candidateModelId: option.candidateModelId,
+              candidateModelId: option.candidateModelId!,
+              accountId: option.accountId,
             );
       var next = option == null
           ? runtimeConfig.copyWith(clearAuxiliaryModel: true)
@@ -1607,58 +1605,20 @@ class ComposerAuxiliaryModelSection extends ConsumerWidget {
             enabled: canEdit,
             onTap: !canEdit ? null : () => select(null),
           ),
-          options.when(
-            data: (items) => Column(
-              children: [
-                const EcoGroupedDivider(indent: 16),
-                // Unified provider → model cascade (search + grouped) instead
-                // of a flat model list.
-                EcoModelCascadeList(
-                  layout: EcoModelCascadeLayout.split,
-                  height: 360,
-                  options: [
-                    for (final option in items)
-                      ModelCascadeEntry(
-                        key: option.candidateModelId,
-                        providerKey: option.providerId,
-                        providerName: option.providerName,
-                        modelId: option.modelId,
-                        title: option.modelLabel,
-                        subtitle: option.modelId,
-                      ),
-                  ],
-                  selectedKey: runtimeConfig.auxiliaryModel?.candidateModelId,
-                  enabled: canEdit,
-                  onSelected: (key) {
-                    for (final option in items) {
-                      if (option.candidateModelId == key) {
-                        select(option);
-                        break;
-                      }
-                    }
-                  },
-                ),
-              ],
-            ),
-            loading: () => const Column(
-              children: [
-                EcoGroupedDivider(indent: 16),
-                EcoGroupedTile(
-                  child: Padding(
-                    padding: EdgeInsets.symmetric(vertical: 2),
-                    child: LinearProgressIndicator(minHeight: 2),
+          ComposerStatelessModelPicker(
+            selectedModel: runtimeConfig.auxiliaryModel == null
+                ? null
+                : OrchestrationModelRef(
+                    providerId: runtimeConfig.auxiliaryModel!.providerId,
+                    modelId: runtimeConfig.auxiliaryModel!.modelId,
+                    candidateModelId:
+                        runtimeConfig.auxiliaryModel!.candidateModelId,
+                    accountId: runtimeConfig.auxiliaryModel!.accountId,
                   ),
-                ),
-              ],
-            ),
-            error: (_, _) => Column(
-              children: [
-                const EcoGroupedDivider(indent: 16),
-                EcoGroupedTile(
-                  child: Text(context.l10n.composerModelLoadFailed),
-                ),
-              ],
-            ),
+            enabled: canEdit,
+            mainAgentConfigId: mainAgentConfigId,
+            approval: false,
+            onSelected: select,
           ),
         ],
       ),
@@ -1743,15 +1703,14 @@ class ComposerApprovalModelSection extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final options = ref.watch(approvalModelOptionsProvider(mainAgentConfigId));
-
-    void select(CommitModelOptionView? option) {
+    void select(OrchestrationModelRef? option) {
       final selection = option == null
           ? null
           : ApprovalModelSelection(
               providerId: option.providerId,
               modelId: option.modelId,
-              candidateModelId: option.candidateModelId,
+              candidateModelId: option.candidateModelId!,
+              accountId: option.accountId,
             );
       var next = option == null
           ? runtimeConfig.copyWith(clearApprovalModel: true)
@@ -1790,58 +1749,20 @@ class ComposerApprovalModelSection extends ConsumerWidget {
             enabled: canEdit,
             onTap: !canEdit ? null : () => select(null),
           ),
-          options.when(
-            data: (items) => Column(
-              children: [
-                const EcoGroupedDivider(indent: 16),
-                // Unified provider → model cascade (search + grouped) instead
-                // of a flat model list.
-                EcoModelCascadeList(
-                  layout: EcoModelCascadeLayout.split,
-                  height: 360,
-                  options: [
-                    for (final option in items)
-                      ModelCascadeEntry(
-                        key: option.candidateModelId,
-                        providerKey: option.providerId,
-                        providerName: option.providerName,
-                        modelId: option.modelId,
-                        title: option.modelLabel,
-                        subtitle: option.modelId,
-                      ),
-                  ],
-                  selectedKey: runtimeConfig.approvalModel?.candidateModelId,
-                  enabled: canEdit,
-                  onSelected: (key) {
-                    for (final option in items) {
-                      if (option.candidateModelId == key) {
-                        select(option);
-                        break;
-                      }
-                    }
-                  },
-                ),
-              ],
-            ),
-            loading: () => const Column(
-              children: [
-                EcoGroupedDivider(indent: 16),
-                EcoGroupedTile(
-                  child: Padding(
-                    padding: EdgeInsets.symmetric(vertical: 2),
-                    child: LinearProgressIndicator(minHeight: 2),
+          ComposerStatelessModelPicker(
+            selectedModel: runtimeConfig.approvalModel == null
+                ? null
+                : OrchestrationModelRef(
+                    providerId: runtimeConfig.approvalModel!.providerId,
+                    modelId: runtimeConfig.approvalModel!.modelId,
+                    candidateModelId:
+                        runtimeConfig.approvalModel!.candidateModelId,
+                    accountId: runtimeConfig.approvalModel!.accountId,
                   ),
-                ),
-              ],
-            ),
-            error: (_, _) => Column(
-              children: [
-                const EcoGroupedDivider(indent: 16),
-                EcoGroupedTile(
-                  child: Text(context.l10n.composerModelLoadFailed),
-                ),
-              ],
-            ),
+            enabled: canEdit,
+            mainAgentConfigId: mainAgentConfigId,
+            approval: true,
+            onSelected: select,
           ),
         ],
       ),
@@ -1924,15 +1845,14 @@ class ComposerVisionModelSection extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final options = ref.watch(auxiliaryModelOptionsProvider(mainAgentConfigId));
-
-    void select(CommitModelOptionView? option) {
+    void select(OrchestrationModelRef? option) {
       final selection = option == null
           ? null
           : VisionModelSelection(
               providerId: option.providerId,
               modelId: option.modelId,
-              candidateModelId: option.candidateModelId,
+              candidateModelId: option.candidateModelId!,
+              accountId: option.accountId,
             );
       final next = option == null
           ? runtimeConfig.copyWith(clearVisionModel: true)
@@ -1969,58 +1889,20 @@ class ComposerVisionModelSection extends ConsumerWidget {
             enabled: canEdit,
             onTap: !canEdit ? null : () => select(null),
           ),
-          options.when(
-            data: (items) => Column(
-              children: [
-                const EcoGroupedDivider(indent: 16),
-                // Unified provider → model cascade (search + grouped) instead
-                // of a flat model list.
-                EcoModelCascadeList(
-                  layout: EcoModelCascadeLayout.split,
-                  height: 360,
-                  options: [
-                    for (final option in items)
-                      ModelCascadeEntry(
-                        key: option.candidateModelId,
-                        providerKey: option.providerId,
-                        providerName: option.providerName,
-                        modelId: option.modelId,
-                        title: option.modelLabel,
-                        subtitle: option.modelId,
-                      ),
-                  ],
-                  selectedKey: runtimeConfig.visionModel?.candidateModelId,
-                  enabled: canEdit,
-                  onSelected: (key) {
-                    for (final option in items) {
-                      if (option.candidateModelId == key) {
-                        select(option);
-                        break;
-                      }
-                    }
-                  },
-                ),
-              ],
-            ),
-            loading: () => const Column(
-              children: [
-                EcoGroupedDivider(indent: 16),
-                EcoGroupedTile(
-                  child: Padding(
-                    padding: EdgeInsets.symmetric(vertical: 2),
-                    child: LinearProgressIndicator(minHeight: 2),
+          ComposerStatelessModelPicker(
+            selectedModel: runtimeConfig.visionModel == null
+                ? null
+                : OrchestrationModelRef(
+                    providerId: runtimeConfig.visionModel!.providerId,
+                    modelId: runtimeConfig.visionModel!.modelId,
+                    candidateModelId:
+                        runtimeConfig.visionModel!.candidateModelId,
+                    accountId: runtimeConfig.visionModel!.accountId,
                   ),
-                ),
-              ],
-            ),
-            error: (_, _) => Column(
-              children: [
-                const EcoGroupedDivider(indent: 16),
-                EcoGroupedTile(
-                  child: Text(context.l10n.composerModelLoadFailed),
-                ),
-              ],
-            ),
+            enabled: canEdit,
+            mainAgentConfigId: mainAgentConfigId,
+            approval: false,
+            onSelected: select,
           ),
         ],
       ),

@@ -97,10 +97,12 @@ class AuxiliaryModelSelection {
     required this.providerId,
     required this.modelId,
     required this.candidateModelId,
+    this.accountId,
   });
 
   factory AuxiliaryModelSelection.fromJson(Map<String, dynamic> json) {
     return AuxiliaryModelSelection(
+      accountId: json['accountId'] as String?,
       providerId: _requiredCandidateModelString(
         json,
         'providerId',
@@ -119,11 +121,13 @@ class AuxiliaryModelSelection {
     'providerId': providerId,
     'modelId': modelId,
     'candidateModelId': candidateModelId,
+    if (accountId != null) 'accountId': accountId,
   };
 
   final String providerId;
   final String modelId;
   final String candidateModelId;
+  final String? accountId;
 }
 
 class ApprovalModelSelection {
@@ -131,10 +135,12 @@ class ApprovalModelSelection {
     required this.providerId,
     required this.modelId,
     required this.candidateModelId,
+    this.accountId,
   });
 
   factory ApprovalModelSelection.fromJson(Map<String, dynamic> json) {
     return ApprovalModelSelection(
+      accountId: json['accountId'] as String?,
       providerId: _requiredCandidateModelString(
         json,
         'providerId',
@@ -153,11 +159,13 @@ class ApprovalModelSelection {
     'providerId': providerId,
     'modelId': modelId,
     'candidateModelId': candidateModelId,
+    if (accountId != null) 'accountId': accountId,
   };
 
   final String providerId;
   final String modelId;
   final String candidateModelId;
+  final String? accountId;
 }
 
 class VisionModelSelection {
@@ -165,10 +173,12 @@ class VisionModelSelection {
     required this.providerId,
     required this.modelId,
     required this.candidateModelId,
+    this.accountId,
   });
 
   factory VisionModelSelection.fromJson(Map<String, dynamic> json) {
     return VisionModelSelection(
+      accountId: json['accountId'] as String?,
       providerId: _requiredCandidateModelString(
         json,
         'providerId',
@@ -187,11 +197,13 @@ class VisionModelSelection {
     'providerId': providerId,
     'modelId': modelId,
     'candidateModelId': candidateModelId,
+    if (accountId != null) 'accountId': accountId,
   };
 
   final String providerId;
   final String modelId;
   final String candidateModelId;
+  final String? accountId;
 }
 
 class ThreadRuntimeConfig {

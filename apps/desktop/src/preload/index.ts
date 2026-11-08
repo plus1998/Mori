@@ -4,7 +4,7 @@ import type { AccountUsageHistory, AccountUsageQuery, UsageOverview, UsageOvervi
 import { MORI_ASSISTANT_CHANNELS as MORI } from "../shared/mori-assistant";
 import type { MoriAssistantSettings, MoriAssistantSnapshot } from "../shared/mori-assistant";
 import type { GenerationToolRequest } from "../shared/generation-tools";
-import type { ImageGenerationToolInput } from "../shared/image-generation";
+import type { ImageGenerationSourceInput, ImageGenerationToolInput } from "../shared/image-generation";
 import type { TtsToolInput } from "../shared/tts";
 import type { ProjectTodo, ProjectTodoCompose, ProjectTodoSave, ProjectTodoTrash } from "../shared/project-todos";
 import type { ReadAloudSettingsInput, ReadAloudSettingsSnapshot, ReadAloudStatus, ReadAloudStartInput, ReadAloudStartResult, ReadAloudSegmentInput, ReadAloudSegmentResult, ReadAloudReadInput, ReadAloudReadResult } from "../shared/tts";
@@ -1092,6 +1092,9 @@ const api = {
   },
   saveImageGenerationEnabled(enabled: boolean): Promise<ImageGenerationSettingsSnapshot> {
     return ipcRenderer.invoke(IPC_CHANNELS.imageGenerationSettingsSave, { enabled });
+  },
+  selectImageGenerationSource(input: ImageGenerationSourceInput): Promise<ImageGenerationSettingsSnapshot> {
+    return ipcRenderer.invoke(IPC_CHANNELS.imageGenerationSourceSelect, input);
   },
   saveImageGenerationProfile(
     profile: ImageGenerationProfileSaveInput,

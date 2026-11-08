@@ -37,7 +37,13 @@ export function ClarificationPanel({
   const total = request.questions.length;
   const [questionIndex, setQuestionIndex] = useState(0);
   const [highlightIndex, setHighlightIndex] = useState(0);
-  const [selections, setSelections] = useState<string[][]>(() => request.questions.map(() => []));
+  const [selections, setSelections] = useState<string[][]>(() =>
+    request.questions.map((question) =>
+      question.options.every((option) => option.label === CLARIFICATION_CUSTOM_OPTION_LABEL)
+        ? [CLARIFICATION_CUSTOM_OPTION_LABEL]
+        : [],
+    ),
+  );
   const [customTexts, setCustomTexts] = useState<string[]>(() => request.questions.map(() => ""));
   const customInputRef = useRef<HTMLTextAreaElement>(null);
   const selectionsRef = useRef(selections);
@@ -66,6 +72,8 @@ export function ClarificationPanel({
   }, [question, t]);
 
   const optionCount = displayOptions.length;
+  const customInputOnly =
+    optionCount === 1 && displayOptions[0]?.label === CLARIFICATION_CUSTOM_OPTION_LABEL;
 
   const recommendedIndex = useMemo(() => {
     if (!question) {
@@ -88,7 +96,7 @@ export function ClarificationPanel({
       return;
     }
     customInputRef.current?.focus();
-  }, [showCustomInput, busy]);
+  }, [showCustomInput, questionIndex, busy]);
 
   const submitAll = useCallback(
     (selectionRows: string[][] = selectionsRef.current, texts: string[] = customTextsRef.current) => {
@@ -301,60 +309,62 @@ export function ClarificationPanel({
         </div>
       </header>
 
-      <ul className="clarification-option-list" aria-label={t("approval.clarification.options")}>
-        {displayOptions.map((option, optionIndex) => {
-          const selected = currentSelection.includes(option.label);
-          const highlighted = highlightIndex === optionIndex;
-          const recommended = isRecommendedOption(option);
-          return (
-            <li key={option.label}>
-              <button
-                type="button"
-                aria-pressed={selected}
-                className={[
-                  "clarification-option-row",
-                  selected ? "is-selected" : "",
-                  highlighted ? "is-highlighted" : "",
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
-                disabled={busy}
-                onMouseEnter={() => setHighlightIndex(optionIndex)}
-                onClick={() => selectOption(option.label)}
-              >
-                <span className="clarification-option-index">
-                  {option.label === CLARIFICATION_CUSTOM_OPTION_LABEL ? (
-                    <Pencil size={14} strokeWidth={1.75} aria-hidden />
-                  ) : (
-                    optionIndex + 1
-                  )}
-                </span>
-                <span className="clarification-option-body">
-                  <span className="clarification-option-label">
-                    {formatOptionLabel(option.label)}
-                    {recommended ? (
-                      <span className="clarification-recommended">
-                        {t("approval.clarification.recommended")}
-                      </span>
+      {!customInputOnly ? (
+        <ul className="clarification-option-list" aria-label={t("approval.clarification.options")}>
+          {displayOptions.map((option, optionIndex) => {
+            const selected = currentSelection.includes(option.label);
+            const highlighted = highlightIndex === optionIndex;
+            const recommended = isRecommendedOption(option);
+            return (
+              <li key={option.label}>
+                <button
+                  type="button"
+                  aria-pressed={selected}
+                  className={[
+                    "clarification-option-row",
+                    selected ? "is-selected" : "",
+                    highlighted ? "is-highlighted" : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                  disabled={busy}
+                  onMouseEnter={() => setHighlightIndex(optionIndex)}
+                  onClick={() => selectOption(option.label)}
+                >
+                  <span className="clarification-option-index">
+                    {option.label === CLARIFICATION_CUSTOM_OPTION_LABEL ? (
+                      <Pencil size={14} strokeWidth={1.75} aria-hidden />
+                    ) : (
+                      optionIndex + 1
+                    )}
+                  </span>
+                  <span className="clarification-option-body">
+                    <span className="clarification-option-label">
+                      {formatOptionLabel(option.label)}
+                      {recommended ? (
+                        <span className="clarification-recommended">
+                          {t("approval.clarification.recommended")}
+                        </span>
+                      ) : null}
+                    </span>
+                    {option.description ? (
+                      <span className="clarification-option-desc">{option.description}</span>
                     ) : null}
                   </span>
                   {option.description ? (
-                    <span className="clarification-option-desc">{option.description}</span>
+                    <span className="clarification-info" title={option.description}>
+                      <Info size={14} aria-hidden />
+                    </span>
                   ) : null}
-                </span>
-                {option.description ? (
-                  <span className="clarification-info" title={option.description}>
-                    <Info size={14} aria-hidden />
-                  </span>
-                ) : null}
-                {docked && selected && option.label !== CLARIFICATION_CUSTOM_OPTION_LABEL ? (
-                  <ChevronRight className="clarification-option-arrow" size={18} aria-hidden />
-                ) : null}
-              </button>
-            </li>
-          );
-        })}
-      </ul>
+                  {docked && selected && option.label !== CLARIFICATION_CUSTOM_OPTION_LABEL ? (
+                    <ChevronRight className="clarification-option-arrow" size={18} aria-hidden />
+                  ) : null}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
 
       {showCustomInput ? (
         <div className="clarification-custom">
@@ -386,6 +396,7 @@ export function ClarificationPanel({
                   return;
                 }
                 event.preventDefault();
+                event.stopPropagation();
                 submitCustomFromInput();
               }
             }}

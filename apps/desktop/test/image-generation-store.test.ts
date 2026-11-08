@@ -47,6 +47,96 @@ test("new OpenAI image profiles use gpt-image-2", async () => {
   expect(store.getSettings().profiles[0]?.supportsImageToImage).toBe(true);
 });
 
+test("source selection creates Login without a user profile and reuses it across switches and restart", async () => {
+  const store = await createStore();
+  const apiId = store.getSettings().activeProfileId;
+  const web = store.selectSource({ source: "chatgpt_login" });
+  const webId = web.activeProfileId;
+  expect(store.getActiveClientConfig()).toMatchObject({
+    provider: "chatgpt_web",
+    model: "gpt-image-2",
+    apiKey: "",
+  });
+  expect(store.setEnabled(true).enabled).toBe(true);
+  store.selectSource({ source: "chatgpt_login", route: "codex" });
+  expect(store.getActiveClientConfig().provider).toBe("codex");
+  store.selectSource({ source: "chatgpt_login", route: "chatgpt_web" });
+  expect(store.getSettings().activeProfileId).toBe(webId);
+  store.initialize();
+  expect(store.getSettings().activeProfileId).toBe(webId);
+  const api = store.selectSource({ source: "api" });
+  expect(api.activeProfileId).toBe(apiId);
+  expect(api.enabled).toBe(false);
+  expect(() => store.getActiveClientConfig()).toThrow("API Key");
+  expect(store.selectSource({ source: "chatgpt_login" }).activeProfileId).toBe(webId);
+  expect(store.getSettings().profiles).toHaveLength(3);
+  expect(store.listProfileSecrets()).toEqual([]);
+});
+
+test("switching sources restores the last selected API profile without dropping its enabled state or key", async () => {
+  const store = await createStore();
+  const api = store.saveProfile({
+    name: "My API",
+    provider: "openai_compatible",
+    endpoint: "https://example.com/v1",
+    model: "custom-image",
+    apiKey: "api-secret",
+  });
+  store.activateProfile(api.id);
+  store.setEnabled(true);
+  store.selectSource({ source: "chatgpt_login", route: "codex" });
+  store.initialize();
+  const restored = store.selectSource({ source: "api" });
+  expect(restored.activeProfileId).toBe(api.id);
+  expect(restored.enabled).toBe(true);
+  expect(store.getActiveClientConfig()).toMatchObject({
+    provider: "openai_compatible",
+    apiKey: "api-secret",
+    model: "custom-image",
+  });
+});
+
+test("source selection preserves a legacy Login route and its image editing setting", async () => {
+  const store = await createStore();
+  const legacy = store.saveProfile({
+    name: "My existing paid pool",
+    provider: "codex",
+    endpoint: "https://chatgpt.com/backend-api/codex",
+    model: "gpt-image-2",
+    supportsImageToImage: false,
+  });
+  store.activateProfile(legacy.id);
+  expect(store.selectSource({ source: "chatgpt_login" }).activeProfileId).toBe(legacy.id);
+  store.selectSource({ source: "api" });
+  store.selectSource({ source: "chatgpt_login" });
+  expect(store.getActiveClientConfig()).toMatchObject({
+    profileId: legacy.id,
+    provider: "codex",
+    supportsImageToImage: false,
+  });
+  expect(store.getSettings().profiles).toHaveLength(2);
+});
+
+test("managed Login names do not overwrite API profiles; invalid sources leave settings intact", async () => {
+  const store = await createStore();
+  store.saveProfile({
+    name: "ChatGPT Login · Web",
+    provider: "openai",
+    endpoint: "https://api.openai.com/v1",
+    model: "gpt-image-2",
+    apiKey: "keep-me",
+  });
+  store.selectSource({ source: "chatgpt_login" });
+  expect(store.getActiveClientConfig().profileName).toBe("ChatGPT Login · Web (2)");
+  expect(store.listProfileSecrets()[0]?.apiKey).toBe("keep-me");
+  const before = store.getSettings();
+  expect(() => store.selectSource({ source: "invalid" as never })).toThrow("来源无效");
+  expect(() => store.selectSource({ source: "chatgpt_login", route: "invalid" as never })).toThrow(
+    "方式无效",
+  );
+  expect(store.getSettings()).toEqual(before);
+});
+
 test("Codex login profiles activate without a key and reject custom credential destinations", async () => {
   const store = await createStore();
   const profile = store.saveProfile({

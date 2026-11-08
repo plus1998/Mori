@@ -13,8 +13,10 @@ import {
   type ImageGenerationProfileSnapshot,
   type ImageGenerationProvider,
   type ImageGenerationSettingsSnapshot,
+  type ImageGenerationSourceInput,
   type ImageGenerationToolInput,
   isImageGenerationProvider,
+  isImageGenerationLoginProvider,
 } from "../shared/image-generation";
 
 export const DEFAULT_IMAGE_PROFILE_ID = "00000000-0000-4000-8000-000000000002";
@@ -35,6 +37,13 @@ interface ProfileRow {
   encrypted_api_key: string;
   created_at: string;
   updated_at: string;
+}
+
+interface SettingsRow {
+  enabled: number;
+  active_profile_id: string;
+  last_api_profile_id: string | null;
+  last_login_profile_id: string | null;
 }
 
 interface ArtifactRow {
@@ -130,11 +139,21 @@ export class ImageGenerationStore {
       CREATE INDEX IF NOT EXISTS image_generation_artifacts_thread_idx
         ON image_generation_artifacts(thread_id, created_at DESC);
     `);
-    this.db.prepare(
-      "UPDATE image_generation_artifacts SET status = 'failed', error_code = 'interrupted', error_message = ?, updated_at = ? WHERE status = 'running'",
-    ).run("应用退出时图片生成尚未完成，请重新生成。", new Date().toISOString());
+    this.db
+      .prepare(
+        "UPDATE image_generation_artifacts SET status = 'failed', error_code = 'interrupted', error_message = ?, updated_at = ? WHERE status = 'running'",
+      )
+      .run("应用退出时图片生成尚未完成，请重新生成。", new Date().toISOString());
     this.ensureProfileColumns();
     this.ensureCodexProvider();
+    // These local navigation preferences do not change the synced active-profile contract.
+    const settingsColumns = this.db.prepare("PRAGMA table_info(image_generation_settings)").all() as {
+      name: string;
+    }[];
+    for (const column of ["last_api_profile_id", "last_login_profile_id"]) {
+      if (!settingsColumns.some((item) => item.name === column))
+        this.db.exec(`ALTER TABLE image_generation_settings ADD COLUMN ${column} TEXT`);
+    }
     const count = Number(
       (
         this.db.prepare("SELECT COUNT(*) AS count FROM image_generation_profiles").get() as
@@ -186,6 +205,15 @@ export class ImageGenerationStore {
         )
         .run(first.id, new Date().toISOString());
     }
+    const active = this.readProfile(this.requireSettingsRow().active_profile_id);
+    const rememberedColumn = isImageGenerationLoginProvider(normalizeProvider(active.provider))
+      ? "last_login_profile_id"
+      : "last_api_profile_id";
+    this.db
+      .prepare(
+        `UPDATE image_generation_settings SET ${rememberedColumn} = active_profile_id WHERE singleton = 1`,
+      )
+      .run();
   }
 
   getSettings(): ImageGenerationSettingsSnapshot {
@@ -275,10 +303,75 @@ export class ImageGenerationStore {
     }
     this.db
       .prepare(
-        "UPDATE image_generation_settings SET active_profile_id = ?, updated_at = ? WHERE singleton = 1",
+        `UPDATE image_generation_settings SET active_profile_id = ?, updated_at = ?,
+         ${isImageGenerationLoginProvider(normalizeProvider(profile.provider)) ? "last_login_profile_id" : "last_api_profile_id"} = ? WHERE singleton = 1`,
       )
-      .run(profile.id, new Date().toISOString());
+      .run(profile.id, new Date().toISOString(), profile.id);
     return this.getSettings();
+  }
+
+  /** Login uses the existing account pool; its transport profile is managed internally. */
+  selectSource(input: ImageGenerationSourceInput): ImageGenerationSettingsSnapshot {
+    if (input.source !== "api" && input.source !== "chatgpt_login") throw new Error("创意绘画来源无效。");
+    if (input.route !== undefined && input.route !== "chatgpt_web" && input.route !== "codex")
+      throw new Error("ChatGPT Login 生图方式无效。");
+    const settings = this.getSettings();
+    const active = settings.profiles.find((profile) => profile.id === settings.activeProfileId);
+    const profiles = [...settings.profiles].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    const stored = this.requireSettingsRow();
+    const remembered = profiles.find(
+      (profile) =>
+        profile.id === (input.source === "api" ? stored.last_api_profile_id : stored.last_login_profile_id),
+    );
+    const route =
+      input.route ??
+      (active && isImageGenerationLoginProvider(active.provider)
+        ? active.provider
+        : ((remembered && isImageGenerationLoginProvider(remembered.provider)
+            ? remembered.provider
+            : undefined) ??
+          profiles.find((profile) => isImageGenerationLoginProvider(profile.provider))?.provider ??
+          "chatgpt_web"));
+    const matches = (profile: ImageGenerationProfileSnapshot) =>
+      input.source === "api" ? !isImageGenerationLoginProvider(profile.provider) : profile.provider === route;
+    let profile =
+      active && matches(active)
+        ? active
+        : remembered && matches(remembered)
+          ? remembered
+          : profiles.find(matches);
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      if (!profile) {
+        const provider = input.source === "api" ? "openai" : route;
+        const baseName =
+          input.source === "api"
+            ? "Default OpenAI"
+            : `ChatGPT Login · ${route === "codex" ? "Codex" : "Web"}`;
+        let name = baseName;
+        let suffix = 2;
+        const names = new Set(profiles.map((item) => item.name.toLowerCase()));
+        while (names.has(name.toLowerCase())) name = `${baseName} (${suffix++})`;
+        profile = this.saveProfile({
+          name,
+          provider,
+          endpoint: defaultImageGenerationEndpoint(provider),
+          model: defaultImageGenerationModel(provider),
+        });
+      }
+      // An unconfigured API can be selected for editing, but must not leave drawing enabled:
+      // enabled integrations also read their config when constructing the agent prompt.
+      this.activateProfile(profile.id, { skipApiKeyCheck: true });
+      if (input.source === "api" && (!profile.hasApiKey || !settings.apiKeyEncryptionAvailable))
+        this.setEnabled(false);
+      else if (settings.enabled) this.getActiveClientConfig();
+      const result = this.getSettings();
+      this.db.exec("COMMIT");
+      return result;
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
   }
 
   deleteProfile(id: string): ImageGenerationSettingsSnapshot {
@@ -491,13 +584,15 @@ export class ImageGenerationStore {
     }
   }
 
-  private readSettingsRow(): { enabled: number; active_profile_id: string } | undefined {
+  private readSettingsRow(): SettingsRow | undefined {
     return this.db
-      .prepare("SELECT enabled, active_profile_id FROM image_generation_settings WHERE singleton = 1")
-      .get() as { enabled: number; active_profile_id: string } | undefined;
+      .prepare(
+        "SELECT enabled, active_profile_id, last_api_profile_id, last_login_profile_id FROM image_generation_settings WHERE singleton = 1",
+      )
+      .get() as SettingsRow | undefined;
   }
 
-  private requireSettingsRow(): { enabled: number; active_profile_id: string } {
+  private requireSettingsRow(): SettingsRow {
     const row = this.readSettingsRow();
     if (!row) throw new Error("创意绘画全局设置缺失。");
     return row;

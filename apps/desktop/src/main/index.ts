@@ -9056,6 +9056,16 @@ function registerIpcHandlers(): void {
     const saved = imageGenerationStore.saveProfile(payload as unknown as ImageGenerationProfileSaveInput);
     return saved;
   });
+  registerDesktopCommand(IPC_CHANNELS.imageGenerationSourceSelect, async (payload: unknown) => {
+    if (!isRecord(payload) || (payload.source !== "api" && payload.source !== "chatgpt_login") ||
+      (payload.route !== undefined && payload.route !== "chatgpt_web" && payload.route !== "codex")) {
+      throw new Error("创意绘画来源无效。");
+    }
+    return imageGenerationStore.selectSource({
+      source: payload.source,
+      ...(payload.route !== undefined ? { route: payload.route } : {}),
+    });
+  });
   registerDesktopCommand(IPC_CHANNELS.imageGenerationProfileDelete, async (payload: unknown) => {
     if (!isRecord(payload) || typeof payload.id !== "string") throw new Error("创意绘画 Profile ID 无效。");
     const saved = imageGenerationStore.deleteProfile(payload.id);

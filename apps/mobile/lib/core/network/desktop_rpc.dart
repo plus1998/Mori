@@ -47,16 +47,22 @@ class DesktopRpc implements ReadAloudRemote {
       'chatgpt-subscription:accounts-list',
       [],
     );
-    return result.map((entry) => Map<String, dynamic>.from(entry as Map)).toList();
+    return result
+        .map((entry) => Map<String, dynamic>.from(entry as Map))
+        .toList();
   }
 
-  Future<List<Map<String, dynamic>>> listChatGptOauthAccountModels(String accountId) async {
+  Future<List<Map<String, dynamic>>> listChatGptOauthAccountModels(
+    String accountId,
+  ) async {
     final result = await _client.invoke<List<dynamic>>(
       desktopDeviceId,
       'chatgpt-subscription:account-models-list',
       [accountId],
     );
-    return result.map((entry) => Map<String, dynamic>.from(entry as Map)).toList();
+    return result
+        .map((entry) => Map<String, dynamic>.from(entry as Map))
+        .toList();
   }
 
   Future<List<Map<String, dynamic>>> listCodexAccountModels() async {
@@ -66,7 +72,9 @@ class DesktopRpc implements ReadAloudRemote {
       [],
     );
     final models = result['models'] as List<dynamic>? ?? const [];
-    return models.map((entry) => Map<String, dynamic>.from(entry as Map)).toList();
+    return models
+        .map((entry) => Map<String, dynamic>.from(entry as Map))
+        .toList();
   }
 
   Future<DesktopDisplayState> getDisplayControl() async =>
@@ -2230,6 +2238,7 @@ class DesktopRpc implements ReadAloudRemote {
     String? mainAgentConfigId,
     bool includeUnstaged = true,
     String? candidateModelId,
+    AuxiliaryModelSelection? modelSelection,
   }) async {
     final result = await _client.invoke<Map<String, dynamic>>(
       desktopDeviceId,
@@ -2242,6 +2251,7 @@ class DesktopRpc implements ReadAloudRemote {
             'mainAgentConfigId': mainAgentConfigId.trim(),
           if (candidateModelId != null && candidateModelId.isNotEmpty)
             'candidateModelId': candidateModelId,
+          if (modelSelection != null) 'modelSelection': modelSelection.toJson(),
         },
       ],
       deadlineMs: 120000,
@@ -2255,6 +2265,7 @@ class DesktopRpc implements ReadAloudRemote {
     bool includeUnstaged = true,
     String? message,
     String? candidateModelId,
+    AuxiliaryModelSelection? modelSelection,
   }) async {
     final result = await _client.invoke<Map<String, dynamic>>(
       desktopDeviceId,
@@ -2268,6 +2279,7 @@ class DesktopRpc implements ReadAloudRemote {
           if (message != null && message.isNotEmpty) 'message': message,
           if (candidateModelId != null && candidateModelId.isNotEmpty)
             'candidateModelId': candidateModelId,
+          if (modelSelection != null) 'modelSelection': modelSelection.toJson(),
         },
       ],
       deadlineMs: 120000,

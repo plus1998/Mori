@@ -1,26 +1,27 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../core/locale/app_localizations_ext.dart';
 import '../../core/models/git_models.dart';
+import '../../core/models/thread_models.dart';
 import '../../core/network/desktop_rpc.dart';
 import '../../core/theme/eco_icons.dart';
 import '../../core/theme/eco_theme.dart';
 import '../../core/widgets/eco_action_sheet.dart';
 import '../../core/widgets/eco_grouped_list.dart';
-import '../../core/widgets/eco_model_cascade.dart';
 import '../../core/widgets/eco_modal_sheet.dart';
 import '../../core/widgets/eco_pressable.dart';
 import '../threads/thread_providers.dart';
+import 'composer_controls.dart';
+import 'composer_main_model_picker.dart';
 
 Future<String?> showCommitPushSheet({
   required BuildContext context,
   required WidgetRef ref,
   required String workspacePath,
   String? mainAgentConfigId,
-  String? defaultCandidateModelId,
+  AuxiliaryModelSelection? defaultModelSelection,
   required WorkspaceDiffResult diff,
   required GitWorkingTreeStatus gitStatus,
 }) {
@@ -39,7 +40,7 @@ Future<String?> showCommitPushSheet({
       builder: (context, scrollController) => CommitPushSheet(
         workspacePath: workspacePath,
         mainAgentConfigId: mainAgentConfigId,
-        defaultCandidateModelId: defaultCandidateModelId,
+        defaultModelSelection: defaultModelSelection,
         diff: diff,
         gitStatus: gitStatus,
         scrollController: scrollController,
@@ -53,7 +54,7 @@ class CommitPushSheet extends ConsumerStatefulWidget {
     super.key,
     required this.workspacePath,
     this.mainAgentConfigId,
-    this.defaultCandidateModelId,
+    this.defaultModelSelection,
     required this.diff,
     required this.gitStatus,
     required this.scrollController,
@@ -61,7 +62,7 @@ class CommitPushSheet extends ConsumerStatefulWidget {
 
   final String workspacePath;
   final String? mainAgentConfigId;
-  final String? defaultCandidateModelId;
+  final AuxiliaryModelSelection? defaultModelSelection;
   final WorkspaceDiffResult diff;
   final GitWorkingTreeStatus gitStatus;
   final ScrollController scrollController;
@@ -84,7 +85,10 @@ class _CommitPushSheetState extends ConsumerState<CommitPushSheet> {
   bool _branchBusy = false;
   String? _error;
   List<CommitModelOptionView> _modelOptions = [];
-  String? _selectedCandidateModelId;
+  AuxiliaryModelSelection? _selectedModelSelection;
+
+  String? get _selectedCandidateModelId =>
+      _selectedModelSelection?.candidateModelId;
   late GitWorkingTreeStatus _gitStatus;
   late WorkspaceDiffResult _diff;
 
@@ -114,26 +118,25 @@ class _CommitPushSheetState extends ConsumerState<CommitPushSheet> {
       final result = await rpc.listCommitModelOptions(
         mainAgentConfigId: widget.mainAgentConfigId,
       );
-      String? selectedId;
-      if (result.savedCandidateModelId != 'auto') {
-        selectedId = result.savedCandidateModelId;
-      }
-      selectedId ??= widget.defaultCandidateModelId;
-      selectedId ??= result.options.isNotEmpty
-          ? result.options.first.candidateModelId
-          : null;
-      if (selectedId != null &&
-          result.options.every(
-            (option) => option.candidateModelId != selectedId,
-          )) {
-        selectedId = result.options.isNotEmpty
-            ? result.options.first.candidateModelId
-            : null;
-      }
+      final workflow = await ref.read(workflowSettingsProvider.future);
+      final configured =
+          widget.defaultModelSelection ?? workflow?.defaultAuxiliaryModel;
+      final initialOption = result.options
+          .where((option) => option.providerId != 'eco-coding-chatgpt')
+          .firstOrNull;
+      final selected =
+          configured ??
+          (initialOption == null
+              ? null
+              : AuxiliaryModelSelection(
+                  providerId: initialOption.providerId,
+                  modelId: initialOption.modelId,
+                  candidateModelId: initialOption.candidateModelId,
+                ));
       if (!mounted) return;
       setState(() {
         _modelOptions = result.options;
-        _selectedCandidateModelId = selectedId;
+        _selectedModelSelection = selected;
       });
     } catch (error) {
       if (!mounted) return;
@@ -151,7 +154,19 @@ class _CommitPushSheetState extends ConsumerState<CommitPushSheet> {
         return option;
       }
     }
-    return null;
+    final selected = _selectedModelSelection;
+    if (selected == null) return null;
+    return CommitModelOptionView(
+      id: selected.candidateModelId,
+      candidateModelId: selected.candidateModelId,
+      providerId: selected.providerId,
+      providerName: selected.providerId == 'eco-coding-chatgpt'
+          ? 'ChatGPT OAuth'
+          : selected.providerId,
+      modelId: selected.modelId,
+      modelLabel: selected.modelId,
+      providerColor: '',
+    );
   }
 
   bool _ensureCommitInput() {
@@ -177,7 +192,7 @@ class _CommitPushSheetState extends ConsumerState<CommitPushSheet> {
         workspacePath: widget.workspacePath,
         mainAgentConfigId: widget.mainAgentConfigId,
         includeUnstaged: _includeUnstaged,
-        candidateModelId: _selectedCandidateModelId,
+        modelSelection: _selectedModelSelection,
       );
       _messageController.text = result.message;
     } catch (error) {
@@ -204,7 +219,7 @@ class _CommitPushSheetState extends ConsumerState<CommitPushSheet> {
         mainAgentConfigId: widget.mainAgentConfigId,
         includeUnstaged: _includeUnstaged,
         message: message.isEmpty ? null : message,
-        candidateModelId: message.isEmpty ? _selectedCandidateModelId : null,
+        modelSelection: message.isEmpty ? _selectedModelSelection : null,
       );
       committed = true;
       if (mounted) {
@@ -256,7 +271,7 @@ class _CommitPushSheetState extends ConsumerState<CommitPushSheet> {
         mainAgentConfigId: widget.mainAgentConfigId,
         includeUnstaged: _includeUnstaged,
         message: message.isEmpty ? null : message,
-        candidateModelId: message.isEmpty ? _selectedCandidateModelId : null,
+        modelSelection: message.isEmpty ? _selectedModelSelection : null,
       );
       if (mounted) {
         refreshWorkspaceChanges(ref, widget.workspacePath);
@@ -446,51 +461,39 @@ class _CommitPushSheetState extends ConsumerState<CommitPushSheet> {
   }
 
   Future<void> _pickModel() async {
-    if (_modelOptions.isEmpty || _loadingModels) return;
-    final selected = await showEcoActionSheet<String>(
+    if (_loadingModels) return;
+    final current = _selectedModelSelection;
+    final selected = await showEcoActionSheet<OrchestrationModelRef>(
       context: context,
       isScrollControlled: true,
       builder: (sheetContext) => EcoSheetScaffold(
         title: context.l10n.commitSelectModel,
         maxHeightFactor: 0.75,
-        child: ListView(
-          shrinkWrap: true,
-          padding: const EdgeInsets.only(bottom: 12),
-          children: [
-            EcoModelCascadeList(
-              layout: EcoModelCascadeLayout.split,
-              height: 380,
-              options: [
-                for (final option in _modelOptions)
-                  ModelCascadeEntry(
-                    key: option.candidateModelId,
-                    providerKey: option.providerId,
-                    providerName: option.providerName,
-                    modelId: option.modelId,
-                    title: option.modelLabel,
-                    subtitle: option.modelId,
-                    trailing: _CommitModelPricingCompact(hint: option.hint),
-                  ),
-              ],
-              selectedKey: _selectedCandidateModelId,
-              onSelected: (key) {
-                HapticFeedback.selectionClick();
-                Navigator.pop(sheetContext, key);
-              },
-            ),
-          ],
+        child: ComposerStatelessModelPicker(
+          selectedModel: current == null
+              ? null
+              : OrchestrationModelRef(
+                  providerId: current.providerId,
+                  modelId: current.modelId,
+                  candidateModelId: current.candidateModelId,
+                  accountId: current.accountId,
+                ),
+          enabled: true,
+          mainAgentConfigId: widget.mainAgentConfigId ?? '',
+          onSelected: (model) => Navigator.pop(sheetContext, model),
         ),
       ),
     );
     if (selected == null || !mounted) return;
-    setState(() => _selectedCandidateModelId = selected);
-    final rpc = _rpc;
-    if (rpc == null) return;
+    final selection = AuxiliaryModelSelection(
+      providerId: selected.providerId,
+      modelId: selected.modelId,
+      candidateModelId: selected.candidateModelId!,
+      accountId: selected.accountId,
+    );
+    setState(() => _selectedModelSelection = selection);
     try {
-      await rpc.saveCommitModelPreference(
-        candidateModelId: selected,
-        mainAgentConfigId: widget.mainAgentConfigId,
-      );
+      await persistAuxiliaryModelWorkflowDefault(ref, selection: selection);
     } catch (error) {
       if (!mounted) return;
       setState(() => _error = error.toString());
@@ -574,10 +577,7 @@ class _CommitPushSheetState extends ConsumerState<CommitPushSheet> {
                   const SizedBox(height: 8),
                   _CommitModelTrigger(
                     loading: _loadingModels,
-                    enabled:
-                        !controlsBusy &&
-                        !_loadingModels &&
-                        _modelOptions.isNotEmpty,
+                    enabled: !controlsBusy && !_loadingModels,
                     option: selectedModel,
                     emptyLabel: context.l10n.commitNoModel,
                     loadingLabel: context.l10n.commitLoadingModels,

@@ -13955,6 +13955,10 @@ function App() {
                 {settingsSection === "imageGeneration" && (
                   <LazyImageGenerationSettingsPanel
                     settings={imageGenerationSettings}
+                    onManageAccounts={() => {
+                      setModelsSettingsTab("openaiAccounts");
+                      setSettingsSection("providers");
+                    }}
                     onChange={(snapshot) => {
                       setImageGenerationSettings(snapshot);
                       void window.eco?.getIntegrationAvailability().then(setIntegrationAvailability);
