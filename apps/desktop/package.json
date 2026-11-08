@@ -107,6 +107,7 @@
     "shiki": "^4.4.2",
     "socks": "^2.8.10",
     "socks-proxy-agent": "^10.1.0",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "zod": "^4.4.3"
   },
   "optionalDependencies": {

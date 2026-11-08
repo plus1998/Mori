@@ -10,6 +10,7 @@ import type {
   WorkspaceFileWriteRequest,
   WorkspaceFileWriteResult,
 } from "../shared/ipc";
+import { SPREADSHEET_PREVIEW_MAX_BYTES } from "../shared/spreadsheet-preview";
 import { WorkspaceFileStreams } from "./workspace-file-stream";
 
 const MAX_TEXT_BYTES = 2 * 1024 * 1024;
@@ -308,6 +309,25 @@ export async function readWorkspaceFile(request: WorkspaceFileReadRequest): Prom
   const media = MEDIA_TYPES.get(extension);
   const { handle, size, revision } = await openPreviewFile(requestedPath, realPath, request.revision);
   try {
+    if (extension === ".xlsx") {
+      if (size > SPREADSHEET_PREVIEW_MAX_BYTES)
+        return unsupportedResult(
+          requestedPath,
+          name,
+          size,
+          "Spreadsheet preview supports files up to 20 MiB.",
+        );
+      return {
+        path: requestedPath,
+        name,
+        size,
+        kind: "spreadsheet",
+        mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        url: workspaceFileStreams.urlForFile(streamRoot, realPath),
+        revision,
+        readOnly: true,
+      };
+    }
     if (media) {
       const mediaBuffer = await readHandleBytes(handle, Math.min(size, MEDIA_SIGNATURE_BYTES));
       if (!hasMediaSignature(media.kind, mediaBuffer)) {

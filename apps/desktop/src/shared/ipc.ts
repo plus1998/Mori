@@ -859,7 +859,7 @@ export interface WorkspaceFileWriteResult {
   size: number;
 }
 
-export type WorkspaceFileKind = "text" | "image" | "audio" | "video" | "pdf" | "unsupported";
+export type WorkspaceFileKind = "text" | "image" | "audio" | "video" | "pdf" | "spreadsheet" | "unsupported";
 
 export interface WorkspaceFileReadResult {
   path: string;

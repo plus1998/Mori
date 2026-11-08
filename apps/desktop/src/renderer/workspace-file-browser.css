@@ -1165,6 +1165,26 @@
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }
+.workspace-spreadsheet-preview__tabs {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 4px;
+  overflow-x: auto;
+  padding: 6px 8px;
+  border-top: 1px solid var(--border-subtle);
+}
+.workspace-spreadsheet-preview__tabs button {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.workspace-spreadsheet-preview tbody th {
+  position: sticky;
+  left: 0;
+  background: var(--bg-primary);
+}
+.workspace-spreadsheet-preview td {
+  min-width: 80px;
+}
 .workspace-file-browser__load-more {
   display: flex;
   align-items: center;

@@ -30,6 +30,7 @@ const MIME_TYPES: Record<string, string> = {
   ".mov": "video/mp4",
   ".webm": "video/webm",
   ".pdf": "application/pdf",
+  ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   ".html": "text/html; charset=utf-8",
   ".htm": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",

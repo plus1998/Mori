@@ -13,6 +13,7 @@ import { clampTargetColumn, clampTargetLine, languageForFile } from "./workspace
 
 export type WorkspaceFile = WorkspaceFileReadResult;
 const LazyPdfPreview = lazy(() => import("./WorkspacePdfPreview"));
+const LazySpreadsheetPreview = lazy(() => import("./WorkspaceSpreadsheetPreview"));
 
 export interface WorkspaceFilePreviewTarget {
   line?: number;
@@ -450,6 +451,21 @@ export function WorkspaceFilePreview({
     }
   }
 
+  if (file.kind === "spreadsheet") {
+    return file.url ? (
+      <Suspense
+        fallback={<div className="workspace-file-browser__message">{t("fileBrowser.loadingPreview")}</div>}
+      >
+        <LazySpreadsheetPreview
+          key={`${file.url}:${file.revision ?? ""}:${target?.requestId ?? 0}`}
+          url={file.url}
+          size={file.size}
+        />
+      </Suspense>
+    ) : (
+      <div className="workspace-file-browser__message">{t("fileBrowser.readFailed")}</div>
+    );
+  }
   if (file.kind === "pdf") {
     return file.url ? (
       <Suspense

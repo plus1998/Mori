@@ -2274,6 +2274,16 @@ export const i18nCatalogs = {
       "fileBrowser.truncated": "内容已截断",
       "fileBrowser.loadingPreview": "正在加载预览…",
       "fileBrowser.pdfRangeError": "PDF 分段读取失败，请重新打开文件。",
+      "fileBrowser.spreadsheetNotice":
+        "只读预览：显示已保存的公式结果，无结果时显示公式；不重新计算公式，不显示图表和原始样式。",
+      "fileBrowser.spreadsheetLimit":
+        "每个工作表最多预览前 {{rows}} 行、{{columns}} 列，可用外部应用查看完整内容。",
+      "fileBrowser.spreadsheetEmpty": "此工作表为空。",
+      "fileBrowser.spreadsheetSheets": "工作表",
+      "fileBrowser.spreadsheetFailed": "表格预览失败：{{message}}",
+      "fileBrowser.spreadsheetTooLarge": "表格预览支持最大 20 MiB 的文件。",
+      "fileBrowser.spreadsheetTimeout": "表格加载超时，请用外部应用打开。",
+      "fileBrowser.spreadsheetChanged": "文件已变更，请重新打开预览。",
       "fileBrowser.previousPage": "上一页",
       "fileBrowser.nextPage": "下一页",
       "fileBrowser.zoomIn": "放大",
@@ -6123,6 +6133,16 @@ export const i18nCatalogs = {
       "fileBrowser.truncated": "Content truncated",
       "fileBrowser.loadingPreview": "Loading preview…",
       "fileBrowser.pdfRangeError": "Unable to read the PDF range. Reopen the file.",
+      "fileBrowser.spreadsheetNotice":
+        "Read-only preview: saved formula results are shown, or formulas when no result is saved. Formulas are not recalculated. Charts and original styles are not displayed.",
+      "fileBrowser.spreadsheetLimit":
+        "Each worksheet previews up to the first {{rows}} rows and {{columns}} columns. Open in an external app to see all content.",
+      "fileBrowser.spreadsheetEmpty": "This worksheet is empty.",
+      "fileBrowser.spreadsheetSheets": "Worksheets",
+      "fileBrowser.spreadsheetFailed": "Spreadsheet preview failed: {{message}}",
+      "fileBrowser.spreadsheetTooLarge": "Spreadsheet preview supports files up to 20 MiB.",
+      "fileBrowser.spreadsheetTimeout": "Spreadsheet loading timed out. Open in an external app.",
+      "fileBrowser.spreadsheetChanged": "The file has changed. Reopen the preview.",
       "fileBrowser.previousPage": "Previous page",
       "fileBrowser.nextPage": "Next page",
       "fileBrowser.zoomIn": "Zoom in",

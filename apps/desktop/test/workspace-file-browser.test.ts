@@ -2,12 +2,14 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { utils, write } from "xlsx";
 import {
   listWorkspaceEntries,
   readWorkspaceFile,
-  writeWorkspaceFile,
   workspaceFileStreams,
+  writeWorkspaceFile,
 } from "../src/main/workspace-file-browser";
+import { SPREADSHEET_PREVIEW_MAX_BYTES } from "../src/shared/spreadsheet-preview";
 
 let workspacePath = "";
 let outsidePath = "";
@@ -291,4 +293,35 @@ test("external HTML retains sibling resources without granting access to parent 
   expect(
     (await workspaceFileStreams.respond(new Request(`eco-workspace://${host}/%2e%2e%2foutside`))).status,
   ).toBe(403);
+});
+
+test("XLSX files use a read-only binary stream, including files outside the workspace", async () => {
+  const workbook = utils.book_new();
+  utils.book_append_sheet(workbook, utils.aoa_to_sheet([["产品", "金额"], ["磷虾油", 1234]]), "汇总");
+  const bytes = Buffer.from(write(workbook, { type: "array", bookType: "xlsx" }));
+  const filePath = path.join(outsidePath, "report.XLSX");
+  await fs.writeFile(filePath, bytes);
+  const result = await readWorkspaceFile({ workspacePath, filePath });
+  expect(result).toMatchObject({
+    kind: "spreadsheet",
+    readOnly: true,
+    size: bytes.length,
+    mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
+  expect(result.content).toBeUndefined();
+  expect(result.base64).toBeUndefined();
+  const response = await workspaceFileStreams.respond(new Request(result.url!));
+  expect(response.status).toBe(200);
+  expect(response.headers.get("content-type")).toBe(result.mimeType!);
+  expect(Buffer.from(await response.arrayBuffer())).toEqual(bytes);
+});
+
+test("oversized XLSX previews fail explicitly before loading the workbook", async () => {
+  const filePath = path.join(workspacePath, "large.xlsx");
+  await fs.writeFile(filePath, "");
+  await fs.truncate(filePath, SPREADSHEET_PREVIEW_MAX_BYTES + 1);
+  const result = await readWorkspaceFile({ workspacePath, filePath });
+  expect(result.kind).toBe("unsupported");
+  expect(result.reason).toContain("20 MiB");
+  expect(result.url).toBeUndefined();
 });
