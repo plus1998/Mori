@@ -5,6 +5,7 @@ import path from "node:path";
 import { ensurePiSessionsDir, resolvePiAgentDir } from "@eco/runtime";
 import { CodexAppServerClient } from "@eco/runtime/codex-app-server-client";
 import { encodeClaudeProjectDirName, resolveClaudeProjectsDir } from "./claude-session-paths";
+import { moriCodexClientInfo } from "./codex-client-info";
 import type { ConversationForkHistory } from "./conversation-fork-history";
 
 export interface NativeConversationFork {
@@ -233,7 +234,7 @@ export async function forkNativeConversation(
   const client = CodexAppServerClient.attachToProcess(child, { timeoutMs: 30_000 });
   child.on("error", () => client.close());
   try {
-    await client.initialize();
+    await client.initialize({ clientInfo: moriCodexClientInfo(), capabilities: { experimentalApi: true } });
     type Turn = {
       id: string;
       status: string;

@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import http from "node:http";
 import { CodexAppServerClient } from "@eco/runtime/codex-app-server-client";
+import { moriCodexClientInfo } from "./codex-client-info";
 
 export interface CodexBrowserLoginResult {
   success: boolean;
@@ -122,7 +123,7 @@ export async function startCodexBrowserLogin(input: {
     if (!authenticating) settle({ success: false, message: `登录进程提前退出（${signal ?? code}）` });
   });
   try {
-    await client.initialize({ clientInfo: { name: "eco_coding", title: "Mori", version: "0.1.0" } });
+    await client.initialize({ clientInfo: moriCodexClientInfo() });
     const response = await client.request<{ type: string; loginId: string; authUrl: string }>(
       "account/login/start", { type: "chatgpt" },
       { onResult: (response) => { loginId = response.loginId; } },

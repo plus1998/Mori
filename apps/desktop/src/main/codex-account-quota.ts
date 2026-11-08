@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { CodexAppServerClient, type CodexAppServerServerRequestHandler } from "@eco/runtime/codex-app-server-client";
 import type { OpenAIAccountQuota, OpenAIAccountQuotaWindow } from "../shared/openai-account";
+import { moriCodexClientInfo } from "./codex-client-info";
 import type { CodexProxyEnvironment } from "./codex-proxy";
 import { buildCodexAppServerEnv } from "./codex-runtime-lifecycle";
 
@@ -150,7 +151,7 @@ export async function withIsolatedCodexAccountClient<T>(input: {
   });
   try {
     await client.initialize({
-      clientInfo: { name: "eco_coding", title: "Mori", version: "0.1.0" },
+      clientInfo: moriCodexClientInfo(),
       capabilities: { experimentalApi: true },
     });
     return await operation(client);

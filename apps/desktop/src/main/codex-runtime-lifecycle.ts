@@ -8,6 +8,7 @@ import {
   resolveCodexHomeDir,
 } from "@eco/runtime";
 import type { OpenAIAccountProxyConfig } from "../shared/openai-account";
+import { moriCodexClientInfo } from "./codex-client-info";
 import {
   buildCodexProxyEnv,
   type CodexProxyEnvironment,
@@ -260,7 +261,10 @@ export class CodexRuntimeLifecycle {
     this.child = child;
     this.client = client;
     try {
-      await Promise.race([client.initialize(), spawnFailure]);
+      await Promise.race([
+        client.initialize({ clientInfo: moriCodexClientInfo(), capabilities: { experimentalApi: true } }),
+        spawnFailure,
+      ]);
       if (authProvider && this.options.accountId) {
         boundAuth = await authProvider(this.options.accountId);
         if (this.options.accountId && boundAuth?.accountId !== this.options.accountId) {

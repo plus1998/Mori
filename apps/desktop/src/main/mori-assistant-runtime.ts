@@ -11,6 +11,7 @@ import type { ChatApiCompat } from "../shared/api-compat";
 import type { MoriAssistantSettings, MoriAssistantState } from "../shared/mori-assistant";
 import type { AccountUsageRecord } from "./account-usage-store";
 import { CodexAccountUsageTracker } from "./codex-account-usage-tracker";
+import { moriCodexClientInfo } from "./codex-client-info";
 import { resolveCodexProxyUrl, type SystemProxyResolver } from "./codex-proxy";
 import { buildCodexAppServerEnv } from "./codex-runtime-lifecycle";
 import { MORI_TODO_TOOLS } from "./mori-assistant-todos";
@@ -252,7 +253,7 @@ export class MoriAssistantRuntime {
     });
     this.client = client;
     try {
-      await client.initialize();
+      await client.initialize({ clientInfo: moriCodexClientInfo(), capabilities: { experimentalApi: true } });
       if (connection.type === "chatgpt") {
         const tokens = await connection.accounts.getExternalChatGptTokens(connection.accountId);
         this.accessToken = tokens.accessToken;
