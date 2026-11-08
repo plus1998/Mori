@@ -153,7 +153,6 @@ export function CodexQuotaReminderCard({
           </div>
         );
       })}
-      <QuotaRefreshedAt fetchedAt={snapshot.quota.fetchedAt} />
       {hasUnrefreshedCodexQuotaReset(snapshot.quota) ? <p>{t("settings.openaiAccounts.quotaResetDue")}</p> : null}
       {error ? (
         <p className="codex-quota-reminder-error" role="alert">
@@ -192,6 +191,9 @@ export function CodexQuotaReminderCard({
           {t("codexQuota.useReset")}
         </button>
       </div>
+      <footer className="codex-quota-reminder-footer">
+        <QuotaRefreshedAt fetchedAt={snapshot.quota.fetchedAt} />
+      </footer>
     </section>
   );
 }
