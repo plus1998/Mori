@@ -87,6 +87,48 @@ test("protocol failures propagate without refetching or fabricating resource dat
   expect(env.dbg.listenerCount("message")).toBe(0);
 });
 
+test("top-level CDP reload uses only the guest API, including cache bypass and captured events", async () => {
+  for (const ignoreCache of [false, true]) {
+    const env = setup(async () => { throw new Error("Raw Page.reload must not reach Electron CDP"); });
+    const calls: string[] = [];
+    const reloaded = (name: string) => {
+      calls.push(name);
+      env.dbg.emit("message", {}, "Page.loadEventFired", { timestamp: 123 });
+    };
+    env.guest.reload = () => reloaded("reload");
+    env.guest.reloadIgnoringCache = () => reloaded("reloadIgnoringCache");
+    const result = payload(await invokeGuestCdp(env.guest, {
+      method: "Page.reload", params: { ignoreCache }, captureEvents: ["Page.loadEventFired"],
+    }));
+    expect(calls).toEqual([ignoreCache ? "reloadIgnoringCache" : "reload"]);
+    expect(env.commands).toEqual([]);
+    expect(result).toEqual({ method: "Page.reload", result: {},
+      events: [{ method: "Page.loadEventFired", params: { timestamp: 123 } }], totalEvents: 1, droppedEvents: 0 });
+    expect(env.dbg.listenerCount("message")).toBe(0);
+    expect(env.dbg.listenerCount("detach")).toBe(0);
+  }
+});
+
+test("child-session reload stays scoped to that session and never reloads the entire guest", async () => {
+  const env = setup(async () => ({}));
+  const calls: unknown[][] = [];
+  env.guest.debugger.sendCommand = async (...args: unknown[]) => { calls.push(args); return {}; };
+  env.guest.reload = env.guest.reloadIgnoringCache = () => { throw new Error("Must not reload parent guest"); };
+  await invokeGuestCdp(env.guest, { method: "Page.reload", sessionId: "child-frame", params: { ignoreCache: true } });
+  expect(calls).toEqual([["Page.reload", { ignoreCache: true }, "child-frame"]]);
+});
+
+test("reload validates the guest and cancellation before any side effect", async () => {
+  const env = setup(async () => ({}));
+  env.guest.reload = () => { throw new Error("Must not reload"); };
+  const controller = new AbortController();
+  controller.abort(new Error("cancelled before reload"));
+  await expect(invokeGuestCdp(env.guest, { method: "Page.reload" }, controller.signal)).rejects.toThrow("cancelled before reload");
+  env.guest.getType = () => "window";
+  await expect(invokeGuestCdp(env.guest, { method: "Page.reload" })).rejects.toThrow("non-guest");
+  expect(env.commands).toEqual([]);
+});
+
 test("browser-wide commands, target substitution and main-window inspection never reach CDP", async () => {
   const env = setup(async () => ({}));
   for (const method of ["Browser.close", "Target.attachToTarget", "Storage.getCookies", "Network.getAllCookies", "Page.bringToFront"]) {
@@ -124,7 +166,7 @@ test("cancellation during a pending command removes only this call's listeners",
 
 test("closing the guest interrupts an event observation window", async () => {
   const env = setup(async () => ({}));
-  const pending = invokeGuestCdp(env.guest, { method: "Page.reload", captureEvents: ["Network.*"], waitMs: 5000 });
+  const pending = invokeGuestCdp(env.guest, { method: "Page.getResourceTree", captureEvents: ["Network.*"], waitMs: 5000 });
   env.guest.emit("destroyed");
   await expect(pending).rejects.toThrow("destroyed");
   expect(env.dbg.listenerCount("message")).toBe(0);

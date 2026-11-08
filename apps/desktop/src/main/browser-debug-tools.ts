@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import type { WebContents } from "electron";
 import type { AgentBrowserMcpToolResult } from "./agent-browser-cli-bridge";
-import { assertBrowserGuestWebContents } from "./browser-cdp-proxy";
+import { applyGuestPageReload, assertBrowserGuestWebContents } from "./browser-cdp-proxy";
 import { agentBrowserTextResult } from "./browser-native-agent-tools";
 
 // These domains operate on the attached guest. Target is limited to child auto-attach;
@@ -88,7 +88,11 @@ export async function invokeGuestCdp(
   });
   dbg.on("message", onMessage);
   try {
-    const command = args.sessionId
+    // Raw top-level Page.reload may reload Electron's embedder instead of the guest.
+    // Reuse the same guest-only path as the CLI proxy; child sessions keep CDP routing.
+    const command = method === "Page.reload" && !args.sessionId
+      ? Promise.resolve(applyGuestPageReload(guest, params))
+      : args.sessionId
       ? dbg.sendCommand(method, params, args.sessionId as string)
       : dbg.sendCommand(method, params);
     const result = await Promise.race([command, interrupted]);
