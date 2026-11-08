@@ -230,7 +230,7 @@ import {
   thinkingModeDefaultExpanded,
 } from "./thinking-display-preferences";
 import { resolveToolWritingIndicator, resolveToolWritingLabel } from "./tool-writing-indicator";
-import { UserPromptBodyContent } from "./UserPromptBodyContent";
+import { MarkdownContent } from "./MarkdownContent";
 import { WorkspaceChangesCard } from "./WorkspaceChangesCard";
 
 type ForkMessageHandler = (input: {
@@ -6792,7 +6792,7 @@ function UserPromptBlock({
                 ) : asyncQuestionReplies ? (
                   <ClarificationAnswersCard rows={asyncQuestionReplies} variant="user" />
                 ) : (
-                  <UserPromptBodyContent text={text} />
+                  <MarkdownContent text={text} userPrompt />
                 )}
               </div>
               {canToggle && !expanded ? <div className="run-log-user-prompt-fade" aria-hidden /> : null}

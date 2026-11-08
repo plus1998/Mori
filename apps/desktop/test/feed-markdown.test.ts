@@ -1,10 +1,33 @@
 import { expect, test } from "bun:test";
+import { composerReferenceToken } from "../src/shared/composer-references";
 import {
   createFeedMarkdownDoc,
   isMermaidLang,
   markdownTableHeaderMinWidthCh,
   renderFeedMarkdownHtml,
 } from "../src/renderer/prosemirror/feed-markdown";
+
+test("user prompt markdown preserves inline references and code", () => {
+  const reference = { kind: "web_selection" as const, id: "selection-1", label: "页面", detail: "选区" };
+  const token = composerReferenceToken(reference);
+  const doc = createFeedMarkdownDoc(`**重点 ${token}**\n@file{/tmp/a b.ts}\n\`${token}\``, true);
+  const nodes: string[] = [];
+  let selectionId = "";
+  let filePath = "";
+  let codeText = "";
+  doc.descendants((node) => {
+    nodes.push(node.type.name);
+    if (node.type.name === "prompt_ref") selectionId = node.attrs.id;
+    if (node.type.name === "file_ref") filePath = node.attrs.path;
+    if (node.isText && node.marks.some((mark) => mark.type.name === "code")) codeText = node.text ?? "";
+  });
+  expect(selectionId).toBe(reference.id);
+  expect(filePath).toBe("/tmp/a b.ts");
+  expect(codeText).toBe(token);
+  expect(nodes).toContain("hard_break");
+  expect(renderFeedMarkdownHtml(`**重点** ${token}`, true)).toContain("<strong>重点</strong>");
+  expect(renderFeedMarkdownHtml(`**重点** ${token}`, true)).toContain("@页面");
+});
 
 test("createFeedMarkdownDoc models paragraphs, code fences, and file refs", () => {
   const doc = createFeedMarkdownDoc(

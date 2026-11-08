@@ -1408,7 +1408,9 @@ export function MoriAssistantPanel({
                     <MarkdownContent text={message.body} />
                   ) : (
                     <div className="run-log-user-prompt-content mori-user-message-content">
-                      <p className="run-log-user-prompt-body">{message.body}</p>
+                      <div className="run-log-user-prompt-body">
+                        <MarkdownContent text={message.body} userPrompt />
+                      </div>
                     </div>
                   )}
                   {message.role === "assistant" && message.status !== "streaming" ? (

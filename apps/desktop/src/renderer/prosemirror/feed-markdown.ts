@@ -5,8 +5,11 @@ import { Fragment, type Mark, type NodeSpec, type Node as PMNode, Schema } from 
 import { Plugin } from "prosemirror-state";
 import type { NodeViewConstructor } from "prosemirror-view";
 import { buildHtmlDataNavigateUrl } from "../../shared/browser";
+import { COMPOSER_REFERENCE_PATTERN, parseComposerReference } from "../../shared/composer-references";
+import { previewBrowserSelection } from "../browser-selection-events";
 import { dispatchBrowserHtmlOpen, dispatchBrowserLinkOpen, isHttpishHref } from "../browser-link";
 import { copyTextToClipboard } from "../clipboard";
+import { composerReferenceIconNodes } from "../composer-reference-presentation";
 import { i18n } from "../i18n";
 import { attachLightboxZoom, formatLightboxZoomPercent } from "../lightbox-zoom";
 import { copyMermaidAsImage, copyMermaidAsMarkdown } from "../markdown-mermaid-clipboard";
@@ -24,6 +27,8 @@ import {
   formatWorkspaceFileReferenceLabel,
   linkifyWorkspaceFileReferences,
   parseWorkspaceFileReferenceHref,
+  FILE_ATTACHMENT_TOKEN_PATTERN,
+  parseFileAttachmentPath,
   type WorkspaceFileReference,
 } from "../workspace-file-reference";
 import {
@@ -276,6 +281,28 @@ export const feedMarkdownSchema: Schema = new Schema({
         },
       ],
     },
+    prompt_ref: {
+      inline: true,
+      atom: true,
+      group: "inline",
+      selectable: false,
+      attrs: { kind: {}, id: {}, label: {}, detail: {} },
+      toDOM(node: PMNode) {
+        const reference = node.attrs as import("../../shared/composer-references").ComposerReference;
+        const attrs = {
+          class: "markdown-file-ref run-log-user-prompt-file-ref composer-reference-display",
+          title: `${reference.label} · ${reference.detail}`,
+          ...(reference.kind === "web_selection" ? { type: "button", "data-prompt-selection": reference.id } : {}),
+        };
+        return [
+          reference.kind === "web_selection" ? "button" : "span",
+          attrs,
+          ["svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 1.65, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" },
+            ...composerReferenceIconNodes(reference).map(([tag, attributes]) => [tag, attributes])],
+          ["span", `@${reference.label}`],
+        ];
+      },
+    },
   }),
   marks: markdownSchema.spec.marks
     .update("link", {
@@ -353,10 +380,7 @@ const tokenizer = MarkdownIt({
 tokenizer.use(markdownItCjkFriendly);
 installHtmlContainerStitch(tokenizer);
 
-export const feedMarkdownParser = new MarkdownParser(
-  feedMarkdownSchema,
-  tokenizer as unknown as ConstructorParameters<typeof MarkdownParser>[1],
-  {
+const markdownTokens = {
     ...defaultMarkdownParser.tokens,
     softbreak: { node: "hard_break" },
     table: { block: "table" },
@@ -374,7 +398,40 @@ export const feedMarkdownParser = new MarkdownParser(
       node: "html_inline",
       getAttrs: (tok: { content?: string }) => ({ html: tok.content ?? "" }),
     },
-  },
+    prompt_file: { node: "file_ref", getAttrs: (tok: { meta: { path: string } }) => ({ path: tok.meta.path }) },
+    prompt_ref: { node: "prompt_ref", getAttrs: (tok: { meta: Record<string, unknown> }) => tok.meta },
+};
+
+export const feedMarkdownParser = new MarkdownParser(
+  feedMarkdownSchema,
+  tokenizer as unknown as ConstructorParameters<typeof MarkdownParser>[1],
+  markdownTokens,
+);
+
+const userTokenizer = MarkdownIt({ html: true, breaks: true, linkify: false });
+userTokenizer.use(markdownItCjkFriendly);
+installHtmlContainerStitch(userTokenizer);
+const promptFilePattern = new RegExp(`^(?:${FILE_ATTACHMENT_TOKEN_PATTERN.source})`);
+const promptReferencePattern = new RegExp(`^(?:${COMPOSER_REFERENCE_PATTERN.source})`);
+userTokenizer.inline.ruler.before("emphasis", "prompt_reference", (state, silent) => {
+  if (state.src[state.pos] !== "@") return false;
+  const remaining = state.src.slice(state.pos);
+  const file = promptFilePattern.exec(remaining);
+  const path = file ? parseFileAttachmentPath(file[1] ?? "") : undefined;
+  const match = path ? file : promptReferencePattern.exec(remaining);
+  const reference = !path && match ? parseComposerReference(match[1]!, match[2]!) : undefined;
+  if (!match || (!path && !reference)) return false;
+  if (!silent) {
+    const token = state.push(path ? "prompt_file" : "prompt_ref", "", 0);
+    token.meta = path ? { path } : { ...reference! };
+  }
+  state.pos += match[0].length;
+  return true;
+});
+const userMarkdownParser = new MarkdownParser(
+  feedMarkdownSchema,
+  userTokenizer as unknown as ConstructorParameters<typeof MarkdownParser>[1],
+  markdownTokens,
 );
 
 function createFileRefNode(reference: WorkspaceFileReference, href?: string): PMNode {
@@ -451,11 +508,11 @@ function rewriteFileReferences(node: PMNode): PMNode {
   return node.copy(Fragment.fromArray(children));
 }
 
-export function createFeedMarkdownDoc(text: string): PMNode {
+export function createFeedMarkdownDoc(text: string, userPrompt = false): PMNode {
   const source = repairMarkdown(text);
   let doc: PMNode;
   try {
-    doc = feedMarkdownParser.parse(source);
+    doc = (userPrompt ? userMarkdownParser : feedMarkdownParser).parse(source);
   } catch {
     doc = feedMarkdownSchema.node("doc", null, [
       feedMarkdownSchema.node(
@@ -534,6 +591,10 @@ function escapeHtml(value: string): string {
 }
 
 function serializeInline(node: PMNode): string {
+  if (node.type.name === "prompt_ref") {
+    const { label, detail } = node.attrs;
+    return `<span class="markdown-file-ref run-log-user-prompt-file-ref composer-reference-display" title="${escapeHtml(`${label} · ${detail}`)}">@${escapeHtml(String(label))}</span>`;
+  }
   if (node.type.name === "file_ref") {
     const reference: WorkspaceFileReference = {
       path: String(node.attrs.path),
@@ -680,9 +741,9 @@ function serializeChildren(node: PMNode): string {
 }
 
 /** DOM-less HTML for SSR / renderToStaticMarkup tests. */
-export function renderFeedMarkdownHtml(text: string): string {
+export function renderFeedMarkdownHtml(text: string, userPrompt = false): string {
   if (!text.trim()) return "";
-  const doc = createFeedMarkdownDoc(text);
+  const doc = createFeedMarkdownDoc(text, userPrompt);
   return serializeChildren(doc);
 }
 
@@ -1724,6 +1785,12 @@ export function createFeedMarkdownPlugins(): Plugin[] {
           click(_view, event) {
             const target = event.target;
             if (!(target instanceof Element)) return false;
+            const selection = target.closest<HTMLElement>("[data-prompt-selection]");
+            if (selection?.dataset.promptSelection) {
+              event.preventDefault();
+              previewBrowserSelection(selection.dataset.promptSelection);
+              return true;
+            }
             const anchor = target.closest("a");
             if (!(anchor instanceof HTMLAnchorElement)) return false;
             const href = anchor.getAttribute("href") ?? "";

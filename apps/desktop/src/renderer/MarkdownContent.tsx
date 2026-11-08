@@ -18,6 +18,7 @@ import { EMPTY_PM_PLUGINS, ProseMirrorHost, type ProseMirrorDocProvider } from "
 interface MarkdownContentProps {
   text: string;
   className?: string;
+  userPrompt?: boolean;
   /** When set, relative / workspace-local image srcs are loaded via readWorkspaceFile. */
   localImageContext?: MarkdownLocalImageContext;
   /** Replaces the default feed plugin list (e.g. to add a caret decoration). */
@@ -37,6 +38,7 @@ function canUseProseMirrorHost(): boolean {
 export function MarkdownContent({
   text,
   className,
+  userPrompt = false,
   localImageContext,
   plugins,
   docProvider,
@@ -56,7 +58,7 @@ export function MarkdownContent({
       <div
         className={rootClass}
         hidden={empty}
-        dangerouslySetInnerHTML={{ __html: renderFeedMarkdownHtml(text) }}
+        dangerouslySetInnerHTML={{ __html: renderFeedMarkdownHtml(text, userPrompt) }}
       />
     );
   }
@@ -66,6 +68,7 @@ export function MarkdownContent({
       text={text}
       className={rootClass}
       hidden={empty}
+      userPrompt={userPrompt}
       {...(localImageContext ? { localImageContext } : {})}
       {...(plugins ? { plugins } : {})}
       {...(docProvider ? { docProvider } : {})}
@@ -82,6 +85,7 @@ function MarkdownContentProseMirror({
   docProvider,
   onView,
   hidden,
+  userPrompt,
 }: {
   text: string;
   className: string;
@@ -90,6 +94,7 @@ function MarkdownContentProseMirror({
   docProvider?: ProseMirrorDocProvider;
   onView?: (view: EditorView | null) => void;
   hidden: boolean;
+  userPrompt: boolean;
 }) {
   const plugins = useMemo(() => pluginsOverride ?? FEED_MARKDOWN_PLUGINS, [pluginsOverride]);
   const serializeDoc = useMemo(() => () => "__feed_markdown__", []);
@@ -122,7 +127,7 @@ function MarkdownContentProseMirror({
     }
 
     let cancelled = false;
-    const doc = createFeedMarkdownDoc(text);
+      const doc = createFeedMarkdownDoc(text, userPrompt);
     const srcs = collectLocalImageSrcs(doc);
     if (srcs.length === 0) {
       setUrlBySrc(new Map());
@@ -143,14 +148,14 @@ function MarkdownContentProseMirror({
     return () => {
       cancelled = true;
     };
-  }, [text, localImageContext?.workspacePath, localImageContext?.filePath]);
+  }, [text, userPrompt, localImageContext?.workspacePath, localImageContext?.filePath]);
 
   const createDoc = useCallback(
     (value: string) => {
-      const doc = createFeedMarkdownDoc(value);
+      const doc = createFeedMarkdownDoc(value, userPrompt);
       return rewriteLocalImageSrcs(doc, urlBySrc);
     },
-    [urlBySrc],
+    [urlBySrc, userPrompt],
   );
 
   return (
