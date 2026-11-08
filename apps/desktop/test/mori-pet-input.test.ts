@@ -3,6 +3,9 @@ import { EventEmitter } from "node:events";
 import { MORI_ASSISTANT_CHANNELS } from "../src/shared/mori-assistant";
 
 let cursor = { x: 0, y: 0 };
+let idleSeconds = 0;
+let cursorReads = 0;
+const powerMonitor = Object.assign(new EventEmitter(), { getSystemIdleTime: () => idleSeconds });
 class PetWindow extends EventEmitter {
   messages: Array<{ channel: string; value: unknown }> = [];
   webContents = Object.assign(new EventEmitter(), {
@@ -27,25 +30,29 @@ class PetWindow extends EventEmitter {
   }
   setBounds(value: typeof this.bounds) {
     this.bounds = value;
+    this.emit("resize");
   }
   setPosition(x: number, y: number) {
     this.bounds = { ...this.bounds, x, y };
+    this.emit("move");
   }
-  showInactive() {}
+  showInactive() { this.emit("show"); }
   async loadFile() {}
   async loadURL() {}
   destroy() {
     this.destroyed = true;
+    this.emit("closed");
   }
 }
 mock.module("electron", () => ({
   app: {},
+  powerMonitor,
   BrowserWindow: PetWindow,
   globalShortcut: { unregister() {} },
   Menu: {},
   Tray: class {},
   screen: {
-    getCursorScreenPoint: () => cursor,
+    getCursorScreenPoint: () => { cursorReads++; return cursor; },
     getPrimaryDisplay: () => ({ workArea: { x: 0, y: 0, width: 1920, height: 1080 } }),
     getDisplayNearestPoint: () => ({ workArea: { x: 0, y: 0, width: 1920, height: 1080 } }),
   },
@@ -55,8 +62,10 @@ const instances: InstanceType<typeof MoriAssistantWindows>[] = [];
 afterEach(() => {
   for (const instance of instances.splice(0)) instance.close();
 });
-async function setup() {
+async function setup(idle = 0) {
   cursor = { x: 0, y: 0 };
+  idleSeconds = idle;
+  cursorReads = 0;
   const windows = new MoriAssistantWindows({
     preload: "test",
     renderer: "test",
@@ -130,4 +139,27 @@ test("gaze continues through transparent padding and into the body without an id
       ball.messages.filter((m) => m.channel === MORI_ASSISTANT_CHANNELS.petLook).at(-1)?.value,
     ).toBeNull();
   }
+});
+
+
+test("idle pets pause animation and reduce cursor polling; screen lock stops it until unlock", async () => {
+  const { windows, ball } = await setup(120);
+  expect(ball.messages.filter((m) => m.channel === MORI_ASSISTANT_CHANNELS.petPaused).at(-1)?.value).toBe(true);
+  const before = cursorReads;
+  await Bun.sleep(520);
+  expect(cursorReads - before).toBeLessThanOrEqual(3);
+  powerMonitor.emit("lock-screen");
+  const lockedReads = cursorReads;
+  await Bun.sleep(280);
+  expect(cursorReads).toBe(lockedReads);
+  powerMonitor.emit("suspend");
+  powerMonitor.emit("resume");
+  expect(cursorReads).toBe(lockedReads); // Resume alone cannot bypass a still-locked screen.
+  idleSeconds = 0;
+  powerMonitor.emit("unlock-screen");
+  expect(cursorReads).toBeGreaterThan(lockedReads);
+  expect(ball.messages.filter((m) => m.channel === MORI_ASSISTANT_CHANNELS.petPaused).at(-1)?.value).toBe(false);
+  windows.close();
+  expect(powerMonitor.listenerCount("lock-screen")).toBe(0);
+  expect(powerMonitor.listenerCount("resume")).toBe(0);
 });

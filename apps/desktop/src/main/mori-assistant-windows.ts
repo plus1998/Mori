@@ -1,4 +1,6 @@
-import { app, BrowserWindow, globalShortcut, Menu, type NativeImage, screen, Tray } from "electron";
+import {
+  app, BrowserWindow, globalShortcut, Menu, type NativeImage, powerMonitor, screen, Tray,
+} from "electron";
 import {
   MORI_ASSISTANT_CHANNELS,
   MORI_PET_SIZE_MAX,
@@ -36,8 +38,11 @@ export class MoriAssistantWindows {
   });
   private shortcutSuspended = false;
   private moveTimer: ReturnType<typeof setTimeout> | undefined;
-  private lookTimer: ReturnType<typeof setInterval> | undefined;
-  private hitTimer: ReturnType<typeof setInterval> | undefined;
+  private petTimer: ReturnType<typeof setTimeout> | undefined;
+  private stopPetMonitoring: (() => void) | undefined;
+  private petBounds: { x: number; y: number; width: number; height: number } | undefined;
+  private petPaused = false;
+  private petDirection: number | null | undefined;
   private petHitMap: MoriPetHitMap | undefined;
   private petDragging = false;
   private petIgnoresMouse = false;
@@ -64,10 +69,7 @@ export class MoriAssistantWindows {
     else {
       this.ball?.destroy();
       this.ball = undefined;
-      if (this.lookTimer) clearInterval(this.lookTimer);
-      this.lookTimer = undefined;
-      if (this.hitTimer) clearInterval(this.hitTimer);
-      this.hitTimer = undefined;
+      this.stopPetMonitoring?.();
       this.petHitMap = undefined;
       this.petDragging = false;
       this.clearNotices();
@@ -147,15 +149,13 @@ export class MoriAssistantWindows {
       window.webContents.on("render-process-gone", resetInput);
       window.on("closed", () => {
         if (this.ball !== window) return;
-        if (this.hitTimer) clearInterval(this.hitTimer);
-        if (this.lookTimer) clearInterval(this.lookTimer);
-        this.hitTimer = this.lookTimer = undefined;
+        this.stopPetMonitoring?.();
+        this.petBounds = undefined;
         this.ball = undefined;
         this.petHitMap = undefined;
         this.petDragging = false;
       });
-      this.updatePetInput();
-      this.hitTimer = setInterval(() => this.updatePetInput(), 16);
+      this.monitorPet(window);
     }
     window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
     window.webContents.on("will-navigate", (event) => event.preventDefault());
@@ -219,37 +219,116 @@ export class MoriAssistantWindows {
         }, 200);
       });
       ball.showInactive();
-      let lastDirection: number | null | undefined;
-      this.lookTimer = setInterval(() => {
-        if (ball.isDestroyed()) {
-          if (this.lookTimer) clearInterval(this.lookTimer);
-          this.lookTimer = undefined;
-          return;
-        }
-        if (!ball.isVisible()) return;
-        const bounds = ball.getBounds();
-        const cursor = screen.getCursorScreenPoint();
-        const dx = cursor.x - (bounds.x + bounds.width / 2);
-        const dy = cursor.y - (bounds.y + bounds.height / 2);
-        const distance = Math.hypot(dx, dy);
-        // Keep looking through transparent padding up to actual body contact.
-        // The renderer gives the pixel-accurate greeting priority over gaze.
-        const direction =
-          distance >= Math.max(320, bounds.width * 2.5)
-            ? null
-            : distance === 0
-              ? (lastDirection ?? 0)
-              : moriPetLookDirection(dx, dy);
-        if (direction === lastDirection) return;
-        lastDirection = direction;
-        ball.webContents.send(MORI_ASSISTANT_CHANNELS.petLook, direction);
-      }, 120);
     })();
     try {
       await this.creation;
     } finally {
       this.creation = undefined;
     }
+  }
+
+  private monitorPet(ball: BrowserWindow): void {
+    this.stopPetMonitoring?.();
+    let suspended = false;
+    let locked = false;
+    let idleSeconds = 0;
+    let nextIdleCheck = 0;
+    this.petDirection = undefined;
+    const boundsChanged = () => {
+      this.petBounds = ball.getBounds();
+      this.updatePetInput();
+    };
+    const pause = (value: boolean, force = false) => {
+      if (!force && this.petPaused === value) return;
+      this.petPaused = value;
+      ball.webContents.send(MORI_ASSISTANT_CHANNELS.petPaused, value);
+    };
+    const stopTimer = () => {
+      clearTimeout(this.petTimer);
+      this.petTimer = undefined;
+    };
+    const tick = () => {
+      stopTimer();
+      if (ball.isDestroyed()) return;
+      if (suspended || locked || !ball.isVisible()) {
+        pause(true);
+        return;
+      }
+      const now = performance.now();
+      if (now >= nextIdleCheck) {
+        idleSeconds = powerMonitor.getSystemIdleTime();
+        nextIdleCheck = now + 1000;
+      }
+      pause(idleSeconds >= 60 && !this.petDragging);
+      const cursor = screen.getCursorScreenPoint();
+      const bounds = this.petBounds!;
+      this.updatePetInput(cursor);
+      const dx = cursor.x - (bounds.x + bounds.width / 2);
+      const dy = cursor.y - (bounds.y + bounds.height / 2);
+      const distance = Math.hypot(dx, dy);
+      const direction =
+        this.petPaused || distance >= Math.max(320, bounds.width * 2.5)
+          ? null
+          : distance === 0
+            ? (this.petDirection ?? 0)
+            : moriPetLookDirection(dx, dy);
+      if (direction !== this.petDirection) {
+        this.petDirection = direction;
+        ball.webContents.send(MORI_ASSISTANT_CHANNELS.petLook, direction);
+      }
+      // Pixel hit testing stays fast near the pet; distant and idle cursors need fewer native reads.
+      const near = distance < Math.max(bounds.width, bounds.height);
+      this.petTimer = setTimeout(tick, this.petPaused ? 250 : this.petDragging || near ? 16 : 120);
+      this.petTimer.unref();
+    };
+    const restart = () => {
+      nextIdleCheck = 0;
+      tick();
+    };
+    const suspend = () => {
+      suspended = true;
+      tick();
+    };
+    const resume = () => {
+      suspended = false;
+      restart();
+    };
+    const lock = () => {
+      locked = true;
+      tick();
+    };
+    const unlock = () => {
+      locked = false;
+      restart();
+    };
+    const loaded = () => {
+      pause(this.petPaused, true);
+      restart();
+    };
+    boundsChanged();
+    ball.on("move", boundsChanged);
+    ball.on("resize", boundsChanged);
+    ball.on("show", restart);
+    ball.on("hide", tick);
+    ball.webContents.on("did-finish-load", loaded);
+    powerMonitor.on("suspend", suspend);
+    powerMonitor.on("resume", resume);
+    powerMonitor.on("lock-screen", lock);
+    powerMonitor.on("unlock-screen", unlock);
+    this.stopPetMonitoring = () => {
+      stopTimer();
+      ball.removeListener("move", boundsChanged);
+      ball.removeListener("resize", boundsChanged);
+      ball.removeListener("show", restart);
+      ball.removeListener("hide", tick);
+      ball.webContents.removeListener("did-finish-load", loaded);
+      powerMonitor.removeListener("suspend", suspend);
+      powerMonitor.removeListener("resume", resume);
+      powerMonitor.removeListener("lock-screen", lock);
+      powerMonitor.removeListener("unlock-screen", unlock);
+      this.stopPetMonitoring = undefined;
+    };
+    tick();
   }
 
   isPetSender(webContentsId: number): boolean {
@@ -279,10 +358,9 @@ export class MoriAssistantWindows {
     this.updatePetInput();
   }
 
-  private updatePetInput(): void {
-    if (!this.ball || this.ball.isDestroyed()) return;
-    const bounds = this.ball.getBounds();
-    const cursor = screen.getCursorScreenPoint();
+  private updatePetInput(cursor = screen.getCursorScreenPoint()): void {
+    if (!this.ball || this.ball.isDestroyed() || !this.petBounds) return;
+    const bounds = this.petBounds;
     const hit =
       this.petDragging ||
       (this.petHitMap &&
@@ -452,8 +530,7 @@ export class MoriAssistantWindows {
   close(): void {
     this.shortcut.set("");
     if (this.moveTimer) clearTimeout(this.moveTimer);
-    if (this.lookTimer) clearInterval(this.lookTimer);
-    if (this.hitTimer) clearInterval(this.hitTimer);
+    this.stopPetMonitoring?.();
     this.tray?.destroy();
     this.panel?.destroy();
     this.ball?.destroy();

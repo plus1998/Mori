@@ -1679,6 +1679,7 @@ export function MoriAssistantSurface({ mode }: { mode: "ball" | "panel" | "notic
   const [pet, setPet] = useState<MoriPetAsset | undefined>(DEFAULT_MORI_PET);
   const [petError, setPetError] = useState("");
   const [direction, setDirection] = useState<number | null>(null);
+  const [petPaused, setPetPaused] = useState(false);
   const [dragAnimation, setDragAnimation] = useState<MoriPetAnimation>();
   const [reaction, setReaction] = useState<MoriPetAnimation>();
   const [greeting, setGreeting] = useState(false);
@@ -1725,6 +1726,7 @@ export function MoriAssistantSurface({ mode }: { mode: "ball" | "panel" | "notic
   useEffect(() => {
     if (mode !== "ball") return;
     const offLook = desktopApi().onMoriPetLook(setDirection);
+    const offPaused = desktopApi().onMoriPetPaused(setPetPaused);
     const offReaction = desktopApi().onMoriPetReaction((kind) => {
       for (const timer of reactionTimers.current) clearTimeout(timer);
       reactionTimers.current = [];
@@ -1742,6 +1744,7 @@ export function MoriAssistantSurface({ mode }: { mode: "ball" | "panel" | "notic
     });
     return () => {
       offLook();
+      offPaused();
       offReaction();
       for (const timer of reactionTimers.current) clearTimeout(timer);
       reactionTimers.current = [];
@@ -1922,6 +1925,7 @@ export function MoriAssistantSurface({ mode }: { mode: "ball" | "panel" | "notic
           pet={pet}
           animation={animation}
           direction={direction}
+          paused={petPaused}
           size={snapshot ? moriPetSize(snapshot.settings) : 64}
           onError={setPetError}
           indicator={indicator}

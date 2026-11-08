@@ -354,6 +354,11 @@ const api = {
   moriPetsList(): Promise<import("../shared/mori-pet").MoriPetList> { return ipcRenderer.invoke(MORI.petList); },
   moriPetsImport(): Promise<import("../shared/mori-pet").MoriPetInfo | undefined> { return ipcRenderer.invoke(MORI.petImport); },
   moriPetAsset(key: string): Promise<import("../shared/mori-pet").MoriPetAsset> { return ipcRenderer.invoke(MORI.petAsset, key); },
+  onMoriPetPaused(callback: (paused: boolean) => void): () => void {
+    const listener = (_event: Electron.IpcRendererEvent, paused: boolean) => callback(paused);
+    ipcRenderer.on(MORI.petPaused, listener);
+    return () => ipcRenderer.off(MORI.petPaused, listener);
+  },
   onMoriPetLook(callback: (direction: number | null) => void): () => void {
     const listener = (_event: Electron.IpcRendererEvent, direction: number | null) => callback(direction);
     ipcRenderer.on(MORI.petLook, listener);

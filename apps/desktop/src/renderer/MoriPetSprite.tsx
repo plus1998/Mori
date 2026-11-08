@@ -19,6 +19,7 @@ export function MoriPetSprite({
   pet,
   animation,
   direction,
+  paused = false,
   size = 56,
   onError,
   indicator,
@@ -27,12 +28,19 @@ export function MoriPetSprite({
   pet: MoriPetAsset;
   animation: MoriPetAnimation;
   direction?: number | null;
+  paused?: boolean;
   size?: number;
   onError?: (message: string) => void;
   indicator?: "waiting" | "error" | undefined;
   onHitMap?: (map: MoriPetHitMap, bodyMap: MoriPetHitMap) => void;
 }) {
   const [frame, setFrame] = useState(0);
+  const [visible, setVisible] = useState(() => document.visibilityState === "visible");
+  useEffect(() => {
+    const update = () => setVisible(document.visibilityState === "visible");
+    document.addEventListener("visibilitychange", update);
+    return () => document.removeEventListener("visibilitychange", update);
+  }, []);
   const [atlas, setAtlas] = useState<{
     source: string;
     image: HTMLImageElement;
@@ -40,13 +48,14 @@ export function MoriPetSprite({
     anchor: NonNullable<ReturnType<typeof moriPetIndicatorAnchor>>;
   }>();
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const hitMaps = useRef(new Map<string, [MoriPetHitMap, MoriPetHitMap]>());
   const errorHandler = useRef(onError);
   errorHandler.current = onError;
   const definition = MORI_PET_ANIMATIONS[animation];
   const look = pet.version === 2 && animation === "idle" && direction != null ? direction : null;
   useEffect(() => {
     setFrame(0);
-    if (look !== null) return;
+    if (look !== null || paused || !visible) return;
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
     if (reduced.matches) return;
     let current = 0;
@@ -58,7 +67,7 @@ export function MoriPetSprite({
     };
     timer = setTimeout(advance, moriPetFrameDuration(pet.key, animation, 0));
     return () => clearTimeout(timer);
-  }, [animation, definition, look, pet.key]);
+  }, [animation, definition, look, pet.key, paused, visible]);
   useEffect(() => {
     const image = new Image();
     image.onerror = () => errorHandler.current?.("宠物精灵图无法解码。");
@@ -106,17 +115,23 @@ export function MoriPetSprite({
     ? Math.max(indicatorSize / 2 + 1, y + (current.anchor.y * MORI_PET_CELL_HEIGHT - current.crop.y) * scale)
     : 0;
   useEffect(() => {
+    hitMaps.current.clear();
+  }, [current, size]);
+  useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !current) return;
     const ratio = window.devicePixelRatio;
-    canvas.width = Math.round(size * ratio);
-    canvas.height = Math.round(size * ratio);
+    const pixelSize = Math.round(size * ratio);
+    if (canvas.width !== pixelSize || canvas.height !== pixelSize) {
+      canvas.width = canvas.height = pixelSize;
+    }
     const context = canvas.getContext("2d");
     if (!context) {
       errorHandler.current?.("无法绘制宠物。");
       return;
     }
-    context.scale(ratio, ratio);
+    context.setTransform(ratio, 0, 0, ratio, 0, 0);
+    context.clearRect(0, 0, size, size);
     context.drawImage(
       current.image,
       column * MORI_PET_CELL_WIDTH + current.crop.x,
@@ -129,6 +144,18 @@ export function MoriPetSprite({
       current.crop.height * scale,
     );
     if (!onHitMap) return;
+    const hitKey = `${row}:${column}:${indicator ?? "none"}:${ratio}`;
+    const cached = hitMaps.current.get(hitKey);
+    if (cached) {
+      onHitMap(...cached);
+      return;
+    }
+    const publish = (map: MoriPetHitMap, body: MoriPetHitMap) => {
+      // Bound memory even when the pointer visits all sixteen gaze poses.
+      if (hitMaps.current.size >= 32) hitMaps.current.delete(hitMaps.current.keys().next().value!);
+      hitMaps.current.set(hitKey, [map, body]);
+      onHitMap(map, body);
+    };
     // Sample at CSS-pixel resolution: the main process uses screen DIP coordinates.
     const mask = document.createElement("canvas");
     mask.width = mask.height = Math.round(size);
@@ -143,7 +170,7 @@ export function MoriPetSprite({
     for (let i = 0; i < bodyAlpha.length; i++) bodyAlpha[i] = bodyPixels[i * 4 + 3] ?? 0;
     const bodyMap = { width: mask.width, height: mask.height, alpha: bodyAlpha };
     if (!indicator) {
-      onHitMap(bodyMap, bodyMap);
+      publish(bodyMap, bodyMap);
       return;
     }
     if (indicator) {
@@ -156,7 +183,7 @@ export function MoriPetSprite({
     const pixels = maskContext.getImageData(0, 0, mask.width, mask.height).data;
     const alpha = new Uint8Array(mask.width * mask.height);
     for (let i = 0; i < alpha.length; i++) alpha[i] = pixels[i * 4 + 3] ?? 0;
-    onHitMap({ width: mask.width, height: mask.height, alpha }, bodyMap);
+    publish({ width: mask.width, height: mask.height, alpha }, bodyMap);
   }, [current, column, row, size, scale, x, y, indicator, indicatorX, indicatorY, indicatorSize, onHitMap]);
   return (
     <span className="mori-pet-sprite" aria-hidden="true" style={{ width: size, height: size }}>
