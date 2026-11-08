@@ -9402,7 +9402,7 @@ function registerIpcHandlers(): void {
   registerDesktopCommand(IPC_CHANNELS.browserGetState, async () => requireBrowserHost().getState());
 
   registerDesktopCommand(IPC_CHANNELS.browserAgentProcessesList, async () =>
-    requireBrowserHost().getAgentBrowserProcesses(conversationStore.listThreads().map((thread) => thread.id)),
+    requireBrowserHost().getAgentBrowserProcesses(conversationStore.listThreadIds()),
   );
   registerDesktopCommand(IPC_CHANNELS.browserAgentProcessStop, async (payload: unknown) => {
     const request = payload as { id?: unknown };

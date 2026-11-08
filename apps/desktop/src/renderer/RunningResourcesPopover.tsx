@@ -13,6 +13,7 @@ import { collectRunningTerminals, type RunningTerminal } from "./running-resourc
 import type { TerminalWorkspaceState } from "./terminal-panel-storage";
 import { listTerminalSessionEntriesForProject } from "./terminal-session-cache";
 import { webChatListPopoverBoxForRect } from "./web-chat-list-popover-layout";
+import { startResourcePanelPolling } from "./resource-panel-polling";
 
 interface RunningResourcesPopoverProps {
   anchorRef: RefObject<HTMLButtonElement | null>;
@@ -151,13 +152,12 @@ export function RunningResourcesPopover({
     const unsubscribe = window.eco?.onTerminalEvent((event) => {
       if (event.type !== "output") void refresh();
     });
-    void refresh();
-    // Explicit kills do not emit an exit event; reconcile while the list is open.
-    const timer = window.setInterval(() => void refresh(), 2000);
+    // Explicit kills do not emit an exit event; reconcile while the list is active.
+    const stopPolling = startResourcePanelPolling(refresh, 2000);
     return () => {
       cancelled = true;
       unsubscribe?.();
-      window.clearInterval(timer);
+      stopPolling();
     };
   }, [claudeTaskError, claudeTasks, codexTerminalError, codexTerminals, refreshEpoch]);
 

@@ -2,6 +2,7 @@ import { Cpu, Loader2, Square } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { type AgentBrowserProcessView, isPersonalBrowserScopeId } from "../shared/browser";
+import { startResourcePanelPolling } from "./resource-panel-polling";
 
 export function AgentBrowserProcessesSection({
   threads,
@@ -40,11 +41,10 @@ export function AgentBrowserProcessesSection({
         if (!cancelled) setLoading(false);
       }
     };
-    void refresh();
-    const timer = window.setInterval(() => void refresh(), 2000);
+    const stopPolling = startResourcePanelPolling(refresh, 2000);
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      stopPolling();
     };
   }, [epoch]);
 

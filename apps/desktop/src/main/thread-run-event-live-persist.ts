@@ -90,9 +90,6 @@ export function createThreadRunEventLivePersister(deps: ThreadRunEventLivePersis
   };
 
   function persistFromLiveEvent(input: ThreadRunEventLivePersistInput): void {
-    if (!deps.store.getThread(input.threadId)) {
-      return;
-    }
     if (isMetricsOnlyThreadLiveEvent(input.type)) {
       return;
     }
@@ -103,6 +100,12 @@ export function createThreadRunEventLivePersister(deps: ThreadRunEventLivePersis
         ...(input.extras?.requestId?.trim() ? { bridgeLogicalRequestId: input.extras.requestId.trim() } : {}),
       })
     ) {
+      return;
+    }
+
+    // Existence is all this path needs. Avoid loading/decoding the complete
+    // thread summary for every streamed delta, and skip SQL for omitted events.
+    if (!deps.store.hasThread(input.threadId)) {
       return;
     }
 

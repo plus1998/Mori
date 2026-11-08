@@ -9059,6 +9059,11 @@ export class ConversationStore {
     ).all() as Pick<ThreadSummary, "id" | "status" | "updatedAt" | "coreKind">[];
   }
 
+  listThreadIds(): string[] {
+    const rows = this.db.prepare("SELECT id FROM threads ORDER BY created_at DESC").all() as { id: string }[];
+    return rows.map((row) => row.id);
+  }
+
   listThreads(): ThreadSummary[] {
     const rows = this.db
       .prepare(
@@ -9194,6 +9199,10 @@ export class ConversationStore {
     this.db.exec(`PRAGMA wal_checkpoint(TRUNCATE);`);
     this.db.exec(`VACUUM;`);
     this.db.exec(`PRAGMA wal_checkpoint(TRUNCATE);`);
+  }
+
+  hasThread(threadId: string): boolean {
+    return this.db.prepare("SELECT 1 FROM threads WHERE id = ?").get(threadId) !== undefined;
   }
 
   getThread(threadId: string): ThreadSummary | undefined {

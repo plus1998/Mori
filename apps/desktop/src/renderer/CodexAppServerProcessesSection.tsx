@@ -2,6 +2,7 @@ import { ChevronRight, Cpu, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { CodexAppServerProcessView } from "../shared/ipc";
+import { startResourcePanelPolling } from "./resource-panel-polling";
 
 export function CodexAppServerProcessesSection({
   onCountChange,
@@ -37,11 +38,10 @@ export function CodexAppServerProcessesSection({
         if (!cancelled) setLoading(false);
       }
     };
-    void refresh();
-    const timer = window.setInterval(() => void refresh(), 2000);
+    const stopPolling = startResourcePanelPolling(refresh, 2000);
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      stopPolling();
     };
   }, []);
 

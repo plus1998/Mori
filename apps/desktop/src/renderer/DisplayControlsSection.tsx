@@ -5,6 +5,7 @@ import { LockKeyholeOpen, Monitor, SunDim } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { DisplayControlChange, DisplayControlState } from "../shared/display-control";
+import { startResourcePanelPolling } from "./resource-panel-polling";
 
 function desktopApi() {
   if (!window.eco) throw new Error("Desktop API unavailable");
@@ -40,11 +41,10 @@ export function DisplayControlsSection() {
         fetching = false;
       }
     };
-    void refresh();
-    const timer = window.setInterval(() => void refresh(), 1500);
+    const stopPolling = startResourcePanelPolling(refresh, 1500);
     return () => {
       mounted.current = false;
-      window.clearInterval(timer);
+      stopPolling();
     };
   }, [supported]);
 
