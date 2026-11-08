@@ -422,7 +422,9 @@ export function TerminalPanel({
                 role="tab"
                 aria-selected={isActive}
                 aria-controls={`terminal-panel-tab-${tab.id}`}
-                title={isSsh && tab.endpoint ? `${tab.label} · ${tab.endpoint}` : tab.label}
+                title={
+                  isSsh && tab.endpoint ? `${tab.label} · ${tab.endpoint}` : `${tab.label} · ${workspacePath}`
+                }
                 onClick={() => handleSelectTab(tab.id)}
               >
                 {isSsh ? (

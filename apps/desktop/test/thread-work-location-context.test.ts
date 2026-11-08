@@ -42,34 +42,34 @@ test("resumable session and ordinary direct development keep prompt unchanged", 
   }
 });
 
-test("isolated runs receive exact branch, target and both directories", () => {
-  const result = buildThreadWorkLocationPrompt({
-    thread: {
-      ...thread,
-      workLocation: {
-        mode: "isolated",
-        worktree: {
-          id: "w1",
-          threadId: "t1",
-          workspacePath: "/project",
-          repositoryPath: "/project/.git",
-          worktreePath: "/isolated",
-          branchName: "mori/task",
-          targetBranch: "beta",
-          baseCommit: "abc",
-          state: "active",
-          createdAt: "now",
-          updatedAt: "now",
+for (const coreKind of ["claude", "codex", "pi", "acp"] as const)
+  for (const hasRuntimeSession of [false, true])
+    test(`${coreKind} isolated ${hasRuntimeSession ? "resumed" : "fresh"} runs preserve the user prompt without worktree instructions`, () => {
+      const result = buildThreadWorkLocationPrompt({
+        thread: {
+          ...thread,
+          coreKind,
+          workLocation: {
+            mode: "isolated",
+            worktree: {
+              id: "w1",
+              threadId: "t1",
+              workspacePath: "/project",
+              repositoryPath: "/project/.git",
+              worktreePath: "/isolated",
+              branchName: "mori/task",
+              targetBranch: "beta",
+              baseCommit: "abc",
+              state: "active",
+              createdAt: "now",
+              updatedAt: "now",
+            },
+          },
         },
-      },
-    },
-    prompt: "work",
-    cwd: "/isolated",
-    history: [],
-    hasRuntimeSession: false,
-  });
-  expect(result).toContain("隔离工作树：/isolated");
-  expect(result).toContain("项目目录：/project");
-  expect(result).toContain("工作分支：mori/task");
-  expect(result).toContain("目标分支：beta");
-});
+        prompt: "work",
+        cwd: "/isolated",
+        history: [],
+        hasRuntimeSession,
+      });
+      expect(result).toBe("work");
+    });

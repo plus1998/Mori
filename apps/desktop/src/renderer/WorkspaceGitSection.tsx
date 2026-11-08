@@ -32,6 +32,7 @@ import { useEcoWorkspaceFileDiffLoader, WorkspaceDiffDrawer } from "./WorkspaceD
 import { getWorkspaceGitCommitEntryLabel, useWorkspaceGitAction } from "./workspace-git-action-store";
 
 export interface WorkspaceGitSectionProps {
+  worktreeControl?: ReactNode;
   summary?: boolean;
   actionsAnchor?: HTMLButtonElement;
   onActionsClose?: () => void;
@@ -71,6 +72,7 @@ export function resolveGitRemoteSyncAction(behindCount: number): "fetch" | "pull
 }
 
 export function WorkspaceGitSection({
+  worktreeControl,
   summary = false,
   actionsAnchor,
   onActionsClose,
@@ -720,6 +722,9 @@ export function WorkspaceGitSection({
         </li>
         {!summary ? secondaryActions : null}
       </ul>
+      {!summary && worktreeControl ? (
+        <div className="workspace-git-worktree-controls">{worktreeControl}</div>
+      ) : null}
       {summary && actionsAnchor && onActionsClose ? (
         <WorkspaceGitActionsPopover
           anchor={actionsAnchor}
@@ -727,6 +732,7 @@ export function WorkspaceGitSection({
           label={t("projectTree.actions", { name: workspaceLabel })}
         >
           <ul className="thread-info-workspace-git-list">{secondaryActions}</ul>
+          {worktreeControl ? <div className="workspace-git-worktree-controls">{worktreeControl}</div> : null}
         </WorkspaceGitActionsPopover>
       ) : null}
 

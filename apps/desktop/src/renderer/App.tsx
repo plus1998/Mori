@@ -4041,24 +4041,26 @@ function App() {
     }));
   }, []);
   const toggleTerminalForCurrentProject = useCallback(() => {
-    if (!currentProjectPath) {
+    if (!activeWorkspacePath) {
       return;
     }
     setTerminalByProject((current) => {
-      const existing = current[currentProjectPath];
-      const stored = storedTerminalByProject[currentProjectPath];
-      const hasLiveSessions = hasTerminalSessionsForProject(currentProjectPath);
+      const existing = current[activeWorkspacePath];
+      const stored = storedTerminalByProject[activeWorkspacePath];
+      const hasLiveSessions = hasTerminalSessionsForProject(activeWorkspacePath);
       if (existing?.open && hasLiveSessions) {
         return {
           ...current,
-          [currentProjectPath]: { ...existing, open: false },
+          [activeWorkspacePath]: { ...existing, open: false },
         };
       }
       if (!hasLiveSessions || !existing || existing.tabs.length === 0) {
-        const nextState = createProjectTerminalState(currentProjectName, true);
+        const label =
+          activeWorkspacePath === currentProjectPath ? currentProjectName : pathToName(activeWorkspacePath);
+        const nextState = createProjectTerminalState(label, true);
         return {
           ...current,
-          [currentProjectPath]: {
+          [activeWorkspacePath]: {
             ...nextState,
             height: existing?.height ?? stored?.height ?? nextState.height,
           },
@@ -4066,10 +4068,10 @@ function App() {
       }
       return {
         ...current,
-        [currentProjectPath]: { ...existing, open: true },
+        [activeWorkspacePath]: { ...existing, open: true },
       };
     });
-  }, [currentProjectName, currentProjectPath, storedTerminalByProject]);
+  }, [activeWorkspacePath, currentProjectName, currentProjectPath, storedTerminalByProject]);
   const toggleWorkspacePanelForCurrentProject = useCallback(() => {
     if (!currentProjectPath) {
       return;
@@ -6245,16 +6247,16 @@ function App() {
 
   const connectSshBookmark = useCallback(
     async (bookmark: SshBookmarkView) => {
-      if (!currentProjectPath || !window.eco?.connectSshBookmark) {
+      if (!activeWorkspacePath || !window.eco?.connectSshBookmark) {
         return;
       }
       try {
         const result = await window.eco.connectSshBookmark({
-          workspacePath: currentProjectPath,
+          workspacePath: activeWorkspacePath,
           bookmarkId: bookmark.id,
         });
         dismissTaskPanel();
-        openTerminalSessionTab(currentProjectPath, result.sessionId, {
+        openTerminalSessionTab(activeWorkspacePath, result.sessionId, {
           kind: "ssh",
           label: result.label,
           endpoint: result.endpoint,
@@ -6266,7 +6268,7 @@ function App() {
         showAppMessageError(error instanceof Error ? error.message : t("app.sshBookmarks.connectFailed"));
       }
     },
-    [currentProjectPath, dismissTaskPanel, openTerminalSessionTab, showAppMessageError, t],
+    [activeWorkspacePath, dismissTaskPanel, openTerminalSessionTab, showAppMessageError, t],
   );
 
   useEffect(() => {
@@ -12375,7 +12377,7 @@ function App() {
       />
     );
 
-  const showComposerContextOverlays = !asrSession.active && (showLanding || Boolean(activeThread?.workLocation?.worktree));
+  const showComposerContextOverlays = !asrSession.active && showLanding;
   const showComposerInputOverlays = queuedFollowUps.length > 0 || showComposerContextOverlays;
   // Reported by the Feed, which owns the clock: the run is live, its waiting line is not up,
   // and nothing visible has changed for half a second — the gap while the agent writes its
@@ -12452,18 +12454,6 @@ function App() {
                   {renderComposerIntegrationsControl()}
                   {renderComposerSkillsControl()}
                 </> : null}
-                <ThreadWorktreeControl
-                  key={activeThread?.id ?? `new:${currentProjectPath}`}
-                  {...(activeThread ? { thread: activeThread } : {})}
-                  {...(!activeThread && newThreadWorktree ? { selectedWorktree: newThreadWorktree } : {})}
-                  {...(!activeThread && draftWorktreeError ? { selectionError: draftWorktreeError } : {})}
-                  workspacePath={currentProjectPath}
-                  branch={gitStatus?.branch}
-                  mode={newThreadDevelopmentMode}
-                  busy={isStarting}
-                  onModeChange={selectDraftProjectMode}
-                  onLocationChange={updateThreadWorkLocation}
-                />
               </div>
             ) : null}
           </div>
@@ -13439,7 +13429,7 @@ function App() {
                   if (terminalState.tabs.length === 0) {
                     return null;
                   }
-                  const isCurrentProject = workspacePath === currentProjectPath;
+                  const isCurrentProject = workspacePath === activeWorkspacePath;
                   const workspaceLabel =
                     projects.find((item) => item.path === workspacePath)?.name ?? pathToName(workspacePath);
                   return (
@@ -13489,6 +13479,21 @@ function App() {
                 }
               >
                 <WorkspaceFloatingCards
+                  {...((showLanding || activeThread?.workLocation?.worktree) && {
+                    worktreeControl: (
+                      <ThreadWorktreeControl
+                        key={activeThread?.id ?? `new:${currentProjectPath}`}
+                        {...(activeThread ? { thread: activeThread } : {})}
+                        {...(!activeThread && newThreadWorktree ? { selectedWorktree: newThreadWorktree } : {})}
+                        {...(!activeThread && draftWorktreeError ? { selectionError: draftWorktreeError } : {})}
+                        workspacePath={currentProjectPath}
+                        mode={newThreadDevelopmentMode}
+                        busy={isStarting}
+                        onModeChange={selectDraftProjectMode}
+                        onLocationChange={updateThreadWorkLocation}
+                      />
+                    ),
+                  })}
                   codexBackgroundTerminals={codexBackgroundTerminalsForActiveThread}
                   {...(codexBackgroundTerminalError && {
                     codexBackgroundTerminalError,

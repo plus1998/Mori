@@ -89,6 +89,7 @@ export interface ThreadUsageSummary {
 }
 
 export interface WorkspaceFloatingCardsProps {
+  worktreeControl?: ReactNode;
   workspace?: WorkspaceInfo;
   workspacePath?: string;
   workspaceLabel?: string;
@@ -774,6 +775,7 @@ function HtmlHostWorkspaceCardBody({
 }
 
 export function WorkspaceFloatingCards({
+  worktreeControl,
   workspace,
   workspacePath,
   workspaceLabel,
@@ -862,7 +864,7 @@ export function WorkspaceFloatingCards({
     workspace?.name ||
     t("workspaceCards.noProject");
   const showProgress = hasProgressInfo(todos);
-  const showEnvironment = hasActiveThread || Boolean(onOpenScriptsDialog) || gitStatus?.isGitRepository !== false;
+  const showEnvironment = hasActiveThread || Boolean(onOpenScriptsDialog || worktreeControl) || gitStatus?.isGitRepository !== false;
   const [commitsRefreshKey, setCommitsRefreshKey] = useState(0);
   const [gitActionsAnchor, setGitActionsAnchor] = useState<HTMLButtonElement | null>(null);
   const closeGitActions = useCallback(() => setGitActionsAnchor(null), []);
@@ -926,6 +928,7 @@ export function WorkspaceFloatingCards({
             }
           >
             <WorkspaceGitSection
+              {...(worktreeControl && { worktreeControl })}
               {...(workspacePath && { workspacePath })}
               workspaceLabel={projectLabel}
               summary
