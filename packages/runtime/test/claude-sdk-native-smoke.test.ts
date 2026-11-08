@@ -608,3 +608,168 @@ test.skipIf(process.env.ECO_CLAUDE_NATIVE_SMOKE !== "1")(
   },
   60_000,
 );
+
+test.skipIf(process.env.ECO_CLAUDE_NATIVE_SMOKE !== "1")(
+  "native background completion keeps PreToolUse control available for Read and Bash",
+  async () => {
+    const workspace = mkdtempSync(path.join(os.tmpdir(), "eco-claude-background-"));
+    const output = path.join(workspace, "result.txt");
+    const controller = new AbortController();
+    const deadline = setTimeout(() => controller.abort("background smoke timed out"), 30_000);
+    const messages: Array<Record<string, unknown>> = [];
+    const failures: unknown[] = [];
+    const toolResults: string[] = [];
+    let calls = 0;
+    let closingAfterContinuation = false;
+    const server = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      async fetch(request) {
+        const pathname = new URL(request.url).pathname;
+        if (pathname.endsWith("count_tokens")) return Response.json({ input_tokens: 100 });
+        if (!pathname.endsWith("/messages")) return Response.json({ ok: true });
+        const body = (await request.json()) as { model: string; stream?: boolean; messages: unknown[] };
+        const call = ++calls;
+        if (call === 4 || call === 5) toolResults.push(JSON.stringify(body.messages.at(-1)));
+        const block =
+          call === 1
+            ? {
+                type: "tool_use",
+                id: "launch-background",
+                name: "Bash",
+                input: {
+                  command: `node -e 'setTimeout(() => require("fs").writeFileSync("${output}", "BACKGROUND_OK"), 3000)'`,
+                  run_in_background: true,
+                },
+              }
+            : call === 2
+              ? { type: "text", text: "WAITING_FOR_BACKGROUND" }
+              : call === 3
+                ? { type: "tool_use", id: "read-background", name: "Read", input: { file_path: output } }
+                : call === 4
+                  ? {
+                      type: "tool_use",
+                      id: "cat-background",
+                      name: "Bash",
+                      input: { command: `cat ${output}` },
+                    }
+                  : { type: "text", text: "BACKGROUND_CONTINUATION_DONE" };
+        const message = {
+          id: `msg_background_${call}`,
+          type: "message",
+          role: "assistant",
+          model: body.model,
+          content: [block],
+          stop_reason: block.type === "tool_use" ? "tool_use" : "end_turn",
+          stop_sequence: null,
+          usage: { input_tokens: 100, output_tokens: 10 },
+        };
+        if (!body.stream) return Response.json(message);
+        const events = [
+          { type: "message_start", message: { ...message, content: [], stop_reason: null } },
+          {
+            type: "content_block_start",
+            index: 0,
+            content_block: block.type === "tool_use" ? { ...block, input: {} } : { type: "text", text: "" },
+          },
+          {
+            type: "content_block_delta",
+            index: 0,
+            delta:
+              block.type === "tool_use"
+                ? { type: "input_json_delta", partial_json: JSON.stringify(block.input) }
+                : { type: "text_delta", text: block.text },
+          },
+          { type: "content_block_stop", index: 0 },
+          {
+            type: "message_delta",
+            delta: { stop_reason: message.stop_reason },
+            usage: { output_tokens: 10 },
+          },
+          { type: "message_stop" },
+        ];
+        return new Response(
+          events.map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join(""),
+          {
+            headers: { "content-type": "text/event-stream" },
+          },
+        );
+      },
+    });
+    const driver = new ClaudeAgentSdkDriver({
+      apiKey: "local-background-test",
+      baseUrl: server.url.origin,
+      executionPermissionMode: "bypassPermissions",
+      hookContext: {
+        workspacePath: workspace,
+        resolveBashReviewMode: () => "allow_all",
+        resolveSupportsImageInput: () => false,
+      },
+      onSdkMessage: (message) => {
+        if (typeof message === "object" && message !== null)
+          messages.push(message as Record<string, unknown>);
+      },
+      queryLifecycle: {
+        onClosing: () => {
+          closingAfterContinuation = messages.some(
+            (m) => m.type === "result" && m.result === "BACKGROUND_CONTINUATION_DONE",
+          );
+        },
+      },
+      loadSdk: async () => ({
+        query: ({ prompt, options }) =>
+          query({
+            prompt: prompt as never,
+            options: {
+              ...options,
+              env: {
+                ...(options.env as Record<string, string>),
+                CLAUDE_CONFIG_DIR: path.join(workspace, "config"),
+                ANTHROPIC_AUTH_TOKEN: "",
+                CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+              },
+            } as never,
+          }),
+      }),
+    });
+    try {
+      for await (const event of driver.run({
+        threadId: "thr_native_background",
+        prompt: "Start background work, end the turn, then Read and cat its output after notification.",
+        workspacePath: workspace,
+        worktreePath: workspace,
+        routes: [
+          {
+            role: "main",
+            primary: { provider: "anthropic", modelId: "claude-sonnet-4-20250514" },
+            fallbacks: [],
+          },
+        ],
+        signal: controller.signal,
+      })) {
+        if (event.type === "tool.failed") failures.push(event.payload);
+      }
+      expect(controller.signal.aborted).toBe(false);
+      expect(failures).toEqual([]);
+      expect(calls).toBe(5);
+      expect(toolResults).toHaveLength(2);
+      for (const result of toolResults) {
+        expect(result).toContain("BACKGROUND_OK");
+        expect(result).not.toContain('"is_error":true');
+      }
+      const idle = messages.findIndex((m) => m.subtype === "session_state_changed" && m.state === "idle");
+      const notification = messages.findIndex(
+        (m) => m.subtype === "task_notification" && m.status === "completed",
+      );
+      expect(idle).toBeGreaterThanOrEqual(0);
+      expect(notification).toBeGreaterThan(idle);
+      expect(closingAfterContinuation).toBe(true);
+    } finally {
+      controller.abort("test cleanup");
+      clearTimeout(deadline);
+      server.stop(true);
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  },
+  40_000,
+);

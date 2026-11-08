@@ -4174,6 +4174,146 @@ test("ClaudeAgentSdkDriver delays held prompt close while queued_turn_count > 0"
   expect(promptSettled).toBe(true);
 });
 
+for (const status of ["completed", "failed", "stopped", "ambient"] as const) {
+  for (const notificationFirst of [false, true]) {
+    test(`held prompt waits for background ${status}, notification first=${notificationFirst}`, async () => {
+      let promptSettled = false;
+      const assertOpen = async () => {
+        await Bun.sleep(125);
+        expect(promptSettled).toBe(false);
+      };
+      const snapshot = (ids: string[]) => ({
+        type: "system",
+        subtype: "background_tasks_changed",
+        tasks: ids.map((task_id) => ({ task_id, task_type: "local_bash", description: "background" })),
+      });
+      const result = (uuid: string) => ({ type: "result", subtype: "success", uuid });
+      const notification = {
+        type: "system",
+        subtype: "task_notification",
+        task_id: "background-one",
+        status: status === "ambient" ? "completed" : status,
+        ...(status === "ambient" ? { skip_transcript: true } : {}),
+      };
+      const driver = new ClaudeAgentSdkDriver({
+        apiKey: "test-key",
+        baseUrl: "http://127.0.0.1:36037",
+        loadSdk: async () => ({
+          query: ({ prompt }) => {
+            void (async () => {
+              for await (const _message of prompt as AsyncIterable<unknown>) {
+                /* drain */
+              }
+              promptSettled = true;
+            })();
+            return {
+              async *[Symbol.asyncIterator]() {
+                yield snapshot(["background-one", "background-two"]);
+                yield result("foreground-result");
+                yield { type: "system", subtype: "session_state_changed", state: "idle" };
+                await assertOpen();
+                if (notificationFirst) {
+                  yield notification;
+                  yield snapshot(["background-one", "background-two"]); // Late membership snapshot.
+                  await assertOpen(); // A different background task still needs the channel.
+                  yield snapshot(["background-two"]);
+                } else {
+                  yield snapshot(["background-two"]);
+                  await assertOpen(); // Membership removal precedes notification delivery.
+                  yield notification;
+                }
+                yield snapshot([]);
+                await assertOpen(); // Last task's notification has not arrived yet.
+                yield {
+                  type: "system",
+                  subtype: "task_notification",
+                  task_id: "background-two",
+                  status: "stopped",
+                };
+                if (status === "completed" || status === "failed") {
+                  await assertOpen(); // Old foreground result cannot settle the continuation.
+                  yield { ...result("background-only-result"), num_turns: 0 };
+                  await assertOpen(); // SDK housekeeping results cannot settle it either.
+                  yield { type: "system", subtype: "session_state_changed", state: "running" };
+                  yield result("continuation-result");
+                  await assertOpen(); // A result while running still cannot close the channel.
+                  yield { type: "system", subtype: "session_state_changed", state: "idle" };
+                }
+                const deadline = Date.now() + 1_000;
+                while (!promptSettled && Date.now() < deadline) await Bun.sleep(5);
+                expect(promptSettled).toBe(true);
+              },
+              close: () => {},
+            };
+          },
+        }),
+      });
+      for await (const _event of driver.runAsk({
+        threadId: "thr_background_close",
+        prompt: "Run background work and continue after its notification",
+        workspacePath: "/tmp/workspace",
+        worktreePath: "/tmp/worktree",
+        routes,
+        signal: new AbortController().signal,
+      })) {
+        /* consume */
+      }
+      expect(promptSettled).toBe(true);
+    });
+  }
+}
+
+test("user Stop closes held input even with a pending background task", async () => {
+  const controller = new AbortController();
+  let promptSettled = false;
+  let interrupted = false;
+  const driver = new ClaudeAgentSdkDriver({
+    apiKey: "test-key",
+    baseUrl: "http://127.0.0.1:36037",
+    loadSdk: async () => ({
+      query: ({ prompt }) => {
+        void (async () => {
+          for await (const _message of prompt as AsyncIterable<unknown>) {
+            /* drain */
+          }
+          promptSettled = true;
+        })();
+        return {
+          async *[Symbol.asyncIterator]() {
+            yield {
+              type: "system",
+              subtype: "background_tasks_changed",
+              tasks: [{ task_id: "background", task_type: "local_bash", description: "background" }],
+            };
+            yield { type: "result", subtype: "success", uuid: "foreground-result" };
+            yield { type: "system", subtype: "session_state_changed", state: "idle" };
+            await Bun.sleep(125);
+            expect(promptSettled).toBe(false);
+            controller.abort("cancelled by user");
+            while (!promptSettled) await Bun.sleep(5);
+          },
+          interrupt: async () => {
+            interrupted = true;
+          },
+          close: () => {},
+        };
+      },
+    }),
+  });
+  for await (const _event of driver.runAsk({
+    threadId: "thr_background_stop",
+    prompt: "Start background work",
+    workspacePath: "/tmp/workspace",
+    worktreePath: "/tmp/worktree",
+    routes,
+    signal: controller.signal,
+  })) {
+    /* consume */
+  }
+  expect(interrupted).toBe(true);
+  expect(promptSettled).toBe(true);
+});
+
 test("ClaudeAgentSdkDriver getContextUsage is called with detail summary", async () => {
   let contextUsageOpts: unknown;
   const driver = new ClaudeAgentSdkDriver({

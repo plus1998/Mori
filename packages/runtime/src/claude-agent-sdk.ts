@@ -1204,6 +1204,10 @@ export class ClaudeAgentSdkDriver implements AgentRuntimeDriver {
       sessionState: undefined as "idle" | "running" | "requires_action" | undefined,
       activeSubagentCount: 0,
       inflightCanUseTool: 0,
+      // A task leaving the live snapshot can still have an undelivered completion
+      // notification. Keep its input channel until that notification is consumed.
+      pendingBackgroundTaskIds: new Set<string>(),
+      notifiedBackgroundTaskIds: new Set<string>(),
       unmatchedUserTurns: (): boolean => false,
       pendingQueuedTurns: (): boolean => false,
       cancel: (): void => {},
@@ -1450,6 +1454,7 @@ export class ClaudeAgentSdkDriver implements AgentRuntimeDriver {
         (heldPromptCloseGate.sessionState !== undefined && heldPromptCloseGate.sessionState !== "idle") ||
         heldPromptCloseGate.activeSubagentCount > 0 ||
         heldPromptCloseGate.inflightCanUseTool > 0 ||
+        heldPromptCloseGate.pendingBackgroundTaskIds.size > 0 ||
         heldPromptCloseGate.unmatchedUserTurns() ||
         heldPromptCloseGate.pendingQueuedTurns()
       ) {
@@ -1463,6 +1468,7 @@ export class ClaudeAgentSdkDriver implements AgentRuntimeDriver {
           (heldPromptCloseGate.sessionState !== undefined && heldPromptCloseGate.sessionState !== "idle") ||
           heldPromptCloseGate.activeSubagentCount > 0 ||
           heldPromptCloseGate.inflightCanUseTool > 0 ||
+          heldPromptCloseGate.pendingBackgroundTaskIds.size > 0 ||
           heldPromptCloseGate.unmatchedUserTurns() ||
           heldPromptCloseGate.pendingQueuedTurns()
         ) {
@@ -1571,6 +1577,38 @@ export class ClaudeAgentSdkDriver implements AgentRuntimeDriver {
           break;
         }
         const message = next.value;
+        // Update before yielding events or awaiting hooks: a previously scheduled
+        // close must not race background work or its continuation's control requests.
+        const backgroundTasks = readClaudeBackgroundTasksChanged(message);
+        if (backgroundTasks) {
+          for (const task of backgroundTasks) {
+            // Snapshot/bookend ordering is unspecified. A late snapshot must not
+            // resurrect a task whose notification we have already consumed.
+            if (!heldPromptCloseGate.notifiedBackgroundTaskIds.has(task.taskId)) {
+              heldPromptCloseGate.pendingBackgroundTaskIds.add(task.taskId);
+            }
+          }
+          heldPromptCloseGate.schedule();
+        }
+        if (
+          isRecord(message) &&
+          message.type === "system" &&
+          message.subtype === "task_notification" &&
+          typeof message.task_id === "string"
+        ) {
+          heldPromptCloseGate.pendingBackgroundTaskIds.delete(message.task_id);
+          heldPromptCloseGate.notifiedBackgroundTaskIds.add(message.task_id);
+          if (
+            (message.status === "completed" || message.status === "failed") &&
+            message.skip_transcript !== true
+          ) {
+            // This notification wakes the model. The old foreground result cannot
+            // settle that new turn, even if session_state is still briefly idle.
+            heldPromptCloseGate.resultSeen = false;
+          }
+          // Stopped/housekeeping tasks may have no continuation result to await.
+          heldPromptCloseGate.schedule();
+        }
         if (
           isRecord(message) &&
           message.type === "system" &&
@@ -1711,7 +1749,6 @@ export class ClaudeAgentSdkDriver implements AgentRuntimeDriver {
         }
 
         this.options.onSdkMessage?.(message);
-        const backgroundTasks = readClaudeBackgroundTasksChanged(message);
         if (backgroundTasks) {
           this.options.onBackgroundTasksChanged?.({
             threadId: input.threadId,
@@ -1769,9 +1806,9 @@ export class ClaudeAgentSdkDriver implements AgentRuntimeDriver {
 
         // Streaming prompt ⇒ SDK multi-turn Query (no endInput on result). After a
         // matched result, schedule mailbox close so the Eco-run can converge to idle;
-        // canUseTool / subagents / unmatched mid-turn push / remaining queued turns
-        // cancel or delay that close.
-        if (isRecord(message) && message.type === "result") {
+        // canUseTool / subagents / background notifications / unmatched mid-turn
+        // push / remaining queued turns cancel or delay that close.
+        if (isRecord(message) && message.type === "result" && !isSdkBackgroundOnlyResult(message)) {
           heldPromptCloseGate.resultSeen = true;
           heldPromptCloseGate.schedule();
         }
