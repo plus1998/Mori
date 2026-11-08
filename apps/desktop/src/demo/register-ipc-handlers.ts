@@ -27,6 +27,7 @@ import {
   resolveDemoThreadId,
 } from "./fixtures";
 import { createQueueDemoScene } from "./queue-scene";
+import { createStoryboardDemoScene } from "./storyboard-scene";
 
 export interface DemoRuntimeState {
   pendingThreadOpenId?: string;
@@ -37,9 +38,11 @@ export const demoRuntimeState: DemoRuntimeState = {
 };
 
 const queueScene = process.env.ECO_DEMO_SCENE === "queue" ? createQueueDemoScene() : undefined;
+const storyboardScene = process.env.ECO_DEMO_SCENE === "storyboard" ? createStoryboardDemoScene() : undefined;
 
 function effectiveDemoThreads() {
   if (queueScene) return [queueScene.thread];
+  if (storyboardScene) return storyboardScene.threads;
   const replay = getDemoFeedReplayState();
   return replay.enabled && replay.threads.length > 0 ? replay.threads : demoThreads;
 }
@@ -402,6 +405,8 @@ const handlers: Partial<Record<string, DemoHandler>> = {
   [IPC_CHANNELS.storageGetUsage]: () => ({ totalBytes: 0, categories: [], unmetered: [] }),
   [IPC_CHANNELS.terminalList]: () => [],
   [IPC_CHANNELS.backgroundTerminalList]: () => [],
+  [IPC_CHANNELS.codexAppServerProcessList]: () => [],
+  [IPC_CHANNELS.browserAgentProcessesList]: () => [],
   [IPC_CHANNELS.browserGetState]: () => demoBrowserState,
   [IPC_CHANNELS.browserSetUiScope]: () => demoBrowserState,
   [IPC_CHANNELS.browserSetVisible]: () => demoBrowserState,
@@ -417,7 +422,7 @@ function defaultDemoHandler(channel: string, payload: unknown): unknown {
   if (channel.includes(":save") || channel.includes(":delete") || channel.includes(":resolve")) {
     return { ok: true };
   }
-  if (channel.includes(":list") || channel.endsWith(":list")) {
+  if (/(^|:)list|(^|-)list$/.test(channel)) {
     return [];
   }
   if (channel.includes(":get") || channel.startsWith("thread:")) {
@@ -442,7 +447,7 @@ export function registerDemoIpcHandlers(options: RegisterDemoIpcHandlersOptions 
       continue;
     }
     ipcMain.handle(channel, async (event, payload) => {
-      const handler = queueScene?.handlers[channel] ?? handlers[channel];
+      const handler = queueScene?.handlers[channel] ?? storyboardScene?.handlers[channel] ?? handlers[channel];
       if (handler) {
         return handler(payload, event);
       }
