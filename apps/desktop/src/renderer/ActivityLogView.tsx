@@ -1,3 +1,4 @@
+import { projectionTimelineItemRenderSignature } from "./projection-timeline-signature";
 import { shortcutMatches } from "./keyboard-shortcuts";
 import { parseApprovalFeedback } from "../shared/approval-feedback";
 import { ApprovalFeedbackCard } from "./ApprovalFeedbackCard";
@@ -4197,24 +4198,6 @@ function projectionRequestSpanRenderSignature(span?: ProjectionRequestSpan): str
     span.pendingThinkingSince ?? "",
     span.pendingThinkingMessageId ?? "",
   ].join(":");
-}
-
-function projectionTimelineItemRenderSignature(item: ThreadRunProjectionTimelineItem): string {
-  return (
-    JSON.stringify([
-      item.id,
-      item.sequence,
-      item.eventType,
-      item.scope,
-      item.role ?? "",
-      item.agentId ?? "",
-      item.requestId ?? "",
-      item.streamKey ?? "",
-      item.at,
-      item.text,
-      item.metadata ?? null,
-    ]) ?? ""
-  );
 }
 
 function projectionSubagentDetailEntrySignature(entry: SubagentDetailFeedEntry): string {
