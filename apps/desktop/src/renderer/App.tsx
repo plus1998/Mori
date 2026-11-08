@@ -3759,6 +3759,14 @@ function App() {
     () => projectTree.flatMap((item) => item.projectThreads),
     [projectTree],
   );
+  const pendingBashApprovalThreadIds = useMemo(
+    () => new Set(Object.keys(pendingBashApprovalsByThread)),
+    [pendingBashApprovalsByThread],
+  );
+  const pendingPlanThreadIds = useMemo(
+    () => new Set(Object.keys(pendingPlansByThread)),
+    [pendingPlansByThread],
+  );
 
   const currentProjectPath = useMemo(() => {
     if (selectedProjectPath && projects.some((project) => project.path === selectedProjectPath)) {
@@ -13050,8 +13058,8 @@ function App() {
                 onUnpinThread={unpinThread}
                 deletingThreadId={deletingThreadId}
                 onDeleteThread={(thread) => void deleteThread(thread)}
-                pendingBashApprovalThreadIds={new Set(Object.keys(pendingBashApprovalsByThread))}
-                pendingPlanThreadIds={new Set(Object.keys(pendingPlansByThread))}
+                pendingBashApprovalThreadIds={pendingBashApprovalThreadIds}
+                pendingPlanThreadIds={pendingPlanThreadIds}
               />
             </div>
           </div>

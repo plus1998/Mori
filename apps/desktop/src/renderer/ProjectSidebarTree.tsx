@@ -12,7 +12,17 @@ import {
   Terminal,
   Trash2,
 } from "lucide-react";
-import { type DragEvent, type FocusEvent, type MouseEvent as ReactMouseEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  type DragEvent,
+  type FocusEvent,
+  type MouseEvent as ReactMouseEvent,
+  memo,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import type { ThreadSummary } from "../shared/ipc";
@@ -54,7 +64,7 @@ interface ProjectSidebarTreeProps {
   onRemoveProject: (path: string) => void;
   onRenameProject: (path: string, name: string) => void;
   onResetProjectName: (path: string) => void;
-  onOpenTerminalSettings?: (path: string, name: string) => void;
+  onOpenTerminalSettings?: ((path: string, name: string) => void) | undefined;
   customProjectNames?: Readonly<Record<string, string>> | undefined;
   onPinThread: (threadId: string) => void;
   onUnpinThread: (threadId: string) => void;
@@ -78,7 +88,45 @@ function resolveDropPosition(event: DragEvent, element: HTMLElement): ProjectReo
   return offsetY < rect.height / 2 ? "before" : "after";
 }
 
-export function ProjectSidebarTree({
+// App also renders streamed conversation content. Keep its changing callback
+// identities outside the memoized tree, while dispatching to the latest committed
+// handlers so project/thread actions never capture stale application state.
+export function ProjectSidebarTree(props: ProjectSidebarTreeProps) {
+  const latest = useRef(props);
+  useLayoutEffect(() => {
+    latest.current = props;
+  });
+  const actions = useMemo(() => ({
+    onSwitchProject: (path: string) => latest.current.onSwitchProject(path),
+    onSelectThread: (thread: ThreadSummary) => latest.current.onSelectThread(thread),
+    onToggleProjectCollapsed: (path: string) => latest.current.onToggleProjectCollapsed(path),
+    onExpandProjectThreads: (path: string) => latest.current.onExpandProjectThreads(path),
+    onReorderProjects: (from: string, to: string, position: ProjectReorderPosition) =>
+      latest.current.onReorderProjects(from, to, position),
+    onOpenProjectPath: (path: string) => latest.current.onOpenProjectPath(path),
+    onPinProject: (path: string) => latest.current.onPinProject(path),
+    onUnpinProject: (path: string) => latest.current.onUnpinProject(path),
+    onRemoveProject: (path: string) => latest.current.onRemoveProject(path),
+    onRenameProject: (path: string, name: string) => latest.current.onRenameProject(path, name),
+    onResetProjectName: (path: string) => latest.current.onResetProjectName(path),
+    onOpenTerminalSettings: (path: string, name: string) =>
+      latest.current.onOpenTerminalSettings?.(path, name),
+    onPinThread: (id: string) => latest.current.onPinThread(id),
+    onUnpinThread: (id: string) => latest.current.onUnpinThread(id),
+    onDeleteThread: (thread: ThreadSummary) => latest.current.onDeleteThread(thread),
+  }), []);
+  return (
+    <MemoizedProjectSidebarTree
+      {...props}
+      {...actions}
+      onOpenTerminalSettings={props.onOpenTerminalSettings ? actions.onOpenTerminalSettings : undefined}
+    />
+  );
+}
+
+const MemoizedProjectSidebarTree = memo(ProjectSidebarTreeView);
+
+function ProjectSidebarTreeView({
   projectTree,
   currentProjectPath,
   activeThreadId,
