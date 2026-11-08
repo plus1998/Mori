@@ -189,7 +189,7 @@ test("capability resolution uses current server and agent identity and rejects d
     .map(composerReferenceToken)
     .join(" ");
   const prompt = await service.resolvePrompt("current", tokens);
-  const details = JSON.parse(prompt.split("<eco_references>\n")[1]!.split("\n</eco_references>")[0]!);
+  const details = JSON.parse(prompt.split("<mori_references>\n")[1]!.split("\n</mori_references>")[0]!);
   expect(details).toMatchObject([
     { type: "mcp", name: "Mongo renamed", server: "Mongo_actual" },
     { type: "subagent", agentKey: "coder" },

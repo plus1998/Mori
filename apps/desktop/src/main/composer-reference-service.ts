@@ -212,7 +212,7 @@ export class ComposerReferenceService {
       return `[${ref.kind}: ${ref.label}]`;
     });
     return details.length
-      ? `${replaced}\n\n<eco_references>\n${JSON.stringify(details)}\n</eco_references>`
+      ? `${replaced}\n\n<mori_references>\n${JSON.stringify(details)}\n</mori_references>`
       : replaced;
   }
   private requireThread(id: unknown): ThreadSummary {
