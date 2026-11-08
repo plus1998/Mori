@@ -12,6 +12,7 @@ import type { TerminalStreamEvent } from "../shared/ipc";
 import { i18n } from "./i18n";
 import { TerminalContextMenu, type TerminalContextMenuAnchor } from "./TerminalContextMenu";
 import { installTerminalLinkHandling } from "./terminal-links";
+import { installTerminalRenderControl, type TerminalRenderControl } from "./terminal-render-control";
 import {
   copyTerminalSelection,
   handleTerminalSelectionShortcut,
@@ -313,6 +314,7 @@ export function GhosttyTerminal({
   const onUserInputRef = useRef(onUserInput);
   const termRef = useRef<GhosttyTerminalType | undefined>(undefined);
   const fitRef = useRef<FitAddon | undefined>(undefined);
+  const renderControlRef = useRef<TerminalRenderControl | undefined>(undefined);
   const dimensionsReadyRef = useRef(false);
   const initialResizeSyncedRef = useRef(false);
   const [terminalEpoch, setTerminalEpoch] = useState(0);
@@ -426,6 +428,12 @@ export function GhosttyTerminal({
       });
 
       terminal.open(mount);
+      const renderControl = installTerminalRenderControl(terminal, activeRef.current);
+      renderControlRef.current = renderControl;
+      cleanups.push(() => {
+        renderControl.dispose();
+        renderControlRef.current = undefined;
+      });
       cleanups.push(installTerminalSelectionEnhancements(terminal));
       cleanups.push(installTerminalLinkHandling(terminal));
 
@@ -542,6 +550,10 @@ export function GhosttyTerminal({
       if (disposed || !mount) {
         return;
       }
+      for (const cleanup of cleanups.splice(0).reverse()) cleanup();
+      termRef.current?.dispose();
+      termRef.current = undefined;
+      fitRef.current = undefined;
       const message = error instanceof Error ? error.message : String(error);
       mount.textContent = i18n.t("terminal.initFailed", { detail: message });
       mount.style.color = "var(--terminal-fg, var(--text-primary))";
@@ -555,7 +567,7 @@ export function GhosttyTerminal({
       if (resizeTimer !== undefined) {
         window.clearTimeout(resizeTimer);
       }
-      for (const cleanup of cleanups.reverse()) {
+      for (const cleanup of cleanups.splice(0).reverse()) {
         cleanup();
       }
       termRef.current?.dispose();
@@ -632,11 +644,24 @@ export function GhosttyTerminal({
     };
     const queueWrite = (data: string) => {
       writeBuffer += data;
+      // Hidden windows can suspend rAF indefinitely. Still parse their output
+      // now, so pending output cannot grow without bound while paint is paused.
+      if (document.visibilityState !== "visible") {
+        if (writeFrame !== undefined) window.cancelAnimationFrame(writeFrame);
+        flushWriteBuffer();
+        return;
+      }
       if (writeFrame !== undefined) {
         return;
       }
       writeFrame = window.requestAnimationFrame(flushWriteBuffer);
     };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") return;
+      if (writeFrame !== undefined) window.cancelAnimationFrame(writeFrame);
+      flushWriteBuffer();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
 
     const unsubscribe = eco.onTerminalEvent((event: TerminalStreamEvent) => {
       if (event.sessionId !== sessionId) {
@@ -668,12 +693,14 @@ export function GhosttyTerminal({
       }
       onData.dispose();
       unsubscribe();
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [initialOutput, sessionId, terminalEpoch]);
 
   useEffect(() => {
     const terminal = termRef.current;
     const mount = mountRef.current;
+    renderControlRef.current?.setActive(active);
     if (!terminal || !mount) {
       return undefined;
     }
@@ -695,7 +722,7 @@ export function GhosttyTerminal({
       window.cancelAnimationFrame(frame);
       mount.removeEventListener("pointerdown", onPointerDown);
     };
-  }, [active]);
+  }, [active, terminalEpoch]);
 
   return (
     <div className="ghostty-terminal-host" data-component="terminal">
