@@ -318,3 +318,181 @@ test("lightweight panel reads preserve thinking, tool-writing, errors and termin
     db.close();
   }
 });
+
+test("request span reads reuse settled history, load changed sources only, and invalidate on rewind", () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    const store = new ConversationStore(db, { freshStorageMode: "v2_only" });
+    store.initialize();
+    store.saveThread({
+      id: "cached",
+      title: "Cached",
+      prompt: "hello",
+      workspacePath: "/tmp/project",
+      status: "running",
+      message: "",
+      createdAt: "2026-11-08T00:00:00Z",
+      updatedAt: "2026-11-08T00:00:00Z",
+      coreKind: "codex",
+    });
+    store
+      .conversationV2()
+      .appendRuntime({
+        conversationId: "cached",
+        eventId: "run",
+        runId: "run",
+        turnId: "run",
+        type: "run.started",
+        occurredAt: "2026-11-08T00:00:00Z",
+        payload: { status: "running" },
+      });
+    let index = 0;
+    const append = (patch: Partial<ThreadRunEventInput> = {}) =>
+      store.appendConversationRuntimeEvent({
+        id: `event-${index}`,
+        threadId: "cached",
+        runAttemptId: "run",
+        eventType: "request.started",
+        requestId: `request-${index}`,
+        scope: "main",
+        streamState: "none",
+        role: "main",
+        message: "",
+        observedAt: new Date(1794096000000 + index++ * 1000).toISOString(),
+        ...patch,
+      });
+    for (let i = 0; i < 80; i++) append();
+    let sourceReads = 0,
+      sourceRows = 0;
+    const prepare = db.prepare.bind(db);
+    db.prepare = ((sql: string) => {
+      const statement = prepare(sql);
+      if (sql.includes("SELECT p.input_id, p.version_seq")) {
+        const all = statement.all.bind(statement);
+        statement.all = ((...args: Parameters<typeof all>) => {
+          sourceReads++;
+          const rows = all(...args);
+          sourceRows += rows.length;
+          return rows;
+        }) as typeof statement.all;
+      }
+      return statement;
+    }) as typeof db.prepare;
+    const read = () => store.getConversationV2ProjectionExtras("cached")!.requestSpans;
+    const initial = read();
+    expect(initial).toHaveLength(80);
+    expect(sourceRows).toBe(80);
+    // Consumer mutations cannot corrupt a later IPC response.
+    initial[0]!.status = "failed";
+    for (let i = 0; i < 20; i++) expect(read()[0]!.status).toBe("waiting_first_token");
+    expect(sourceReads).toBe(1);
+    append({ eventType: "request.completed", requestId: "request-0" });
+    expect(read().find((span) => span.requestId === "request-0")?.status).toBe("completed");
+    expect(sourceRows).toBe(81);
+    append({
+      id: "thinking",
+      requestId: "request-79",
+      eventType: "thinking.delta",
+      streamKey: "thinking",
+      streamState: "placeholder",
+      role: "thinking",
+    });
+    expect(read().find((span) => span.requestId === "request-79")?.pendingThinkingSince).toBeDefined();
+    const beforeMessage = sourceRows;
+    const row = prepare("SELECT message_id FROM conversation_provider_inputs_v2 WHERE input_id = ?").get(
+      "thinking",
+    ) as { message_id: string | null };
+    // A nonempty thinking stream has a materialized message. A direct V2 body
+    // edit changes that message without changing its provider receipt.
+    append({
+      id: "thinking",
+      requestId: "request-79",
+      eventType: "thinking.delta",
+      streamKey: "thinking",
+      streamState: "streaming",
+      role: "thinking",
+      message: "a",
+    });
+    expect(read().find((span) => span.requestId === "request-79")?.pendingThinkingSince).toBeUndefined();
+    const message = prepare("SELECT message_id FROM conversation_provider_inputs_v2 WHERE input_id = ?").get(
+      "thinking",
+    ) as { message_id: string };
+    expect(message.message_id).toBeTruthy();
+    store
+      .conversationV2()
+      .appendRuntime({
+        conversationId: "cached",
+        eventId: "direct-message-edit",
+        messageId: message.message_id,
+        type: "message.replaced",
+        occurredAt: "2026-11-08T00:05:00Z",
+        payload: { body: "" },
+      });
+    expect(read().find((span) => span.requestId === "request-79")?.pendingThinkingSince).toBeDefined();
+    expect(sourceRows - beforeMessage).toBe(2);
+    expect(row.message_id).toBeNull();
+    store.updateThread("cached", { status: "idle", message: "" });
+    expect(read().every((span) => span.status === "completed")).toBe(true);
+    store.updateThread("cached", { status: "running", message: "" });
+    expect(read().find((span) => span.requestId === "request-1")?.status).toBe("waiting_first_token");
+    store.conversationV2().appendRuntime({
+      conversationId: "cached",
+      eventId: "rewrite-cached",
+      type: "history.deleted",
+      occurredAt: "2026-11-08T00:10:00Z",
+      payload: {
+        reason: "test history invalidation",
+        affectedMessageIds: [message.message_id],
+        affectedProviderInputIds: ["thinking", "event-1"],
+      },
+    });
+    expect(read()).toEqual(
+      buildThreadRunProjectionRequestSpans({
+        events: store.listConversationRuntimeSources("cached"),
+        threadStatus: store.getThread("cached")!.status,
+        agents: store.listAgentInstances("cached"),
+      }),
+    );
+  } finally {
+    db.close();
+  }
+});
+
+test("transaction-only request span reads never survive rollback", () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    const store = new ConversationStore(db, { freshStorageMode: "v2_only" });
+    store.initialize();
+    store.saveThread({
+      id: "tx",
+      title: "tx",
+      prompt: "hello",
+      workspacePath: "/tmp/project",
+      status: "running",
+      message: "",
+      createdAt: "2026-11-08T00:00:00Z",
+      updatedAt: "2026-11-08T00:00:00Z",
+      coreKind: "codex",
+    });
+    const read = () => store.getConversationV2ProjectionExtras("tx")!.requestSpans;
+    store.appendConversationRuntimeEvent({
+      id: "request",
+      threadId: "tx",
+      requestId: "r",
+      eventType: "request.started",
+      scope: "main",
+      role: "main",
+      streamState: "none",
+      message: "",
+      observedAt: "2026-11-08T00:00:00Z",
+    });
+    expect(read()[0]?.status).toBe("waiting_first_token");
+    db.exec("BEGIN IMMEDIATE");
+    db.prepare("UPDATE threads SET status = 'idle' WHERE id = 'tx'").run();
+    expect(read()[0]?.status).toBe("completed");
+    db.exec("ROLLBACK");
+    expect(read()[0]?.status).toBe("waiting_first_token");
+  } finally {
+    db.close();
+  }
+});

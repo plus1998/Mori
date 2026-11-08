@@ -80,7 +80,7 @@ import {
 } from "./conversation-v2-legacy-adapter";
 import { ConversationV2LegacyMigrator } from "./conversation-v2-legacy-migration";
 import { conversationV2RunEventForAttempt } from "./conversation-v2-run-events";
-import { buildThreadRunProjectionRequestSpans } from "./conversation-v2-runtime-projection";
+import { ConversationRequestSpanCache } from "./conversation-request-span-cache";
 import { ConversationV2RuntimeWriter } from "./conversation-v2-runtime-writer";
 import {
   type ConversationAppendResult,
@@ -705,6 +705,7 @@ export class ConversationStore {
   private readonly threadRunEventAppendedListeners = new Set<(event: ThreadRunEvent) => void>();
   private readonly v2: ConversationV2Store;
   private readonly runtimeWriter: ConversationV2RuntimeWriter;
+  private readonly requestSpanCache: ConversationRequestSpanCache;
   private readonly planExecutions: PlanExecutionStore;
   private storageMode: ConversationV2StorageMode = "legacy_compat";
   private promptImageFileStore: PromptImageFileStore | undefined;
@@ -716,6 +717,7 @@ export class ConversationStore {
     this.v2 = new ConversationV2Store(db);
     this.planExecutions = new PlanExecutionStore(db);
     this.runtimeWriter = new ConversationV2RuntimeWriter(db, this.v2);
+    this.requestSpanCache = new ConversationRequestSpanCache(db);
     this.promptImageFileStore = options.promptImageFileStore;
   }
 
@@ -906,12 +908,7 @@ export class ConversationStore {
     // Request spans are derived from the V2 provider event index at read time.
     // This keeps streaming state current without a second write for every token
     // delta, and never consults the legacy event/projection tables.
-    const derivedRequestSpans = buildThreadRunProjectionRequestSpans({
-      events: this.listConversationRequestSpanSources(id),
-      threadStatus: thread.status,
-      agents,
-      historyComplete: true,
-    });
+    const derivedRequestSpans = this.requestSpanCache.read(this.v2.head(id), thread.status, agents);
     return {
       requestSpans: derivedRequestSpans,
       ledgerEvents: this.listConversationV2UsageLedgerEventViews(ledgerEvents, derivedRequestSpans),
@@ -955,49 +952,6 @@ export class ConversationStore {
       return views;
     }
     return spans.length > 0 ? attachSpanTimingToLedgerEventViews(views, spans) : views;
-  }
-
-  /**
-   * Timing needs event envelopes and ownership metadata, not every historical
-   * message body. Keep the full source reader for history operations; this
-   * projection reads text only where the span reducer actually consumes it.
-   * All rows remain present so terminal timestamps and ordering are unchanged.
-   */
-  private listConversationRequestSpanSources(threadId: string): ThreadRunEvent[] {
-    const rows = this.db
-      .prepare(`
-      SELECT p.input_id, p.conversation_id, p.version_seq, p.source_json,
-        CASE WHEN json_extract(p.source_json, '$.eventType') IN
-          ('thinking.delta', 'tool.writing', 'request.failed', 'api.error')
-          THEN CASE WHEN p.message_id IS NULL THEN p.message ELSE COALESCE(m.body, '') END
-          ELSE '' END AS message
-      FROM conversation_provider_inputs_v2 p
-      LEFT JOIN conversation_messages_v2 m
-        ON m.message_id = p.message_id AND m.conversation_id = p.conversation_id
-        AND json_extract(p.source_json, '$.eventType') IN
-          ('thinking.delta', 'tool.writing', 'request.failed', 'api.error')
-      WHERE p.conversation_id = ? AND p.visible = 1
-      ORDER BY p.version_seq ASC, p.input_id ASC
-    `)
-      .all(threadId) as Array<{
-      input_id: string;
-      conversation_id: string;
-      version_seq: number;
-      source_json: string;
-      message: string;
-    }>;
-    return rows.map((row) => {
-      // Decode the source once rather than repeatedly extracting every field
-      // through the full-text provider view. Preserve all ownership metadata.
-      const source = JSON.parse(row.source_json) as ThreadRunEventInput;
-      return withLegacyConversationV2MessageIdentity({
-        ...source,
-        id: row.input_id,
-        threadId: row.conversation_id,
-        sequence: row.version_seq,
-        message: repairActivityText(row.message).text,
-      });
-    });
   }
 
   /** Persist only the mutable panel facts owned by V2. */

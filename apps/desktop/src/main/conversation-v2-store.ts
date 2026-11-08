@@ -935,6 +935,8 @@ export class ConversationV2Store {
       );
       CREATE INDEX IF NOT EXISTS idx_conversation_provider_inputs_v2_sequence
         ON conversation_provider_inputs_v2(conversation_id, version_seq);
+      CREATE INDEX IF NOT EXISTS idx_conversation_provider_inputs_v2_message
+        ON conversation_provider_inputs_v2(conversation_id, message_id) WHERE message_id IS NOT NULL;
       CREATE VIEW IF NOT EXISTS conversation_provider_events_v2 AS
         SELECT p.input_id AS id, p.conversation_id AS thread_id,
           p.version_seq AS sequence,
