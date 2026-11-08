@@ -599,6 +599,94 @@ test("wakeup budget survives deletion; thread deletion cancels messages but keep
   assert.ok(f.store.get(independent.id));
 });
 
+test("scheduled task conversations cannot create Agent messages during dispatch or after restart and parent deletion", async t => {
+  let f: Awaited<ReturnType<typeof fixture>>;
+  let taskThreadId = "";
+  const message = (threadId: string): ScheduleCreateInput => ({
+    kind: "session_message", requestId: "no-recursive-wakeup", name: "Wake", threadId,
+    prompt: "check again", trigger: { type: "at", at: new Date(baseTime + 120_000).toISOString() },
+  });
+  f = await fixture(t, {
+    assertThread: () => {},
+    dispatch: async occurrence => {
+      taskThreadId = occurrence.threadId!;
+      assert.equal(f.service.canCreateScheduledMessage(taskThreadId), false);
+      assert.throws(() => f.service.create(message(taskThreadId), {
+        source: "agent", threadId: taskThreadId, wakeDelaySeconds: 60,
+      }), /不允许创建定时消息/);
+      return { threadId: taskThreadId };
+    },
+  });
+  const definition = f.service.create(task("no-nested-message"));
+  f.setNow(baseTime + 60_000);
+  await f.service.tick();
+  assert.ok(taskThreadId);
+  assert.equal(f.store.list().length, 1);
+  assert.equal(f.store.countAgentWakeups(taskThreadId, 0), 0);
+
+  // Users may still schedule messages manually in the generated conversation.
+  assert.equal(f.service.create(message(taskThreadId)).source, "user");
+  const occurrence = f.store.occurrences()[0]!;
+  f.store.saveOccurrence({ ...occurrence, status: "completed" });
+  f.service.remove(definition.id);
+  const reopened = new SchedulingStore(f.dbPath);
+  t.after(() => reopened.close());
+  const restarted = new SchedulingService(reopened, f.deps, () => baseTime + 60_000);
+  assert.equal(restarted.canCreateScheduledMessage(taskThreadId), false);
+  assert.throws(() => restarted.create(message(taskThreadId), { source: "agent", threadId: taskThreadId }), /不允许创建定时消息/);
+  assert.equal(reopened.countAgentWakeups(taskThreadId, 0), 0);
+
+  // Names and thread prefixes are not provenance; ordinary Agent wakeups remain available.
+  const ordinaryThreadId = "thr_occ_not-a-real-task";
+  assert.equal(restarted.create(message(ordinaryThreadId), { source: "agent", threadId: ordinaryThreadId }).source, "agent");
+});
+
+test("task-message restrictions apply before legacy idempotency receipts are returned", async t => {
+  const f = await fixture(t);
+  const input: ScheduleCreateInput = { kind: "session_message", requestId: "legacy-wake", name: "Wake", threadId: "source", prompt: "check", trigger: { type: "at", at: new Date(baseTime + 60_000).toISOString() } };
+  const actor = { source: "agent" as const, threadId: "source" };
+  const legacy = f.service.create(input, actor);
+  const definition = f.service.create(task("legacy-task"));
+  f.store.saveOccurrence({
+    id: "legacy-occurrence", scheduleId: definition.id, definition, threadId: "source", status: "completed",
+    scheduledAt: new Date(baseTime).toISOString(), createdAt: new Date(baseTime).toISOString(), updatedAt: new Date(baseTime).toISOString(),
+  });
+  assert.throws(() => f.service.create(input, actor), /不允许创建定时消息/);
+  assert.equal(f.store.get(legacy.id)?.id, legacy.id);
+  assert.equal(f.store.countAgentWakeups("source", 0), 1);
+});
+
+test("MCP hides task-conversation message creation and rejects stale direct calls without leaking trigger details", async t => {
+  const f = await fixture(t);
+  const definition = f.service.create(task("mcp-task-message-guard"));
+  f.setNow(baseTime + 60_000);
+  await f.service.tick();
+  const taskThreadId = f.store.occurrences()[0]!.threadId!;
+  const gateway = new SchedulingMcpGateway(f.service);
+  t.after(() => gateway.close());
+  const taskInjection = await gateway.resolveInjection(taskThreadId);
+  const ordinaryInjection = await gateway.resolveInjection("source");
+  assert.equal(taskInjection.codexServer.enabledTools?.includes("schedule_message"), false);
+  assert.equal(ordinaryInjection.codexServer.enabledTools?.includes("schedule_message"), true);
+  assert.equal(taskInjection.promptAppend, ordinaryInjection.promptAppend);
+  const request = async (injection: typeof taskInjection, method: string, params = {}) => {
+    const entry = injection.sdkEntry as { url: string; headers: Record<string, string> };
+    const response = await fetch(entry.url, { method: "POST", headers: { ...entry.headers, "content-type": "application/json", accept: "application/json, text/event-stream" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) });
+    return response.json() as Promise<{ result: { tools?: Array<{ name: string }>; isError?: boolean; content: Array<{ text: string }> } }>;
+  };
+  const tools = (await request(taskInjection, "tools/list")).result.tools!;
+  assert.equal(tools.some(tool => tool.name === "schedule_message"), false);
+  assert.ok(tools.some(tool => tool.name === "list_schedules"));
+  assert.equal((await request(ordinaryInjection, "tools/list")).result.tools!.some(tool => tool.name === "schedule_message"), true);
+  const result = (await request(taskInjection, "tools/call", { name: "schedule_message", arguments: {
+    requestId: "stale-call", name: "Wake", prompt: "check", delaySeconds: 60,
+  } })).result;
+  assert.equal(result.isError, true);
+  assert.equal(result.content[0]!.text, "当前会话不允许创建定时消息。");
+  assert.deepEqual(f.store.list().map(item => item.id), [definition.id]);
+  assert.equal(f.store.countAgentWakeups(taskThreadId, 0), 0);
+});
+
 test("MCP authenticates conversation and rejects Core/model choice in Agent tools", async t => {
   const f = await fixture(t);
   const gateway = new SchedulingMcpGateway(f.service);

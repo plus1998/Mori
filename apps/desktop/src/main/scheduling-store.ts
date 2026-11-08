@@ -90,6 +90,9 @@ export class SchedulingStore {
   ownsTaskRun(scheduleId: string, threadId: string): boolean {
     return Boolean(this.db.prepare("SELECT 1 FROM schedule_occurrences WHERE schedule_id=? AND json_extract(data,'$.threadId')=? AND json_extract(data,'$.definition.kind')='scheduled_task' LIMIT 1").get(scheduleId, threadId));
   }
+  isScheduledTaskThread(threadId: string): boolean {
+    return Boolean(this.db.prepare("SELECT 1 FROM schedule_occurrences WHERE json_extract(data,'$.threadId')=? AND json_extract(data,'$.definition.kind')='scheduled_task' LIMIT 1").get(threadId));
+  }
   saveOccurrence(occurrence: ScheduleOccurrence): void {
     this.db.prepare("INSERT INTO schedule_occurrences(id,schedule_id,status,scheduled_at,data) VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET status=excluded.status,data=excluded.data")
       .run(occurrence.id, occurrence.scheduleId, occurrence.status, occurrence.scheduledAt, JSON.stringify(occurrence));

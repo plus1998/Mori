@@ -42,7 +42,15 @@ export class SchedulingService {
     return !this.stopped && this.store.hasWorkRequiringAwake();
   }
 
+  canCreateScheduledMessage(threadId: string): boolean {
+    return !this.store.isScheduledTaskThread(threadId);
+  }
+
   create(input: ScheduleCreateInput, actor: SchedulingActor = { source: "user" }): ScheduleDefinition {
+    // Use durable host provenance, including after restart or deletion of the parent schedule.
+    // Enforce before idempotent receipts so stale tool calls cannot bypass this restriction.
+    if (actor.source === "agent" && input.kind === "session_message" && actor.threadId &&
+      !this.canCreateScheduledMessage(actor.threadId)) throw new Error("当前会话不允许创建定时消息。");
     const requestId = requiredText(input.requestId, "请求标识", 200);
     const key = `${actor.source}:${actor.threadId ?? "local"}:${requestId}`;
     const name = requiredText(input.name, "名称", 200);

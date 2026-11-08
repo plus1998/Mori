@@ -30,6 +30,12 @@ export class SchedulingMcpGateway {
   private startPromise: Promise<void> | undefined;
   constructor(private readonly service: SchedulingService) {}
 
+  private toolsForThread(threadId: string): McpToolDefinition[] {
+    return this.service.canCreateScheduledMessage(threadId)
+      ? schedulingToolDefinitions
+      : schedulingToolDefinitions.filter(item => item.name !== "schedule_message");
+  }
+
   async resolveInjection(threadId: string) {
     if (!this.startPromise) this.startPromise = this.start();
     await this.startPromise;
@@ -38,7 +44,7 @@ export class SchedulingMcpGateway {
       name: SCHEDULING_MCP_SERVER, controlBaseUrl: `http://127.0.0.1:${port}`,
       controlSecretHeader: "X-Eco-Scheduling-Secret", controlSecret: this.secret,
       authToken: this.auth.ensure(threadId).token,
-      enabledTools: schedulingToolDefinitions.map(item => item.name),
+      enabledTools: this.toolsForThread(threadId).map(item => item.name),
     });
     return { ...injection, promptAppend: SCHEDULING_PROMPT };
   }
@@ -51,8 +57,9 @@ export class SchedulingMcpGateway {
       void handleMcpStreamableHttpRequest(request, response, {
         serverName: SCHEDULING_MCP_SERVER, instructions: SCHEDULING_PROMPT,
         listTools: async ({ authToken }) => {
-          if (!this.auth.resolve(authToken)) throw new Error("缺少当前会话认证。");
-          return { tools: schedulingToolDefinitions };
+          const threadId = this.auth.resolve(authToken)?.threadId;
+          if (!threadId) throw new Error("缺少当前会话认证。");
+          return { tools: this.toolsForThread(threadId) };
         },
         callTool: async ({ name, arguments: args, authToken }) => {
           try {
