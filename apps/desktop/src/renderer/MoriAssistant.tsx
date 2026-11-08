@@ -1438,7 +1438,7 @@ export function MoriAssistantPanel({
                   size={ICON_SIZE.sm}
                   className="spinning"
                 />
-                {snapshot.activity.startsWith("mori_") ? "正在操作桌面" : snapshot.activity}
+                {snapshot.activity}
               </div>
             ) : null}
             {snapshot?.tasks.length ? (

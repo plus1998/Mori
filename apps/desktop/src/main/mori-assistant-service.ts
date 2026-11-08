@@ -17,6 +17,7 @@ import {
   MoriAssistantRuntime,
 } from "./mori-assistant-runtime";
 import { MoriAssistantStore, parseAssistantSettings } from "./mori-assistant-store";
+import { moriToolActivity } from "./mori-assistant-activity";
 import type { MoriAssistantMcp } from "./mori-assistant-mcp";
 import { MORI_TODO_TOOLS, MoriAssistantTodos } from "./mori-assistant-todos";
 import { MORI_ACCOUNT_QUOTA_TOOL, MORI_ACCOUNT_LIST_TOOL, MORI_MODEL_TOOLS, isMoriModelTool, modelManagementToolInput, modelManagementToolName } from "./mori-assistant-models";
@@ -193,6 +194,7 @@ export class MoriAssistantService {
   private status: MoriAssistantSnapshot["status"] = "idle";
   private error: string | undefined;
   private activity: string | undefined;
+  private readonly activeTools = new Map<string, string>();
   private pendingInput: MoriAssistantPendingInput | undefined;
   private pendingAnswer: { resolve(answer: string): void; reject(error: Error): void } | undefined;
   private liveMessages = new Map<string, ConversationMessage>();
@@ -572,6 +574,7 @@ export class MoriAssistantService {
     this.activeThreadId = threadId;
     this.activeSchedule = scheduled;
     this.liveMessages.clear();
+    this.activeTools.clear();
     this.toolExecuted = false;
     this.activeSource = source;
     this.activeCommand = commandId;
@@ -597,7 +600,7 @@ export class MoriAssistantService {
           hasAlternative = selected.hasAlternative;
           await this.ensureRuntime(threadId, selected.connection);
           if (this.stopped || this.closed) throw new Error("助手请求已停止。");
-          this.activity = "正在回复";
+          this.activity = "正在思考";
           this.emit();
           const runtime = this.runtime;
           if (!runtime) throw new Error("助手运行实例已断开。");
@@ -653,6 +656,7 @@ export class MoriAssistantService {
       this.activeSchedule = undefined;
       this.activePrompt = "";
       this.activity = undefined;
+      this.activeTools.clear();
       this.pendingInput = undefined;
       this.pendingAnswer = undefined;
       this.emit();
@@ -769,7 +773,7 @@ export class MoriAssistantService {
       onText: (id, text, final) => this.persistText(id, text, final),
       ...(this.deps.onUsage ? { onUsage: this.deps.onUsage } : {}),
       onActivity: (text) => {
-        this.activity = text;
+        if (this.runId && !this.activeTools.size) this.activity = text;
         this.emit();
       },
     });
@@ -1274,7 +1278,8 @@ export class MoriAssistantService {
         toolCallId: callId,
         payload: { name, ...payload },
       });
-    this.activity = name;
+    this.activity = moriToolActivity(name, args);
+    this.activeTools.set(callId, this.activity);
     this.emit();
     append("tool.started", { input: modelManagementToolInput(name, args) });
     try {
@@ -1286,6 +1291,12 @@ export class MoriAssistantService {
     } catch (error) {
       append("tool.failed", { output: { error: error instanceof Error ? error.message : String(error) } });
       throw error;
+    } finally {
+      if (this.runId === runId) {
+        this.activeTools.delete(callId);
+        this.activity = [...this.activeTools.values()].at(-1) ?? "正在思考";
+        this.emit();
+      }
     }
   }
 

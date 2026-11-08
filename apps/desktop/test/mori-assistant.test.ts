@@ -11,7 +11,9 @@ import { defaultSubagentAvailability } from "@eco/runtime/subagent-availability"
 import { ConversationStore } from "../src/main/conversation-store";
 import { ProviderStore } from "../src/main/provider-store";
 import { ModelManagementService } from "../src/main/model-management-service";
-import { MoriAssistantService, type MoriAssistantDeps } from "../src/main/mori-assistant-service";
+import { MORI_ASSISTANT_TOOLS, MoriAssistantService, type MoriAssistantDeps } from "../src/main/mori-assistant-service";
+import { MORI_TOOL_ACTIVITIES, MORI_COMPUTER_ACTIVITIES, moriToolActivity } from "../src/main/mori-assistant-activity";
+import { ECO_COMPUTER_USE_TOOLS } from "../src/shared/computer-use";
 import { MoriScheduledActions } from "../src/main/mori-scheduled-actions";
 import { MoriAssistantStore, parseAssistantSettings } from "../src/main/mori-assistant-store";
 import { KeyboardShortcutsStore } from "../src/main/keyboard-shortcuts-store";
@@ -168,6 +170,7 @@ async function fixture(options: {
   viewScreenshot?: MoriAssistantDeps["computerUse"]["viewScreenshot"];
   defaultRuntimeConfig?: MoriAssistantDeps["defaultRuntimeConfig"];
   settingsChanged?: MoriAssistantDeps["settingsChanged"];
+  manageModels?: MoriAssistantDeps["manageModels"];
 } = {}) {
   const root = await fs.realpath(await temp());
   const executable = path.join(root, "fake-codex");
@@ -188,13 +191,23 @@ const callMcp=async(server,name,args,quotaAfter=false)=>{
  const result=await response.json();if(result.error)throw new Error(result.error.message);
  require('node:fs').appendFileSync(${JSON.stringify(path.join(root, "runtime-tool-results.jsonl"))},JSON.stringify({name,result:result.result})+'\\n');
  if(quotaAfter)send({method:'turn/completed',params:{threadId:thread,turn:{id:'turn-'+turn,status:'failed',error:{message:'usage_limit_reached'}}}});
- else complete();
+ else await finish();
 };
 const complete=()=>{
  const answer=text.startsWith('工作会话 ')?'任务已完成，已修复 loading 图标旋转。':'收到：'+text;
  send({method:'item/agentMessage/delta',params:{threadId:thread,itemId:'answer-'+epoch+'-'+thread+'-'+turn,delta:answer}});
  send({method:'item/completed',params:{threadId:thread,item:{id:'answer-'+epoch+'-'+thread+'-'+turn,type:'agentMessage',text:answer}}});
  send({method:'turn/completed',params:{threadId:thread,turn:{id:'turn-'+turn,status:'completed'}}});
+};
+const finish=async()=>{
+ if(text.startsWith('activity-')){
+  const fs=require('node:fs');
+  const waitFor=async(file)=>{while(!fs.existsSync(file))await new Promise(resolve=>setTimeout(resolve,10));};
+  await waitFor(${JSON.stringify(path.join(root, "activity-reply"))});
+  send({method:'item/agentMessage/delta',params:{threadId:thread,itemId:'answer-'+epoch+'-'+thread+'-'+turn,delta:'开始回复'}});
+  await waitFor(${JSON.stringify(path.join(root, "activity-complete"))});
+ }
+ complete();
 };
 readline.createInterface({input:process.stdin}).on('line',line=>{
  const m=JSON.parse(line);
@@ -227,8 +240,8 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
    const args=text==='computer-catalog'?{}:{name:text==='computer-read'?'list_apps':'click',arguments:text==='computer-read'?{}:{app:'test',index:1}};
    callMcp(computer,name,args).catch(error=>send({method:'turn/completed',params:{threadId:thread,turn:{id:'turn-'+turn,status:'failed',error:{message:String(error)}}}}));
   }
-  else if(text.startsWith('mcp-tool:')){
-   const request=JSON.parse(text.slice('mcp-tool:'.length).split('\\n')[0]);
+  else if(text.startsWith('mcp-tool:')||text.startsWith('activity-mcp-tool:')){
+   const request=JSON.parse(text.slice(text.indexOf('mcp-tool:')+'mcp-tool:'.length).split('\\n')[0]);
    callMcp(mcp?.enabled_tools.includes(request.name)?mcp:computer?.enabled_tools.includes(request.name)?computer:scheduling?.enabled_tools.includes(request.name)?scheduling:models?.enabled_tools.includes(request.name)?models:tasks,request.name,request.args).catch(error=>send({method:'turn/completed',params:{threadId:thread,turn:{id:'turn-'+turn,status:'failed',error:{message:String(error)}}}}));
   }
   else if(text.includes('SCHEDULE_TOOL:')){
@@ -246,6 +259,10 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
    send({method:'turn/completed',params:{threadId:thread,turn:{id:'turn-'+turn,status:'failed',error:{message:'usage_limit_reached'}}}});
   }
   else if(text==='quota-after-tool')callMcp(models,'mori_list_accounts',{},true).catch(error=>send({method:'turn/completed',params:{threadId:thread,turn:{id:'turn-'+turn,status:'failed',error:{message:String(error)}}}}));
+  else if(text==='activity-chat'){
+   send({method:'item/started',params:{threadId:thread,item:{id:'reasoning-'+turn,type:'reasoning'}}});
+   void finish();
+  }
   else if(text!=='wait')setTimeout(complete,5);
   return;
  }
@@ -377,7 +394,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
     })),
     defaultScheduleProfile: scheduleProfile,
     modelSettings: () => ({}),
-    manageModels: (name, args) => modelManagement.invoke(name, args),
+    manageModels: options.manageModels ?? ((name, args) => modelManagement.invoke(name, args)),
     customProviders: () =>
       providerEnabled
         ? [{ id: "custom", name: "Custom", models: [{ id: "custom-model", label: "Custom Model" }] }]
@@ -2126,6 +2143,71 @@ test("existing task prompts stay hidden across history pages without hiding user
   }
 });
 
+test("every Mori tool has an activity label and desktop reads differ from input actions", () => {
+  expect(Object.keys(MORI_TOOL_ACTIVITIES).sort()).toEqual(MORI_ASSISTANT_TOOLS.map(tool => tool.name).sort());
+  expect(Object.keys(MORI_COMPUTER_ACTIVITIES).sort()).toEqual([...ECO_COMPUTER_USE_TOOLS].sort());
+  expect(moriToolActivity("mori_list_todos", {})).toBe("正在查询待办");
+  expect(moriToolActivity("mori_computer_call", { name: "list_apps" })).toBe("正在读取桌面应用");
+  expect(moriToolActivity("mori_computer_call", { name: "click" })).toBe("正在点击界面");
+  expect(moriToolActivity("mori_mcp_call_tool", { name: "mijia-api:list_homes" })).toBe("正在调用 MCP 工具 mijia-api:list_homes");
+});
+
+async function waitForActivity(service: MoriAssistantService, activity: string) {
+  for (let i = 0; i < 200; i++) {
+    const snapshot = await service.snapshot();
+    if (snapshot.activity === activity) return snapshot;
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+  throw new Error(`Mori activity did not become ${activity}; current: ${(await service.snapshot()).activity}`);
+}
+
+test("ordinary conversation shows thinking then replying, clears on completion and resets next turn", async () => {
+  const f = await fixture();
+  try {
+    const running = f.service.send("activity-chat", "desktop", "activity-chat");
+    await waitForActivity(f.service, "正在思考");
+    await fs.writeFile(path.join(f.root, "activity-reply"), "");
+    const replying = await waitForActivity(f.service, "正在回复");
+    expect(f.conversations.conversationV2().toolsPage(replying.currentThreadId!, "mori-run-activity-chat").tools).toEqual([]);
+    await fs.writeFile(path.join(f.root, "activity-complete"), "");
+    await running;
+    expect((await f.service.snapshot()).activity).toBeUndefined();
+    const waiting = f.service.send("wait");
+    void waiting.catch(() => {});
+    await waitForActivity(f.service, "正在思考");
+    await f.service.cancel();
+    await expect(waiting).rejects.toThrow("停止");
+    expect((await f.service.snapshot()).activity).toBeUndefined();
+  } finally { await f.service.close(); f.db.close(); }
+});
+
+for (const fails of [false, true]) {
+  test(`Mori tool ${fails ? "failure" : "completion"} clears its activity before the model replies`, async () => {
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const f = await fixture({ manageModels: async () => {
+      await gate;
+      if (fails) throw new Error("test provider failure");
+      return [];
+    } });
+    try {
+      const commandId = `activity-tool-${fails}`;
+      const running = f.service.send(`activity-mcp-tool:${JSON.stringify({ name: "mori_models_list_providers", args: {} })}`, "desktop", commandId);
+      await waitForActivity(f.service, "正在查询服务商");
+      release();
+      const continuing = await waitForActivity(f.service, "正在思考");
+      const tools = f.conversations.conversationV2().toolsPage(continuing.currentThreadId!, `mori-run-${commandId}`).tools;
+      expect(tools).toHaveLength(1);
+      expect(tools[0]?.status).toBe(fails ? "failed" : "completed");
+      await fs.writeFile(path.join(f.root, "activity-reply"), "");
+      await waitForActivity(f.service, "正在回复");
+      await fs.writeFile(path.join(f.root, "activity-complete"), "");
+      await running;
+      expect((await f.service.snapshot()).activity).toBeUndefined();
+    } finally { release(); await f.service.close(); f.db.close(); }
+  });
+}
+
 test("assistant desktop tools persist input and output in the existing V2 log", async () => {
   const { service, db, conversations } = await fixture();
   try {
@@ -2168,7 +2250,7 @@ test("queued messages are persisted before acceptance and stopping cancels queue
   try {
     const first = await service.enqueue("wait", "desktop", "waiting-1");
     for (let i = 0; i < 100; i++) {
-      if ((await service.snapshot()).activity === "正在回复") break;
+      if ((await service.snapshot()).activity === "正在思考") break;
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
     const second = await service.enqueue("do not execute", "desktop", "waiting-2");

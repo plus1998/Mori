@@ -413,16 +413,18 @@ export class MoriAssistantRuntime {
     };
     if (!p || typeof p.threadId !== "string" || p.threadId !== this.threadId) return;
     if (method === "item/agentMessage/delta" && p.itemId && typeof p.delta === "string") {
+      this.deps.onActivity("正在回复");
       const text = (this.text.get(p.itemId) ?? "") + p.delta;
       this.text.set(p.itemId, text);
       this.deps.onText(p.itemId, text, false);
     }
     if (method === "item/completed" && p.item?.type === "agentMessage" && typeof p.item.text === "string") {
+      this.deps.onActivity("正在回复");
       this.text.set(p.item.id, p.item.text);
       this.deps.onText(p.item.id, p.item.text, true);
     }
-    if (method === "item/started" && p.item?.type === "dynamicToolCall")
-      this.deps.onActivity(p.item.tool ?? "正在处理");
+    if (method === "item/started" && p.item?.type === "reasoning")
+      this.deps.onActivity("正在思考");
     if (method === "turn/started" && p.turn) {
       this.turnId = p.turn.id;
       if (this.deps.connection.type === "chatgpt")
