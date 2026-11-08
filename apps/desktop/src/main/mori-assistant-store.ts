@@ -57,6 +57,15 @@ export function parseAssistantSettings(value: unknown): MoriAssistantSettings {
   if (!Array.isArray(result.mcpServerIds) || result.mcpServerIds.some(id => typeof id !== "string" || !id.trim()))
     throw new Error("助手 MCP 列表无效。");
   result.mcpServerIds = [...new Set(result.mcpServerIds.map(id => id.trim()))];
+  if (!result.mcpApprovalModes || typeof result.mcpApprovalModes !== "object" || Array.isArray(result.mcpApprovalModes))
+    throw new Error("助手 MCP 调用权限无效。");
+  for (const [id, mode] of Object.entries(result.mcpApprovalModes)) {
+    if (!id.trim() || (mode !== "always_ask" && mode !== "always_allow"))
+      throw new Error("助手 MCP 调用权限无效。");
+  }
+  result.mcpApprovalModes = Object.fromEntries(
+    Object.entries(result.mcpApprovalModes).filter(([id]) => result.mcpServerIds.includes(id)),
+  );
   // Return only known fields. Secrets and runtime state never enter exported settings.
   return Object.fromEntries(
     Object.keys(defaults).map((key) => [key, result[key as keyof MoriAssistantSettings]]),
@@ -67,7 +76,7 @@ export function parseAssistantSettings(value: unknown): MoriAssistantSettings {
 export class MoriAssistantStore {
   state: MoriAssistantState = {
     version: 1,
-    settings: { ...DEFAULT_MORI_ASSISTANT_SETTINGS, accountIds: [], mcpServerIds: [] },
+    settings: { ...DEFAULT_MORI_ASSISTANT_SETTINGS, accountIds: [], mcpServerIds: [], mcpApprovalModes: {} },
     sessions: [],
     draft: "",
     taskIds: [],

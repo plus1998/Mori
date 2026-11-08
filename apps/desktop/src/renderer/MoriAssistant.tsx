@@ -29,6 +29,7 @@ import {
   DEFAULT_MORI_ASSISTANT_SETTINGS,
   type MoriAssistantSettings,
   type MoriAssistantSnapshot,
+  type MoriMcpApprovalMode,
   moriPetSize,
 } from "../shared/mori-assistant";
 import {
@@ -144,6 +145,23 @@ export function MoriAssistantSettingsPanel({
   }, [snapshot]);
   const patch = <K extends keyof MoriAssistantSettings>(key: K, value: MoriAssistantSettings[K]) => {
     setSettings((current) => (current ? { ...current, [key]: value } : current));
+    setSaved(false);
+    setError("");
+  };
+  const setMcpAccess = (id: string, mode: MoriMcpApprovalMode | "disabled") => {
+    setSettings((current) => {
+      if (!current) return current;
+      const mcpApprovalModes = { ...current.mcpApprovalModes };
+      delete mcpApprovalModes[id];
+      if (mode !== "disabled") mcpApprovalModes[id] = mode;
+      return {
+        ...current,
+        mcpServerIds: mode === "disabled"
+          ? current.mcpServerIds.filter((value) => value !== id)
+          : [...new Set([...current.mcpServerIds, id])],
+        mcpApprovalModes,
+      };
+    });
     setSaved(false);
     setError("");
   };
@@ -500,7 +518,7 @@ export function MoriAssistantSettingsPanel({
           <SettingsSection
             className="mori-settings-section"
             title="MCP 服务"
-            description="勾选允许 Mori 助手使用的服务，保存后生效。工具调用沿用 MCP 工具权限，未授权的调用会请求确认。"
+            description="为每个服务选择调用权限，保存后生效。始终允许后无需逐次确认，仅对 Mori 助手生效。"
           >
             <SettingsGroup>
               {snapshot.mcpServers.map((server) => (
@@ -509,20 +527,20 @@ export function MoriAssistantSettingsPanel({
                   label={server.name}
                   description={`${server.transport.toUpperCase()}${server.reason ? ` · ${server.reason}` : ""}`}
                   control={(controlProps) => (
-                    <input
+                    <SettingsSelect
                       {...controlProps}
-                      type="checkbox"
-                      checked={settings.mcpServerIds.includes(server.id)}
+                      value={settings.mcpServerIds.includes(server.id)
+                        ? settings.mcpApprovalModes[server.id] ?? "always_ask"
+                        : "disabled"}
                       disabled={locked || (!server.available && !settings.mcpServerIds.includes(server.id))}
                       onChange={(event) =>
-                        patch(
-                          "mcpServerIds",
-                          event.target.checked
-                            ? [...settings.mcpServerIds, server.id]
-                            : settings.mcpServerIds.filter((id) => id !== server.id),
-                        )
+                        setMcpAccess(server.id, event.target.value as MoriMcpApprovalMode | "disabled")
                       }
-                    />
+                    >
+                      <option value="disabled">不使用</option>
+                      <option value="always_ask" disabled={!server.available}>每次询问</option>
+                      <option value="always_allow" disabled={!server.available}>始终允许</option>
+                    </SettingsSelect>
                   )}
                 />
               ))}
@@ -532,18 +550,13 @@ export function MoriAssistantSettingsPanel({
                   <SettingsRow
                     key={id}
                     label="已删除的 MCP 服务"
-                    description="取消勾选并保存以移除。"
+                    description="取消勾选并保存以移除服务和授权。"
                     control={(controlProps) => (
                       <input
                         {...controlProps}
                         type="checkbox"
                         checked
-                        onChange={() =>
-                          patch(
-                            "mcpServerIds",
-                            settings.mcpServerIds.filter((value) => value !== id),
-                          )
-                        }
+                        onChange={() => setMcpAccess(id, "disabled")}
                       />
                     )}
                   />
@@ -551,7 +564,7 @@ export function MoriAssistantSettingsPanel({
             </SettingsGroup>
             <p className="mori-settings-note">
               {snapshot.mcpServers.length
-                ? `已勾选 ${settings.mcpServerIds.length} 个服务。可在全局 MCP 设置中添加和管理服务。`
+                ? `已启用 ${settings.mcpServerIds.length} 个服务。可在全局 MCP 设置中添加和管理服务。`
                 : "尚未配置 MCP 服务，请先在全局 MCP 设置中添加服务。"}
             </p>
             {onOpenMcp ? (

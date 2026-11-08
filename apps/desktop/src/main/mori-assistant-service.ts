@@ -842,11 +842,12 @@ export class MoriAssistantService {
     if (!answer.trim()) throw new Error("请输入回答。");
     if (this.pendingInput.kind === "approval" && !["允许", "拒绝"].includes(answer.trim()))
       throw new Error("请明确选择或回复「允许」或「拒绝」，操作尚未执行。");
+    const isQuestion = this.pendingInput.kind === "question";
     const pending = this.pendingAnswer;
     this.pendingAnswer = undefined;
     this.pendingInput = undefined;
     const threadId = this.activeThreadId;
-    if (threadId && this.runId) {
+    if (isQuestion && threadId && this.runId) {
       const messageId = `mori-question-answer-${id}`;
       this.append(
         "message.created",
@@ -1010,7 +1011,7 @@ export class MoriAssistantService {
       const toolId = str("name");
       const input = (args.arguments ?? {}) as Record<string, unknown>;
       const target = this.deps.mcp.approvalTarget(this.settings.mcpServerIds, toolId);
-      if (!this.deps.mcp.isApproved(target)) {
+      if (this.settings.mcpApprovalModes[target.serverId] !== "always_allow") {
         const decision = await this.requestInput(
           { id: callId, kind: "approval", title: `允许 Mori 调用 ${toolId} 吗？`, detail: JSON.stringify(input, null, 2) },
           signal,

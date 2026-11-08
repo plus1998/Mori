@@ -77,6 +77,25 @@ test("custom assistant settings do not require ChatGPT; old settings keep their 
   expect(() => parseAssistantSettings({ ...legacy, modelSource: "other" })).toThrow("来源");
 });
 
+test("Mori MCP permissions default to asking, validate modes and revoke deselected grants", async () => {
+  const { mcpApprovalModes: _omitted, ...legacy } = DEFAULT_MORI_ASSISTANT_SETTINGS;
+  expect(parseAssistantSettings(legacy).mcpApprovalModes).toEqual({});
+  const settings = parseAssistantSettings({
+    mcpServerIds: ["a", "b"],
+    mcpApprovalModes: { a: "always_allow", b: "always_ask", removed: "always_allow" },
+  });
+  expect(settings.mcpApprovalModes).toEqual({ a: "always_allow", b: "always_ask" });
+  for (const modes of [null, [], "always_allow", { a: "allow" }, { " ": "always_allow" }])
+    expect(() => parseAssistantSettings({ mcpApprovalModes: modes })).toThrow("MCP 调用权限");
+  const store = new MoriAssistantStore(path.join(await temp(), "assistant.json"));
+  store.state.settings = settings;
+  await store.save();
+  const restored = new MoriAssistantStore(store.filePath);
+  await restored.load();
+  expect(restored.state.settings.mcpApprovalModes).toEqual(settings.mcpApprovalModes);
+  expect(parseAssistantSettings({ ...settings, mcpServerIds: [] }).mcpApprovalModes).toEqual({});
+});
+
 test("pet sizes migrate with a default and remain separate per selected pet", () => {
   const { petSizes: _omitted, ...oldSettings } = DEFAULT_MORI_ASSISTANT_SETTINGS;
   const migrated = parseAssistantSettings(oldSettings);
@@ -218,6 +237,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
   }
   else if(text.endsWith('SCHEDULE_WAIT'))return;
   else if(text==='tool')send({id:'tool-request',method:'item/tool/call',params:{threadId:thread,callId:'call-'+turn,tool:'mori_list_projects',arguments:{}}});
+  else if(text==='ask-question')send({id:'tool-request',method:'item/tool/call',params:{threadId:thread,callId:'call-'+turn,tool:'mori_ask_user',arguments:{question:'请提供要记录的文字'}}});
   else if(text==='private-task')send({id:'tool-request',method:'item/tool/call',params:{threadId:thread,callId:'call-'+turn,tool:'mori_start_task',arguments:{projectPath:process.cwd(),prompt:'must not start'}}});
   else if(text==='quota-failure')send({method:'turn/completed',params:{threadId:thread,turn:{id:'turn-'+turn,status:'failed',error:{message:'usage_limit_reached'}}}});
   else if(text==='quota-first'&&accountId==='chatgpt-a')send({method:'turn/completed',params:{threadId:thread,turn:{id:'turn-'+turn,status:'failed',error:{message:'usage_limit_reached'}}}});
@@ -910,8 +930,7 @@ test("Mori selects MCP independently, resumes with tools, preserves content and 
     expect(persisted.settings.mcpServerIds).toEqual([upstream.config.id]);
     const catalog = await assistantTool(f, "mori_mcp_search_tools", { query: "test-mcp" });
     expect(catalog.output).toMatchObject({ tools: [{ name: "test-mcp:echo", inputSchema: { type: "object" } }], total: 1 });
-    const approved = f.mcpStore.getToolApprovalTarget("test-mcp", "echo")!;
-    f.mcpStore.rememberToolApproval(approved);
+    await f.service.saveSettings({ ...f.service.settings, mcpApprovalModes: { [upstream.config.id]: "always_allow" } });
     const result = await assistantTool(f, "mori_mcp_call_tool", { name: "test-mcp:echo", arguments: { value: "Mori MCP" } });
     expect(result.status).toBe("completed");
     expect(result.output).toEqual({ content: [{ type: "text", text: "Mori MCP" }, upstream.image], structuredContent: { value: "Mori MCP" } });
@@ -937,6 +956,8 @@ test("Mori MCP calls require approval and reject changed permissions, refusal an
   const upstream = await assistantMcpServer(f);
   try {
     await f.service.saveSettings({ ...f.service.settings, mcpServerIds: [upstream.config.id] });
+    // Global work-conversation grants do not override Mori's per-call confirmation mode.
+    f.mcpStore.rememberToolApproval(f.mcpStore.getToolApprovalTarget("test-mcp", "echo")!);
     const invoke = () => assistantTool(f, "mori_mcp_call_tool", { name: "test-mcp:echo", arguments: { value: "approved" } });
     const rejected = invoke();
     const first = await waitForApproval(f.service);
@@ -945,9 +966,12 @@ test("Mori MCP calls require approval and reject changed permissions, refusal an
     expect(upstream.calls).toHaveLength(0);
     await f.service.respond(first.id, "拒绝");
     expect((await rejected).status).toBe("failed");
+    expect((await f.service.snapshot()).messages.some(message => message.messageId === `mori-question-answer-${first.id}`)).toBe(false);
     const allowed = invoke();
-    await f.service.respond((await waitForApproval(f.service)).id, "允许");
+    const allowedInput = await waitForApproval(f.service);
+    await f.service.respond(allowedInput.id, "允许");
     expect((await allowed).status).toBe("completed");
+    expect(f.conversations.conversationV2().getMessage(f.service.store.state.currentThreadId!, `mori-question-answer-${allowedInput.id}`)).toBeUndefined();
     expect(upstream.calls).toHaveLength(1);
     const changed = invoke();
     const approval = await waitForApproval(f.service);
@@ -967,6 +991,53 @@ test("Mori MCP calls require approval and reject changed permissions, refusal an
     await upstream.close();
     f.db.close();
   }
+});
+
+test("Mori always-allow survives reload and new chats; switching back to asking restores confirmation", async () => {
+  const f = await fixture();
+  const upstream = await assistantMcpServer(f);
+  try {
+    await f.service.saveSettings({ ...f.service.settings, mcpServerIds: [upstream.config.id], mcpApprovalModes: { [upstream.config.id]: "always_allow" } });
+    await f.service.store.load();
+    for (let i = 0; i < 2; i++) {
+      await f.service.newSession();
+      const result = await assistantTool(f, "mori_mcp_call_tool", { name: "test-mcp:echo", arguments: { value: String(i) } });
+      expect(result.status).toBe("completed");
+      expect((await f.service.snapshot()).pendingInput).toBeUndefined();
+    }
+    expect(upstream.calls).toHaveLength(2);
+    expect(f.mcpStore.isToolApproved(f.mcpStore.getToolApprovalTarget("test-mcp", "echo")!)).toBe(false);
+    await f.service.saveSettings({ ...f.service.settings, mcpApprovalModes: { [upstream.config.id]: "always_ask" } });
+    const waiting = assistantTool(f, "mori_mcp_call_tool", { name: "test-mcp:echo" });
+    await f.service.respond((await waitForApproval(f.service)).id, "拒绝");
+    expect((await waiting).status).toBe("failed");
+    expect(upstream.calls).toHaveLength(2);
+    await f.service.saveSettings({ ...f.service.settings, mcpServerIds: [] });
+    expect(f.service.settings.mcpApprovalModes).toEqual({});
+    await f.service.saveSettings({ ...f.service.settings, mcpServerIds: [upstream.config.id] });
+    const reselected = assistantTool(f, "mori_mcp_call_tool", { name: "test-mcp:echo" });
+    await f.service.respond((await waitForApproval(f.service)).id, "拒绝");
+    expect((await reselected).status).toBe("failed");
+    expect(upstream.calls).toHaveLength(2);
+  } finally {
+    await f.service.close();
+    await upstream.close();
+    f.db.close();
+  }
+});
+
+test("Mori retains answers to ordinary questions even when the answer is allow", async () => {
+  const f = await fixture();
+  try {
+    const waiting = f.service.send("ask-question");
+    const input = await waitForApproval(f.service);
+    expect(input.kind).toBe("question");
+    await f.service.respond(input.id, "允许");
+    await waiting;
+    const snapshot = await f.service.snapshot();
+    expect(snapshot.messages.find(message => message.messageId === `mori-question-answer-${input.id}`)?.body).toBe("允许");
+    expect(snapshot.sourceByMessage[`mori-question-answer-${input.id}`]).toBe("desktop");
+  } finally { await f.service.close(); f.db.close(); }
 });
 
 test("Mori discovers and calls selected stdio MCP with private environment and reports upstream failures", async () => {
@@ -991,7 +1062,7 @@ readline.createInterface({ input: process.stdin }).on("line", line => {
     f.mcpStore.saveServer({ name: "unselected", enabled: true, transport: "stdio", command: "must-never-launch-this-server" });
     await f.service.saveSettings({ ...f.service.settings, mcpServerIds: [server.id] });
     expect((await assistantTool(f, "mori_mcp_search_tools", {})).output).toMatchObject({ tools: [{ name: "stdio-probe:echo" }], total: 1 });
-    f.mcpStore.rememberToolApproval(f.mcpStore.getToolApprovalTarget("stdio-probe", "echo")!);
+    await f.service.saveSettings({ ...f.service.settings, mcpApprovalModes: { [server.id]: "always_allow" } });
     const result = await assistantTool(f, "mori_mcp_call_tool", { name: "stdio-probe:echo", arguments: { value: "stdio success" } });
     expect(result.status).toBe("completed");
     expect(result.output).toMatchObject({ content: [{ type: "text", text: "stdio success" }], structuredContent: { configured: true } });
@@ -2279,7 +2350,7 @@ test("computer approval is cancellable and always_allow still follows the global
   }
 });
 
-test("computer approval from WeChat includes the action and records the explicit reply", async () => {
+test("computer approval from WeChat includes the action without adding a reply bubble", async () => {
   const { service, db, computerCalls } = await fixture();
   const replies: string[] = [];
   service.onWechatReply = async (text) => {
@@ -2299,7 +2370,8 @@ test("computer approval from WeChat includes the action and records the explicit
     await waiting;
     expect(computerCalls).toEqual(["click"]);
     const snapshot = await service.snapshot();
-    expect(snapshot.sourceByMessage[`mori-question-answer-${approval.id}`]).toBe("wechat");
+    expect(snapshot.sourceByMessage[`mori-question-answer-${approval.id}`]).toBeUndefined();
+    expect(snapshot.messages.some(message => message.messageId === `mori-question-answer-${approval.id}`)).toBe(false);
   } finally {
     await service.close();
     db.close();
@@ -2518,7 +2590,7 @@ test("restart recovery never replays a claimed Mori action or automatically rese
   } finally { await f.service.close(); f.db.close(); }
 });
 
-test("scheduled approval and its answer remain bound to the executing session after the user changes chats", async () => {
+test("scheduled approval continues the executing session without a reply bubble after changing chats", async () => {
   const f = await fixture();
   try {
     const schedule = await createMoriAction(f, { type: "execute" }, `SCHEDULE_TOOL:${JSON.stringify({ name: "mori_computer_call", args: { name: "click", arguments: { app: "test", index: 1 } } })}`);
@@ -2531,7 +2603,7 @@ test("scheduled approval and its answer remain bound to the executing session af
     await f.service.respond(input.id, "允许");
     await waitScheduled(f, occurrence.id, item => item.status === "completed" && item.assistant?.notification?.stage === "result" && item.assistant.notification.status === "sent");
     expect(f.computerCalls).toEqual(["click"]);
-    expect(f.conversations.conversationV2().getMessage(schedule.threadId!, `mori-question-answer-${input.id}`)?.body).toBe("允许");
+    expect(f.conversations.conversationV2().getMessage(schedule.threadId!, `mori-question-answer-${input.id}`)).toBeUndefined();
     expect(f.notifications.map(item => item.id)).toEqual([`${occurrence.id}:waiting_user`, `${occurrence.id}:result`]);
     expect(f.service.store.state.currentThreadId).toBeUndefined();
   } finally { await f.service.close(); f.db.close(); }

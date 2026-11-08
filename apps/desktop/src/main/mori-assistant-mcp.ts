@@ -71,10 +71,6 @@ export class MoriAssistantMcp {
     return target;
   }
 
-  isApproved(target: McpToolApprovalTarget): boolean {
-    return this.store.isToolApproved(target);
-  }
-
   async call(
     threadId: string,
     ids: string[],

@@ -4,6 +4,8 @@ import type { ThreadSummary } from "./ipc";
 import type { OpenAIAccount } from "./openai-account";
 import type { ScheduleDefinition, ScheduleOccurrence } from "./scheduling";
 
+export type MoriMcpApprovalMode = "always_ask" | "always_allow";
+
 export interface MoriAssistantSettings {
   enabled: boolean;
   name: string;
@@ -16,6 +18,8 @@ export interface MoriAssistantSettings {
   accountIds: string[];
   /** Stable IDs of MCP servers explicitly assigned to Mori. */
   mcpServerIds: string[];
+  /** Mori-only server permissions. Missing entries require confirmation for every call. */
+  mcpApprovalModes: Record<string, MoriMcpApprovalMode>;
   autoSwitchAccounts: boolean;
   floatingEnabled: boolean;
   petKey: string;
@@ -145,6 +149,7 @@ export const DEFAULT_MORI_ASSISTANT_SETTINGS: MoriAssistantSettings = {
   reasoningEffort: "high",
   accountIds: [],
   mcpServerIds: [],
+  mcpApprovalModes: {},
   autoSwitchAccounts: false,
   floatingEnabled: false,
   petKey: "",
