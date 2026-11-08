@@ -1,6 +1,7 @@
 import { describe, expect, mock, test } from "bun:test";
 import { listProviderUpstreamModels, testProviderConnection } from "../src/main/provider-models";
 import type { ProviderStore } from "../src/main/provider-store";
+import { resolveOutboundProxyUrl } from "../src/main/proxy-bridge-settings-store";
 
 interface FakeProxyAgent {
   url: string;
@@ -56,6 +57,54 @@ function providerStore(overrides: Record<string, unknown> = {}): ProviderStore {
 }
 
 describe("provider test / model list proxy routing", () => {
+  test("disabled global proxy keeps its saved URL but model listing and testing connect directly", async () => {
+    const settings = { enabled: false, upstreamProxyUrl: "socks5://saved.example:1080" };
+    const requests: string[] = [];
+    const server = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch(request) {
+        requests.push(new URL(request.url).pathname);
+        return Response.json(
+          request.method === "GET"
+            ? { data: [{ id: "model-a" }] }
+            : {
+                type: "message",
+                role: "assistant",
+                model: "model-a",
+                content: [{ type: "text", text: "hi" }],
+                stop_reason: "end_turn",
+                usage: { input_tokens: 1, output_tokens: 1 },
+              },
+        );
+      },
+    });
+    undiciCalls.length = 0;
+    try {
+      const store = providerStore({ baseUrl: server.url.origin });
+      const proxyUrl = resolveOutboundProxyUrl(settings);
+      expect(await listProviderUpstreamModels(store, { providerId: "p1" }, undefined, proxyUrl)).toEqual({
+        ok: true,
+        models: [{ id: "model-a" }],
+      });
+      expect(
+        await testProviderConnection(
+          store,
+          { providerId: "p1", defaultModel: "model-a" },
+          fetch,
+          undefined,
+          proxyUrl,
+        ),
+      ).toEqual({ ok: true, reply: "hi" });
+      expect(requests).toEqual(["/v1/models", "/v1/messages"]);
+      expect(undiciCalls).toEqual([]);
+      expect(settings.upstreamProxyUrl).toBe("socks5://saved.example:1080");
+      expect(resolveOutboundProxyUrl({ ...settings, enabled: true })).toBe(settings.upstreamProxyUrl);
+    } finally {
+      server.stop(true);
+    }
+  });
+
   test("no proxy: injected fetcher is used, undici dispatchers are not created", async () => {
     const captured: string[] = [];
     const fetcher = (async (input: RequestInfo | URL) => {
@@ -97,9 +146,7 @@ describe("provider test / model list proxy routing", () => {
       "socks5://global.example:1080",
     );
     expect(result.ok).toBe(true);
-    expect(undiciCalls.map((call) => call.dispatcherUrl)).toEqual([
-      "socks5://global.example:1080",
-    ]);
+    expect(undiciCalls.map((call) => call.dispatcherUrl)).toEqual(["socks5://global.example:1080"]);
   });
 
   test("per-provider proxy wins over the global proxy", async () => {
@@ -114,9 +161,7 @@ describe("provider test / model list proxy routing", () => {
       "socks5://global.example:1080",
     );
     expect(result.ok).toBe(true);
-    expect(undiciCalls.map((call) => call.dispatcherUrl)).toEqual([
-      "socks5://per.example:7890",
-    ]);
+    expect(undiciCalls.map((call) => call.dispatcherUrl)).toEqual(["socks5://per.example:7890"]);
   });
 
   test("model listing uses per-provider proxy and closes the dispatcher afterwards", async () => {
@@ -127,9 +172,7 @@ describe("provider test / model list proxy routing", () => {
       { providerId: "p1" },
     );
     expect(result).toEqual({ ok: true, models: [{ id: "model-a" }] });
-    expect(undiciCalls.map((call) => call.dispatcherUrl)).toEqual([
-      "socks5://per.example:7890",
-    ]);
+    expect(undiciCalls.map((call) => call.dispatcherUrl)).toEqual(["socks5://per.example:7890"]);
     expect(closedDispatchers).toEqual(["socks5://per.example:7890"]);
   });
 
@@ -147,8 +190,6 @@ describe("provider test / model list proxy routing", () => {
       },
     );
     expect(result.ok).toBe(true);
-    expect(undiciCalls.map((call) => call.dispatcherUrl)).toEqual([
-      "socks5://inline.example:7890",
-    ]);
+    expect(undiciCalls.map((call) => call.dispatcherUrl)).toEqual(["socks5://inline.example:7890"]);
   });
 });

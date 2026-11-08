@@ -5830,7 +5830,7 @@ async function listModelProviderUpstreamModels(payload: ListUpstreamModelsReques
     providerStore,
     payload,
     resolveUpstreamUserAgentOverride(proxyBridgeSettingsStore.get()),
-    proxyBridgeSettingsStore.get().upstreamProxyUrl,
+    resolveOutboundProxyUrl(proxyBridgeSettingsStore.get()),
   );
 }
 
@@ -5843,7 +5843,7 @@ async function testModelProvider(payload: TestProviderConnectionRequest) {
     payload,
     fetch,
     resolveUpstreamUserAgentOverride(proxyBridgeSettingsStore.get()),
-    proxyBridgeSettingsStore.get().upstreamProxyUrl,
+    resolveOutboundProxyUrl(proxyBridgeSettingsStore.get()),
   );
 }
 
@@ -8424,7 +8424,7 @@ function registerIpcHandlers(): void {
       payload,
       fetch,
       resolveUpstreamUserAgentOverride(proxyBridgeSettingsStore.get()),
-      proxyBridgeSettingsStore.get().upstreamProxyUrl,
+      resolveOutboundProxyUrl(proxyBridgeSettingsStore.get()),
     );
   });
 
@@ -22165,14 +22165,13 @@ async function reviewThreadToolApproval(
       policyMatches: built.policyMatches,
     };
   }
+  const globalProxyUrl = resolveOutboundProxyUrl(proxyBridgeSettingsStore.get());
   const review = await reviewEcoApproval({
     route,
     envelope: built.envelope,
     serializedEnvelope: built.serialized,
     locale: currentAppLocale(),
-    ...(proxyBridgeSettingsStore.get().upstreamProxyUrl
-      ? { globalProxyUrl: proxyBridgeSettingsStore.get().upstreamProxyUrl! }
-      : {}),
+    ...(globalProxyUrl ? { globalProxyUrl } : {}),
   });
   logUpstream("eco-approval-review-result", {
     threadId,

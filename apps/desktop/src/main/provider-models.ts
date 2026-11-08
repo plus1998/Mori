@@ -40,6 +40,7 @@ import { postJsonWithOpenAIResponsesUnsupportedParameterRetry } from "./openai-r
 import { parseSystemOneChoiceAnswer, postSystemOneRequest } from "./system-one-request";
 import type { ProviderStore } from "./provider-store";
 import {
+  formatUpstreamFetchError,
   headersToLoggable,
   logUpstream,
   logUpstreamError,
@@ -279,7 +280,8 @@ export async function testRoleRoutes(
     const testResult = await withUpstreamProxyFetch(
       group.provider.upstreamProxyUrl || globalProxyUrl,
       fetcher,
-      (activeFetcher) => postUpstreamCompatTest(testInput, group.thinkingEffort, activeFetcher, upstreamUserAgent),
+      (activeFetcher) =>
+        postUpstreamCompatTest(testInput, group.thinkingEffort, activeFetcher, upstreamUserAgent),
     );
 
     const shared: RoleRouteTestResult = testResult.ok
@@ -370,9 +372,13 @@ async function postUpstreamCompatTest(
         fetcher,
       });
       const answer = parseSystemOneChoiceAnswer(answers.connection, ["connected", "unavailable"]);
-      return { ok: true, reply: `SystemOne: ${answer.choice} (${answer.confidence})`, elapsedMs: Date.now() - startedAt };
+      return {
+        ok: true,
+        reply: `SystemOne: ${answer.choice} (${answer.confidence})`,
+        elapsedMs: Date.now() - startedAt,
+      };
     } catch (error) {
-      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+      return { ok: false, error: formatUpstreamFetchError(error) };
     } finally {
       clearTimeout(timeout);
     }
@@ -539,7 +545,7 @@ async function postUpstreamCompatTest(
       });
       return { ok: false, error: "请求超时，请检查 baseURL 与网络。", elapsedMs };
     }
-    const message = error instanceof Error ? error.message : String(error);
+    const message = formatUpstreamFetchError(error);
     logUpstream("provider-test-error", {
       providerId: input.providerId,
       role: input.role,
@@ -968,7 +974,7 @@ export async function fetchUpstreamModelsFromCredentials(
 
     return { ok: true, models: dedupeModels(models) };
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = formatUpstreamFetchError(error);
     logUpstreamError("models-list-error", {
       phase: "fetch",
       providerId: logContext?.providerId,
@@ -1174,8 +1180,7 @@ function resolveProviderCredentials(
     apiCompat: inlineApiCompat,
     apiKey: inlineApiKey ?? "",
     upstreamProxyUrl: inlineUpstreamProxyUrl,
-    authMethod:
-      "authMethod" in request && request.authMethod !== undefined ? request.authMethod : "api_key",
+    authMethod: "authMethod" in request && request.authMethod !== undefined ? request.authMethod : "api_key",
   };
 }
 

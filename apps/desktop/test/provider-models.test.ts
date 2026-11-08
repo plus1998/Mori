@@ -45,6 +45,7 @@ import {
   buildRouteTestDedupeKey,
   CODEX_AUTH_MODELS_UNAVAILABLE_ERROR,
   describeProviderCompatRouting,
+  fetchUpstreamModelsFromCredentials,
   listProviderUpstreamModels,
   normalizeRequestPath,
   parseUpstreamModelsPayload,
@@ -55,6 +56,37 @@ import {
 } from "../src/main/provider-models";
 import type { ProviderStore } from "../src/main/provider-store";
 import { normalizeUpstreamApiCompat } from "../src/shared/api-compat";
+
+test("model listing and connection testing expose the network cause", async () => {
+  const failure = new TypeError("fetch failed", {
+    cause: Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:9000"), { code: "ECONNREFUSED" }),
+  });
+  const fetcher = (async () => {
+    throw failure;
+  }) as typeof fetch;
+  const store = { getProviderWithSecret: () => undefined } as unknown as ProviderStore;
+  const results = [
+    await fetchUpstreamModelsFromCredentials(
+      "https://api.example.com",
+      "",
+      "",
+      undefined,
+      "anthropic",
+      undefined,
+      "v1",
+      fetcher,
+    ),
+    await testProviderConnection(
+      store,
+      { baseUrl: "https://api.example.com", defaultModel: "test" },
+      fetcher,
+    ),
+  ];
+  for (const result of results) {
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain("ECONNREFUSED 127.0.0.1:9000");
+  }
+});
 
 describe("listProviderUpstreamModels", () => {
   test("returns localizable details when a saved provider has no baseURL", async () => {
