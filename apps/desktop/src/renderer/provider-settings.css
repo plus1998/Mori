@@ -59,6 +59,10 @@
     padding: 7px 10px;
   }
 
+  & input.candidate-editor-input.has-prefix {
+    padding-left: 22px;
+  }
+
   & .openai-secret-field {
     &:focus-within {
       border-color: color-mix(in srgb, var(--text-primary) 40%, var(--border-subtle));
