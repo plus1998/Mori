@@ -2,7 +2,6 @@ import {
   contextInputReserve,
   DYNAMIC_OUTPUT_FALLBACK_TOKENS,
   InputTokenCountUnsupportedError,
-  isInputTokenCountUnsupportedError,
   isInputTokenCountTransportError,
   isInputTokenCountUpstreamError,
   inputTokenCountUpstreamErrorResponse,
@@ -72,7 +71,9 @@ export function withDynamicOutputBudget(
   if (route.provider.authMethod === "chatgpt_subscription") return fetcher;
   if (route.provider.modelContextTokens === undefined) return fetcher;
   return (async (url, init) => {
+    const requestSignal = init?.signal ?? signal;
     try {
+      requestSignal.throwIfAborted();
       const boundLimits = await config.resolveModelLimits?.(route);
       const configuredWindow = route.provider.modelContextTokens?.[route.upstreamModelId];
       const window =
@@ -102,7 +103,7 @@ export function withDynamicOutputBudget(
           body,
           headers: new Headers(init.headers),
           fetcher,
-          signal: init.signal ?? signal,
+          signal: requestSignal,
         });
         if (!Number.isSafeInteger(count.tokens) || count.tokens < 0) {
           throw new Error("Dynamic max output requires a valid current input token count.");
@@ -111,19 +112,22 @@ export function withDynamicOutputBudget(
           throw new InputTokenCountUnsupportedError("动态输出不支持本地估算，改用固定输出上限。");
         }
       } catch (error) {
-        if (!isInputTokenCountUnsupportedError(error)) throw error;
-        (init.signal ?? signal).throwIfAborted();
+        // Counting is optional preflight. Auth/HTTP/transport/invalid-result
+        // failures here must not prevent a generation endpoint from working.
+        requestSignal.throwIfAborted();
         const limit = Math.min(
           DYNAMIC_OUTPUT_FALLBACK_TOKENS,
           route.provider.modelMaxOutputTokens?.[route.upstreamModelId] ?? DYNAMIC_OUTPUT_FALLBACK_TOKENS,
           boundLimits?.maxOutputTokens ?? DYNAMIC_OUTPUT_FALLBACK_TOKENS,
         );
         const field = applyRequestOutputLimit(body, route, limit);
+        const reason = error instanceof Error ? error.message : String(error);
         onLog(
-          `dynamic output unsupported provider=${route.provider.id} model=${route.upstreamModelId} fixed=${body[field]} reason=${error.message}`,
+          `dynamic output count unavailable provider=${route.provider.id} model=${route.upstreamModelId} fixed=${body[field]} reason=${reason}`,
         );
         return fetcher(url, { ...init, body: JSON.stringify(body) });
       }
+      requestSignal.throwIfAborted();
       const reserve = contextInputReserve(window, count.precision);
       const remaining = window - count.tokens - reserve;
       if (remaining < 1) {
@@ -172,7 +176,7 @@ export function withDynamicOutputBudget(
       return fetcher(url, { ...init, body: JSON.stringify(body) });
     } catch (error) {
       // Cancellation belongs to the caller, never to local budget validation.
-      if ((init?.signal ?? signal).aborted) throw (init?.signal ?? signal).reason;
+      if (requestSignal.aborted) throw requestSignal.reason;
       const message = error instanceof Error ? error.message : String(error);
       onLog(`dynamic output rejected provider=${route.provider.id}: ${message}`);
       if (isInputTokenCountUpstreamError(error) || isInputTokenCountTransportError(error)) {

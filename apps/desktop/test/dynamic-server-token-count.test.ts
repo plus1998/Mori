@@ -317,8 +317,9 @@ for (const [kind, face, endpoint, outputField] of [
   });
 
   for (const failure of ["malformed", "network", "unauthorized", "forbidden", "server_error", "rate_limited"] as const) {
-    test(`${kind} ${failure} counting fails without sending generation`, async () => {
+    test(`${kind} ${failure} counting continues generation with fixed 32K`, async () => {
       const calls: string[] = [];
+      const logs: string[] = [];
       const handler = createTestGatewayFetchHandler(
         {
           host: "127.0.0.1",
@@ -337,8 +338,14 @@ for (const [kind, face, endpoint, outputField] of [
           ],
           countInputTokens: countGatewayInputTokens,
         },
-        async (url) => {
+        async (url, init) => {
           calls.push(String(url));
+          if (!String(url).endsWith(`/${endpoint}`)) {
+            expect(JSON.parse(String(init?.body))[outputField]).toBe(32_768);
+            return Response.json(kind === "responses"
+              ? { id: "resp_test", object: "response", status: "completed", output: [] }
+              : { id: "msg_test", type: "message", role: "assistant", content: [{ type: "text", text: "ok" }], stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 } });
+          }
           if (failure === "network") throw new Error("count endpoint unavailable");
           if (failure === "unauthorized") return new Response("unauthorized", { status: 401 });
           if (failure === "forbidden") return Response.json({ error: { type: "packy_invalid_request_error", message: "request rejected", request_id: "req-packy" } }, { status: 403 });
@@ -346,6 +353,7 @@ for (const [kind, face, endpoint, outputField] of [
           if (failure === "rate_limited") return new Response("rate limited", { status: 429 });
           return Response.json({});
         },
+        message => logs.push(message),
       );
       const response = await handler(
         new Request(`http://127.0.0.1/v1/${face}`, {
@@ -354,36 +362,18 @@ for (const [kind, face, endpoint, outputField] of [
           body: JSON.stringify({ model: "m", input: "hi", messages: [{ role: "user", content: "hi" }] }),
         }),
       );
-      const upstreamStatus =
-        failure === "unauthorized"
-          ? 401
-          : failure === "forbidden"
-            ? 403
-            : failure === "server_error"
-              ? 500
-              : failure === "rate_limited"
-                ? 429
-                : undefined;
-      expect(response.status).toBe(upstreamStatus ?? (failure === "network" ? 502 : 400));
+      expect(response.status).toBe(200);
       const responseBody = await response.json();
-      if (upstreamStatus) {
-        expect(response.headers.get("x-eco-error-origin")).toBe("upstream");
-        expect(responseBody).toMatchObject({
-          error: {
-            code: "input_token_count_upstream_error",
-            origin: "upstream",
-            status: upstreamStatus,
-          },
-        });
-        expect(responseBody.error.message).toContain(`https://upstream.test/v1/${face}/${endpoint}`);
-        if (failure === "forbidden") expect(responseBody.error.message).toContain("req-packy");
-      } else if (failure === "network") {
-        expect(JSON.stringify(responseBody)).toContain("input_token_count_transport_error");
-      } else {
-        expect(JSON.stringify(responseBody)).toContain("dynamic_output_budget_error");
+      expect(responseBody.error).toBeUndefined();
+      expect(response.headers.get("x-eco-error-origin")).toBeNull();
+      const fallback = logs.find(message => message.startsWith("dynamic output count unavailable "));
+      expect(fallback).toContain("fixed=32768");
+      if (failure === "forbidden") {
+        expect(fallback).toContain("HTTP 403");
+        expect(fallback).toContain("req-packy");
+        expect(fallback).toContain(`https://upstream.test/v1/${face}/${endpoint}`);
       }
-      expect(calls.length).toBeGreaterThan(0);
-      expect(calls.every((url) => url.endsWith(`/${endpoint}`))).toBe(true);
+      expect(calls).toEqual([`https://upstream.test/v1/${face}/${endpoint}`, `https://upstream.test/v1/${face}`]);
     });
   }
 }

@@ -27,7 +27,7 @@ const body = JSON.stringify({ model: "deepseek-flash", input: [] });
 
 // Exercise the actual counter → dynamic wrapper → same-route retry chain.
 for (const failure of ["transient", "persistent", "bad-request"] as const) {
-  test(`dynamic count ${failure} failure retains its semantics through retries`, async () => {
+  test(`dynamic count ${failure} failure continues generation without retrying the count`, async () => {
     let counts = 0;
     let generations = 0;
     const controller = new AbortController();
@@ -40,7 +40,7 @@ for (const failure of ["transient", "persistent", "bad-request"] as const) {
         return Response.json({ input_tokens: 10_000 });
       }
       generations++;
-      expect(JSON.parse(String(init?.body)).max_output_tokens).toBe(262_144 - 10_000 - 1_024);
+      expect(JSON.parse(String(init?.body)).max_output_tokens).toBe(32_768);
       return Response.json({ output: "OK" });
     };
     const budgeted = withDynamicOutputBudget(
@@ -65,24 +65,13 @@ for (const failure of ["transient", "persistent", "bad-request"] as const) {
       maxDelayMs: 0,
       onLog: () => {},
     });
-    if (failure === "transient") {
-      expect(response.status).toBe(200);
-      expect(counts).toBe(2);
-      expect(generations).toBe(1);
-    } else {
-      expect(response.status).toBe(failure === "persistent" ? 502 : 400);
-      expect(counts).toBe(failure === "persistent" ? 3 : 1);
-      expect(generations).toBe(0);
-      const payload = await response.json();
-      expect(payload.error.code).toBe(
-        failure === "persistent" ? "input_token_count_transport_error" : "input_token_count_upstream_error",
-      );
-      if (failure === "persistent") expect(payload.error.countUrl).toBe(`${endpoint}/input_tokens`);
-    }
+    expect(response.status).toBe(200);
+    expect(counts).toBe(1);
+    expect(generations).toBe(1);
   });
 }
 
-test("SDK count timeout is a 504 transport failure at the counter URL", async () => {
+test("SDK count timeout retains its diagnostic while generation continues with fixed 32K", async () => {
   const secretProvider: ProviderConfigSecret = {
     id: provider.id,
     name: provider.name,
@@ -116,8 +105,9 @@ test("SDK count timeout is a 504 transport failure at the counter URL", async ()
   expect(caught).toBeInstanceOf(InputTokenCountTransportError);
   expect(caught).toMatchObject({ statusCode: 504, url: `${endpoint}/input_tokens` });
   const budgeted = withDynamicOutputBudget(
-    async () => {
-      throw new Error("Generation must not run");
+    async (_url, init) => {
+      expect(JSON.parse(String(init?.body)).max_output_tokens).toBe(32_768);
+      return Response.json({ output: "OK" });
     },
     route,
     {
@@ -131,7 +121,7 @@ test("SDK count timeout is a 504 transport failure at the counter URL", async ()
     new AbortController().signal,
     () => {},
   );
-  expect((await budgeted(endpoint, { method: "POST", body })).status).toBe(504);
+  expect((await budgeted(endpoint, { method: "POST", body })).status).toBe(200);
 });
 
 test("cancelled dynamic counting propagates cancellation without retries or generation", async () => {
@@ -167,5 +157,23 @@ test("cancelled dynamic counting propagates cancellation without retries or gene
     }),
   ).rejects.toBe(reason);
   expect(counts).toBe(1);
+  expect(generations).toBe(0);
+});
+
+test("cancellation still stops generation when the counter resolves after being cancelled", async () => {
+  const controller = new AbortController();
+  const reason = new DOMException("Cancelled by reader", "AbortError");
+  let generations = 0;
+  const budgeted = withDynamicOutputBudget(async () => {
+    generations++;
+    return Response.json({});
+  }, route, {
+    host: "127.0.0.1", port: 0, providers: [provider],
+    countInputTokens: async () => {
+      controller.abort(reason);
+      return { tokens: 1, precision: "provider_exact", source: "test" };
+    },
+  }, controller.signal, () => {});
+  await expect(budgeted(endpoint, { method: "POST", body })).rejects.toBe(reason);
   expect(generations).toBe(0);
 });
