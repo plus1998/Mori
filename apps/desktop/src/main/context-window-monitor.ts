@@ -209,8 +209,8 @@ export class ContextWindowMonitor {
 
     const canRefreshModelsDev = Boolean(next.modelId && next.providerBaseUrl);
     if (options?.catalogLimit !== undefined) {
-      // Account login has no provider row; its model-list window is authoritative,
-      // including after a provider/model switch or a restored older snapshot.
+      // The resolved route window is authoritative, including after a
+      // provider/model switch or a restored older snapshot.
       next.limit = this.applyGlobalLimit(options.catalogLimit);
       next.limitsResolved = true;
       delete next.providerBaseUrl;

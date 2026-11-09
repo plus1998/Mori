@@ -82,6 +82,8 @@ export interface CodexThreadUsageSummary {
 export interface ResolveCodexContextSnapshotInput {
   params: CodexTokenUsageUpdatedParams | Record<string, unknown>;
   attribution: CodexThreadAttribution;
+  /** Exact registered route identity; never infer a provider from a model name. */
+  providerId?: string;
   modelId?: string;
   now?: () => number;
 }
@@ -255,7 +257,7 @@ export function resolveCodexContextSnapshot(
   });
 
   return {
-    ...(rawModelId && { providerId: gatewayAlias?.providerId ?? "openai" }),
+    ...(input.providerId?.trim() && { providerId: input.providerId.trim() }),
     ecoThreadId: input.attribution.ecoThreadId,
     billingRole,
     codexThreadId,
@@ -272,6 +274,7 @@ export function resolveCodexContextFromNotification(
   options: {
     resolveEcoThreadId: (codexThreadId: string) => string;
     resolveThreadAttribution?: (codexThreadId: string) => CodexThreadAttribution | undefined;
+    providerId?: string;
     modelId?: string;
     now?: () => number;
   },
@@ -296,6 +299,7 @@ export function resolveCodexContextFromNotification(
   return resolveCodexContextSnapshot({
     params,
     attribution: resolvedAttribution,
+    ...(options.providerId !== undefined && { providerId: options.providerId }),
     ...(options.modelId && { modelId: options.modelId }),
     ...(options.now && { now: options.now }),
   });

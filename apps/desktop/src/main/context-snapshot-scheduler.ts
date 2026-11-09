@@ -16,6 +16,7 @@ export class ContextSnapshotScheduler {
   /** Planner-only breakdown segments from SDK `getContextUsage()` (once per turn `result`). */
   private readonly lastPlannerSegments = new Map<string, ThreadContextSnapshot["segments"]>();
   private readonly lastEmitted = new Map<string, ThreadContextSnapshot>();
+  private readonly errors = new Map<string, string>();
 
   constructor(private readonly options: ContextSnapshotSchedulerOptions) {}
 
@@ -70,7 +71,22 @@ export class ContextSnapshotScheduler {
     return this.lastEmitted.get(threadId) ?? this.buildSnapshot(threadId);
   }
 
+  setError(threadId: string, error: string): void {
+    this.errors.set(threadId, error);
+    this.emitLiveFromMonitor(threadId);
+  }
+
+  clearError(threadId: string): void {
+    this.errors.delete(threadId);
+  }
+
   restoreSnapshot(threadId: string, snapshot: ThreadContextSnapshot): void {
+    if (snapshot.error) {
+      this.errors.set(threadId, snapshot.error);
+      this.lastEmitted.set(threadId, snapshot);
+      return;
+    }
+    this.errors.delete(threadId);
     const plannerRole = snapshot.roles?.find((role) => role.role === "main");
     const plannerSegments =
       plannerRole?.segments.filter((segment) => segment.tokens > 0) ?? snapshot.segments;
@@ -85,6 +101,7 @@ export class ContextSnapshotScheduler {
   }
 
   clearThread(threadId: string): void {
+    this.errors.delete(threadId);
     this.lastPlannerSegments.delete(threadId);
     this.lastEmitted.delete(threadId);
     this.options.monitor.clearThread(threadId);
@@ -114,6 +131,20 @@ export class ContextSnapshotScheduler {
   }
 
   private buildSnapshot(threadId: string): ThreadContextSnapshot | undefined {
+    const error = this.errors.get(threadId);
+    if (error) {
+      return {
+        error,
+        occupied: 0,
+        limit: 0,
+        occupancyPct: 0,
+        limitsResolved: false,
+        segments: [],
+        roles: [],
+        instances: [],
+        updatedAt: Date.now(),
+      };
+    }
     const monitorSnap = this.options.monitor.getSnapshot(threadId);
     if (!monitorSnap || monitorSnap.occupied <= 0) {
       return undefined;

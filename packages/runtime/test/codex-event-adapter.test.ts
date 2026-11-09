@@ -1104,6 +1104,7 @@ test("tokenUsage context uses the registered V1 route and ignores fake completio
   });
 
   expect((contextUpdate as { context?: { modelId?: string } }).context?.modelId).toBe("vendor-model");
+  expect((contextUpdate as { providerId?: string }).providerId).toBe("custom-provider");
   expect(registry.size).toBe(0);
 });
 
@@ -3144,11 +3145,13 @@ test("dispatch invokes onTokenUsageUpdated for thread/tokenUsage/updated", () =>
 
   expect(contextUpdate).toBeDefined();
   const resolved = contextUpdate as {
+    providerId?: string;
     ecoThreadId: string;
     contextOccupied: number;
     context: { segments: unknown[] };
   };
   expect(resolved.ecoThreadId).toBe(ECO_THREAD);
+  expect(resolved.providerId).toBeUndefined();
   expect(resolved.contextOccupied).toBe(42_000);
   expect(resolved.context.segments).toEqual([]);
 });

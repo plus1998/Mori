@@ -341,6 +341,27 @@ export function ContextCard({
   const { t } = useTranslation();
   const [plannerDetailsOpen, setPlannerDetailsOpen] = useState(true);
 
+  if (context?.error) {
+    return (
+      <div className="context-card context-card-error" role="alert">
+        <div className="context-card-header">
+          <h4 className="context-card-title">{t("context.unavailable")}</h4>
+          {onDismiss ? (
+            <button
+              type="button"
+              className="context-card-dismiss"
+              onClick={onDismiss}
+              aria-label={t("context.close")}
+            >
+              <X size={14} aria-hidden />
+            </button>
+          ) : null}
+        </div>
+        <p className="context-card-error-message">{context.error}</p>
+      </div>
+    );
+  }
+
   if (!context) {
     if (!showWhenEmpty) {
       return null;

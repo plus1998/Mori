@@ -74,6 +74,7 @@ test("resolveCodexContextSnapshot unwraps provider-scoped Codex gateway aliases"
   const resolved = resolveCodexContextSnapshot({
     params: tokenUsagePayload(),
     attribution: MAIN_ATTRIBUTION,
+    providerId: "custom-provider",
     modelId: buildCodexGatewayModelAlias("custom-provider", "vendor-model"),
   });
 
@@ -86,6 +87,7 @@ test("resolveCodexContextSnapshot unwraps V1 route aliases", () => {
   const resolved = resolveCodexContextSnapshot({
     params: tokenUsagePayload(),
     attribution: MAIN_ATTRIBUTION,
+    providerId: "custom.__provider",
     modelId: buildCodexGatewayModelAlias("custom.__provider", "vendor/model.__v1", "anthropic"),
   });
 
@@ -94,19 +96,35 @@ test("resolveCodexContextSnapshot unwraps V1 route aliases", () => {
   expect(resolved?.context.roles?.[0]?.modelId).toBe("vendor/model.__v1");
 });
 
-test("native model identity identifies account login without confusing a vendor using the same model", () => {
+test("explicit provider identity distinguishes account login from a vendor using the same model", () => {
   const native = resolveCodexContextSnapshot({
     params: tokenUsagePayload(),
     attribution: MAIN_ATTRIBUTION,
+    providerId: "openai",
     modelId: "gpt-6.1-sol",
   });
   const vendor = resolveCodexContextSnapshot({
     params: tokenUsagePayload(),
     attribution: MAIN_ATTRIBUTION,
-    modelId: buildCodexGatewayModelAlias("vendor", "gpt-6.1-sol", "openai_responses"),
+    providerId: "vendor",
+    modelId: "gpt-6.1-sol",
   });
   expect(native?.providerId).toBe("openai");
   expect(vendor?.providerId).toBe("vendor");
+});
+
+test("missing provider identity is never inferred from a native model name or gateway alias", () => {
+  for (const modelId of ["gpt-6.1-sol", buildCodexGatewayModelAlias("vendor", "gpt-6.1-sol")]) {
+    for (const providerId of [undefined, "", "   "]) {
+      const resolved = resolveCodexContextSnapshot({
+        params: tokenUsagePayload(),
+        attribution: MAIN_ATTRIBUTION,
+        modelId,
+        ...(providerId !== undefined && { providerId }),
+      });
+      expect(resolved?.providerId).toBeUndefined();
+    }
+  }
 });
 
 test("resolveCodexContextSnapshot rejects malformed reserved V1 aliases", () => {

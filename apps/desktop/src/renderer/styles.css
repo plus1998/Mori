@@ -18516,6 +18516,14 @@ a.run-log-web-search-detail-result-url:focus-visible {
   animation: context-card-compact-spin 0.8s linear infinite;
 }
 
+.context-card-error-message {
+  margin: 0;
+  color: var(--status-error-text, #dc2626);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
 .context-card-compact-suspended {
   margin: 0 0 10px;
   padding: 8px 10px;

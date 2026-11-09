@@ -2635,6 +2635,8 @@ export interface ThreadContextInstanceSnapshot {
 }
 
 export interface ThreadContextSnapshot {
+  /** Context is unavailable; render this error instead of a window or percentage. */
+  error?: string;
   occupied: number;
   limit: number;
   occupancyPct: number;

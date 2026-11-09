@@ -736,6 +736,7 @@ import {
 import { type ContextLifecycleService, createContextLifecycleService } from "./context-lifecycle-service";
 import { logContextSnapshot } from "./context-snapshot-log";
 import { ContextSnapshotScheduler } from "./context-snapshot-scheduler";
+import { applyCodexContextUpdate } from "./codex-context-update";
 import { ContextWindowMonitor } from "./context-window-monitor";
 import { executeThreadCancelCommand, failInterruptedCancelCommands } from "./conversation-cancel-command";
 import {
@@ -3798,32 +3799,44 @@ app
         );
       },
       onCodexContextUpdated: (resolution) => {
-        void (async () => {
-          const modelId = resolution.context.modelId;
-          const catalogLimit =
-            resolution.providerId === "openai" && modelId
-              ? requireCodexAccountContextWindow(
-                  await getCodexModelCatalogService().listRuntimeModels(),
-                  modelId,
-                )
-              : undefined;
-          return contextMonitor.updateOccupied(
-            resolution.ecoThreadId,
-            resolution.billingRole,
-            resolution.contextOccupied,
-            {
-              limit: resolution.context.limit,
-              ...(modelId ? { modelId } : {}),
-              ...(catalogLimit !== undefined ? { catalogLimit } : {}),
-            },
-          );
-        })()
-          .then(() => contextScheduler.emitLiveFromMonitor(resolution.ecoThreadId))
-          .catch((error) => {
-            process.stderr.write(
-              `[eco-codex] context update failed thread=${resolution.ecoThreadId}: ${errorMessage(error)}\n`,
+        void applyCodexContextUpdate(resolution, {
+          monitor: contextMonitor,
+          scheduler: contextScheduler,
+          resolveModelLimit: async ({ threadId, role, providerId, modelId }) => {
+            if (providerId === "openai") {
+              return requireCodexAccountContextWindow(
+                await getCodexModelCatalogService().listRuntimeModels(),
+                modelId,
+              );
+            }
+            const routes = resolveCandidateModelDefaults(resolveRoleRoutesForThread(threadId)).filter(
+              (route) =>
+                route.providerId === providerId && route.modelId === modelId &&
+                normalizeTelemetryBillingRole(route.role) === role,
             );
-          });
+            if (routes.length !== 1) {
+              throw new Error(`无法唯一确定模型 ${providerId}/${modelId} 的上下文路由。`);
+            }
+            const route = routes[0]!;
+            const provider = providerStore.getProviderWithSecret(providerId);
+            if (!provider) throw new Error(`上下文统计所需的供应商 ${providerId} 已不存在。`);
+            const resolved = await pricingCache.resolveContextLimit(
+              route.baseUrl ?? provider.baseUrl,
+              modelId,
+              route.modelsDevMapping,
+              route.manualSpec?.contextTokens,
+              route.manualSpec?.maxOutputTokens,
+            );
+            if (!resolved.limitsResolved) {
+              throw new Error(`模型 ${providerId}/${modelId} 缺少已确认的上下文窗口配置。`);
+            }
+            return resolved.limit;
+          },
+        }).catch((error) => {
+          process.stderr.write(
+            `[eco-codex] context update failed thread=${resolution.ecoThreadId}: ${errorMessage(error)}\n`,
+          );
+        });
       },
       onCodexTurnPlanUpdated: ({ ecoThreadId, plan }) => {
         if (!conversationStore.getThread(ecoThreadId)) {

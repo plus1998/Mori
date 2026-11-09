@@ -696,7 +696,7 @@ function handleTokenUsageUpdated(ctx: AdapterContext, params: Record<string, unk
   const resolution = resolveCodexContextFromNotification(params, {
     resolveEcoThreadId: ctx.resolveEcoThreadId,
     ...(ctx.resolveThreadAttribution && { resolveThreadAttribution: ctx.resolveThreadAttribution }),
-    ...(turnRoute && { modelId: turnRoute.upstreamModelId }),
+    ...(turnRoute && { providerId: turnRoute.providerId, modelId: turnRoute.upstreamModelId }),
   });
   if (resolution) {
     ctx.onTokenUsageUpdated(resolution);

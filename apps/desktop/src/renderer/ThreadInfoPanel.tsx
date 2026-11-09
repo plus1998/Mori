@@ -1,6 +1,6 @@
 import type { AcpHostUiFeatures } from "@eco/runtime/acp-host-ui-features";
 import { formatCostUsd, formatUsageBadge, shortenModelId } from "@eco/runtime/usage";
-import { ListTodo, ReceiptText, X } from "lucide-react";
+import { AlertTriangle, ListTodo, ReceiptText, X } from "lucide-react";
 import {
   type CSSProperties,
   type FocusEvent,
@@ -143,7 +143,7 @@ function formatBillingPillCost(billing?: ThreadBillingSnapshot): string {
 }
 
 function resolvePlannerOccupancyPct(context?: ThreadContextSnapshot): number | undefined {
-  if (!context) {
+  if (!context || context.error) {
     return undefined;
   }
   const planner = context.roles?.find((role) => role.role === "main");
@@ -261,6 +261,14 @@ function ContextFloatPillLabel({
   minimal?: boolean;
 }) {
   const occupancyPct = resolvePlannerOccupancyPct(context);
+  if (context?.error) {
+    return (
+      <span className="thread-info-float-pill-label context-card-error-message">
+        <AlertTriangle size={minimal ? 16 : 14} aria-hidden />
+        {!minimal ? <span>{i18n.t("context.unavailable")}</span> : null}
+      </span>
+    );
+  }
   if (minimal) {
     return (
       <span className="thread-info-float-pill-label composer-usage-pill-minimal composer-usage-pill-ring-only">
@@ -747,13 +755,17 @@ export function ThreadInfoFloatStack({
               />
             }
             ariaLabel={
-              contextOccupancyPct !== undefined
-                ? t("billing.contextOccupancy", { pct: contextOccupancyPct })
-                : "Context"
+              context?.error
+                ? t("context.unavailable")
+                : contextOccupancyPct !== undefined
+                  ? t("billing.contextOccupancy", { pct: contextOccupancyPct })
+                  : "Context"
             }
-            {...(variant === "composer" && contextOccupancyPct !== undefined
-              ? { hoverTooltip: `${contextOccupancyPct}%` }
-              : {})}
+            {...(context?.error
+              ? { hoverTooltip: context.error }
+              : variant === "composer" && contextOccupancyPct !== undefined
+                ? { hoverTooltip: `${contextOccupancyPct}%` }
+                : {})}
             resetKey={threadId}
             width={320}
             minHeight={hasContextSnapshot ? 360 : 160}
