@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { CoreKind } from "@eco/runtime/core-runtime";
 import type { CandidateModelView, CursorModelOption, ModelSettingsSnapshot, WorkflowSettingsSnapshot } from "../shared/ipc";
-import { materializeThreadOrchestrationSnapshot } from "../shared/thread-runtime-config";
+import { replaceSchedulingMainModel } from "./scheduling-task-profile";
 import { buildAcpThreadRuntimeConfig, buildThreadRuntimeConfigFromDefaults, resolveThreadOrchestrationSnapshot } from "../shared/thread-runtime-config";
 import type { ScheduleDefinition, ScheduleExecutionProfile, ScheduleTrigger, SchedulingSnapshot } from "../shared/scheduling";
 import { coreDisplayName, coreIconSrc } from "./SidebarCoreSelector";
@@ -161,23 +161,8 @@ export function SchedulingPanel(props: Props) {
     }
     const candidate = candidates.find(item => item.id === selection.key || (item.providerId === selection.providerId && item.modelId === selection.modelId));
     if (!candidate) return;
-    const provider = props.settings.providers.find(item => item.id === candidate.providerId);
-    const { mainAgentModelOverride: _override, ...base } = form.profile.runtimeConfig;
-    const mainModel = { providerId: candidate.providerId, modelId: candidate.modelId,
-      candidateModelId: candidate.id,
-      ...(provider ? { apiCompat: provider.apiCompat } : {}),
-      ...(candidate.manualSpec ? { manualSpec: candidate.manualSpec } : {}),
-      ...(candidate.modelsDevMapping ? { modelsDevMapping: candidate.modelsDevMapping } : {}),
-    };
-    const previous = base.orchestrationSelection;
-    const nextSelection = {
-      mainModel,
-      mainPrompt: previous?.mainPrompt ?? { mode: "builtin" as const },
-      subagents: previous?.subagents ?? { mode: "none" as const },
-    };
-    updateForm({ profile: { ...form.profile, runtimeConfig: { ...base,
-      ...materializeThreadOrchestrationSnapshot(props.settings, nextSelection),
-    } } });
+    try { updateForm({ profile: replaceSchedulingMainModel(form.profile, props.settings, candidate) }); }
+    catch (caught) { setError(formatIpcInvokeError(caught)); }
   };
   const modelOptions = useMemo<ModelCascadeOption[]>(() => form?.profile?.coreKind === "acp"
     ? mapAcpModelOptions(cursorModels, resolveAcpVendorNames(t))

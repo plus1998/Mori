@@ -179,3 +179,14 @@ test("stored candidate protocol and endpoint errors remain explicit", () => {
     }),
   ).toThrow("缺少端点或协议配置");
 });
+
+test("pinned task endpoints do not relink to current candidate defaults", () => {
+  const route: RuntimeRoleRouteConfig = {
+    role: "explore", providerId: candidate.providerId, modelId: candidate.modelId,
+    baseUrl: "https://pinned.example", apiCompat: "anthropic", requestPath: "", version: "v1",
+  };
+  expect(resolveCandidateModelRouteDefaults([route], {
+    ...source, listCandidateModels: () => { throw new Error("Pinned routes must not query mutable candidates"); },
+  })).toEqual([route]);
+  expect(() => resolveCandidateModelRouteDefaults([{ ...route, candidateModelId: "deleted" }], source)).toThrow("已不存在");
+});

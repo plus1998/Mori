@@ -5,6 +5,7 @@ import type {
   RoleRouteConfig,
   RouteManualSpec,
   RouteProfileView,
+  RuntimeRoleRouteConfig,
   SubagentEnabledSettings,
   ThinkingEffort,
 } from "./ipc";
@@ -14,7 +15,7 @@ export const CHATGPT_SUBSCRIPTION_MAIN_AGENT_CONFIG_ID = "__chatgpt_subscription
 
 export type AgentConfigSource = "built_in" | "user" | "project" | "derived";
 
-export interface ModelRef {
+export interface ModelRef extends Pick<RuntimeRoleRouteConfig, "baseUrl" | "requestPath" | "version" | "tokenCountMode"> {
   providerId: string;
   modelId: string;
   /** Login main session or OAuth request account. Login subagents inherit the Codex process account. */
@@ -756,6 +757,10 @@ function cloneModelRef(modelRef: ModelRef): ModelRef {
     modelId: modelRef.modelId.trim(),
     ...(modelRef.accountId ? { accountId: modelRef.accountId.trim() } : {}),
     ...(modelRef.apiCompat && { apiCompat: modelRef.apiCompat }),
+    ...(modelRef.baseUrl && { baseUrl: modelRef.baseUrl }),
+    ...(modelRef.requestPath !== undefined && { requestPath: modelRef.requestPath }),
+    ...(modelRef.version && { version: modelRef.version }),
+    ...(modelRef.tokenCountMode && { tokenCountMode: modelRef.tokenCountMode }),
     ...(modelRef.thinkingEffort && { thinkingEffort: modelRef.thinkingEffort }),
     ...(modelRef.modelsDevMapping && { modelsDevMapping: { ...modelRef.modelsDevMapping } }),
     ...(modelRef.manualSpec && { manualSpec: { ...modelRef.manualSpec } }),

@@ -219,6 +219,10 @@ function routeFromModelRef(
     ...(modelRef.accountId && (role === "main" || modelRef.providerId !== "openai")
       ? { accountId: modelRef.accountId } : {}),
     ...(modelRef.apiCompat && { apiCompat: modelRef.apiCompat }),
+    ...(modelRef.baseUrl && { baseUrl: modelRef.baseUrl }),
+    ...(modelRef.requestPath !== undefined && { requestPath: modelRef.requestPath }),
+    ...(modelRef.version && { version: modelRef.version }),
+    ...(modelRef.tokenCountMode && { tokenCountMode: modelRef.tokenCountMode }),
     ...(modelRef.thinkingEffort && { thinkingEffort: modelRef.thinkingEffort }),
     ...(modelRef.modelsDevMapping && { modelsDevMapping: modelRef.modelsDevMapping }),
     ...(modelRef.manualSpec && { manualSpec: modelRef.manualSpec }),

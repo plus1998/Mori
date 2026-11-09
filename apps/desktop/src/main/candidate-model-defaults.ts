@@ -23,7 +23,9 @@ export function resolveCandidateModelRouteDefaults(
     if (source.isChatGptSubscriptionProvider(route.providerId)) {
       route = { ...route, apiCompat: "openai_responses" };
     }
-    if (!route.candidateModelId && !source.isBuiltInCodexProvider(route.providerId) && !source.isChatGptSubscriptionProvider(route.providerId)) {
+    // Frozen task routes already own a concrete endpoint; do not reconnect them
+    // to a mutable catalog entry just because the model ID still matches.
+    if (!route.candidateModelId && !route.baseUrl && !source.isBuiltInCodexProvider(route.providerId) && !source.isChatGptSubscriptionProvider(route.providerId)) {
       const existing = source.listCandidateModels(route.providerId).find((candidate) => candidate.modelId === route.modelId);
       if (existing) route = { ...route, candidateModelId: existing.id };
     }
