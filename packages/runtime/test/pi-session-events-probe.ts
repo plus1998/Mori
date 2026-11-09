@@ -64,6 +64,7 @@ export interface ProbeSessionResult {
   turnCount: number;
   dispose: () => Promise<void>;
   runAgain: (mcpServers?: Record<string, unknown>, promptActivityLineId?: string) => Promise<AgentEvent[]>;
+  compact: (signal?: AbortSignal) => Promise<AgentEvent[]>;
 }
 
 function sse(res: http.ServerResponse, payload: ScriptedTurn, options?: ProbeSessionOptions): void {
@@ -289,6 +290,14 @@ export async function runScriptedPiSession(options: ProbeSessionOptions): Promis
         },
       }))
         next.push(event);
+      return next;
+    },
+    compact: async (signal) => {
+      const next: AgentEvent[] = [];
+      for await (const event of driver.compactSession({
+        ...input,
+        ...(signal ? { signal } : {}),
+      })) next.push(event);
       return next;
     },
     dispose: () => {

@@ -10,7 +10,9 @@ function createIngestionHarness(agents: AgentInstanceRecord[] = []) {
   const appended: ThreadRunEventInput[] = [];
   const abandoned: string[] = [];
   const stoppedSessions: string[] = [];
+  const compactions: Array<{ stage: string; trigger: string }> = [];
   const store = {
+    hasThread: () => true,
     listAgentInstances: () => agents,
     appendConversationRuntimeEvent: (event: ThreadRunEventInput) => {
       appended.push(event);
@@ -53,10 +55,19 @@ function createIngestionHarness(agents: AgentInstanceRecord[] = []) {
     liveRequestRegistry: new ThreadLiveRequestRegistry(),
     emitRequestTerminalEvent: () => {},
     onProjectionUpdated: () => {},
+    onContextCompactionStatus: (_threadId, input) => compactions.push(input),
   });
 
-  return { ingestion, appended, abandoned, stoppedSessions };
+  return { ingestion, appended, abandoned, stoppedSessions, compactions };
 }
+
+test("Claude native manual compact status is displayed as manual", () => {
+  const { ingestion, compactions } = createIngestionHarness();
+  ingestion.ingest("thread", { type: "agent.started", role: "main", payload: {
+    type: "system", subtype: "status", status: "compacting", ecoCompactionTrigger: "manual",
+  } });
+  expect(compactions).toEqual([{ stage: "started", trigger: "manual" }]);
+});
 
 test("SDK notices before init and after result never become assistant answers or root agent cards", () => {
   const { ingestion, appended } = createIngestionHarness();

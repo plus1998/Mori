@@ -1,5 +1,5 @@
 import path from "node:path";
-import { type AgentEvent, createAgentEvent } from "../../shared/src";
+import { type AgentEvent, createAgentEvent, isCompactCommand } from "../../shared/src";
 import {
   type CodexAppServerClient,
   type CodexAppServerNotificationHandler,
@@ -261,11 +261,19 @@ export class CodexAppServerDriver implements AgentRuntimeDriver {
     });
   }
 
+  async *compactSession(input: AgentRuntimeRunInput): AsyncIterable<AgentEvent> {
+    yield* this.executeTurn({ ...input, prompt: "/compact" });
+  }
+
   async *runContinuation(
     input: AgentRuntimeRunInput,
     mode: "planning" | "execution" | "ask",
     planning?: EcoPlanningContext,
   ): AsyncIterable<AgentEvent> {
+    if (isCompactCommand(input.prompt)) {
+      yield* this.compactSession(input);
+      return;
+    }
     if (mode === "execution" && planning) {
       const handoff = buildPlanHandoff(planning.handoffChoice ?? "same_thread", {
         planMarkdown: planning.plan,
@@ -363,6 +371,11 @@ export class CodexAppServerDriver implements AgentRuntimeDriver {
       ? undefined
       : overrides.existingCodexThreadId?.trim() || this.existingCodexThreadId?.trim();
 
+    const manualCompact = isCompactCommand(input.prompt);
+    if (manualCompact && !codexThreadId) {
+      throw new Error("/compact 需要已有的 Codex 会话。");
+    }
+
     const turnStartTimeoutMs = resolveCodexTurnStartTimeoutMs();
     let needsContextRecovery = false;
 
@@ -439,6 +452,25 @@ export class CodexAppServerDriver implements AgentRuntimeDriver {
       upstreamModelId: turnModel,
       ...(route.apiCompat && { apiCompat: route.apiCompat }),
     };
+    if (manualCompact) {
+      await compactCodexThreadForRetry(this.client, {
+        threadId: codexThreadId,
+        signal: input.signal,
+        route: routeIdentity,
+        ...(this.turnRouteRegistry ? { registry: this.turnRouteRegistry } : {}),
+        timeoutMs: turnStartTimeoutMs,
+      });
+      input.signal.throwIfAborted();
+      yield createAgentEvent({
+        id: `${input.threadId}:codex-compact-completed`,
+        threadId: input.threadId,
+        agentId: "main",
+        role: "main",
+        type: "agent.completed",
+        payload: { codexThreadId, compacted: true },
+      });
+      return;
+    }
     if (needsContextRecovery) {
       process.stderr.write(
         `[eco-codex] context recovery thread=${codexThreadId} method=thread/compact/start\n`,

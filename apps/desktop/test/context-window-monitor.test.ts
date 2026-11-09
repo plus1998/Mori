@@ -63,6 +63,16 @@ test("markCompactCompleted resets occupancy from Core compact post-tokens", asyn
   expect(monitor.getSnapshot("t1")?.occupied).toBe(20_000);
 });
 
+test("failed manual compact releases the lock while preserving context occupancy", async () => {
+  const monitor = new ContextWindowMonitor(mockCache());
+  await monitor.updateOccupied("t1", "main", 90_000);
+  monitor.noteCompactionObserved("t1");
+  expect(monitor.isCompactInFlight("t1")).toBe(true);
+  monitor.markCompactFailed("t1");
+  expect(monitor.isCompactInFlight("t1")).toBe(false);
+  expect(monitor.getSnapshot("t1")?.occupied).toBe(90_000);
+});
+
 test("prefers planner display while retaining subagent role snapshots", async () => {
   const monitor = new ContextWindowMonitor(mockCache());
   await monitor.updateFromUsage(

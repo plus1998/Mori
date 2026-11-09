@@ -1,4 +1,5 @@
 import path from "node:path";
+import { isCompactCommand } from "@eco/shared";
 import type { ResolvedModelRoute } from "@eco/model-router";
 import {
   type AgentEvent,
@@ -110,6 +111,7 @@ export interface PiRuntimeOrchestrationDeps {
     decision: RequestAttemptResult;
     mode: "agent" | "plan" | "ask";
     hasPendingPlan: boolean;
+    manualCompact?: boolean;
   }) => Promise<void> | Promise<boolean> | void;
   finalizeCleanup: (threadId: string) => Promise<void>;
   markInterrupted: (threadId: string, reason: string) => void;
@@ -545,6 +547,7 @@ export async function startPiThreadRun(
       decision: outcome,
       mode,
       hasPendingPlan,
+      ...(isCompactCommand(input.prompt) ? { manualCompact: true } : {}),
     });
   } catch (error) {
     deps.markInterrupted(input.thread.id, deps.errorMessage(error));

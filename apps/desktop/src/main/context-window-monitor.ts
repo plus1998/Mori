@@ -281,6 +281,11 @@ export class ContextWindowMonitor {
     return this.states.get(threadId)?.compactInFlight ?? false;
   }
 
+  markCompactFailed(threadId: string): void {
+    const state = this.states.get(threadId);
+    if (state) state.compactInFlight = false;
+  }
+
   markCompactCompleted(threadId: string, postTokens?: number): ContextMonitorSnapshot {
     const state = this.getOrCreateState(threadId);
     state.compactInFlight = false;

@@ -156,7 +156,7 @@ export interface AgentRuntimeDriver {
     mode: "planning" | "execution" | "ask",
     planning?: EcoPlanningContext,
   ): AsyncIterable<AgentEvent>;
-  /** Sends `/compact` on an existing session (requires resume). */
+  /** Runs native manual history compaction on an existing session. */
   compactSession?(input: AgentRuntimeRunInput): AsyncIterable<AgentEvent>;
 }
 

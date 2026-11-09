@@ -5,6 +5,7 @@ import {
   type AgentRole,
   type ClaudeRunTerminal,
   createAgentEvent,
+  isCompactCommand,
   type PlanReadyPayload,
   type RuntimeAgentRole,
 } from "../../shared/src";
@@ -931,21 +932,37 @@ export class ClaudeAgentSdkDriver implements AgentRuntimeDriver {
   constructor(private readonly options: ClaudeAgentSdkDriverOptions) {}
 
   async *run(input: AgentRuntimeRunInput): AsyncIterable<AgentEvent> {
+    if (isCompactCommand(input.prompt)) {
+      yield* this.compactSession(input);
+      return;
+    }
     yield* this.runAutonomous(input);
   }
 
   async *runAsk(input: AgentRuntimeRunInput): AsyncIterable<AgentEvent> {
+    if (isCompactCommand(input.prompt)) {
+      yield* this.compactSession(input);
+      return;
+    }
     yield createPhaseBoundaryEvent(input.threadId, "answer", "【问答】只读回答");
     yield* this.runSingleSession(input, buildAskSessionPhase(input));
   }
 
   async *runPlan(input: AgentRuntimeRunInput): AsyncIterable<AgentEvent> {
+    if (isCompactCommand(input.prompt)) {
+      yield* this.compactSession(input);
+      return;
+    }
     yield createPhaseBoundaryEvent(input.threadId, "plan", "【计划】调研并制定方案");
     yield* this.runPlanningPass(input, input.prompt);
   }
 
   async *compactSession(input: AgentRuntimeRunInput): AsyncIterable<AgentEvent> {
-    yield* this.runSlashCommand(input, "/compact", { permissionMode: "dontAsk" });
+    for await (const event of this.runSlashCommand(input, "/compact", { permissionMode: "dontAsk" })) {
+      yield isRecord(event.payload) && event.payload.subtype === "status"
+        ? { ...event, payload: { ...event.payload, ecoCompactionTrigger: "manual" } }
+        : event;
+    }
   }
 
   async *runContinuation(
@@ -953,6 +970,10 @@ export class ClaudeAgentSdkDriver implements AgentRuntimeDriver {
     mode: "planning" | "execution" | "ask",
     planning?: EcoPlanningContext,
   ): AsyncIterable<AgentEvent> {
+    if (isCompactCommand(input.prompt)) {
+      yield* this.compactSession(input);
+      return;
+    }
     if (mode === "ask") {
       yield createPhaseBoundaryEvent(input.threadId, "answer", "【续聊】只读回答");
       yield* this.runSingleSession(input, buildAskSessionPhase(input));

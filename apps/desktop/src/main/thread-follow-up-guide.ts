@@ -1,3 +1,4 @@
+import { isCompactCommand } from "@eco/shared";
 import type { PromptImageAttachment, ThreadPendingFollowUp } from "../shared/ipc";
 import { coreSupportsMidTurnFollowUp, coreUsesInterruptForSteer } from "../shared/thread-follow-up-core";
 import { isFollowUpMidTurnResultDelivered } from "../shared/thread-follow-up-drain";
@@ -12,6 +13,8 @@ export async function resolveThreadFollowUpMidTurnPrompt(
   }) => Promise<string>,
 ): Promise<string | undefined> {
   const prompt = followUp.prompt.trim();
+  // Session commands wait for an idle boundary; steer only accepts model input.
+  if (isCompactCommand(prompt)) return undefined;
   if (!prompt && !followUp.attachments?.length) return undefined;
   const resolved = await resolvePrompt({
     threadId: followUp.threadId,

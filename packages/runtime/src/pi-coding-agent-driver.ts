@@ -1,6 +1,6 @@
 import type { ExtensionAPI, ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import type { ResolvedModelRoute } from "../../model-router/src";
-import { type AgentEvent, createAgentEvent } from "../../shared/src";
+import { type AgentEvent, createAgentEvent, isCompactCommand } from "../../shared/src";
 import type { SdkToolPermissionHandler } from "./ask-user-question.js";
 import { createPlanReadyEvent } from "./claude-agent-sdk.js";
 import type { CoreSessionMode } from "./core-runtime.js";
@@ -481,7 +481,14 @@ export class PiCodingAgentDriver implements AgentRuntimeDriver {
     });
   }
 
+  async *compactSession(input: AgentRuntimeRunInput): AsyncIterable<AgentEvent> {
+    yield* this.run({ ...input, prompt: "/compact" });
+  }
+
   async *run(input: AgentRuntimeRunInput): AsyncIterable<AgentEvent> {
+    if (isCompactCommand(input.prompt) && !this.registry.get(piParentSessionKey(input.threadId)) && !input.piSession?.sessionFile) {
+      throw new Error("/compact 需要已有的 Pi 会话。");
+    }
     const sessionMode: CoreSessionMode = input.piSession?.sessionMode ?? "agent";
     const cwd = input.worktreePath?.trim() || input.workspacePath;
     const planner = resolvePiPlannerRoute(input.routes);
@@ -1133,7 +1140,9 @@ async function createDefaultPiSession(input: PiSessionFactoryInput): Promise<PiS
       signal?: AbortSignal,
       promptActivityLineId?: string,
     ): AsyncIterable<AgentEvent> {
+      const manualCompact = isCompactCommand(text);
       let sawSettled = false;
+      let sawCompacted = false;
       let settledAborted = false;
       let assistantError: string | undefined;
       let promptBound = false;
@@ -1190,6 +1199,10 @@ async function createDefaultPiSession(input: PiSessionFactoryInput): Promise<PiS
                 sawSettled = true;
                 settledAborted ||= event.aborted;
               }
+              if (manualCompact && event.type === "compaction_end" && event.reason === "manual") {
+                sawCompacted = Boolean(event.result) && !event.aborted;
+                settledAborted ||= event.aborted;
+              }
               assistantError = applyPiAssistantErrorTracker(event as PiSessionEventLike, assistantError);
             });
             const unsubscribeSide = sideEventBus?.subscribe((event) => push([event]));
@@ -1198,7 +1211,10 @@ async function createDefaultPiSession(input: PiSessionFactoryInput): Promise<PiS
               unsubscribeSide?.();
             };
           },
-          run: () => session.prompt(text, { source: "rpc" }),
+          run: async () => {
+            if (manualCompact) await session.compact();
+            else await session.prompt(text, { source: "rpc" });
+          },
           abort: abortSession,
         });
         if (runError) {
@@ -1212,9 +1228,10 @@ async function createDefaultPiSession(input: PiSessionFactoryInput): Promise<PiS
             payload: { message },
           });
         }
-        // Only real agent_settled may complete. prompt promise done alone is not settle.
+        // A manual compact ends at native compaction_end; it never starts an agent turn.
         const terminal = decidePiPromptRunTerminal({
           sawAgentSettled: sawSettled,
+          sawManualCompactionEnd: sawCompacted,
           aborted: settledAborted || Boolean(signal?.aborted),
           ...(runError
             ? {
@@ -1246,11 +1263,12 @@ async function createDefaultPiSession(input: PiSessionFactoryInput): Promise<PiS
 export { createDefaultPiSession };
 
 /**
- * Decide upward run.terminal after a PI prompt attempt.
- * `promptReturned` (promise done) is NOT settle — only `sawAgentSettled` may complete.
+ * Decide upward run.terminal after a PI operation.
+ * Promise completion alone is not terminal; require agent_settled or a successful manual compaction_end.
  */
 export function decidePiPromptRunTerminal(input: {
   sawAgentSettled: boolean;
+  sawManualCompactionEnd?: boolean;
   aborted: boolean;
   errorMessage?: string;
   /** Prompt promise fulfilled without throw/abort — still not a settle signal. */
@@ -1267,7 +1285,7 @@ export function decidePiPromptRunTerminal(input: {
   if (input.errorMessage) {
     return { status: "failed", error: input.errorMessage };
   }
-  if (input.sawAgentSettled) {
+  if (input.sawAgentSettled || input.sawManualCompactionEnd) {
     return { status: "completed" };
   }
   if (input.promptReturned) {

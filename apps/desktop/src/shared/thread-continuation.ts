@@ -1,3 +1,4 @@
+import { isCompactCommand } from "@eco/shared";
 import { stripSubagentBracketPrefix } from "./activity-display";
 import type { ThreadActivityLine, ThreadActivityRewindTarget, ThreadStatus } from "./ipc";
 
@@ -101,6 +102,13 @@ export function resolveContinuePhase(input: ContinuePhaseInput): "planning" | "e
 }
 
 export function resolveThreadContinueAction(input: ThreadContinueRoutingInput): ThreadContinueAction {
+  if (isCompactCommand(input.followUp)) {
+    if (!input.canResume) throw new Error("/compact 需要已有的 SDK 会话。");
+    return {
+      kind: "resume_sdk",
+      phase: input.sessionMode === "ask" ? "ask" : input.sessionMode === "plan" ? "planning" : "execution",
+    };
+  }
   const wantsRevision = userRequestsPlanRevision(input.followUp);
 
   if (input.sessionMode === "ask") {
@@ -173,6 +181,7 @@ export function continueStatusMessage(action: ThreadContinueAction): string {
 
 /** Agent turn prompt: keep the original task and add the latest user message. */
 export function buildThreadTurnPrompt(threadPrompt: string, followUp: string): string {
+  if (isCompactCommand(followUp)) return "/compact";
   const original = threadPrompt.trim();
   const next = followUp.trim();
   if (!original) {
@@ -274,6 +283,7 @@ export function buildAgentPromptWithContext(
   followUp: string,
   activityLines: readonly ActivityContextLine[],
 ): string {
+  if (isCompactCommand(followUp)) return "/compact";
   const turn = buildThreadTurnPrompt(threadPrompt, followUp);
   const history = buildActivityContextForPrompt(activityLines);
   if (!history) {

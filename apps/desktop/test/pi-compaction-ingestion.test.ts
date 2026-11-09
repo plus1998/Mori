@@ -30,6 +30,12 @@ test("piCompactionStatusInput maps started without tokens", () => {
   ).toEqual({ stage: "started", trigger: "auto" });
 });
 
+test("manual compaction lifecycle keeps its manual trigger", () => {
+  for (const stage of ["started", "completed", "failed"] as const) {
+    expect(piCompactionStatusInput(piEvent(`context.compaction.${stage}`, { reason: "manual" }))).toMatchObject({ stage, trigger: "manual" });
+  }
+});
+
 test("piCompactionStatusInput maps completed with token delta detail", () => {
   expect(
     piCompactionStatusInput(

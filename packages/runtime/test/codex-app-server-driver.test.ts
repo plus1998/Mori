@@ -17,6 +17,51 @@ import { readRpcMessages } from "./codex-mock-transport";
 
 const ECO_DEVELOPER_INSTRUCTIONS = "You coordinate Eco orchestration.";
 
+for (const mode of ["agent", "ask", "plan", "continuation"] as const) {
+  test(`Codex ${mode} /compact waits for native completion and never starts a model turn`, async () => {
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    const client = new CodexAppServerClient(stdin, stdout);
+    const methods: string[] = [];
+    const registry = new CodexTurnRouteRegistry();
+    let complete!: () => void;
+    let started!: () => void;
+    const compactStarted = new Promise<void>((resolve) => { started = resolve; });
+    stdin.on("data", (chunk) => {
+      for (const line of String(chunk).trim().split("\n")) {
+        const message = JSON.parse(line);
+        if (!message.id) continue;
+        methods.push(message.method);
+        if (message.method === "initialize") writeResponse(stdout, { id: message.id, result: {} });
+        else if (message.method === "thread/resume") writeResponse(stdout, { id: message.id, result: { thread: { id: "native" } } });
+        else if (message.method === "thread/compact/start") {
+          expect(message.params).toEqual({ threadId: "native" });
+          writeResponse(stdout, { id: message.id, result: {} });
+          writeResponse(stdout, { method: "turn/started", params: { threadId: "native", turn: { id: "compact", status: "inProgress" } } });
+          complete = () => writeResponse(stdout, { method: "turn/completed", params: { threadId: "native", turn: { id: "compact", status: "completed" } } });
+          started();
+        }
+      }
+    });
+    await client.initialize();
+    const driver = new CodexAppServerDriver({ client, existingCodexThreadId: "native", turnRouteRegistry: registry });
+    const input = { threadId: "eco", prompt: " /compact \n", workspacePath: "/repo", worktreePath: "/repo", routes: [plannerRoute()], signal: new AbortController().signal };
+    const events = mode === "agent" ? driver.run(input) : mode === "ask" ? driver.runAsk(input) : mode === "plan" ? driver.runPlan(input) : driver.runContinuation(input, "execution", { userPrompt: "Task", analysis: "Analysis", plan: "Plan" });
+    let done = false;
+    const run = (async () => { for await (const _event of events) { /* drain */ } done = true; })();
+    try {
+      await compactStarted;
+      await Bun.sleep(5);
+      expect(done).toBe(false);
+      complete();
+      await run;
+      expect(done).toBe(true);
+      expect(methods).toEqual(["initialize", "thread/resume", "thread/compact/start"]);
+      expect(registry.size).toBe(0);
+    } finally { driver.dispose(); client.close(); }
+  });
+}
+
 test("a failed native recovery never submits the pending business input", async () => {
   const stdin = new PassThrough();
   const stdout = new PassThrough();

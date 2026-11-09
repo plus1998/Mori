@@ -10,6 +10,12 @@ const queued: ThreadPendingFollowUp = {
   updatedAt: "2026-10-28T00:00:00Z",
 };
 
+test("manual compact stays queued instead of entering a live model prompt", async () => {
+  const resolve = mock(async () => "/compact");
+  expect(await resolveThreadFollowUpMidTurnPrompt({ ...queued, prompt: " /compact \n" }, resolve)).toBeUndefined();
+  expect(resolve).not.toHaveBeenCalled();
+});
+
 for (const prompt of ["请核对这张图", ""]) {
   test(`image guidance reaches the live Codex ingress with its image reference (${prompt || "image only"})`, async () => {
     const followUp = {

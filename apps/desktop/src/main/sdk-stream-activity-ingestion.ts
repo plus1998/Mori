@@ -60,7 +60,7 @@ export interface SdkStreamActivityIngestionDeps {
     threadId: string,
     input: {
       stage: "started" | "completed" | "failed";
-      trigger: "auto";
+      trigger: "auto" | "manual";
       preTokens?: number;
       postTokens?: number;
       detail?: string;
@@ -531,7 +531,10 @@ export function createSdkStreamActivityIngestion(
       return;
     }
     if (isSdkCompactionStatusEvent(event)) {
-      deps.onContextCompactionStatus?.(threadId, { stage: "started", trigger: "auto" });
+      deps.onContextCompactionStatus?.(threadId, {
+        stage: "started",
+        trigger: isRecord(event.payload) && event.payload.ecoCompactionTrigger === "manual" ? "manual" : "auto",
+      });
       return;
     }
     if (isSdkCompactionBoundaryEvent(event)) {
@@ -731,7 +734,7 @@ export function isPiCompactionEvent(event: AgentEventLike): boolean {
 
 export function piCompactionStatusInput(event: AgentEventLike): {
   stage: "started" | "completed" | "failed";
-  trigger: "auto";
+  trigger: "auto" | "manual";
   preTokens?: number;
   postTokens?: number;
   detail?: string;
@@ -754,7 +757,7 @@ export function piCompactionStatusInput(event: AgentEventLike): {
   const detail = stage === "failed" ? failedDetail : delta;
   return {
     stage,
-    trigger: "auto",
+    trigger: payload.reason === "manual" ? "manual" : "auto",
     ...(tokensBefore !== undefined && { preTokens: tokensBefore }),
     ...(tokensAfter !== undefined && { postTokens: tokensAfter }),
     ...(detail && { detail }),

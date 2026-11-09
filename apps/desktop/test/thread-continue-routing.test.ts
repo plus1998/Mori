@@ -24,6 +24,18 @@ test("userRequestsPlanRevision detects replan intent", () => {
   expect(userRequestsPlanRevision("换方向，先做批量导入")).toBe(true);
 });
 
+test("manual compact resumes the session without approving a pending execution plan", () => {
+  const input = {
+    sessionMode: "plan" as const, followUp: " /compact \n", canResume: true,
+    hasPendingPlan: true, hasApprovedPlanOnDisk: true, enteredExecutionPhase: true,
+    hasCoderTodos: true, hasAppliedDiff: true, threadStatus: "failed" as const, activityLines: [],
+  };
+  expect(resolveThreadContinueAction(input)).toEqual({ kind: "resume_sdk", phase: "planning" });
+  expect(resolveThreadContinueAction({ ...input, sessionMode: "ask" })).toEqual({ kind: "resume_sdk", phase: "ask" });
+  expect(resolveThreadContinueAction({ ...input, sessionMode: "agent" })).toEqual({ kind: "resume_sdk", phase: "execution" });
+  expect(() => resolveThreadContinueAction({ ...input, canResume: false })).toThrow("/compact 需要已有的 SDK 会话");
+});
+
 test("threadEnteredExecutionPhase uses plan_cleared and approved file signals", () => {
   expect(
     threadEnteredExecutionPhase({

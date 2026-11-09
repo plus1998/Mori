@@ -151,6 +151,47 @@ const routes: ResolvedModelRoute[] = [
   },
 ];
 
+for (const mode of ["agent", "ask", "plan", "continuation"] as const) {
+  test(`Claude ${mode} routes /compact directly to the resumed SDK session`, async () => {
+    const queries: Array<{ prompt: string; options: Record<string, unknown> }> = [];
+    const driver = new ClaudeAgentSdkDriver({
+      apiKey: "test-key", baseUrl: "http://127.0.0.1:36037",
+      loadSdk: async () => ({
+        query: ({ prompt, options }) => {
+          queries.push({ prompt: resolveSdkPromptCaptureText(prompt), options });
+          return {
+            async *[Symbol.asyncIterator]() {
+              yield { type: "system", subtype: "init", session_id: "compact-session", uuid: "compact-init" };
+              yield { type: "system", subtype: "compact_boundary", compact_metadata: { trigger: "manual" }, session_id: "compact-session" };
+              yield { type: "result", subtype: "success", session_id: "compact-session", uuid: "compact-result" };
+            },
+            close: () => {},
+          };
+        },
+      }),
+    });
+    const input = {
+      threadId: `compact-${mode}`, prompt: " /compact \n", workspacePath: "/tmp/workspace", worktreePath: "/tmp/worktree",
+      routes, signal: new AbortController().signal, resume: { resumeSessionId: "compact-session" },
+    };
+    const events = mode === "agent" ? driver.run(input)
+      : mode === "ask" ? driver.runAsk(input)
+      : mode === "plan" ? driver.runPlan(input)
+      : driver.runContinuation(input, "execution", { userPrompt: "Original task", analysis: "Analysis", plan: "Approved plan" });
+    for await (const _event of events) { /* drain */ }
+    expect(queries).toHaveLength(1);
+    expect(queries[0]?.prompt).toBe("/compact");
+    expect(queries[0]?.options).toMatchObject({ resume: "compact-session", permissionMode: "dontAsk", allowedTools: [] });
+  });
+}
+
+test("Claude refuses /compact without a session before querying the SDK", async () => {
+  const driver = new ClaudeAgentSdkDriver({ apiKey: "test-key", baseUrl: "http://127.0.0.1:36037", loadSdk: async () => { throw new Error("SDK must not load"); } });
+  await expect((async () => {
+    for await (const _event of driver.run({ threadId: "new", prompt: "/compact", workspacePath: "/tmp/workspace", worktreePath: "/tmp/worktree", routes, signal: new AbortController().signal })) { /* drain */ }
+  })()).rejects.toThrow("requires an existing SDK session");
+});
+
 async function* emptySdkQuery(): AsyncIterable<unknown> {}
 
 const counterApiErrorText = 'API Error: 429 token count 上游请求失败：HTTP 429；{"error":{"message":"上游服务暂时不可用","request_id":"req-counter"}}';

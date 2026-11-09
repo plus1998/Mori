@@ -1,3 +1,4 @@
+import { isCompactCommand } from "@eco/shared";
 import { resolveCandidateModelRequestRouteWithLimits } from "./candidate-model-request-route";
 import { buildThreadWorkLocationPrompt } from "./thread-work-location-context";
 import { ThreadWorktreeService } from "./thread-worktree-service";
@@ -4057,7 +4058,7 @@ app
         const postTokens = extractCompactPostTokens(payload);
         emitContextCompactionStatus(threadId, {
           stage: "completed",
-          trigger: "auto",
+          trigger: isRecord(payload.compact_metadata) && payload.compact_metadata.trigger === "manual" ? "manual" : "auto",
           ...(postTokens !== undefined && { postTokens }),
         });
       },
@@ -12457,13 +12458,14 @@ function piRuntimeOrchestrationDeps(): import("./pi-runtime-run").PiRuntimeOrche
       decision: RequestAttemptResult;
       mode: "agent" | "plan" | "ask";
       hasPendingPlan: boolean;
+      manualCompact?: boolean;
     }) => {
-      const forcedActive = Boolean(forcedPlanDelegationStore.get(input.threadId));
+      const forcedActive = !input.manualCompact && Boolean(forcedPlanDelegationStore.get(input.threadId));
       // A forced delegation intentionally keeps the pending plan until it settles, so the
       // outcome resolver must not mistake that retained plan for a fresh plan capture.
       const pendingPlanForOutcome = forcedActive ? false : input.hasPendingPlan;
       const decision =
-        input.mode === "ask"
+        input.mode === "ask" || input.manualCompact
           ? resolveAskRunOutcome(input.decision)
           : input.mode === "plan"
             ? resolvePlanningRunOutcome(input.decision, {
@@ -12497,6 +12499,13 @@ function piRuntimeOrchestrationDeps(): import("./pi-runtime-run").PiRuntimeOrche
           markThreadInterrupted(input.threadId, reason);
         },
         onCompleted: () => {
+          if (input.manualCompact) {
+            updateThread(input.threadId, {
+              status: input.hasPendingPlan ? "awaiting_plan" : "completed",
+              message: "",
+            });
+            return;
+          }
           if (forcedActive) {
             const settled = settleForcedPlanDelegation(input.threadId, {
               ok: true,
@@ -13250,8 +13259,11 @@ async function startCodexThreadRun(
       input.runtimeDispatch,
     );
 
-    const forcedDelegationActive = Boolean(forcedPlanDelegationStore.get(input.thread.id));
+    const forcedDelegationActive = !isCompactCommand(input.prompt) && Boolean(forcedPlanDelegationStore.get(input.thread.id));
     if (!outcome.ok) {
+      if (isCompactCommand(input.prompt)) {
+        emitContextCompactionStatus(input.thread.id, { stage: "failed", trigger: "manual", detail: outcome.reason });
+      }
       if (forcedDelegationActive) {
         settleForcedPlanDelegation(input.thread.id, {
           ok: false,
@@ -13275,6 +13287,14 @@ async function startCodexThreadRun(
       } else {
         markThreadInterrupted(input.thread.id, outcome.reason);
       }
+      return;
+    }
+
+    if (isCompactCommand(input.prompt)) {
+      updateThread(input.thread.id, {
+        status: conversationStore.getPendingPlan(input.thread.id) ? "awaiting_plan" : "completed",
+        message: "",
+      });
       return;
     }
 
@@ -14683,6 +14703,7 @@ async function startNewThread(
     throw new Error("无效的已有工作树选择。");
   const attachments = parsePromptImageAttachments(payload.attachments);
   const prompt = resolveThreadMessagePrompt(payload.prompt);
+  if (isCompactCommand(prompt)) throw new Error("/compact 需要已有的 SDK 会话，请在现有会话中发送。");
   if (!prompt && attachments.length === 0) {
     throw new Error("Task prompt is required.");
   }
@@ -14902,6 +14923,13 @@ async function startPreparedThreadContinuation(
   }
   if (!thread.coreKind) {
     throw new Error(`Thread ${thread.id} has unknown Harness ownership.`);
+  }
+  if (isCompactCommand(input.prompt)) {
+    if (thread.coreKind === "acp") throw new Error("当前 ACP Harness 不支持手动压缩上下文。");
+    if (input.attachments?.length) throw new Error("/compact 不能附带图片，请单独发送命令。");
+    if (!conversationStore.getThreadCoreSession(thread.id)?.externalSessionId) {
+      throw new Error("/compact 需要已有的 SDK 会话。");
+    }
   }
   // Pause means new prompts join the queue; do not start a run ahead of it.
   // Rewind is allowed (explicit edit of history) and still must not drain while paused.
@@ -17929,10 +17957,10 @@ async function dispatchThreadContinueAction(input: {
   if (action.kind === "resume_sdk") {
     void (async () => {
       const planningContext =
-        action.phase === "execution"
+        action.phase === "execution" && !isCompactCommand(agentPrompt)
           ? await resolvePlanningContextForThread(threadId, workspace.path)
           : undefined;
-      if (action.phase === "execution") {
+      if (action.phase === "execution" && !isCompactCommand(agentPrompt)) {
         conversationStore.clearPendingPlan(threadId);
       }
       await runThreadContinuation(
@@ -18003,6 +18031,7 @@ async function runThreadContinuation(
   runtimeDispatch?: PreparedHistoryRuntimeDispatch,
 ): Promise<void> {
   const controller = new AbortController();
+  const manualCompact = isCompactCommand(followUp);
 
   resetSubagentContextWindows(thread.id);
 
@@ -18010,7 +18039,7 @@ async function runThreadContinuation(
   let worktreePlan = existingWorktreePlan ?? createSessionPlan(workspace.path, thread.id);
   let cwd = workspace.path;
   const taskRuntime =
-    mode === "execution"
+    mode === "execution" && !manualCompact
       ? createThreadSdkTaskRuntime({
           threadId: thread.id,
           store: {
@@ -18130,9 +18159,14 @@ async function runThreadContinuation(
     );
 
     const continuationDecision = resolveContinuationRunOutcome(outcome, {
-      mode,
+      mode: manualCompact ? "ask" : mode,
       planningPlanCaptured,
     });
+
+    if (manualCompact && !outcome.ok) {
+      emitContextCompactionStatus(thread.id, { stage: "failed", trigger: "manual", detail: outcome.reason });
+      contextMonitor.markCompactFailed(thread.id);
+    }
 
     if (
       await applyMainThreadRunDecisionEffects({
@@ -18156,6 +18190,13 @@ async function runThreadContinuation(
           markThreadInterrupted(thread.id, reason);
         },
         onCompleted: async () => {
+          if (manualCompact) {
+            updateThread(thread.id, {
+              status: conversationStore.getPendingPlan(thread.id) ? "awaiting_plan" : "completed",
+              message: "",
+            });
+            return;
+          }
           if (mode === "execution") {
             taskRunHooks?.stopIfUnhandled("completed");
             await completeCodingThreadRun(thread.id, worktreePlan);
@@ -18178,6 +18219,10 @@ async function runThreadContinuation(
     updateThread(thread.id, { status: "idle", message: "" });
   } catch (error) {
     taskRunHooks?.stopIfUnhandled("blocked");
+    if (manualCompact) {
+      emitContextCompactionStatus(thread.id, { stage: "failed", trigger: "manual", detail: errorMessage(error) });
+      contextMonitor.markCompactFailed(thread.id);
+    }
     markThreadInterrupted(thread.id, errorMessage(error));
   } finally {
     const worktreePath = resolveThreadWorktreePath(thread.id);
@@ -21025,6 +21070,11 @@ async function resolvePromptImagesForMainContext(input: {
   routesOverride?: readonly RuntimeRoleRouteConfig[];
   signal?: AbortSignal;
 }): Promise<string> {
+  // Workspace context, references and image hints would turn a native command into model input.
+  if (isCompactCommand(input.prompt)) {
+    if (input.attachments?.length) throw new Error("/compact 不能附带图片，请单独发送命令。");
+    return "/compact";
+  }
   imageViewGateway.noteThreadPrompt(input.threadId, input.prompt);
   const thread = conversationStore.getThread(input.threadId);
   const loginImages = Boolean(thread && usesChatGptLogin(ensureThreadRuntimeConfig(thread)));

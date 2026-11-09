@@ -27,6 +27,11 @@ test("buildThreadTurnPrompt preserves original task", () => {
   expect(buildThreadTurnPrompt("实现导出按钮", "再加个筛选")).toContain("再加个筛选");
 });
 
+test("native compact commands stay standalone when there is task and conversation history", () => {
+  expect(buildThreadTurnPrompt("Original task", " /compact \n")).toBe("/compact");
+  expect(buildAgentPromptWithContext("Original task", "/compact", [{ role: "main", message: "Past work" }])).toBe("/compact");
+});
+
 test("shouldUseInterruptedWorktree", () => {
   expect(shouldUseInterruptedWorktree(true, true)).toBe(true);
   expect(shouldUseInterruptedWorktree(true, false)).toBe(false);
