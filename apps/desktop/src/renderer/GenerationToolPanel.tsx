@@ -175,6 +175,10 @@ export function ImageGenerationToolPanel({ context, active, onOpenSettings }: Pr
   const [pickError, setPickError] = useState<string>();
   const [picking, setPicking] = useState(false);
   const gemini = profile?.provider === "gemini";
+  const headerProfile = profile && {
+    name: profile.name,
+    model: profile.provider === "chatgpt_web" ? profile.chatModel : profile.model,
+  };
   const id = useId();
   const profileKey = profile ? `${profile.id}:${profile.provider}:${profile.supportsImageToImage}` : "";
   // Provider-specific controls start at their documented defaults after a profile switch.
@@ -207,7 +211,7 @@ export function ImageGenerationToolPanel({ context, active, onOpenSettings }: Pr
     <section className="generation-tool" aria-label={t("settings.imageGeneration.title")}>
       <ToolHeader
         title={t("settings.imageGeneration.title")}
-        profile={profile}
+        profile={headerProfile}
         context={context}
         loading={tool.loading}
         onRefresh={() => void tool.refresh()}

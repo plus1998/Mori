@@ -21,7 +21,7 @@ const artifact: ImageGenerationArtifact = {
   parameters: { count: 2 },
   provider: "codex",
   profileName: "test",
-  model: "gpt-image-2",
+  model: "gpt-image-2.6-flare",
   workspacePath: "/project",
   generationRoot: "/worktree",
   images: [],
@@ -220,7 +220,8 @@ test("partial provider batches and later persistence failures retain every saved
       profileId: "test",
       profileName: "test",
       provider: "codex" as const,
-      model: "gpt-image-2",
+      model: "gpt-image-2.6-flare",
+      chatModel: "gpt-6.1-sol",
       endpoint: "",
       apiKey: "",
       supportsImageToImage: true,
@@ -279,7 +280,7 @@ test("gateway persists each image and records archived partial results when the 
     name: "Codex",
     provider: "codex",
     endpoint: "",
-    model: "gpt-image-2",
+    model: "gpt-image-2.6-flare",
   });
   generation.activateProfile(profile.id);
   generation.setEnabled(true);

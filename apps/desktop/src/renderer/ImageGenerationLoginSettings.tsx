@@ -1,18 +1,35 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { ImageGenerationLoginRoute, ImageGenerationProfileSnapshot } from "../shared/image-generation";
+import {
+  IMAGE_GENERATION_CODEX_IMAGE_MODELS,
+  type ImageGenerationLoginRoute,
+  type ImageGenerationProfileSnapshot,
+} from "../shared/image-generation";
 import { canUseOpenAIAccountCredentials, type OpenAIAccount } from "../shared/openai-account";
+import type { CodexCatalogModelView } from "../shared/models";
 import { ModelFieldLabel } from "./ModelFieldLabel";
+import { ComposerFieldSelect } from "./ComposerFieldSelect";
 import { SettingsButton, SettingsSelect } from "./components/SettingsControls";
 import { SettingsSection } from "./components/SettingsPage";
 import { SettingsResourceList, SettingsResourceRow } from "./components/SettingsResourceList";
 import { SettingsGroup, SettingsRow } from "./components/SettingsRow";
 import { Switch } from "./components/Switch";
+import gptImage25FlareIcon from "./assets/image-generation-models/gpt-image-2.5-flare.png";
+import gptImage25SunburstIcon from "./assets/image-generation-models/gpt-image-2.5-sunburst.png";
+import gptImage26FlareIcon from "./assets/image-generation-models/gpt-image-2.6-flare.png";
+
+const CODEX_IMAGE_MODEL_ICONS: Record<(typeof IMAGE_GENERATION_CODEX_IMAGE_MODELS)[number], string> = {
+  "gpt-image-2.5-flare": gptImage25FlareIcon,
+  "gpt-image-2.5-sunburst": gptImage25SunburstIcon,
+  "gpt-image-2.6-flare": gptImage26FlareIcon,
+};
 
 interface Props {
   profile: ImageGenerationProfileSnapshot;
   busy: boolean;
   onRouteChange: (route: ImageGenerationLoginRoute) => void;
+  onChatModelChange: (model: string) => void;
+  onImageModelChange: (model: string) => void;
   onImageEditingChange: (checked: boolean) => void;
   onPoolChange: () => void;
   onManageAccounts?: () => void;
@@ -23,6 +40,8 @@ export function ImageGenerationLoginSettings({
   profile,
   busy,
   onRouteChange,
+  onChatModelChange,
+  onImageModelChange,
   onImageEditingChange,
   onPoolChange,
   onManageAccounts,
@@ -34,8 +53,44 @@ export function ImageGenerationLoginSettings({
   const [loadError, setLoadError] = useState("");
   const [savingId, setSavingId] = useState("");
   const [reload, setReload] = useState(0);
+  const [chatModels, setChatModels] = useState<CodexCatalogModelView[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(true);
+  const [modelsError, setModelsError] = useState("");
   const saving = useRef(false);
   const web = profile.provider === "chatgpt_web";
+
+  useEffect(() => {
+    let disposed = false;
+    let request = 0;
+    async function refreshModels() {
+      const current = ++request;
+      setModelsLoading(true);
+      try {
+        if (!window.eco) throw new Error(t("settings.imageGeneration.desktopOnly"));
+        const catalog = await window.eco.getCodexModelCatalog();
+        if (!disposed && current === request) {
+          setChatModels(catalog.models.filter((model) => !model.hidden));
+          setModelsError(catalog.status.lastError ?? "");
+        }
+      } catch (error) {
+        if (!disposed && current === request) {
+          setChatModels([]);
+          setModelsError(error instanceof Error ? error.message : String(error));
+        }
+      } finally {
+        if (!disposed && current === request) setModelsLoading(false);
+      }
+    }
+    void refreshModels();
+    const unsubscribe = window.eco?.onThreadEvent((event) => {
+      if (event && typeof event === "object" && "type" in event && event.type === "settings.updated")
+        void refreshModels();
+    });
+    return () => {
+      disposed = true;
+      unsubscribe?.();
+    };
+  }, [t]);
 
   useEffect(() => {
     let disposed = false;
@@ -110,9 +165,83 @@ export function ImageGenerationLoginSettings({
           )}
         />
         <SettingsRow
-          label={t("settings.imageGeneration.model")}
-          control={() => <span>{profile.model}</span>}
+          label={t("settings.imageGeneration.chatModel")}
+          description={
+            <>
+              {t(
+                !web && profile.chatModel === "gpt-5.5"
+                  ? "settings.imageGeneration.codexChatModelUnavailable"
+                  : "settings.imageGeneration.chatModelHelp",
+              )}
+              {modelsError ? (
+                <span className="settings-form-error" role="alert">
+                  {t("codexModels.refreshFailed", { message: modelsError })}
+                </span>
+              ) : !modelsLoading && !chatModels.length ? (
+                <span>{t("codexModels.empty")}</span>
+              ) : null}
+            </>
+          }
+          control={(props) => (
+            <SettingsSelect
+              {...props}
+              variant="inline"
+              value={profile.chatModel}
+              disabled={busy || Boolean(savingId) || modelsLoading || !chatModels.length}
+              aria-busy={modelsLoading}
+              onChange={(event) => onChatModelChange(event.target.value)}
+            >
+              {chatModels.some((model) => model.modelId === profile.chatModel) ? null : (
+                <option value={profile.chatModel} disabled>
+                  {modelsLoading || modelsError
+                    ? profile.chatModel
+                    : t("settings.imageGeneration.chatModelNotInCatalog", { model: profile.chatModel })}
+                </option>
+              )}
+              {chatModels.map((model) => (
+                <option key={model.modelId} value={model.modelId}>
+                  {model.displayName}
+                </option>
+              ))}
+            </SettingsSelect>
+          )}
         />
+        {web ? null : (
+          <SettingsRow
+            label={t("settings.imageGeneration.imageModel")}
+            description={t("settings.imageGeneration.imageModelHelp")}
+            stackControlOnNarrow
+            control={(props) => (
+              <div
+                {...props}
+                className="image-generation-model-select"
+                role="group"
+              >
+                <img
+                  src={CODEX_IMAGE_MODEL_ICONS[profile.model as keyof typeof CODEX_IMAGE_MODEL_ICONS]}
+                  alt=""
+                  aria-hidden="true"
+                />
+                <ComposerFieldSelect
+                  value={profile.model}
+                  onChange={onImageModelChange}
+                  disabled={busy || Boolean(savingId)}
+                  title={t("settings.imageGeneration.imageModel")}
+                  renderOptionIcon={(option) => (
+                    <img
+                      src={CODEX_IMAGE_MODEL_ICONS[option.value as keyof typeof CODEX_IMAGE_MODEL_ICONS]}
+                      alt=""
+                    />
+                  )}
+                >
+                  {IMAGE_GENERATION_CODEX_IMAGE_MODELS.map((model) => (
+                    <option key={model} value={model}>{model}</option>
+                  ))}
+                </ComposerFieldSelect>
+              </div>
+            )}
+          />
+        )}
         <SettingsRow
           label={t("settings.imageGeneration.supportsImageToImage")}
           control={(props) => (

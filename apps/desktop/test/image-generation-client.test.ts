@@ -41,6 +41,7 @@ function config(
         ? "https://generativelanguage.googleapis.com/v1beta"
         : "https://api.example.com/v1",
     model: provider === "gemini" ? "gemini-image" : "exact-image-model",
+    chatModel: provider === "codex" || provider === "chatgpt_web" ? "gpt-6.1-sol" : "",
     apiKey: "secret-key",
     supportsImageToImage: true,
     ...overrides,
@@ -51,7 +52,7 @@ test("a partial Codex batch writes completed images into the failed artifact pay
   const root = await generationRoot();
   try {
     await generateImagesToWorkspace({
-      config: config("codex", { apiKey: "", model: "gpt-image-2" }),
+      config: config("codex", { apiKey: "", model: "gpt-image-2.6-flare", chatModel: "gpt-6.1-sol" }),
       toolInput: { prompt: "leaf", count: 2 }, generationRoot: root,
       workspacePath: root, threadDirectory: "codex-partial",
       generateCodex: async () => { throw new CodexImageBatchError(
@@ -264,6 +265,27 @@ test("reference images accept external absolute, relative and symlink paths", as
     });
     expect(received).toBe(true);
   }
+});
+
+test.each(["codex", "chatgpt_web"] as const)("%s forwards the selected models to the login service", async (provider) => {
+  const root = await generationRoot();
+  const signal = new AbortController().signal;
+  let received = false;
+  const model = provider === "codex" ? "gpt-image-2.5-sunburst" : "";
+  await generateImagesToWorkspace({
+    config: config(provider, { model, chatModel: "gpt-6-luna" }),
+    toolInput: { prompt: "leaf" },
+    generationRoot: root,
+    threadDirectory: "thread-models",
+    workspacePath: root,
+    signal,
+    generateCodex: async (_input, _images, options) => {
+      expect(options).toEqual({ route: provider, chatModel: "gpt-6-luna", imageModel: model, signal });
+      received = true;
+      return [{ bytes: pngBytes, mimeType: "image/png" }];
+    },
+  });
+  expect(received).toBe(true);
 });
 
 test("invalid image bytes are returned as an Agent-visible stable error", async () => {

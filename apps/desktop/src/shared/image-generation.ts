@@ -46,12 +46,22 @@ export function isImageGenerationLoginProvider(
   return provider === "chatgpt_web" || provider === "codex";
 }
 
+/** Codex route image models offered in the UI; the Web route has no image model selector. */
+export const IMAGE_GENERATION_CODEX_IMAGE_MODELS = [
+  "gpt-image-2.5-flare",
+  "gpt-image-2.5-sunburst",
+  "gpt-image-2.6-flare",
+] as const;
+
 export interface ImageGenerationProfileSnapshot {
   id: string;
   name: string;
   provider: ImageGenerationProvider;
   endpoint: string;
+  /** Image model. Empty on the Web route, where the server chooses the image model. */
   model: string;
+  /** Chat model that drives the Codex / Web generation request. Empty for API providers. */
+  chatModel: string;
   /** When true, create_image may accept input_images for image-to-image edits. */
   supportsImageToImage: boolean;
   hasApiKey: boolean;
@@ -65,6 +75,7 @@ export interface ImageGenerationProfileSaveInput {
   provider: ImageGenerationProvider;
   endpoint: string;
   model: string;
+  chatModel?: string;
   supportsImageToImage?: boolean;
   apiKey?: string;
 }
@@ -162,10 +173,28 @@ export function defaultImageGenerationEndpoint(provider: ImageGenerationProvider
 }
 
 export function defaultImageGenerationModel(provider: ImageGenerationProvider): string {
-  if (provider === "codex" || provider === "chatgpt_web") return "gpt-image-2";
+  if (provider === "codex") return "gpt-image-2.6-flare";
+  if (provider === "chatgpt_web") return "";
   if (provider === "gemini") return "gemini-2.5-flash-image";
   if (provider === "openai") return "gpt-image-2";
   return "";
+}
+
+/** Older builds stored the API image model on Codex profiles; map it to the Codex default. */
+export function remapLegacyImageGenerationModel(provider: ImageGenerationProvider, model: string): string {
+  if (provider === "codex" && model === "gpt-image-2") return defaultImageGenerationModel(provider);
+  return model;
+}
+
+export function defaultImageGenerationChatModel(provider: ImageGenerationProvider): string {
+  if (provider === "codex") return "gpt-6.1-terra";
+  if (provider === "chatgpt_web") return "gpt-5.5";
+  return "";
+}
+
+/** Image models the user may pick; only the Codex route exposes this selector. */
+export function imageGenerationImageModelOptions(provider: ImageGenerationProvider): readonly string[] {
+  return provider === "codex" ? IMAGE_GENERATION_CODEX_IMAGE_MODELS : [];
 }
 
 /** Default for new profiles: official OpenAI/Gemini support edits; compatible gateways often do not. */
@@ -177,6 +206,7 @@ export function buildImageGenerationPromptAppend(input: {
   provider: ImageGenerationProvider;
   profileName: string;
   model: string;
+  chatModel?: string;
   supportsImageToImage: boolean;
 }): string {
   const providerParameters =
@@ -191,7 +221,9 @@ export function buildImageGenerationPromptAppend(input: {
   return [
     "Built-in Creative Drawing (Mori): generate illustrations and visual assets; edit reference images when the active profile supports image-to-image. Use this integration for image generation and editing.",
     buildEcoMcpHubToolUsage({ server: ECO_IMAGE_GENERATION_MCP_SERVER }),
-    `Active profile: ${input.profileName}; provider=${input.provider}; model=${input.model}.`,
+    input.provider === "codex" || input.provider === "chatgpt_web"
+      ? `Active profile: ${input.profileName}; provider=${input.provider}; chat model=${input.chatModel ?? ""}; image model=${input.model || "server-selected"}.`
+      : `Active profile: ${input.profileName}; provider=${input.provider}; model=${input.model}.`,
     providerParameters,
     imageToImage,
     "Generated originals are saved automatically in Mori’s image library. Returned file paths are independent temporary working copies; you may edit or move them without changing the saved originals. Do not modify or clean Mori’s internal image-library storage; users manage originals through the library.",

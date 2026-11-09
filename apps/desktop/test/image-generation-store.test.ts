@@ -54,12 +54,13 @@ test("source selection creates Login without a user profile and reuses it across
   const webId = web.activeProfileId;
   expect(store.getActiveClientConfig()).toMatchObject({
     provider: "chatgpt_web",
-    model: "gpt-image-2",
+    model: "",
+    chatModel: "gpt-5.5",
     apiKey: "",
   });
   expect(store.setEnabled(true).enabled).toBe(true);
   store.selectSource({ source: "chatgpt_login", route: "codex" });
-  expect(store.getActiveClientConfig().provider).toBe("codex");
+  expect(store.getActiveClientConfig()).toMatchObject({ provider: "codex", chatModel: "gpt-6.1-terra" });
   store.selectSource({ source: "chatgpt_login", route: "chatgpt_web" });
   expect(store.getSettings().activeProfileId).toBe(webId);
   store.initialize();
@@ -102,7 +103,7 @@ test("source selection preserves a legacy Login route and its image editing sett
     name: "My existing paid pool",
     provider: "codex",
     endpoint: "https://chatgpt.com/backend-api/codex",
-    model: "gpt-image-2",
+    model: "gpt-image-2.6-flare",
     supportsImageToImage: false,
   });
   store.activateProfile(legacy.id);
@@ -143,7 +144,7 @@ test("Codex login profiles activate without a key and reject custom credential d
     name: "Codex 账号池",
     provider: "codex",
     endpoint: "https://chatgpt.com/backend-api/codex",
-    model: "gpt-image-2",
+    model: "gpt-image-2.6-flare",
   });
   expect(profile.hasApiKey).toBe(false);
   store.activateProfile(profile.id);
@@ -154,12 +155,120 @@ test("Codex login profiles activate without a key and reject custom credential d
       name: "unsafe",
       provider: "codex",
       endpoint: "https://example.com",
-      model: "gpt-image-2",
+      model: "gpt-image-2.6-flare",
     }),
   ).toThrow("固定地址");
   expect(() =>
     store.saveProfile({ name: "wrong model", provider: "codex", endpoint: "", model: "other" }),
-  ).toThrow("gpt-image-2");
+  ).toThrow("不支持图片模型");
+});
+
+test("Codex image models are restricted to the three documented Codex image models", async () => {
+  const store = await createStore();
+  for (const model of ["gpt-image-2", "gpt-image-1", "other"]) {
+    expect(() =>
+      store.saveProfile({ name: `Codex ${model}`, provider: "codex", endpoint: "", model }),
+    ).toThrow("不支持图片模型");
+  }
+  const sunburst = store.saveProfile({
+    name: "Codex sunburst",
+    provider: "codex",
+    endpoint: "",
+    model: "gpt-image-2.5-sunburst",
+  });
+  expect(sunburst.model).toBe("gpt-image-2.5-sunburst");
+});
+
+test("login chat models use route defaults and accept models from an evolving catalog", async () => {
+  const store = await createStore();
+  const codex = store.saveProfile({ name: "Codex chat", provider: "codex", endpoint: "", model: "gpt-image-2.6-flare" });
+  expect(codex.chatModel).toBe("gpt-6.1-terra");
+  expect(() =>
+    store.saveProfile({
+      id: codex.id,
+      name: "Codex chat",
+      provider: "codex",
+      endpoint: "",
+      model: "gpt-image-2.6-flare",
+      chatModel: "invalid model",
+    }),
+  ).toThrow("对话模型不能包含空白字符");
+  expect(store.saveProfile({
+    id: codex.id,
+    name: codex.name,
+    provider: "codex",
+    endpoint: "",
+    model: codex.model,
+    chatModel: "future-catalog-model",
+  }).chatModel).toBe("future-catalog-model");
+  const web = store.saveProfile({ name: "Web chat", provider: "chatgpt_web", endpoint: "", model: "" });
+  expect(web.chatModel).toBe("gpt-5.5");
+  const selected = store.saveProfile({
+    id: web.id,
+    name: "Web chat",
+    provider: "chatgpt_web",
+    endpoint: "",
+    model: "",
+    chatModel: "gpt-6-luna",
+  });
+  expect(selected.chatModel).toBe("gpt-6-luna");
+  store.initialize();
+  expect(store.getSettings().profiles.find((profile) => profile.id === web.id)?.chatModel).toBe("gpt-6-luna");
+  expect(() =>
+    store.saveProfile({ id: web.id, name: "Web chat", provider: "chatgpt_web", endpoint: "", model: "", chatModel: "invalid model" }),
+  ).toThrow("对话模型不能包含空白字符");
+});
+
+test("API profiles store no chat model and Web profiles store no image model", async () => {
+  const store = await createStore();
+  const api = store.saveProfile({
+    name: "API chat",
+    provider: "openai",
+    endpoint: "https://api.openai.com/v1",
+    model: "gpt-image-2",
+    apiKey: "key",
+    chatModel: "gpt-5.5",
+  });
+  expect(api.chatModel).toBe("");
+  const web = store.saveProfile({
+    name: "Web image",
+    provider: "chatgpt_web",
+    endpoint: "",
+    model: "gpt-image-2.6-flare",
+  });
+  expect(web.model).toBe("");
+});
+
+test("legacy Codex rows with the API image model migrate to the Codex defaults on initialize", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "eco-image-store-codex-migrate-"));
+  temporaryDirectories.push(directory);
+  const database = new Database(path.join(directory, "settings.sqlite"));
+  openDatabases.push(database);
+  const store = new ImageGenerationStore(database as never, codec);
+  store.initialize();
+  const codex = store.saveProfile({ name: "Legacy Codex", provider: "codex", endpoint: "", model: "gpt-image-2.6-flare" });
+  database
+    .prepare("UPDATE image_generation_profiles SET model = 'gpt-image-2', chat_model = '' WHERE id = ?")
+    .run(codex.id);
+  const migrated = new ImageGenerationStore(database as never, codec);
+  migrated.initialize();
+  expect(migrated.getSettings().profiles.find((profile) => profile.id === codex.id)).toMatchObject({
+    model: "gpt-image-2.6-flare",
+    chatModel: "gpt-6.1-terra",
+  });
+});
+
+test("initialization preserves saved chat models outside the former fixed list", () => {
+  const database = new Database(":memory:");
+  openDatabases.push(database);
+  const store = new ImageGenerationStore(database as never, codec);
+  store.initialize();
+  const profile = store.saveProfile({ name: "Codex", provider: "codex", endpoint: "", model: "gpt-image-2.6-flare" });
+  store.activateProfile(profile.id);
+  database.prepare("UPDATE image_generation_profiles SET chat_model = 'unknown-model' WHERE id = ?").run(profile.id);
+  store.initialize();
+  expect(store.getSettings().profiles.find((item) => item.id === profile.id)?.chatModel).toBe("unknown-model");
+  expect(store.getActiveClientConfig().chatModel).toBe("unknown-model");
 });
 
 test("web image profiles use login credentials, default edits on, and respect explicit disabling", async () => {
@@ -213,7 +322,7 @@ test("legacy provider CHECK migration preserves active profile, encrypted key, a
     apiKey: "secret",
     supportsImageToImage: true,
   });
-  const profile = store.saveProfile({ name: "Codex", provider: "codex", endpoint: "", model: "gpt-image-2" });
+  const profile = store.saveProfile({ name: "Codex", provider: "codex", endpoint: "", model: "gpt-image-2.6-flare" });
   store.activateProfile(profile.id);
   const web = store.saveProfile({
     name: "Free",

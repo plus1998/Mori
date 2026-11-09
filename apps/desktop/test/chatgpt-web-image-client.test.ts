@@ -7,9 +7,9 @@ const png = Buffer.from(
 );
 
 test.each([
-  ["https://files.oaiusercontent.com/image", "https://files.oaiusercontent.com/image", false],
-  ["https://chatgpt.com/backend-api/estuary/content?id=image", "/backend-api/estuary/content?id=image", true],
-] as const)("web image download scopes login credentials to its origin: %s", async (downloadUrl, requestPath, needsAuth) => {
+  ["https://files.oaiusercontent.com/image", "https://files.oaiusercontent.com/image", false, "gpt-5.5"],
+  ["https://chatgpt.com/backend-api/estuary/content?id=image", "/backend-api/estuary/content?id=image", true, "gpt-6-luna"],
+] as const)("web image download scopes login credentials to its origin: %s", async (downloadUrl, requestPath, needsAuth, chatModel) => {
   const requests: string[] = [];
   const result = await generateChatGptWebImage(
     {
@@ -19,10 +19,13 @@ test.each([
         if (path === "/") return new Response('<script src="/c/build123/_/app.js"></script>');
         if (path.endsWith("chat-requirements/prepare")) return Response.json({ prepare_token: "prepared" });
         if (path.endsWith("chat-requirements/finalize")) return Response.json({ token: "requirements" });
-        if (path.endsWith("conversation/prepare")) return Response.json({ conduit_token: "conduit" });
+        if (path.endsWith("conversation/prepare")) {
+          expect(JSON.parse(init.body as string).model).toBe(chatModel);
+          return Response.json({ conduit_token: "conduit" });
+        }
         if (path.endsWith("/f/conversation")) {
           const body = JSON.parse(init.body as string);
-          expect(body.model).toBe("gpt-5-5");
+          expect(body.model).toBe(chatModel);
           expect(body.thinking_effort).toBeUndefined();
           expect(body.system_hints).toEqual(["picture_v2"]);
           return new Response(
@@ -38,6 +41,7 @@ test.each([
     { Authorization: "Bearer test", "User-Agent": "test" },
     { prompt: "leaf" },
     AbortSignal.timeout(5000),
+    chatModel,
   );
   expect(result.bytes).toEqual(png);
   expect(requests.at(-1)).toBe(requestPath);
@@ -142,6 +146,7 @@ test("web edits upload all references, attach their metadata and ignore echoed i
     { Authorization: "Bearer test", "User-Agent": "test" },
     { prompt: "change to red" },
     AbortSignal.timeout(1000),
+    "gpt-5-5",
     [1, 2].map((i) => ({ bytes: png, mimeType: "image/png", fileName: `ref${i}.png` })),
   );
   expect(result.bytes).toEqual(png);
@@ -165,6 +170,7 @@ test("a failed reference upload stops before generation with its upstream status
       { "User-Agent": "test" },
       { prompt: "edit" },
       AbortSignal.timeout(1000),
+      "gpt-5-5",
       [{ bytes: png, mimeType: "image/png", fileName: "ref.png" }],
     ),
   ).rejects.toMatchObject({ code: "image_upload_failed", providerStatus: 403 });

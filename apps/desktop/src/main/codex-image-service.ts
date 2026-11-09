@@ -6,7 +6,7 @@ import {
 } from "../shared/image-generation";
 import { canUseOpenAIAccountCredentials, type OpenAIAccount, type OpenAIAccountDetails, type OpenAIAccountImageQuota } from "../shared/openai-account";
 import { generateChatGptWebImage } from "./chatgpt-web-image-client";
-import type { ImagePayload, LoadedInputImage } from "./image-generation-client";
+import type { CodexImageGenerationOptions, ImagePayload, LoadedInputImage } from "./image-generation-client";
 
 export interface CodexImageAccountPort {
   listAccounts(): Promise<OpenAIAccount[]>;
@@ -153,9 +153,9 @@ export class CodexImageService {
   async generate(
     input: ImageGenerationToolInput,
     images: LoadedInputImage[],
-    signal?: AbortSignal,
-    route: "codex" | "chatgpt_web" = "codex",
+    options: CodexImageGenerationOptions,
   ): Promise<ImagePayload[]> {
+    const { signal, route, chatModel, imageModel } = options;
     const requestSignal = signal
       ? AbortSignal.any([signal, AbortSignal.timeout(IMAGE_GENERATION_REQUEST_TIMEOUT_MS)])
       : AbortSignal.timeout(IMAGE_GENERATION_REQUEST_TIMEOUT_MS);
@@ -185,7 +185,14 @@ export class CodexImageService {
           const { token } = credentials(account);
           if (route === "chatgpt_web") {
             result.push(
-              await generateChatGptWebImage(connection, headers(token, "/"), input, requestSignal, images),
+              await generateChatGptWebImage(
+                connection,
+                headers(token, "/"),
+                input,
+                requestSignal,
+                chatModel,
+                images,
+              ),
             );
             await this.queryQuota(account.id);
             continue;
@@ -196,7 +203,7 @@ export class CodexImageService {
             headers: headers(token, path),
             signal: requestSignal,
             body: JSON.stringify({
-              model: "gpt-6.1-sol",
+              model: chatModel,
               instructions:
                 "Use the image_generation tool to create exactly one image for the user's request. Return the generated image result.",
               store: false,
@@ -216,7 +223,7 @@ export class CodexImageService {
               tools: [
                 {
                   type: "image_generation",
-                  model: "gpt-image-2",
+                  model: imageModel,
                   action: images.length ? "edit" : "generate",
                   size: input.size ?? "1024x1024",
                   quality: input.quality ?? "auto",

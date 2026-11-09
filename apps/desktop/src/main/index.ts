@@ -3025,7 +3025,7 @@ app
     imageGenerationGateway = new ImageGenerationMcpGateway({
       store: imageGenerationStore,
       library: imageLibraryStore,
-      generateCodex: (input, images, signal, route) => codexImages.generate(input, images, signal, route),
+      generateCodex: (input, images, options) => codexImages.generate(input, images, options),
       resolveWorkspacePath: (threadId) => conversationStore.getThread(threadId)?.workspacePath,
       resolveGenerationRoot: (threadId) =>
         activeRunRuntimeState.worktreePlan(threadId)?.worktreePath ??

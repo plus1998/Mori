@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { DatabaseSync as DatabaseSyncType } from "node:sqlite";
 import {
+  defaultImageGenerationChatModel,
   defaultImageGenerationEndpoint,
   defaultImageGenerationModel,
   defaultSupportsImageToImage,
@@ -15,8 +16,10 @@ import {
   type ImageGenerationSettingsSnapshot,
   type ImageGenerationSourceInput,
   type ImageGenerationToolInput,
+  imageGenerationImageModelOptions,
   isImageGenerationProvider,
   isImageGenerationLoginProvider,
+  remapLegacyImageGenerationModel,
 } from "../shared/image-generation";
 
 export const DEFAULT_IMAGE_PROFILE_ID = "00000000-0000-4000-8000-000000000002";
@@ -33,6 +36,7 @@ interface ProfileRow {
   provider: string;
   endpoint: string;
   model: string;
+  chat_model: string;
   supports_image_to_image: number;
   encrypted_api_key: string;
   created_at: string;
@@ -71,6 +75,7 @@ export interface ImageGenerationClientConfig {
   provider: ImageGenerationProvider;
   endpoint: string;
   model: string;
+  chatModel: string;
   supportsImageToImage: boolean;
   apiKey: string;
 }
@@ -146,6 +151,7 @@ export class ImageGenerationStore {
       .run("应用退出时图片生成尚未完成，请重新生成。", new Date().toISOString());
     this.ensureProfileColumns();
     this.ensureCodexProvider();
+    this.migrateLoginProfiles();
     // These local navigation preferences do not change the synced active-profile contract.
     const settingsColumns = this.db.prepare("PRAGMA table_info(image_generation_settings)").all() as {
       name: string;
@@ -166,8 +172,8 @@ export class ImageGenerationStore {
       this.db
         .prepare(
           `INSERT INTO image_generation_profiles
-           (id, name, provider, endpoint, model, supports_image_to_image, encrypted_api_key, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, '', ?, ?)`,
+           (id, name, provider, endpoint, model, chat_model, supports_image_to_image, encrypted_api_key, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, '', ?, ?)`,
         )
         .run(
           DEFAULT_IMAGE_PROFILE_ID,
@@ -175,6 +181,7 @@ export class ImageGenerationStore {
           "openai",
           defaultImageGenerationEndpoint("openai"),
           defaultImageGenerationModel("openai"),
+          defaultImageGenerationChatModel("openai"),
           defaultSupportsImageToImage("openai") ? 1 : 0,
           now,
           now,
@@ -220,7 +227,7 @@ export class ImageGenerationStore {
     const settings = this.requireSettingsRow();
     const profiles = this.db
       .prepare(
-        `SELECT id, name, provider, endpoint, model, supports_image_to_image, encrypted_api_key, created_at, updated_at
+        `SELECT id, name, provider, endpoint, model, chat_model, supports_image_to_image, encrypted_api_key, created_at, updated_at
          FROM image_generation_profiles ORDER BY name COLLATE NOCASE, created_at, id`,
       )
       .all() as unknown as ProfileRow[];
@@ -248,10 +255,12 @@ export class ImageGenerationStore {
     const name = normalizeName(input.name);
     const provider = normalizeProvider(input.provider);
     const endpoint = normalizeEndpoint(input.endpoint, provider);
-    const model = normalizeModel(input.model);
-    if ((provider === "codex" || provider === "chatgpt_web") && model !== "gpt-image-2")
-      throw new Error("Codex 登录生图目前只支持 gpt-image-2。");
+    const model = normalizeImageModel(input.model, provider);
     const existing = this.readProfileOptional(id);
+    const chatModel = normalizeChatModel(
+      input.chatModel ?? (existing?.provider === provider ? existing.chat_model : undefined),
+      provider,
+    );
     const supportsImageToImage =
       typeof input.supportsImageToImage === "boolean"
         ? input.supportsImageToImage
@@ -275,18 +284,39 @@ export class ImageGenerationStore {
     if (existing) {
       this.db
         .prepare(
-          `UPDATE image_generation_profiles SET name = ?, provider = ?, endpoint = ?, model = ?,
+          `UPDATE image_generation_profiles SET name = ?, provider = ?, endpoint = ?, model = ?, chat_model = ?,
            supports_image_to_image = ?, encrypted_api_key = ?, updated_at = ? WHERE id = ?`,
         )
-        .run(name, provider, endpoint, model, supportsImageToImage ? 1 : 0, encryptedApiKey, now, id);
+        .run(
+          name,
+          provider,
+          endpoint,
+          model,
+          chatModel,
+          supportsImageToImage ? 1 : 0,
+          encryptedApiKey,
+          now,
+          id,
+        );
     } else {
       this.db
         .prepare(
           `INSERT INTO image_generation_profiles
-           (id, name, provider, endpoint, model, supports_image_to_image, encrypted_api_key, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           (id, name, provider, endpoint, model, chat_model, supports_image_to_image, encrypted_api_key, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
-        .run(id, name, provider, endpoint, model, supportsImageToImage ? 1 : 0, encryptedApiKey, now, now);
+        .run(
+          id,
+          name,
+          provider,
+          endpoint,
+          model,
+          chatModel,
+          supportsImageToImage ? 1 : 0,
+          encryptedApiKey,
+          now,
+          now,
+        );
     }
     return this.toProfileSnapshot(this.readProfile(id));
   }
@@ -357,6 +387,7 @@ export class ImageGenerationStore {
           provider,
           endpoint: defaultImageGenerationEndpoint(provider),
           model: defaultImageGenerationModel(provider),
+          chatModel: defaultImageGenerationChatModel(provider),
         });
       }
       // An unconfigured API can be selected for editing, but must not leave drawing enabled:
@@ -522,6 +553,30 @@ export class ImageGenerationStore {
          CHECK(supports_image_to_image IN (0, 1))`,
       );
     }
+    if (!names.has("chat_model")) {
+      this.db.exec("ALTER TABLE image_generation_profiles ADD COLUMN chat_model TEXT NOT NULL DEFAULT ''");
+    }
+  }
+
+  /**
+   * Login profiles saved before chat_model existed. Codex rows could only hold "gpt-image-2" (the old
+   * allow-list), and Web rows held the same value, so only that legacy image model is remapped.
+   */
+  private migrateLoginProfiles(): void {
+    const rows = this.db
+      .prepare(
+        "SELECT id, provider, model, chat_model FROM image_generation_profiles WHERE provider IN ('codex', 'chatgpt_web')",
+      )
+      .all() as Array<Pick<ProfileRow, "id" | "provider" | "model" | "chat_model">>;
+    for (const row of rows) {
+      const provider = normalizeProvider(row.provider);
+      const chatModel = row.chat_model || defaultImageGenerationChatModel(provider);
+      const model = provider === "chatgpt_web" ? "" : remapLegacyImageGenerationModel(provider, row.model);
+      if (model === row.model && chatModel === row.chat_model) continue;
+      this.db
+        .prepare("UPDATE image_generation_profiles SET model = ?, chat_model = ? WHERE id = ?")
+        .run(model, chatModel, row.id);
+    }
   }
 
   private requireClientConfig(row: ProfileRow): ImageGenerationClientConfig {
@@ -536,7 +591,8 @@ export class ImageGenerationStore {
       profileName: row.name,
       provider: normalizeProvider(row.provider),
       endpoint: row.endpoint,
-      model: row.model,
+      model: normalizeImageModel(row.model, normalizeProvider(row.provider)),
+      chatModel: normalizeChatModel(row.chat_model, normalizeProvider(row.provider)),
       supportsImageToImage: row.supports_image_to_image === 1,
       apiKey,
     };
@@ -559,6 +615,18 @@ export class ImageGenerationStore {
       .get() as { sql: string };
     if (row.sql.includes("'chatgpt_web'") || !row.sql.includes("'openai_compatible'")) return;
     // SQLite cannot alter CHECK constraints. Rebuild atomically, keeping the active profile FK.
+    const columns = [
+      "id",
+      "name",
+      "provider",
+      "endpoint",
+      "model",
+      "chat_model",
+      "supports_image_to_image",
+      "encrypted_api_key",
+      "created_at",
+      "updated_at",
+    ].join(", ");
     this.db.exec("PRAGMA foreign_keys = OFF");
     this.db.exec("BEGIN IMMEDIATE");
     try {
@@ -570,7 +638,8 @@ export class ImageGenerationStore {
           )
           .replace(/'openai_compatible'(?:,\s*'codex')?/, "'openai_compatible', 'codex', 'chatgpt_web'"),
       );
-      this.db.exec(`INSERT INTO image_generation_profiles_next SELECT * FROM image_generation_profiles;
+      this.db.exec(`INSERT INTO image_generation_profiles_next (${columns})
+        SELECT ${columns} FROM image_generation_profiles;
         DROP TABLE image_generation_profiles;
         ALTER TABLE image_generation_profiles_next RENAME TO image_generation_profiles;`);
       if (this.db.prepare("PRAGMA foreign_key_check").all().length)
@@ -601,7 +670,7 @@ export class ImageGenerationStore {
   private readProfileOptional(id: string): ProfileRow | undefined {
     return this.db
       .prepare(
-        `SELECT id, name, provider, endpoint, model, supports_image_to_image, encrypted_api_key, created_at, updated_at
+        `SELECT id, name, provider, endpoint, model, chat_model, supports_image_to_image, encrypted_api_key, created_at, updated_at
          FROM image_generation_profiles WHERE id = ?`,
       )
       .get(id) as unknown as ProfileRow | undefined;
@@ -620,6 +689,7 @@ export class ImageGenerationStore {
       provider: normalizeProvider(row.provider),
       endpoint: row.endpoint,
       model: row.model,
+      chatModel: row.chat_model,
       supportsImageToImage: row.supports_image_to_image === 1,
       hasApiKey: Boolean(row.encrypted_api_key),
       createdAt: row.created_at,
@@ -678,6 +748,25 @@ function normalizeModel(value: unknown): string {
   if (typeof value !== "string" || !value.trim()) throw new Error("创意绘画模型不能为空。");
   const model = value.trim();
   if (model.length > 256) throw new Error("创意绘画模型不能超过 256 个字符。");
+  return model;
+}
+
+/** Web route ignores any image model: the server chooses it, so the field is stored empty. */
+function normalizeImageModel(value: unknown, provider: ImageGenerationProvider): string {
+  if (provider === "chatgpt_web") return "";
+  const model = normalizeModel(value);
+  if (provider === "codex" && !imageGenerationImageModelOptions(provider).includes(model))
+    throw new Error(`Codex 登录生图不支持图片模型：${model}`);
+  return model;
+}
+
+/** API providers have no chat model and store empty; login routes fall back to their default when unset. */
+function normalizeChatModel(value: unknown, provider: ImageGenerationProvider): string {
+  if (!isImageGenerationLoginProvider(provider)) return "";
+  if (value === undefined || (typeof value === "string" && !value.trim()))
+    return defaultImageGenerationChatModel(provider);
+  const model = normalizeModel(value);
+  if (/\s/.test(model)) throw new Error("对话模型不能包含空白字符。");
   return model;
 }
 

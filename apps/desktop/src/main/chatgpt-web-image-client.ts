@@ -69,6 +69,7 @@ export async function generateChatGptWebImage(
   baseHeaders: Record<string, string>,
   input: ImageGenerationToolInput,
   signal: AbortSignal,
+  chatModel: string,
   images: LoadedInputImage[] = [],
 ): Promise<ImagePayload> {
   async function request(path: string, body?: Json, extra: Record<string, string> = {}): Promise<Response> {
@@ -208,7 +209,7 @@ export async function generateChatGptWebImage(
       : "");
   const common = {
     action: "next",
-    model: "gpt-5-5",
+    model: chatModel,
     timezone_offset_min: -480,
     timezone: "Asia/Shanghai",
     conversation_mode: { kind: "primary_assistant" },

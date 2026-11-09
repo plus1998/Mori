@@ -15,6 +15,7 @@ function profile(
     provider: "openai_compatible",
     endpoint: "https://example.com/v1",
     model: "gpt-image-2",
+    chatModel: "",
     supportsImageToImage: true,
     hasApiKey: true,
     createdAt: "2026-08-03T00:00:00.000Z",
@@ -94,7 +95,14 @@ test("Login goes directly to its account pool and preserves the existing Codex m
         activeProfileId: "login",
         profiles: [
           ...settings.profiles,
-          profile({ id: "login", name: "Old login profile", provider: "codex", hasApiKey: false }),
+          profile({
+            id: "login",
+            name: "Old login profile",
+            provider: "codex",
+            model: "gpt-image-2.6-flare",
+            chatModel: "gpt-6.1-sol",
+            hasApiKey: false,
+          }),
         ],
       },
       onChange: () => {},
@@ -132,4 +140,41 @@ test("API profiles exclude legacy login cards and keep the API profile count", (
   expect(markup).toContain("2 profiles");
   expect(markup).not.toContain("Legacy web profile");
   expect(markup).not.toContain("ChatGPT Login account pool");
+});
+
+test.each(["chatgpt_web", "codex"] as const)("%s exposes the saved chat model and only Codex image choices", (provider) => {
+  const markup = renderLocalized(
+    createElement(ImageGenerationSettingsPanel, {
+      settings: {
+        ...settings,
+        activeProfileId: "login",
+        profiles: [profile({
+          id: "login",
+          provider,
+          chatModel: "gpt-5.5",
+          model: provider === "codex" ? "gpt-image-2.5-sunburst" : "",
+          hasApiKey: false,
+        })],
+      },
+      onChange: () => {},
+      onError: () => {},
+    }),
+    "en-US",
+  );
+  expect(markup).toMatch(/value="gpt-5.5"[^>]*selected=""/);
+  expect(markup).toContain('aria-busy="true"');
+  expect(markup).not.toContain('<option value="gpt-6-luna">');
+  expect(markup).not.toContain('type="radio"');
+  if (provider === "codex") {
+    expect(markup).toContain('class="image-generation-model-select"');
+    expect(markup).toMatch(/aria-label="gpt-image-2.5-sunburst"[^>]*aria-haspopup="listbox"/);
+    expect(markup).toContain('gpt-image-2.5-sunburst.png');
+    for (const model of ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gpt-image-2.6-flare"]) {
+      expect(markup).toContain(`<option value="${model}">`);
+    }
+    expect(markup).toContain("model_not_found");
+  } else {
+    expect(markup).not.toContain('role="radiogroup"');
+    expect(markup).not.toContain("gpt-image-");
+  }
 });

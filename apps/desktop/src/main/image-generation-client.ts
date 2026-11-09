@@ -11,6 +11,15 @@ import {
 import type { ImageGenerationClientConfig } from "./image-generation-store";
 import { CodexImageBatchError } from "./codex-image-service";
 
+/** Login-route generation settings: the chat model drives the request, the image model drives the image tool. */
+export interface CodexImageGenerationOptions {
+  signal: AbortSignal | undefined;
+  route: "codex" | "chatgpt_web";
+  chatModel: string;
+  /** Empty on the Web route, where the server chooses the image model. */
+  imageModel: string;
+}
+
 const MAX_IMAGE_BYTES = 64 * 1024 * 1024;
 const MAX_INPUT_IMAGE_BYTES = 50 * 1024 * 1024;
 const OPENAI_MAX_INPUT_IMAGES = 16;
@@ -55,8 +64,7 @@ export async function generateImagesToWorkspace(input: {
   generateCodex?: (
     input: ImageGenerationToolInput,
     images: LoadedInputImage[],
-    signal?: AbortSignal,
-    route?: "codex" | "chatgpt_web",
+    options: CodexImageGenerationOptions,
   ) => Promise<ImagePayload[]>;
 }): Promise<GeneratedImageFile[]> {
   const args = normalizeToolInput(input.toolInput, input.config.provider, input.config.supportsImageToImage);
@@ -69,7 +77,12 @@ export async function generateImagesToWorkspace(input: {
     payloads =
       input.config.provider === "codex" || input.config.provider === "chatgpt_web"
         ? input.generateCodex
-          ? await input.generateCodex(args, inputImages, input.signal, input.config.provider)
+          ? await input.generateCodex(args, inputImages, {
+              signal: input.signal,
+              route: input.config.provider,
+              chatModel: input.config.chatModel,
+              imageModel: input.config.model,
+            })
           : (() => {
               throw new ImageGenerationError("codex_unavailable", "Codex 登录生图服务尚未初始化。");
             })()

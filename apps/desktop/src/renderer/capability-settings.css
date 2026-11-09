@@ -4,6 +4,34 @@
   & > .settings-ui-group {
     margin-bottom: 40px;
   }
+  &.image-generation-settings .settings-ui-select[data-variant="inline"] {
+    text-align: right;
+    text-align-last: right;
+  }
+  & .image-generation-model-select {
+    position: relative;
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    width: 240px;
+    max-width: 100%;
+  }
+  & .image-generation-model-select > img {
+    position: absolute;
+    z-index: 1;
+    left: 7px;
+    width: 20px;
+    height: 20px;
+    object-fit: contain;
+    pointer-events: none;
+  }
+  & .image-generation-model-select .composer-field-select-trigger {
+    min-height: 30px;
+    padding: 4px 7px 4px 32px;
+  }
+  & .image-generation-model-select .composer-field-select-trigger-label {
+    text-align: right;
+  }
   & :is(.mcp-list-empty, .image-generation-profile-empty, .asr-profile-empty) {
     display: flex;
     flex-direction: column;

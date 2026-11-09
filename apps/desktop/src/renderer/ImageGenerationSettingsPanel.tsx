@@ -45,6 +45,7 @@ function formFromProfile(profile: ImageGenerationProfileSnapshot): ImageGenerati
     provider: profile.provider,
     endpoint: profile.endpoint,
     model: profile.model,
+    chatModel: profile.chatModel,
     supportsImageToImage: profile.supportsImageToImage,
   };
 }
@@ -180,6 +181,26 @@ export function ImageGenerationSettingsPanel({
             void run(async () => {
               if (!window.eco) throw new Error(t("settings.imageGeneration.desktopOnly"));
               onChange(await window.eco.selectImageGenerationSource({ source: "chatgpt_login", route }));
+            })
+          }
+          onChatModelChange={(chatModel) =>
+            void run(async () => {
+              if (!window.eco) throw new Error(t("settings.imageGeneration.desktopOnly"));
+              await window.eco.saveImageGenerationProfile({
+                ...formFromProfile(activeProfile),
+                chatModel,
+              });
+              onChange(await window.eco.getImageGenerationSettings());
+            })
+          }
+          onImageModelChange={(model) =>
+            void run(async () => {
+              if (!window.eco) throw new Error(t("settings.imageGeneration.desktopOnly"));
+              await window.eco.saveImageGenerationProfile({
+                ...formFromProfile(activeProfile),
+                model,
+              });
+              onChange(await window.eco.getImageGenerationSettings());
             })
           }
           onImageEditingChange={(checked) =>

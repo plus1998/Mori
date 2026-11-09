@@ -31,6 +31,9 @@ function account(id: string, plan = "plus", enabled = true): OpenAIAccountDetail
     authJson: JSON.stringify({ tokens: { access_token: `header.${claims}.signature`, account_id: id } }),
   };
 }
+function codex(signal?: AbortSignal) {
+  return { signal, route: "codex" as const, chatModel: "gpt-6.1-sol", imageModel: "gpt-image-2.6-flare" };
+}
 function imageResponse(): Response {
   const raw =
     [
@@ -113,30 +116,54 @@ test("upstream SSE failure is surfaced instead of returning an empty success", a
 });
 test("each image rotates enabled paid accounts and disabling an account takes effect", async () => {
   const h = harness();
-  expect(await h.service.generate({ prompt: "leaf", count: 4 }, [])).toHaveLength(4);
+  expect(await h.service.generate({ prompt: "leaf", count: 4 }, [], codex())).toHaveLength(4);
   expect(h.selected).toEqual(["A", "B", "A", "B"]);
   h.items[0]!.imageGenerationEnabled = false;
-  await h.service.generate({ prompt: "leaf" }, []);
+  await h.service.generate({ prompt: "leaf" }, [], codex());
   expect(h.selected.at(-1)).toBe("B");
   expect(h.bodies[0]).toMatchObject({
     model: "gpt-6.1-sol",
     store: false,
     stream: true,
-    tools: [{ type: "image_generation", model: "gpt-image-2", action: "generate" }],
+    tools: [{ type: "image_generation", model: "gpt-image-2.6-flare", action: "generate" }],
   });
 });
+test("chat and image models are sent exactly as the caller configures them", async () => {
+  const h = harness();
+  await h.service.generate({ prompt: "leaf" }, [], {
+    signal: undefined,
+    route: "codex",
+    chatModel: "gpt-6-luna",
+    imageModel: "gpt-image-2.5-sunburst",
+  });
+  expect(h.bodies[0]).toMatchObject({
+    model: "gpt-6-luna",
+    tools: [{ type: "image_generation", model: "gpt-image-2.5-sunburst" }],
+  });
+});
+test("unsupported selected models surface the upstream error without changing models", async () => {
+  const h = harness();
+  h.setResponse(async () => Response.json({ error: { code: "model_not_found", message: "gpt-5.5 unavailable" } }, { status: 400 }));
+  await expect(h.service.generate({ prompt: "leaf" }, [], {
+    ...codex(),
+    chatModel: "gpt-5.5",
+  })).rejects.toMatchObject({ code: "model_not_found" });
+  expect(h.bodies).toHaveLength(1);
+  expect(h.bodies[0]?.model).toBe("gpt-5.5");
+});
+
 test("concurrent callers retain deterministic account rotation", async () => {
   const h = harness();
   await Promise.all([
-    h.service.generate({ prompt: "1" }, []),
-    h.service.generate({ prompt: "2" }, []),
-    h.service.generate({ prompt: "3" }, []),
+    h.service.generate({ prompt: "1" }, [], codex()),
+    h.service.generate({ prompt: "2" }, [], codex()),
+    h.service.generate({ prompt: "3" }, [], codex()),
   ]);
   expect(h.selected).toEqual(["A", "B", "A"]);
 });
 test("no enabled paid account gives a specific error before any request", async () => {
   const h = harness([account("free", "free"), account("disabled", "plus", false)]);
-  await expect(h.service.generate({ prompt: "leaf" }, [])).rejects.toMatchObject({
+  await expect(h.service.generate({ prompt: "leaf" }, [], codex())).rejects.toMatchObject({
     code: "no_enabled_accounts",
   });
   expect(h.selected).toEqual([]);
@@ -152,14 +179,14 @@ test("Codex route rejects Free while the web route accepts its image quota, with
   expect(h.selected).toEqual([]);
   const paid = harness();
   expect(await paid.service.getAvailability()).toEqual({ available: true });
-  await paid.service.generate({ prompt: "leaf" }, []);
+  await paid.service.generate({ prompt: "leaf" }, [], codex());
   expect(paid.selected).toEqual(["A"]);
 });
 test("image edits pass local reference bytes to Codex with edit action", async () => {
   const h = harness();
   await h.service.generate({ prompt: "change color" }, [
     { bytes: png, mimeType: "image/png", fileName: "reference.png" },
-  ]);
+  ], codex());
   expect(h.bodies[0]?.tools[0].action).toBe("edit");
   expect(h.bodies[0]?.input[0].content[1]).toEqual({
     type: "input_image",
@@ -200,7 +227,7 @@ test("a failed second image preserves the first payload for artifact storage", a
       : Response.json({ error: { type: "usage_limit_reached", message: "limited" } }, { status: 429 }),
   );
   try {
-    await h.service.generate({ prompt: "leaf", count: 2 }, []);
+    await h.service.generate({ prompt: "leaf", count: 2 }, [], codex());
     throw new Error("expected failure");
   } catch (error) {
     expect(error).toBeInstanceOf(CodexImageBatchError);
@@ -219,13 +246,13 @@ test("a cancelled queued caller does not release another caller ahead of the run
     if (++count === 1) await pending;
     return imageResponse();
   });
-  const first = h.service.generate({ prompt: "first" }, []);
+  const first = h.service.generate({ prompt: "first" }, [], codex());
   const controller = new AbortController();
-  const cancelled = h.service.generate({ prompt: "cancelled" }, [], controller.signal);
+  const cancelled = h.service.generate({ prompt: "cancelled" }, [], codex(controller.signal));
   void cancelled.catch(() => {});
   controller.abort();
   await expect(cancelled).rejects.toThrow();
-  const third = h.service.generate({ prompt: "third" }, []);
+  const third = h.service.generate({ prompt: "third" }, [], codex());
   await new Promise((resolve) => setTimeout(resolve, 10));
   expect(h.selected).toEqual(["A"]);
   release();
@@ -252,7 +279,7 @@ test("renewable image accounts stay available and refresh only before a real ima
   expect(await service.getAvailability()).toEqual({ available: true });
   expect(refreshes).toBe(0);
   expect(connections).toBe(0);
-  expect(await service.generate({ prompt: "one image" }, [])).toHaveLength(1);
+  expect(await service.generate({ prompt: "one image" }, [], codex())).toHaveLength(1);
   expect(refreshes).toBe(1);
   expect(connections).toBe(1);
 });

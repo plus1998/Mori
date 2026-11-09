@@ -950,6 +950,12 @@ export const i18nCatalogs = {
       "settings.imageGeneration.accountDrawingEnabledHint":
         "在账号的「更多操作」菜单中勾选「用于创意绘画」。无需 API Key。",
       "settings.imageGeneration.model": "模型",
+      "settings.imageGeneration.chatModel": "对话模型",
+      "settings.imageGeneration.chatModelNotInCatalog": "{{model}}（不在模型列表中）",
+      "settings.imageGeneration.chatModelHelp": "生图请求由该对话模型发起。Web 路由的图片模型由服务端决定。",
+      "settings.imageGeneration.codexChatModelUnavailable": "Codex 路由此前对 gpt-5.5 返回 model_not_found。如仍不可用，请选择其他对话模型。",
+      "settings.imageGeneration.imageModel": "图片模型",
+      "settings.imageGeneration.imageModelHelp": "Codex 生图工具使用的图片模型。",
       "settings.imageGeneration.supportsImageToImage": "支持图片编辑",
       "settings.imageGeneration.supportsImageToImageHint": "开启后，提示词可附带参考图进行图像编辑。",
       "settings.imageGeneration.profileSupportsImageToImage": "支持图片编辑",
@@ -4752,6 +4758,12 @@ export const i18nCatalogs = {
       "settings.imageGeneration.accountDrawingEnabledHint":
         "In each account’s More actions menu, select “Use for Creative Drawing”. No API key is required.",
       "settings.imageGeneration.model": "Model",
+      "settings.imageGeneration.chatModel": "Chat model",
+      "settings.imageGeneration.chatModelNotInCatalog": "{{model}} (not in the model catalog)",
+      "settings.imageGeneration.chatModelHelp": "Generation requests are sent through this chat model. On the Web route, the server chooses the image model.",
+      "settings.imageGeneration.codexChatModelUnavailable": "The Codex route previously returned model_not_found for gpt-5.5. If it remains unavailable, select another chat model.",
+      "settings.imageGeneration.imageModel": "Image model",
+      "settings.imageGeneration.imageModelHelp": "Image model used by the Codex image generation tool.",
       "settings.imageGeneration.supportsImageToImage": "Support image editing",
       "settings.imageGeneration.supportsImageToImageHint":
         "When enabled, prompts can include reference images for editing.",

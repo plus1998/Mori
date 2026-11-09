@@ -79,6 +79,8 @@ export interface EcoSyncedImageProfile {
   provider: string;
   endpoint: string;
   model: string;
+  /** Absent on older cloud snapshots; the provider default applies. */
+  chatModel?: string;
   /** Absent on older cloud snapshots; treat as false. */
   supportsImageToImage?: boolean;
 }

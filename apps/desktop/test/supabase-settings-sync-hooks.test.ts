@@ -68,13 +68,14 @@ test.skipIf(!sqliteAvailable)(
     const dbPath = path.join(dir, "eco-coding.sqlite");
     const codec = createLocalSecretCodec();
     const providerStore = await createProviderStore(dbPath);
+    const imageGenerationStore = await createImageGenerationStore(dbPath);
     const cursorApiKeyStore = await createCursorApiKeyStore(dbPath);
     const cursorKey = cursorApiKeyStore.save({ name: "Work", apiKey: "cursor-key", enabled: false });
     const hooks = createDesktopSettingsSyncHooks({
       providerStore,
       cursorApiKeyStore,
       asrSettingsStore: await createAsrSettingsStore(dbPath),
-      imageGenerationStore: await createImageGenerationStore(dbPath),
+      imageGenerationStore,
       workflowSettingsStore: await createWorkflowSettingsStore(dbPath),
       agentOrchestrationStore: await createAgentOrchestrationStore(dbPath),
       proxyBridgeSettingsStore: await createProxyBridgeSettingsStore(dbPath),
@@ -132,6 +133,47 @@ test.skipIf(!sqliteAvailable)(
     });
     expect(providerStore.getCandidateModel(candidate.id)?.endpointId).toBe("default");
     expect(providerStore.listProviders()[0]?.endpoints).toEqual([]);
+
+    const imageProfile = imageGenerationStore.saveProfile({
+      name: "Synced Codex models",
+      provider: "codex",
+      endpoint: "",
+      model: "gpt-image-2.5-sunburst",
+      chatModel: "gpt-6-luna",
+    });
+    const imagePayload = hooks.collectSettingsPayload();
+    expect(imagePayload.imageGeneration.profiles.find((row) => row.id === imageProfile.id)).toMatchObject({
+      model: "gpt-image-2.5-sunburst",
+      chatModel: "gpt-6-luna",
+    });
+    await hooks.applySettingsPayload({
+      ...imagePayload,
+      imageGeneration: {
+        ...imagePayload.imageGeneration,
+        profiles: imagePayload.imageGeneration.profiles.map((row) => row.id === imageProfile.id
+          ? { ...row, model: "gpt-image-2.5-flare", chatModel: "gpt-5.6-sol" }
+          : row),
+      },
+    });
+    expect(imageGenerationStore.getSettings().profiles.find((row) => row.id === imageProfile.id)).toMatchObject({
+      model: "gpt-image-2.5-flare",
+      chatModel: "gpt-5.6-sol",
+    });
+    await hooks.applySettingsPayload({
+      ...imagePayload,
+      imageGeneration: {
+        ...imagePayload.imageGeneration,
+        profiles: imagePayload.imageGeneration.profiles.map((row) => {
+          if (row.id !== imageProfile.id) return row;
+          const { chatModel, ...legacy } = row;
+          return { ...legacy, model: "gpt-image-2" };
+        }),
+      },
+    });
+    expect(imageGenerationStore.getSettings().profiles.find((row) => row.id === imageProfile.id)).toMatchObject({
+      model: "gpt-image-2.6-flare",
+      chatModel: "gpt-5.6-sol",
+    });
 
     // Collect: provider key + provider-proxy secret.
     const secrets = hooks.collectPlainSecrets();

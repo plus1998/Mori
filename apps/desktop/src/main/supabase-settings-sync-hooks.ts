@@ -2,7 +2,10 @@
  * Build SettingsSyncHooks from Desktop provider / ASR / image / workflow / orchestration stores.
  */
 
-import type { ImageGenerationProfileSaveInput } from "../shared/image-generation";
+import {
+  type ImageGenerationProfileSaveInput,
+  remapLegacyImageGenerationModel,
+} from "../shared/image-generation";
 import type {
   AsrApiMode,
   AsrProfileSaveInput,
@@ -130,6 +133,7 @@ function collectPayload(input: {
         provider: profile.provider,
         endpoint: profile.endpoint,
         model: profile.model,
+        chatModel: profile.chatModel,
         supportsImageToImage: profile.supportsImageToImage,
       })),
     },
@@ -282,12 +286,14 @@ async function applyPayload(
   }
 
   for (const profile of payload.imageGeneration.profiles) {
+    const provider = profile.provider as ImageGenerationProfileSaveInput["provider"];
     const saveInput: ImageGenerationProfileSaveInput = {
       id: profile.id,
       name: profile.name,
-      provider: profile.provider as ImageGenerationProfileSaveInput["provider"],
+      provider,
       endpoint: profile.endpoint,
-      model: profile.model,
+      model: remapLegacyImageGenerationModel(provider, profile.model),
+      ...(typeof profile.chatModel === "string" ? { chatModel: profile.chatModel } : {}),
       supportsImageToImage: profile.supportsImageToImage === true,
     };
     input.imageGenerationStore.saveProfile(saveInput);
@@ -648,6 +654,7 @@ function applyDomainSecrets(
         provider: profile.provider,
         endpoint: profile.endpoint,
         model: profile.model,
+        chatModel: profile.chatModel,
         apiKey: secret.value,
       });
     }
