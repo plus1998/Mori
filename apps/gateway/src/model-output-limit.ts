@@ -98,6 +98,7 @@ export function withDynamicOutputBudget(
         }
         count = await config.countInputTokens({
           route,
+          upstreamUrl: url instanceof Request ? url.url : String(url),
           body,
           headers: new Headers(init.headers),
           fetcher,

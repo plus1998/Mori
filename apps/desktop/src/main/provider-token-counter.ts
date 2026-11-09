@@ -2,6 +2,8 @@ import {
   buildUpstreamUrl,
   GATEWAY_PROVIDER_ID_HEADER,
   GATEWAY_UPSTREAM_KIND_HEADER,
+  pickAnthropicClientHeaders,
+  withAnthropicBetaQuery,
   type GatewayConfig,
   type GatewayProvider,
 } from "@eco/gateway";
@@ -47,7 +49,7 @@ export const countGatewayInputTokens: NonNullable<GatewayConfig["countInputToken
         "anthropic_messages 精确计数需要 Messages 上游；不能用协议转换后的计数冒充原生请求输入。",
       );
     }
-    const url = `${buildUpstreamUrl(route.provider, "anthropic-messages")}/count_tokens`;
+    const url = withAnthropicBetaQuery(`${buildUpstreamUrl(route.provider, "anthropic-messages")}/count_tokens`, input.upstreamUrl);
     const raw = await postJsonForTokenCount(
       transport,
       url,
@@ -181,6 +183,9 @@ export interface CountProviderInputTokensRequest {
   fetcher?: typeof fetch;
   signal?: AbortSignal;
   upstreamUserAgent?: string;
+  /** SDK count requests must retain the same protocol headers and UA policy as generation. */
+  clientHeaders?: Headers;
+  requestUrl?: string;
   timeoutMs?: number;
 }
 
@@ -216,13 +221,19 @@ async function countViaEcoBridgeAnthropic(
     [GATEWAY_PROVIDER_ID_HEADER]: input.provider.id,
     [GATEWAY_UPSTREAM_KIND_HEADER]: "anthropic-messages",
   });
+  // Rebuild routing and authentication locally; never forward the SDK's local
+  // binding credential as an upstream API key.
+  for (const [name, value] of Object.entries(pickAnthropicClientHeaders(input.clientHeaders ?? new Headers()))) headers.set(name, value);
+  const core = input.clientHeaders?.get("x-eco-agent-core");
+  if (core) headers.set("x-eco-agent-core", core);
   if (input.upstreamUserAgent?.trim()) {
     headers.set("user-agent", input.upstreamUserAgent.trim());
   }
 
+  const countUrl = withAnthropicBetaQuery("http://127.0.0.1/v1/messages/count_tokens", input.requestUrl);
   // Optional custom fetcher: unit tests inject mock wire without lifecycle.
   if (input.fetcher) {
-    const response = await input.fetcher("http://127.0.0.1/v1/messages/count_tokens", {
+    const response = await input.fetcher(countUrl, {
       method: "POST",
       headers,
       body: JSON.stringify(request),
@@ -230,7 +241,7 @@ async function countViaEcoBridgeAnthropic(
     });
     if (!response.ok) {
       const text = await response.text();
-      throw new InputTokenCountUpstreamError(response.status, text, response.headers);
+      throw new InputTokenCountUpstreamError(response.status, text, response.headers, "eco-gateway:/v1/messages/count_tokens");
     }
     const raw = (await response.json()) as unknown;
     return {
@@ -241,7 +252,7 @@ async function countViaEcoBridgeAnthropic(
   }
 
   await ensureGlobalEcoGateway({ requiredProviderIds: [input.provider.id] });
-  const gatewayRequest = new Request("http://127.0.0.1/v1/messages/count_tokens", {
+  const gatewayRequest = new Request(countUrl, {
     method: "POST",
     headers,
     body: JSON.stringify(request),
@@ -250,7 +261,7 @@ async function countViaEcoBridgeAnthropic(
   const response = await handleGlobalEcoGatewayRequest(gatewayRequest, input.gatewayProvider);
   if (!response.ok) {
     const text = await response.text();
-    throw new InputTokenCountUpstreamError(response.status, text, response.headers);
+    throw new InputTokenCountUpstreamError(response.status, text, response.headers, "eco-gateway:/v1/messages/count_tokens");
   }
   const raw = (await response.json()) as unknown;
   return {
@@ -392,7 +403,7 @@ async function postJsonForTokenCount(
     if (!response.ok) {
       const message = `token count 上游请求失败：HTTP ${response.status}${text.trim() ? `；${text.trim()}` : ""}`;
       if ([404, 405, 501].includes(response.status)) throw new InputTokenCountUnsupportedError(message);
-      throw new InputTokenCountUpstreamError(response.status, text, response.headers);
+      throw new InputTokenCountUpstreamError(response.status, text, response.headers, url);
     }
     if (!text.trim()) {
       throw new Error("token count 上游返回空响应。");

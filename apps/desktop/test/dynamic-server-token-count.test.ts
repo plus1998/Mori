@@ -316,7 +316,7 @@ for (const [kind, face, endpoint, outputField] of [
     expect(outputs).toEqual([76_122, 65_120]);
   });
 
-  for (const failure of ["malformed", "network", "unauthorized", "server_error", "rate_limited"] as const) {
+  for (const failure of ["malformed", "network", "unauthorized", "forbidden", "server_error", "rate_limited"] as const) {
     test(`${kind} ${failure} counting fails without sending generation`, async () => {
       const calls: string[] = [];
       const handler = createTestGatewayFetchHandler(
@@ -341,6 +341,7 @@ for (const [kind, face, endpoint, outputField] of [
           calls.push(String(url));
           if (failure === "network") throw new Error("count endpoint unavailable");
           if (failure === "unauthorized") return new Response("unauthorized", { status: 401 });
+          if (failure === "forbidden") return Response.json({ error: { type: "packy_invalid_request_error", message: "request rejected", request_id: "req-packy" } }, { status: 403 });
           if (failure === "server_error") return new Response("server error", { status: 500 });
           if (failure === "rate_limited") return new Response("rate limited", { status: 429 });
           return Response.json({});
@@ -356,12 +357,14 @@ for (const [kind, face, endpoint, outputField] of [
       const upstreamStatus =
         failure === "unauthorized"
           ? 401
-          : failure === "server_error"
-            ? 500
-            : failure === "rate_limited"
-              ? 429
-              : undefined;
-      expect(response.status).toBe(upstreamStatus ?? 400);
+          : failure === "forbidden"
+            ? 403
+            : failure === "server_error"
+              ? 500
+              : failure === "rate_limited"
+                ? 429
+                : undefined;
+      expect(response.status).toBe(upstreamStatus ?? (failure === "network" ? 502 : 400));
       const responseBody = await response.json();
       if (upstreamStatus) {
         expect(response.headers.get("x-eco-error-origin")).toBe("upstream");
@@ -372,6 +375,10 @@ for (const [kind, face, endpoint, outputField] of [
             status: upstreamStatus,
           },
         });
+        expect(responseBody.error.message).toContain(`https://upstream.test/v1/${face}/${endpoint}`);
+        if (failure === "forbidden") expect(responseBody.error.message).toContain("req-packy");
+      } else if (failure === "network") {
+        expect(JSON.stringify(responseBody)).toContain("input_token_count_transport_error");
       } else {
         expect(JSON.stringify(responseBody)).toContain("dynamic_output_budget_error");
       }

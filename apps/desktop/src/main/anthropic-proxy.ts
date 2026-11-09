@@ -412,6 +412,7 @@ export function normalizeThinkingEffortFields(body: Record<string, unknown>): vo
  */
 export async function prepareClaudeBridgeMessagesRequest(input: {
   path: string;
+  requestUrl?: string;
   body: Record<string, unknown>;
   requestedModel: string | undefined;
   headers?: Headers;
@@ -469,6 +470,7 @@ export async function prepareClaudeBridgeMessagesRequest(input: {
       binding,
       {
         path: input.path,
+        ...(input.requestUrl ? { requestUrl: input.requestUrl } : {}),
         body: input.body,
         requestedModel: input.requestedModel,
         ...(input.candidateRoute ? { candidateRoute: input.candidateRoute } : {}),
@@ -630,6 +632,7 @@ async function prepareAgainstBinding(
   binding: ClaudeBridgeBinding,
   input: {
     path: string;
+    requestUrl?: string;
     body: Record<string, unknown>;
     requestedModel: string | undefined;
     headers?: Headers;
@@ -748,6 +751,8 @@ async function prepareAgainstBinding(
               modelId: route.modelId,
               ...(input.candidateRoute ? { gatewayProvider: input.candidateRoute.gatewayProvider } : {}),
               anthropicBody: body,
+              ...(input.requestUrl ? { requestUrl: input.requestUrl } : {}),
+              ...(input.headers ? { clientHeaders: input.headers } : {}),
             });
       return {
         kind: "response",

@@ -275,10 +275,11 @@ export class EcoGatewayLifecycle {
             })) ?? [],
           prepareClaudeMessages:
             this.options.prepareClaudeMessages ??
-            (async ({ path, body, model, headers, candidateRoute }) => {
+            (async ({ path, requestUrl, body, model, headers, candidateRoute }) => {
               const { prepareClaudeBridgeMessagesRequest } = await import("./anthropic-proxy");
               return prepareClaudeBridgeMessagesRequest({
                 path,
+                ...(requestUrl ? { requestUrl } : {}),
                 body,
                 requestedModel: model,
                 candidateRoute,

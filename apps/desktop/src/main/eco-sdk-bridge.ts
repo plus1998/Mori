@@ -69,6 +69,7 @@ export interface EcoSdkBridgeOptions {
    */
   prepareClaudeMessages?: (input: {
     path: string;
+    requestUrl?: string;
     method: string;
     body: Record<string, unknown>;
     model: string | undefined;
@@ -344,6 +345,7 @@ async function forwardWithResolvedRoute(
   ) {
     const prepared = await options.prepareClaudeMessages({
       path,
+      requestUrl: request.url,
       method: request.method,
       body,
       model,

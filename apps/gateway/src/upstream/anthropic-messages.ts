@@ -54,6 +54,7 @@ import {
 } from "./thinking-rectifier.js";
 import { extractUpstreamErrorMessage, upstreamErrorResponse } from "./upstream-error.js";
 import { applyUpstreamUserAgent } from "./user-agent.js";
+import { pickAnthropicClientHeaders } from "./anthropic-request.js";
 
 const ANTHROPIC_VERSION = "2023-06-01";
 
@@ -72,15 +73,8 @@ function buildAnthropicUpstreamHeaders(
     "content-type": "application/json",
     "x-api-key": providerApiKey,
     "anthropic-version": clientHeaders.get("anthropic-version") ?? ANTHROPIC_VERSION,
+    ...pickAnthropicClientHeaders(clientHeaders),
   };
-  const beta = clientHeaders.get("anthropic-beta");
-  if (beta) {
-    headers["anthropic-beta"] = beta;
-  }
-  const accept = clientHeaders.get("accept");
-  if (accept) {
-    headers.accept = accept;
-  }
   applyUpstreamUserAgent(headers, clientHeaders, upstreamUserAgent);
   return headers;
 }

@@ -48,9 +48,10 @@ export class InputTokenCountUpstreamError extends Error {
     readonly statusCode: number,
     readonly responseBody: string,
     headers?: Headers,
+    readonly url?: string,
   ) {
     super(
-      `token count 上游请求失败：HTTP ${statusCode}${responseBody.trim() ? `；${responseBody.trim()}` : ""}`,
+      `token count 上游请求失败：HTTP ${statusCode}${url ? `；计数接口=${url}` : ""}${responseBody.trim() ? `；${responseBody.trim()}` : ""}`,
     );
     this.name = "InputTokenCountUpstreamError";
     // Retain retry timing and request attribution without forwarding cookies or credentials.
@@ -85,7 +86,8 @@ export function inputTokenCountUpstreamErrorResponse(
         code: error.code,
         origin: "upstream",
         status: error.statusCode,
-        ...(isInputTokenCountTransportError(error) ? { countUrl: error.url, stage: "transport" } : {}),
+        ...(error.url ? { countUrl: error.url } : {}),
+        stage: isInputTokenCountTransportError(error) ? "transport" : "http",
       },
     },
     {

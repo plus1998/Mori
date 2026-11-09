@@ -36,6 +36,26 @@ function stubGateway(onRequest: (request: Request) => void | Promise<void>): Eco
 }
 
 describe("eco-sdk-bridge binding prep with prebound provider header", () => {
+  test("Messages count preparation receives the original beta URL and SDK headers", async () => {
+    let prepared = false;
+    const handler = createEcoSdkBridgeHandler({
+      gateway: stubGateway(() => { throw new Error("Count request must be handled by preparation"); }),
+      prepareClaudeMessages: async input => {
+        prepared = true;
+        expect(input.path).toBe("/v1/messages/count_tokens");
+        expect(input.requestUrl).toBe("http://127.0.0.1/v1/messages/count_tokens?beta=true");
+        expect(input.headers.get("x-app")).toBe("cli");
+        return { kind: "response", response: Response.json({ input_tokens: 42 }) };
+      },
+    });
+    const response = await handler(new Request("http://127.0.0.1/v1/messages/count_tokens?beta=true", {
+      method: "POST", headers: { "content-type": "application/json", "x-api-key": "local-binding", "x-app": "cli" },
+      body: JSON.stringify({ model: "claude-haiku-5-5", messages: [{ role: "user", content: "hi" }] }),
+    }));
+    expect(prepared).toBe(true);
+    expect(await response.json()).toEqual({ input_tokens: 42 });
+  });
+
   test("chat_completions: binding prep runs despite GATEWAY_PROVIDER_ID_HEADER and rewrites alias body.model", async () => {
     let gatewayBodyModel = "";
     let gatewayHeaders: Headers | undefined;

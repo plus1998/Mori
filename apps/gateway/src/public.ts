@@ -1,4 +1,5 @@
 export { validateChatGptResponsesRequest } from "./chatgpt-responses-policy.js";
+export { pickAnthropicClientHeaders, withAnthropicBetaQuery } from "./upstream/anthropic-request.js";
 export {
   IncrementalSseParser,
   parseResponsesSseFrame,

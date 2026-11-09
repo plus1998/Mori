@@ -71,6 +71,7 @@ import type {
   ResolvedProviderRoute,
 } from "../types.js";
 import { fetchWithThinkingRectifiers } from "../upstream/anthropic-messages.js";
+import { pickAnthropicClientHeaders, withAnthropicBetaQuery } from "../upstream/anthropic-request.js";
 import { collectResponsesStream, ResponsesStreamError } from "../upstream/collect-responses-stream.js";
 import { fetchUpstreamWithRetry } from "../upstream/fetch-with-retry.js";
 import { forwardOpenAIChat } from "../upstream/openai-chat.js";
@@ -172,7 +173,9 @@ export async function handlePostMessages(
 
   body.model = route.upstreamModelId;
   const stream = body.stream === true;
-  const upstreamUrl = buildUpstreamUrl(route.provider, route.upstreamKind);
+  const endpoint = buildUpstreamUrl(route.provider, route.upstreamKind);
+  const upstreamUrl = route.upstreamKind === "anthropic-messages"
+    ? withAnthropicBetaQuery(endpoint, request.url) : endpoint;
   onLog(
     `POST /v1/messages provider=${route.provider.id} kind=${route.upstreamKind} model=${route.upstreamModelId} downstreamStream=${stream}`,
   );
@@ -302,11 +305,12 @@ export async function handlePostMessagesCountTokens(
   }
 
   body.model = route.upstreamModelId;
-  const upstreamUrl = buildUpstreamCountTokensUrl(route.provider);
+  const upstreamUrl = withAnthropicBetaQuery(buildUpstreamCountTokensUrl(route.provider), request.url);
   const headers: Record<string, string> = {
     "content-type": "application/json",
     "x-api-key": route.provider.apiKey,
     "anthropic-version": request.headers.get("anthropic-version") ?? ANTHROPIC_VERSION,
+    ...pickAnthropicClientHeaders(request.headers),
   };
   applyUpstreamUserAgent(
     headers,
@@ -446,9 +450,8 @@ async function forwardMessagesNative(
     "content-type": "application/json",
     "x-api-key": route.provider.apiKey,
     "anthropic-version": clientHeaders.get("anthropic-version") ?? ANTHROPIC_VERSION,
+    ...pickAnthropicClientHeaders(clientHeaders),
   };
-  const beta = clientHeaders.get("anthropic-beta");
-  if (beta) headers["anthropic-beta"] = beta;
   applyUpstreamUserAgent(headers, clientHeaders, upstreamUserAgent);
 
   const anthropicBody = {

@@ -116,6 +116,8 @@ export interface GatewayConfig {
   /** Count the final upstream payload, after every protocol/content transformation. */
   countInputTokens?: (input: {
     route: ResolvedProviderRoute;
+    /** Final generation endpoint, including the native SDK's beta API query. */
+    upstreamUrl?: string;
     body: Record<string, unknown>;
     headers: Headers;
     fetcher: typeof fetch;

@@ -4,7 +4,7 @@ import { withDynamicOutputBudget } from "../src/model-output-limit.js";
 import type { GatewayConfig, GatewayProvider } from "../src/types.js";
 import { createTestGatewayFetchHandler } from "./test-bridge-rewrite.js";
 
-for (const status of [401, 429, 503]) {
+for (const status of [401, 403, 429, 503]) {
   test(`messages route exposes counting HTTP ${status} and retry metadata`, async () => {
     const provider: GatewayProvider = {
       id: "counter", name: "Counter", upstreamKind: "anthropic-messages", baseUrl: "https://counter.test",

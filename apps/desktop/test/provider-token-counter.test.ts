@@ -73,6 +73,59 @@ test("SDK count_tokens preserves the real gateway HTTP failure and releases its 
   }
 });
 
+for (const override of [undefined, "configured-claude/1"] as const) {
+  test(`SDK count_tokens retains beta/version headers and Claude UA policy (${override ?? "SDK UA"})`, async () => {
+    const { configureEcoGatewayLifecycle, resetGlobalEcoGatewayForTests } = await import("../src/main/eco-gateway-lifecycle");
+    const { globalClaudeBridgeBindingRegistry: registry } = await import("../src/main/claude-bridge-binding");
+    const { prepareClaudeBridgeMessagesRequest } = await import("../src/main/anthropic-proxy");
+    const requests: Array<{ path: string; headers: Headers; body: Record<string, unknown> }> = [];
+    const upstream = Bun.serve({ port: 0, fetch: async request => {
+      requests.push({ path: new URL(request.url).pathname + new URL(request.url).search, headers: request.headers, body: await request.json() as Record<string, unknown> });
+      if (request.headers.get("anthropic-beta") !== "interleaved-thinking-2025-05-14") {
+        return Response.json({ error: { type: "invalid_request_error", message: "Missing beta for thinking" } }, { status: 403 });
+      }
+      return Response.json({ input_tokens: 42 });
+    } });
+    const modelProvider = provider({ baseUrl: `http://127.0.0.1:${upstream.port}`, tokenCountMode: "anthropic_messages" });
+    const binding = registry.create({ routes: [{ role: "main", provider: modelProvider, modelId: "model-1", aliasModelId: "sdk-alias", apiCompat: "anthropic" }] });
+    configureEcoGatewayLifecycle({ ecoDataDir: "/tmp/eco-counter-sdk-headers", gatewayPort: 0,
+      getUpstreamUserAgents: () => override ? { claude: override } : {},
+      listProviders: () => [{ ...modelProvider, modelIds: ["model-1"] }] });
+    try {
+      const result = await prepareClaudeBridgeMessagesRequest({
+        path: "/v1/messages/count_tokens", requestedModel: "sdk-alias", body: structuredClone(anthropicBody),
+        requestUrl: "http://127.0.0.1/v1/messages/count_tokens?beta=true&local-only=private",
+        headers: new Headers({
+          "x-api-key": binding.credential, authorization: "Bearer local-only", cookie: "local=private",
+          "user-agent": "claude-code-sdk/1", "x-eco-agent-core": "claude",
+          "anthropic-version": "2023-06-01", "anthropic-beta": "interleaved-thinking-2025-05-14",
+          "x-app": "cli", "x-stainless-lang": "js", "x-claude-code-session-id": "test-session",
+        }),
+      });
+      expect(result.kind).toBe("response");
+      if (result.kind !== "response") throw new Error("Expected count response");
+      expect(result.response.status).toBe(200);
+      expect(await result.response.json()).toEqual({ input_tokens: 42 });
+      expect(requests).toHaveLength(1);
+      expect(requests[0]!.path).toBe("/v1/messages/count_tokens?beta=true");
+      expect(requests[0]!.headers.get("user-agent")).toBe(override ?? "claude-code-sdk/1");
+      expect(requests[0]!.headers.get("anthropic-version")).toBe("2023-06-01");
+      expect(requests[0]!.headers.get("x-app")).toBe("cli");
+      expect(requests[0]!.headers.get("x-stainless-lang")).toBe("js");
+      expect(requests[0]!.headers.get("x-claude-code-session-id")).toBe("test-session");
+      expect(requests[0]!.headers.get("x-api-key")).toBe("secret");
+      expect(requests[0]!.headers.has("authorization")).toBe(false);
+      expect(requests[0]!.headers.has("cookie")).toBe(false);
+      expect(requests[0]!.body.model).toBe("model-1");
+      expect(binding.inFlight).toBe(0);
+    } finally {
+      await registry.close(binding.bindingId);
+      await resetGlobalEcoGatewayForTests();
+      upstream.stop(true);
+    }
+  });
+}
+
 for (const mode of ["provider_native", "local_heuristic"] as const) {
   test(`${mode} preflight uses the Responses server counter, including legacy settings`, async () => {
     let calls = 0;
