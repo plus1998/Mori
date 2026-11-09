@@ -59,6 +59,13 @@ export class CodexTurnRouteRegistry {
   private readonly turns = new Map<string, MutableTurnRecord>();
   private readonly pendingRoutes = new Map<string, PendingTurnRoute>();
   private readonly latestThreadTotals = new Map<string, CodexTurnTokenUsageBreakdown>();
+  // Context notifications can arrive after billing consumes the active record.
+  // Keep only identity here; replay must never recreate billable usage state.
+  private readonly contextIdentities = new Map<string, {
+    codexThreadId: string;
+    providerId: string;
+    upstreamModelId: string;
+  }>();
   private nextPendingGeneration = 1;
 
   get size(): number {
@@ -185,6 +192,15 @@ export class CodexTurnRouteRegistry {
     return record ? snapshot(record) : undefined;
   }
 
+  resolveContextIdentity(
+    codexThreadId: string,
+    turnId: string,
+  ): Pick<CodexTurnRouteIdentity, "providerId" | "upstreamModelId"> | undefined {
+    const key = turnKey(normalizeId(codexThreadId, "codexThreadId"), normalizeId(turnId, "turnId"));
+    const identity = this.contextIdentities.get(key);
+    return identity ? { providerId: identity.providerId, upstreamModelId: identity.upstreamModelId } : undefined;
+  }
+
   consume(codexThreadId: string, turnId: string): CodexTurnRouteRecord | undefined {
     const normalizedThreadId = normalizeId(codexThreadId, "codexThreadId");
     const normalizedTurnId = normalizeId(turnId, "turnId");
@@ -216,6 +232,9 @@ export class CodexTurnRouteRegistry {
       cleared += 1;
     }
     this.latestThreadTotals.delete(normalizedThreadId);
+    for (const [key, identity] of this.contextIdentities) {
+      if (identity.codexThreadId === normalizedThreadId) this.contextIdentities.delete(key);
+    }
     return cleared;
   }
 
@@ -223,6 +242,7 @@ export class CodexTurnRouteRegistry {
     this.turns.clear();
     this.pendingRoutes.clear();
     this.latestThreadTotals.clear();
+    this.contextIdentities.clear();
   }
 
   private createTurnRecord(
@@ -240,6 +260,15 @@ export class CodexTurnRouteRegistry {
       ...(pendingOwnerGeneration !== undefined && { pendingOwnerGeneration }),
     };
     this.turns.set(turnKey(codexThreadId, turnId), record);
+    this.contextIdentities.set(turnKey(codexThreadId, turnId), {
+      codexThreadId,
+      providerId: record.providerId,
+      upstreamModelId: record.upstreamModelId,
+    });
+    // Older completed turns can be resolved from the host's durable history.
+    if (this.contextIdentities.size > 4096) {
+      this.contextIdentities.delete(this.contextIdentities.keys().next().value!);
+    }
     return snapshot(record);
   }
 }

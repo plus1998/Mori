@@ -32,6 +32,35 @@ test("CodexTurnRouteRegistry consumes an exact route only once", () => {
   });
   expect(registry.consume("thread-1", "turn-1")).toBeUndefined();
   expect(registry.size).toBe(0);
+  expect(registry.resolveContextIdentity("thread-1", "turn-1")).toEqual({
+    providerId: "provider.same",
+    upstreamModelId: "model/same",
+  });
+});
+
+test("context identity survives active-turn cleanup without resurrecting billing or claiming a pending route", () => {
+  const registry = new CodexTurnRouteRegistry();
+  const route = { aliasModelId: "old-alias", providerId: "old-provider", upstreamModelId: "old-model" };
+  registry.register("thread", "old-turn", route);
+  registry.clearTurn("thread", "old-turn");
+  const owner = registry.registerPending("thread", {
+    aliasModelId: "new-alias", providerId: "new-provider", upstreamModelId: "new-model",
+  });
+  expect(registry.observeTokenUsage("thread", "old-turn", {
+    last: breakdown(100, 10, 5), total: breakdown(100, 10, 5),
+  })).toBeUndefined();
+  const identity = registry.resolveContextIdentity("thread", "old-turn")!;
+  expect(identity).toEqual({ providerId: "old-provider", upstreamModelId: "old-model" });
+  identity.providerId = "mutated";
+  expect(registry.resolveContextIdentity("thread", "old-turn")?.providerId).toBe("old-provider");
+  expect(registry.peek("thread", "old-turn")).toBeUndefined();
+  expect(registry.size).toBe(1);
+  expect(registry.bindPending(owner, "new-turn").providerId).toBe("new-provider");
+  registry.clearThread("thread");
+  expect(registry.resolveContextIdentity("thread", "old-turn")).toBeUndefined();
+  registry.register("other", "turn", route);
+  registry.clearAll();
+  expect(registry.resolveContextIdentity("other", "turn")).toBeUndefined();
 });
 
 test("CodexTurnRouteRegistry clears matching pending state when Gateway registers first", () => {

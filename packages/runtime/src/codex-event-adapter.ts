@@ -178,6 +178,11 @@ export interface CodexEventAdapterOptions {
   resolveThreadAttribution?: (codexThreadId: string) => CodexThreadAttribution | undefined;
   /** Shared with CodexAppServerDriver; official completion notifications omit route and usage. */
   turnRouteRegistry?: CodexTurnRouteRegistry;
+  /** Exact persisted turn identity for usage replay after restarting the host. */
+  resolveTurnContextIdentity?: (
+    codexThreadId: string,
+    turnId: string,
+  ) => Pick<CodexTurnRouteIdentity, "providerId" | "upstreamModelId"> | undefined;
   /** Persist `parentThreadId` + `agentRole` when spawn / `thread/started` arrives (§6.4). */
   recordThreadAttribution?: (codexThreadId: string, record: CodexThreadAttributionRecord) => void;
   /** Read persisted attribution (parent codex id + agentRole) for lifecycle close events. */
@@ -467,6 +472,7 @@ function handleTurnCompleted(ctx: AdapterContext, params: Record<string, unknown
   // Consume before emitting/callbacks so every terminal status and thrown callback
   // clears the route exactly once.
   const turnRoute = ctx.turnRouteRegistry?.consume(codexThreadId, turnId);
+  const contextIdentity = turnRoute ?? ctx.turnRouteRegistry?.resolveContextIdentity(codexThreadId, turnId);
   ctx.onTurnFinished?.({codexThreadId,turnId});
   const appServerTokenUsage = turnRoute?.appServerTokenUsage;
   const turnApiError = readCodexTurnApiError(params);
@@ -507,6 +513,7 @@ function handleTurnCompleted(ctx: AdapterContext, params: Record<string, unknown
           turnId,
           status,
           subagentChildTurn: true,
+          ...(contextIdentity ? { usageModelId: contextIdentity.upstreamModelId, usageProviderId: contextIdentity.providerId } : {}),
         },
       });
     }
@@ -540,7 +547,7 @@ function handleTurnCompleted(ctx: AdapterContext, params: Record<string, unknown
       ...(turnRoute?.appServerTokenUsageSnapshot
         ? { appServerTokenUsageSnapshot: turnRoute.appServerTokenUsageSnapshot }
         : {}),
-      ...(turnRoute ? { usageModelId: turnRoute.upstreamModelId, usageProviderId: turnRoute.providerId } : {}),
+      ...(contextIdentity ? { usageModelId: contextIdentity.upstreamModelId, usageProviderId: contextIdentity.providerId } : {}),
       ...(errorMessage ? { errorMessage } : {}),
     },
   });
@@ -693,10 +700,14 @@ function handleTokenUsageUpdated(ctx: AdapterContext, params: Record<string, unk
   if (!ctx.onTokenUsageUpdated) {
     return;
   }
+  const contextIdentity = turnRoute ?? (codexThreadId && turnId
+    ? ctx.turnRouteRegistry?.resolveContextIdentity(codexThreadId, turnId)
+      ?? ctx.resolveTurnContextIdentity?.(codexThreadId, turnId)
+    : undefined);
   const resolution = resolveCodexContextFromNotification(params, {
     resolveEcoThreadId: ctx.resolveEcoThreadId,
     ...(ctx.resolveThreadAttribution && { resolveThreadAttribution: ctx.resolveThreadAttribution }),
-    ...(turnRoute && { providerId: turnRoute.providerId, modelId: turnRoute.upstreamModelId }),
+    ...(contextIdentity && { providerId: contextIdentity.providerId, modelId: contextIdentity.upstreamModelId }),
   });
   if (resolution) {
     ctx.onTokenUsageUpdated(resolution);

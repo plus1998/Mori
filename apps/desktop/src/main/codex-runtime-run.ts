@@ -200,6 +200,7 @@ export interface CodexRuntimeRunDeps {
   resolveRunAttemptId?: (ecoThreadId: string) => string | undefined;
   /** Durable turn ownership takes precedence over the currently active attempt. */
   resolvePersistedRunAttemptId?: (ecoThreadId: string, requestId: string) => string | undefined;
+  resolveTurnContextIdentity?: import("@eco/runtime").CodexEventAdapterOptions["resolveTurnContextIdentity"];
   appendConversationRuntimeEvent: (event: ThreadRunEventInput) => void;
   /**
    * Emit feed projection. Pass `{ streaming: true }` for delta events so the
@@ -433,6 +434,7 @@ export function configureCodexRuntimeRun(config: CodexRuntimeRunDeps): void {
     resolveEcoThreadId,
     ...(config.resolveCandidateModel ? { resolveCandidateModel: config.resolveCandidateModel } : {}),
     turnRouteRegistry,
+    ...(config.resolveTurnContextIdentity && { resolveTurnContextIdentity: config.resolveTurnContextIdentity }),
     onTurnTokenUsageUpdated: (route) => {
       if (!route.appServerTokenUsage) return;
       const threadId = resolveEcoThreadId(route.codexThreadId);

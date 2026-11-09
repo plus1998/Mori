@@ -3665,6 +3665,13 @@ app
       resolveRunAttemptId: (threadId) => agentLifecycle.currentRunAttemptId(threadId),
       resolvePersistedRunAttemptId: (threadId, requestId) =>
         conversationStore.conversationV2().resolveRuntimeRunAttemptId(threadId, requestId),
+      resolveTurnContextIdentity: (codexThreadId, turnId) => {
+        const threadId = codexThreadMap.getEcoThreadId(codexThreadId)
+          ?? resolveCodexThreadAttribution(codexThreadMap, codexThreadId)?.ecoThreadId;
+        return threadId
+          ? conversationStore.conversationV2().resolveCodexTurnContextIdentity(threadId, codexThreadId, turnId)
+          : undefined;
+      },
       appendConversationRuntimeEvent: (event) => {
         try {
           if (!conversationStore.getThread(event.threadId)) {

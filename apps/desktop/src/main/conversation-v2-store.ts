@@ -937,6 +937,12 @@ export class ConversationV2Store {
         ON conversation_provider_inputs_v2(conversation_id, version_seq);
       CREATE INDEX IF NOT EXISTS idx_conversation_provider_inputs_v2_message
         ON conversation_provider_inputs_v2(conversation_id, message_id) WHERE message_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_conversation_provider_inputs_v2_codex_context
+        ON conversation_provider_inputs_v2(
+          conversation_id,
+          json_extract(source_json, '$.metadata.codexThreadId'),
+          json_extract(source_json, '$.metadata.turnId')
+        ) WHERE visible = 1 AND json_extract(source_json, '$.metadata.codexMethod') = 'turn/completed';
       CREATE VIEW IF NOT EXISTS conversation_provider_events_v2 AS
         SELECT p.input_id AS id, p.conversation_id AS thread_id,
           p.version_seq AS sequence,
@@ -4279,6 +4285,28 @@ export class ConversationV2Store {
       .all(id, normalizedRequestId) as Array<{ run_id: string | null }>;
     const candidates = [...new Set(rows.map((row) => row.run_id?.trim()).filter(Boolean))] as string[];
     return candidates.length === 1 ? candidates[0] : undefined;
+  }
+
+  /** Recover identity from the original turn, never from today's model selection. */
+  resolveCodexTurnContextIdentity(
+    conversationId: string,
+    codexThreadId: string,
+    turnId: string,
+  ): { providerId: string; upstreamModelId: string } | undefined {
+    const rows = this.db.prepare(`
+      SELECT DISTINCT
+        json_extract(source_json, '$.metadata.usageProviderId') AS provider_id,
+        json_extract(source_json, '$.metadata.usageModelId') AS model_id
+      FROM conversation_provider_inputs_v2
+      WHERE conversation_id = ? AND visible = 1
+        AND json_extract(source_json, '$.metadata.codexThreadId') = ?
+        AND json_extract(source_json, '$.metadata.turnId') = ?
+        AND json_extract(source_json, '$.metadata.codexMethod') = 'turn/completed'
+    `).all(conversationId, codexThreadId, turnId) as Array<{ provider_id: string | null; model_id: string | null }>;
+    if (rows.length !== 1) return undefined;
+    const providerId = typeof rows[0]?.provider_id === "string" ? rows[0].provider_id.trim() : "";
+    const upstreamModelId = typeof rows[0]?.model_id === "string" ? rows[0].model_id.trim() : "";
+    return providerId && upstreamModelId ? { providerId, upstreamModelId } : undefined;
   }
 
   getDetail(conversationId: string, itemId: string): ConversationDetailItem | undefined {
