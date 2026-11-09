@@ -254,6 +254,7 @@ import {
   resolveAcpCursorModelIdForSend,
   threadRuntimeConfigsEquivalent,
 } from "../shared/thread-runtime-config";
+import { pruneThreadRuntimeConfigReferences } from "../shared/thread-runtime-config-references";
 import { canRegenerateThreadTitle } from "../shared/thread-title-pending";
 import { buildThreadUsageSummary } from "../shared/thread-usage-summary";
 import { parseTtsTaskTabId, type TtsArtifact, type TtsSettingsSnapshot, ttsTaskTabId } from "../shared/tts";
@@ -5196,6 +5197,9 @@ function App() {
           return current;
         }
       }
+      // A deliberately cleared main model is an editable draft, not a request
+      // to import another model from the global defaults.
+      if (current?.orchestrationSelection) return current;
       const defaults = buildComposerDefaultConfig();
       if (!defaults) {
         return current;
@@ -5215,7 +5219,8 @@ function App() {
 
   const selectedOrchestrationSnapshot = useMemo(
     () =>
-      composerRuntimeConfig ? resolveThreadOrchestrationSnapshot(settings, composerRuntimeConfig) : undefined,
+      composerRuntimeConfig ? resolveThreadOrchestrationSnapshot(settings,
+        pruneThreadRuntimeConfigReferences(settings, composerRuntimeConfig)) : undefined,
     [settings, composerRuntimeConfig],
   );
   // "指定子代理执行已批准计划": the delegation roster shown on the plan card comes from
@@ -10038,7 +10043,7 @@ function App() {
       projectOrchestrationSelection ??
       workflowSettings.defaultOrchestrationSelection ??
       emptyOrchestrationSelection();
-    const nextSelection: OrchestrationSelection = {
+    const requestedSelection: OrchestrationSelection = {
       ...(!patch.mainModel && current.mainAgentConfigId
         ? { mainAgentConfigId: current.mainAgentConfigId } : {}),
       ...((patch.mainModel ?? current.mainModel)
@@ -10047,6 +10052,10 @@ function App() {
       mainPrompt: patch.mainPrompt ?? current.mainPrompt,
       subagents: patch.subagents ?? current.subagents,
     };
+    const nextSelection = pruneThreadRuntimeConfigReferences(settings, {
+      ...(composerRuntimeConfig ?? buildAcpThreadRuntimeConfig()),
+      orchestrationSelection: requestedSelection,
+    }).orchestrationSelection!;
     if (!hasCompleteOrchestrationSelection(nextSelection)) {
       const partialBase = composerRuntimeConfig ?? {
         subagentEnabled: defaultSubagentAvailability(),

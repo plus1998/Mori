@@ -447,6 +447,7 @@ import {
   withAgentSessionMode,
 } from "../shared/ipc";
 import { resolveThreadRuntimeConfigUpdate } from "../shared/thread-runtime-config";
+import { pruneThreadRuntimeConfigReferences, resolveThreadRuntimeConfigEdit } from "../shared/thread-runtime-config-references";
 import {
   type AppLocale,
   type AppLocalePreference,
@@ -1125,6 +1126,7 @@ import {
   chatGptCatalogCandidateId,
   codexCatalogCandidateId,
   resolveCandidateModelRouteDefaults,
+  isCandidateModelReferenceAvailable,
 } from "./candidate-model-defaults";
 import { ThreadRuntimeCoordinator } from "./thread-runtime-coordinator";
 import {
@@ -4745,25 +4747,34 @@ function roleRoutesForThreadConfig(
   settings: ModelSettingsSnapshot,
   config: ThreadRuntimeConfig,
 ): RuntimeRoleRouteConfig[] {
+  return resolveCandidateModelDefaults(rawRoleRoutesForThreadConfig(settings, config));
+}
+
+function rawRoleRoutesForThreadConfig(
+  settings: ModelSettingsSnapshot,
+  config: ThreadRuntimeConfig,
+): RuntimeRoleRouteConfig[] {
   const snapshot = resolveThreadOrchestrationSnapshot(settings, config);
   if (!snapshot) {
     throw new Error("找不到线程编排快照，请重新选择完整组合。");
   }
-  return resolveCandidateModelDefaults(
-    runtimeRoleRoutesFromOrchestrationSnapshot(snapshot, config.mainAgentModelOverride),
-  );
+  return runtimeRoleRoutesFromOrchestrationSnapshot(snapshot, config.mainAgentModelOverride);
 }
 
 function resolveCandidateModelDefaults(routes: readonly RuntimeRoleRouteConfig[]): RuntimeRoleRouteConfig[] {
-  return resolveCandidateModelRouteDefaults(routes, {
+  return resolveCandidateModelRouteDefaults(routes, candidateModelRouteSource());
+}
+
+function candidateModelRouteSource() {
+  return {
     isBuiltInCodexProvider: isBuiltInCodexCatalogProvider,
-    isChatGptSubscriptionProvider: (providerId) =>
+    isChatGptSubscriptionProvider: (providerId: string) =>
       providerId === "eco-coding-chatgpt" &&
       providerStore
         .listProviders()
         .some((provider) => provider.id === providerId && provider.authMethod === "chatgpt_subscription"),
-    listCandidateModels: (providerId) => providerStore.listCandidateModels(providerId),
-  });
+    listCandidateModels: (providerId: string) => providerStore.listCandidateModels(providerId),
+  };
 }
 
 function mergeRouteManualSpec(
@@ -7528,9 +7539,17 @@ function registerIpcHandlers(): void {
             throw new Error("Thread was not found.");
           }
           const threadId = request.threadId;
-          const incoming = request.runtimeConfig;
-          const existing = ensureThreadRuntimeConfig(thread).runtimeConfig;
           const settings = getModelSettingsSnapshot();
+          const busyThread = thread.status === "running" || thread.status === "queued";
+          const source = candidateModelRouteSource();
+          const isModelAvailable = (model: import("../shared/agent-orchestration").ModelRef) =>
+            (settings.providers.some(provider => provider.id === model.providerId) || source.isBuiltInCodexProvider(model.providerId))
+            && isCandidateModelReferenceAvailable(model, source);
+          const stored = ensureThreadRuntimeConfig(thread).runtimeConfig;
+          const clean = (config: ThreadRuntimeConfig) => busyThread || thread.coreKind === "acp"
+            ? config : pruneThreadRuntimeConfigReferences(settings, config, isModelAvailable);
+          const incoming = clean(request.runtimeConfig);
+          const existing = stored ? clean(stored) : undefined;
           let runtimeConfig = incoming;
           if (thread.status === "running" || thread.status === "queued") {
             if (request.refreshOrchestrationSnapshot) {
@@ -7556,7 +7575,7 @@ function registerIpcHandlers(): void {
             // role selections): keep the locked session snapshot, patch those fields.
             runtimeConfig = applyBusyMutableRuntimeConfigFields(existing, incoming);
           } else {
-            runtimeConfig = resolveThreadRuntimeConfigUpdate(settings, existing, incoming, {
+            runtimeConfig = resolveThreadRuntimeConfigEdit(settings, existing, incoming, isModelAvailable, {
               refreshSnapshot: request.refreshOrchestrationSnapshot === true,
             });
           }
@@ -7591,14 +7610,16 @@ function registerIpcHandlers(): void {
             }
             return { thread: updatedThread };
           }
-          assertThreadCodexLoginSubagents(thread.coreKind, settings, runtimeConfig);
-          const roleRoutes = roleRoutesForThreadConfig(settings, runtimeConfig);
+          const snapshot = resolveThreadOrchestrationSnapshot(settings, runtimeConfig);
+          if (snapshot) assertThreadCodexLoginSubagents(thread.coreKind, settings, runtimeConfig);
+          const rawRoutes = snapshot ? runtimeRoleRoutesFromOrchestrationSnapshot(snapshot, runtimeConfig.mainAgentModelOverride) : [];
+          const roleRoutes = busyThread ? rawRoutes : resolveCandidateModelDefaults(rawRoutes);
           const configChanged =
-            !existing ||
-            JSON.stringify(normalizeThreadRuntimeConfig(existing)) !==
+            !stored ||
+            JSON.stringify(normalizeThreadRuntimeConfig(stored)) !==
               JSON.stringify(normalizeThreadRuntimeConfig(runtimeConfig));
           conversationStore.saveThreadRuntimeConfig(threadId, runtimeConfig);
-          if (!existing || !isBusyMutableOnlyRuntimeConfigUpdate(existing, runtimeConfig)) {
+          if (roleRoutes.length > 0 && (!existing || !isBusyMutableOnlyRuntimeConfigUpdate(existing, runtimeConfig))) {
             noteSdkSessionRouteChange(threadId, roleRoutes);
           }
           const updatedThread = ensureThreadRuntimeConfig(conversationStore.getThread(threadId) ?? thread);

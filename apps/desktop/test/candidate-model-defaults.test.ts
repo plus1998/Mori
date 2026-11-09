@@ -4,6 +4,7 @@ import {
   chatGptCatalogCandidateId,
   codexCatalogCandidateId,
   resolveCandidateModelRouteDefaults,
+  isCandidateModelReferenceAvailable,
 } from "../src/main/candidate-model-defaults";
 import { buildDriverRoutesFromRuntime, resolveThreadRuntimeConfig } from "../src/main/thread-runtime-routes";
 
@@ -23,6 +24,15 @@ const source = {
   isChatGptSubscriptionProvider: (id: string) => id === "eco-coding-chatgpt",
   listCandidateModels: (id: string) => (id === "vendor" ? [candidate] : []),
 };
+
+test("only deleted candidate references are unavailable; catalog and frozen routes stay valid", () => {
+  expect(isCandidateModelReferenceAvailable({ providerId: "vendor", modelId: candidate.modelId, candidateModelId: candidate.id }, source)).toBe(true);
+  expect(isCandidateModelReferenceAvailable({ providerId: "vendor", modelId: "deleted", candidateModelId: "deleted-id" }, source)).toBe(false);
+  expect(isCandidateModelReferenceAvailable({ providerId: "vendor", modelId: "pinned", baseUrl: "https://saved.example" }, source)).toBe(true);
+  expect(isCandidateModelReferenceAvailable({ providerId: "openai", modelId: "gpt-test", candidateModelId: codexCatalogCandidateId("gpt-test") }, source)).toBe(true);
+  expect(isCandidateModelReferenceAvailable({ providerId: "eco-coding-chatgpt", modelId: "gpt-test", candidateModelId: "account:eco-coding-chatgpt:gpt-test" }, source)).toBe(true);
+  expect(isCandidateModelReferenceAvailable({ providerId: "vendor", modelId: "gpt-test", candidateModelId: codexCatalogCandidateId("gpt-test") }, source)).toBe(false);
+});
 
 test("persisted Login catalog selections resolve main and subagent models without stored candidates", () => {
   const routes: RuntimeRoleRouteConfig[] = [

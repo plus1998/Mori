@@ -631,6 +631,30 @@ test("a subagent selection does not import a new global main model", () => {
   expect(saved.resolvedOrchestrationSnapshot?.agents.length).toBeGreaterThan(0);
 });
 
+test("a main model switch preserves the saved subagents and their pinned endpoints", () => {
+  const old = buildThreadRuntimeConfigFromDefaults({
+    settings,
+    workflowDefaults: { sessionMode: "agent", defaultOrchestrationSelection: presetBundle.selection },
+  });
+  old.resolvedOrchestrationSnapshot!.agents[0]!.modelRef = {
+    providerId: "saved-provider", modelId: "saved-model", baseUrl: "https://saved.example", apiCompat: "anthropic",
+  };
+  const changedSettings = structuredClone(settings);
+  changedSettings.subagentOrchestrations[0]!.agents[0]!.modelRef.modelId = "changed-globally";
+  const saved = resolveThreadRuntimeConfigUpdate(changedSettings, old, {
+    ...old,
+    orchestrationSelection: {
+      ...presetBundle.selection,
+      mainModel: { providerId: "p2", modelId: "new-main" },
+    },
+  });
+  expect(saved.resolvedOrchestrationSnapshot?.mainAgent.modelRef.modelId).toBe("new-main");
+  expect(saved.resolvedOrchestrationSnapshot?.agents).toEqual(old.resolvedOrchestrationSnapshot?.agents);
+  expect(saved.resolvedOrchestrationSnapshot?.agents).not.toBe(old.resolvedOrchestrationSnapshot?.agents);
+  const refreshed = resolveThreadRuntimeConfigUpdate(changedSettings, old, saved, { refreshSnapshot: true });
+  expect(refreshed.resolvedOrchestrationSnapshot?.agents[0]?.modelRef.modelId).toBe("changed-globally");
+});
+
 test("an explicit main configuration switch or global reset can adopt another model", () => {
   const old = buildThreadRuntimeConfigFromDefaults({
     settings,

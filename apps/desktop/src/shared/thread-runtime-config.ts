@@ -7,6 +7,7 @@ import type { BashReviewMode } from "../../../../packages/bash-policy/src";
 import {
   type EcoOrchestrationConfig,
   isOrchestrationSelection,
+  isOrchestrationSelectionDraft,
   isResolvedOrchestrationSnapshot,
   type OrchestrationResourceLookup,
   type OrchestrationSelection,
@@ -300,7 +301,7 @@ export function isThreadRuntimeConfig(value: unknown): value is ThreadRuntimeCon
   }
   if (
     record.orchestrationSelection !== undefined &&
-    !isOrchestrationSelection(record.orchestrationSelection)
+    !isOrchestrationSelectionDraft(record.orchestrationSelection)
   ) {
     return false;
   }
@@ -439,6 +440,21 @@ export function resolveThreadRuntimeConfigUpdate(
     const materialized = materializeThreadOrchestrationSnapshot(settings, normalized.orchestrationSelection);
     const previous = existing?.resolvedOrchestrationSnapshot;
     if (
+      previous && !options.refreshSnapshot &&
+      JSON.stringify(existing?.orchestrationSelection?.subagents)
+        === JSON.stringify(normalized.orchestrationSelection.subagents)
+    ) {
+      // Switching the main model must keep the session's unchanged roster,
+      // including its frozen endpoints, instead of importing global edits.
+      materialized.resolvedOrchestrationSnapshot.agents = structuredClone(previous.agents);
+      materialized.resolvedOrchestrationSnapshot.strategy = structuredClone(previous.strategy);
+      if (previous.subagentOrchestrationDisplayName !== undefined) {
+        materialized.resolvedOrchestrationSnapshot.subagentOrchestrationDisplayName = previous.subagentOrchestrationDisplayName;
+      } else {
+        delete materialized.resolvedOrchestrationSnapshot.subagentOrchestrationDisplayName;
+      }
+    }
+    if (
       previous &&
       !options.refreshSnapshot &&
       orchestrationSelectionsHaveSameMainModel(
@@ -489,7 +505,7 @@ export function normalizeThreadRuntimeConfig(config: ThreadRuntimeConfig): Threa
     ...(typeof config.cursorModelId === "string" && config.cursorModelId.trim()
       ? { cursorModelId: config.cursorModelId.trim().slice(0, 256) }
       : {}),
-    ...(config.orchestrationSelection && isOrchestrationSelection(config.orchestrationSelection)
+    ...(config.orchestrationSelection && isOrchestrationSelectionDraft(config.orchestrationSelection)
       ? { orchestrationSelection: normalizeOrchestrationSelection(config.orchestrationSelection) }
       : {}),
     ...(config.resolvedOrchestrationSnapshot &&

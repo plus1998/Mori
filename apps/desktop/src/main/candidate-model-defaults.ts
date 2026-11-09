@@ -1,4 +1,21 @@
 import type { CandidateModelView, RuntimeRoleRouteConfig } from "../shared/ipc";
+import type { ModelRef } from "../shared/agent-orchestration";
+
+interface CandidateModelRouteSource {
+  isBuiltInCodexProvider: (providerId: string) => boolean;
+  isChatGptSubscriptionProvider: (providerId: string) => boolean;
+  listCandidateModels: (providerId: string) => readonly CandidateModelView[];
+}
+
+export function isCandidateModelReferenceAvailable(model: ModelRef, source: CandidateModelRouteSource): boolean {
+  if (!model.candidateModelId) return true;
+  if (source.isBuiltInCodexProvider(model.providerId) &&
+    model.candidateModelId === codexCatalogCandidateId(model.modelId)) return true;
+  if (source.isChatGptSubscriptionProvider(model.providerId) &&
+    (model.candidateModelId === chatGptCatalogCandidateId(model.modelId) ||
+      model.candidateModelId === `account:${encodeURIComponent(model.providerId)}:${encodeURIComponent(model.modelId)}`)) return true;
+  return source.listCandidateModels(model.providerId).some(candidate => candidate.id === model.candidateModelId);
+}
 
 export function codexCatalogCandidateId(modelId: string): string {
   return `cand-openai-${modelId
@@ -13,11 +30,7 @@ export function chatGptCatalogCandidateId(modelId: string): string {
 
 export function resolveCandidateModelRouteDefaults(
   routes: readonly RuntimeRoleRouteConfig[],
-  source: {
-    isBuiltInCodexProvider: (providerId: string) => boolean;
-    isChatGptSubscriptionProvider: (providerId: string) => boolean;
-    listCandidateModels: (providerId: string) => readonly CandidateModelView[];
-  },
+  source: CandidateModelRouteSource,
 ): RuntimeRoleRouteConfig[] {
   return routes.map((route) => {
     if (source.isChatGptSubscriptionProvider(route.providerId)) {
@@ -47,7 +60,7 @@ export function resolveCandidateModelRouteDefaults(
     const candidate = source
       .listCandidateModels(route.providerId)
       .find((entry) => entry.id === route.candidateModelId);
-    if (!candidate) throw new Error(`模型 ${route.candidateModelId} 已不存在，请重新选择。`);
+    if (!candidate) throw new Error(`模型 ${route.candidateModelId} 已不存在，请重新选择（角色：${route.role}）。`);
     if (candidate.apiCompat === "system_one") {
       throw new Error(`模型 ${candidate.modelId} 使用 SystemOne 协议，仅可作为审批模型。`);
     }

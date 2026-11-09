@@ -495,13 +495,16 @@ function requireRoute(
 }
 
 export function isOrchestrationSelection(value: unknown): value is OrchestrationSelection {
+  return isOrchestrationSelectionDraft(value) && Boolean(value.mainAgentConfigId?.trim() || value.mainModel);
+}
+
+/** A saved editor draft may have its deleted main model cleared. */
+export function isOrchestrationSelectionDraft(value: unknown): value is OrchestrationSelection {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return false;
   }
   const record = value as Record<string, unknown>;
-  if ((record.mainAgentConfigId !== undefined && typeof record.mainAgentConfigId !== "string") ||
-    (!(typeof record.mainAgentConfigId === "string" && record.mainAgentConfigId.trim()) &&
-      !isModelRef(record.mainModel))) {
+  if (record.mainAgentConfigId !== undefined && typeof record.mainAgentConfigId !== "string") {
     return false;
   }
   if (record.mainModel !== undefined && !isModelRef(record.mainModel)) return false;

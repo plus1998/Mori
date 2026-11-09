@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { ComposerRouteCardBody } from "../src/renderer/ComposerRoutePopover";
 import type { ModelSettingsSnapshot } from "../src/shared/ipc";
 import { renderLocalized } from "./i18n-test";
+import { buildAcpThreadRuntimeConfig } from "../src/shared/thread-runtime-config";
 
 const emptySettings: ModelSettingsSnapshot = {
   providers: [],
@@ -13,6 +14,8 @@ const emptySettings: ModelSettingsSnapshot = {
 };
 
 const noopHandlers = {
+  onSelectMainModel: async () => {},
+  onManageAccounts: () => {},
   onSelectMainAgentConfig: async () => {},
   onSelectMainPrompt: async () => {},
   onSelectSubagents: async () => {},
@@ -21,6 +24,21 @@ const noopHandlers = {
   onSelectVisionModel: async () => {},
   onOpenFullSettings: () => {},
 };
+
+test("a cleared main model leaves the model picker and subagent selector editable", () => {
+  const markup = renderLocalized(
+    <ComposerRouteCardBody settings={emptySettings} canEdit runtimeConfig={{
+      ...buildAcpThreadRuntimeConfig(),
+      orchestrationSelection: { mainPrompt: { mode: "builtin" }, subagents: { mode: "none" } },
+    }} {...noopHandlers} />,
+    "zh-CN",
+  );
+  expect(markup).toContain("主模型");
+  expect(markup).toContain('aria-label="主模型：未配置"');
+  expect(markup).toContain("不使用子 Agent");
+  expect(markup).not.toMatch(/<button[^>]*composer-field-select-trigger[^>]*\sdisabled/);
+  expect(markup).not.toMatch(/<button[^>]*composer-model-trigger[^>]*\sdisabled/);
+});
 
 test("ComposerRouteCardBody disables builder and fields when canEdit is false", () => {
   const markup = renderLocalized(
@@ -92,8 +110,9 @@ test("ComposerRouteCardBody keeps auxiliary / approval / vision switchable while
   expect(markup).toMatch(/composer-route-builder-button[^>]*\sdisabled/);
   expect(markup).toMatch(/<button[^>]*composer-field-select-trigger[^>]*\sdisabled/);
   // Auxiliary / approval / vision requests are stateless: their selectors stay live.
-  expect(markup.match(/class="model-cascade-trigger"/g)?.length).toBe(3);
-  expect(markup).not.toMatch(/<button[^>]*model-cascade-trigger[^>]*\sdisabled/);
+  const statelessButtons = markup.match(/<div class="stateless-model-control">[\s\S]*?<button[^>]*>/g) ?? [];
+  expect(statelessButtons).toHaveLength(3);
+  expect(statelessButtons.every(button => !/\sdisabled/.test(button))).toBe(true);
 });
 
 test("ComposerRouteCardBody locks the stateless role selectors when canEditStatelessModels is false", () => {
@@ -107,6 +126,7 @@ test("ComposerRouteCardBody locks the stateless role selectors when canEditState
     "zh-CN",
   );
 
-  expect(markup.match(/class="model-cascade-trigger"/g)?.length).toBe(3);
-  expect(markup).toMatch(/<button[^>]*model-cascade-trigger[^>]*\sdisabled/);
+  const statelessButtons = markup.match(/<div class="stateless-model-control">[\s\S]*?<button[^>]*>/g) ?? [];
+  expect(statelessButtons).toHaveLength(3);
+  expect(statelessButtons.every(button => /\sdisabled/.test(button))).toBe(true);
 });
