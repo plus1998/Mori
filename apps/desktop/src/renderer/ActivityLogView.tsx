@@ -1,5 +1,6 @@
 import { projectionTimelineItemRenderSignature } from "./projection-timeline-signature";
 import { shortcutMatches } from "./keyboard-shortcuts";
+import { ShimmerText } from "./ShimmerText";
 import { parseApprovalFeedback } from "../shared/approval-feedback";
 import { ApprovalFeedbackCard } from "./ApprovalFeedbackCard";
 import {
@@ -5661,14 +5662,6 @@ function PromptCacheTimelineBlock({
 }) {
   const info = steps.map((step) => step.label).join("\n");
   return <FeedStatusDivider message={narrative} {...(info && { info })} />;
-}
-
-function ShimmerText({ children }: { children: string }) {
-  return (
-    <span className="run-log-shimmer-text" aria-live="polite">
-      {children}
-    </span>
-  );
 }
 
 export function splitThinkingCarouselLines(text: string): string[] {

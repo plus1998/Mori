@@ -15169,29 +15169,76 @@ button.default-agent-option:focus-visible {
 }
 
 .run-log-shimmer-text {
+  --run-log-shimmer-base: #6b6b6b;
+  --run-log-shimmer-highlight: #d8d8d8;
+  position: relative;
   display: inline-block;
   font-size: 13px;
   font-weight: 500;
   letter-spacing: 0.02em;
   line-height: inherit;
-  background-image: linear-gradient(90deg, #6b6b6b 0%, #6b6b6b 38%, #d8d8d8 50%, #6b6b6b 62%, #6b6b6b 100%);
-  background-size: 250% 100%;
-  background-repeat: no-repeat;
-  background-position: 100% center;
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  color: transparent;
-  animation: run-log-shimmer-sweep 1.6s ease-in-out infinite;
+  color: var(--run-log-shimmer-base);
+}
+
+.run-log-shimmer-sweep {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: inherit;
+  pointer-events: none;
+  user-select: none;
+  mask-image: linear-gradient(90deg, transparent 0%, black 20% 30%, transparent 50% 100%);
+  transform: translateX(-50%);
+}
+
+.run-log-shimmer-highlight {
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: inherit;
+  color: var(--run-log-shimmer-highlight);
+  transform: translateX(50%);
+}
+
+.run-log-shimmer-active .run-log-shimmer-sweep,
+.run-log-shimmer-active .run-log-shimmer-highlight {
+  animation-duration: 1s;
+  animation-timing-function: steps(48, end);
+  animation-iteration-count: 1;
+}
+
+.run-log-shimmer-active .run-log-shimmer-sweep {
+  animation-name: run-log-shimmer-sweep;
+}
+
+.run-log-shimmer-active .run-log-shimmer-highlight {
+  animation-name: run-log-shimmer-highlight;
 }
 
 @keyframes run-log-shimmer-sweep {
   0% {
-    background-position: 100% center;
+    transform: translateX(-50%);
   }
 
   100% {
-    background-position: 0% center;
+    transform: translateX(125%);
+  }
+}
+
+@keyframes run-log-shimmer-highlight {
+  0% {
+    transform: translateX(50%);
+  }
+
+  100% {
+    transform: translateX(-125%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .run-log-shimmer-sweep {
+    display: none;
   }
 }
 
@@ -31439,17 +31486,11 @@ html[data-platform="darwin"] :is(.run-log, .codex-composer, .codex-sidebar) {
 }
 
 .codex-main:not(.codex-main-landing) .run-log-shimmer-text {
+  --run-log-shimmer-base: color-mix(in srgb, var(--codex-log-text) 35%, transparent);
+  --run-log-shimmer-highlight: color-mix(in srgb, var(--codex-log-text) 72%, var(--codex-log-muted));
   font-size: var(--codex-feed-font-size);
   font-weight: 400;
   letter-spacing: 0;
-  background-image: linear-gradient(
-    90deg,
-    color-mix(in srgb, var(--codex-log-text) 35%, transparent) 0%,
-    color-mix(in srgb, var(--codex-log-text) 35%, transparent) 38%,
-    color-mix(in srgb, var(--codex-log-text) 72%, var(--codex-log-muted)) 50%,
-    color-mix(in srgb, var(--codex-log-text) 35%, transparent) 62%,
-    color-mix(in srgb, var(--codex-log-text) 35%, transparent) 100%
-  );
 }
 
 .codex-main:not(.codex-main-landing) .subagent-run-row {

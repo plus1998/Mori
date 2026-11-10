@@ -2118,7 +2118,7 @@ test("ActivityLogView keeps empty waiting and reasoning summary mutually exclusi
   expect(html.match(/run-log-thinking streaming empty/g)?.length).toBe(1);
   // Tip replaced empty「正在思考」in the same slot — do not keep both labels.
   expect(html).not.toContain("正在思考");
-  expect(html.match(/定位入口/g)?.length).toBe(1);
+  expect(html.match(/class="run-log-shimmer-text" aria-live="polite">定位入口/g)?.length).toBe(1);
 });
 
 function settledWriteTimeline() {
@@ -3001,7 +3001,7 @@ test("ActivityLogView hides waiting thinking while context compaction is running
 
   expect(html).toContain("正在自动压缩上下文");
   expect(html).toContain("run-log-context-action");
-  expect(html).toContain('<span class="run-log-shimmer-text" aria-live="polite">正在自动压缩上下文</span>');
+  expect(html).toContain('<span class="run-log-shimmer-text" aria-live="polite">正在自动压缩上下文<span class="run-log-shimmer-sweep" aria-hidden="true"><span class="run-log-shimmer-highlight">正在自动压缩上下文</span></span></span>');
   expect(html).not.toContain("正在思考");
   expect(html).not.toContain("run-log-streaming-dots");
   expect(html).not.toContain('aria-label="会话进行中"');
@@ -3031,7 +3031,7 @@ test.each([
   );
 
   expect(html).toContain(
-    `<span class="run-log-shimmer-text" aria-live="polite">${label}</span><span class="run-log-action-elapsed run-log-action-elapsed--inline">10s</span>`,
+    `<span class="run-log-shimmer-text" aria-live="polite">${label}<span class="run-log-shimmer-sweep" aria-hidden="true"><span class="run-log-shimmer-highlight">${label}</span></span></span><span class="run-log-action-elapsed run-log-action-elapsed--inline">10s</span>`,
   );
   expect(html).not.toContain('class="run-log-action-meta run-log-action-elapsed"');
 });
