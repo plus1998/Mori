@@ -237,7 +237,15 @@ export function setSelectionAtPoint(root: HTMLElement, x: number, y: number): bo
     return false;
   }
   const range = document.createRange();
-  range.setStart(position.offsetNode, position.offset);
+  const element = position.offsetNode instanceof Element ? position.offsetNode : position.offsetNode.parentElement;
+  const chip = element?.closest<HTMLElement>(`${SKILL_SELECTOR}, ${FILE_SELECTOR}, ${REFERENCE_SELECTOR}`);
+  if (chip && root.contains(chip)) {
+    const rect = chip.getBoundingClientRect();
+    if (x < rect.left + rect.width / 2) range.setStartBefore(chip);
+    else range.setStartAfter(chip);
+  } else {
+    range.setStart(position.offsetNode, position.offset);
+  }
   range.collapse(true);
   selection.removeAllRanges();
   selection.addRange(range);

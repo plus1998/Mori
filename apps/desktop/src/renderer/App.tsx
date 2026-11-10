@@ -11,7 +11,8 @@ import { buildComposerCapabilityReferences } from "../shared/composer-capability
 import { ComposerReferencesMenu } from "./ComposerReferencesMenu";
 import { useComposerReferences } from "./use-composer-references";
 import { useRevealSelectedThread } from "./use-reveal-selected-thread";
-import { composerReferenceToken } from "../shared/composer-references";
+import { composerReferences, composerReferenceToken } from "../shared/composer-references";
+import { CONVERSATION_REFERENCE_DRAG_MIME, readConversationReferenceDrag } from "./conversation-reference-drag";
 import { browserSelectionReference, type BrowserSelection } from "../shared/browser-selection";
 import { BrowserSelectionPreview } from "./BrowserSelectionPreview";
 import { FollowUpQueuePanel } from "./FollowUpQueuePanel";
@@ -11464,6 +11465,11 @@ function App() {
   }
 
   function handleComposerDragOver(event: ReactDragEvent<HTMLDivElement>) {
+    if (event.dataTransfer.types.includes(CONVERSATION_REFERENCE_DRAG_MIME)) {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = composerDisabled ? "none" : "copy";
+      return;
+    }
     if (![...event.dataTransfer.types].includes("Files")) {
       return;
     }
@@ -11472,6 +11478,19 @@ function App() {
   }
 
   function handleComposerDrop(event: ReactDragEvent<HTMLDivElement>) {
+    if (event.dataTransfer.types.includes(CONVERSATION_REFERENCE_DRAG_MIME)) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (composerDisabled) return;
+      const reference = readConversationReferenceDrag(event.dataTransfer);
+      if (!reference) return;
+      if (composerReferences(composerPromptRef.current).some(item => item.kind === "conversation" && item.id === reference.id)) {
+        composerRef.current?.focus();
+        return;
+      }
+      composerRef.current?.insertTextAtPoint(`${composerReferenceToken(reference)} `, event.clientX, event.clientY);
+      return;
+    }
     if (![...event.dataTransfer.types].includes("Files")) {
       return;
     }

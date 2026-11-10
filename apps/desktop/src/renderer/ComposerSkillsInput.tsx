@@ -36,6 +36,7 @@ export interface ComposerSkillsInputHandle {
   setCursor: (offset: number) => void;
   setSelection: (start: number, end: number) => void;
   insertNewline: () => void;
+  insertTextAtPoint: (text: string, x: number, y: number) => void;
   fitHeight: () => void;
 }
 
@@ -225,13 +226,24 @@ export const ComposerSkillsInput = forwardRef<ComposerSkillsInputHandle, Compose
           }
           replaceSelectedText("\n", "insertLineBreak");
         },
+        insertTextAtPoint: (text, x, y) => {
+          const editor = editorRef.current;
+          if (!editor || disabled || isComposingRef.current) return;
+          editor.focus();
+          if (!setSelectionAtPoint(editor, x, y)) {
+            // A drop on the surrounding composer controls appends to the draft.
+            const end = serializeEditable(editor).length;
+            setSelectionOffsets(editor, end, end);
+          }
+          replaceSelectedText(text, "insertFromDrop");
+        },
         fitHeight: () => {
           if (editorRef.current) {
             fitHeight(editorRef.current);
           }
         },
       }),
-      [replaceSelectedText, fitHeight],
+      [replaceSelectedText, fitHeight, disabled],
     );
 
     const syncDomFromValue = useCallback(

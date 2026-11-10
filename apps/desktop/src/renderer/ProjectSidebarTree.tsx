@@ -34,6 +34,7 @@ import type { ProjectReorderPosition } from "./project-sidebar-order";
 import { formatRelativeTime } from "./relative-time";
 import { OverflowFadeText } from "./OverflowFadeText";
 import { useSidebarPlanExecutions } from "./sidebar-plan-executions";
+import { startConversationReferenceDrag } from "./conversation-reference-drag";
 
 const PROJECT_DRAG_MIME = "application/x-eco-project-path";
 
@@ -608,6 +609,11 @@ function ProjectSidebarTreeView({
                     <button
                       type="button"
                       className="chat-item nested"
+                      draggable
+                      onDragStart={(event) => {
+                        hideThreadTooltip();
+                        startConversationReferenceDrag(event.dataTransfer, thread);
+                      }}
                       aria-describedby={threadTooltip?.thread.id === thread.id ? "sidebar-thread-tooltip" : undefined}
                       onMouseEnter={(event) => showThreadTooltip(event, thread, project.name, 500)}
                       onMouseLeave={hideThreadTooltip}
@@ -620,6 +626,7 @@ function ProjectSidebarTreeView({
                           className="chat-item-core-icon"
                           src={coreIconSrc(thread.coreKind)}
                           alt={coreDisplayName(thread.coreKind)}
+                          draggable={false}
                         />
                       ) : null}
                       <span className="chat-item-title-row">
