@@ -139,13 +139,27 @@ button {
   background: transparent;
 }
 
-button,
-input,
-textarea,
-select,
-a,
-[role="button"],
-[contenteditable="true"] {
+/* app-region inherits in Chromium. Keep ordinary descendants out of region
+   collection: a drag / no-drag container already contributes its whole rect.
+   Scrolled no-drag descendants can also punch holes into the titlebar.
+   Use initial: an explicit `none` maps to no-drag in current Chromium.
+   Component rules below opt the necessary boundaries back in. */
+:where(*) {
+  -webkit-app-region: initial;
+}
+
+/* Portals can overlap a drag strip without being its descendants. Exclude the
+   interactive surface once instead of adding a rectangle for every control. */
+:where(dialog, [role="dialog"], [role="menu"], [role="listbox"], .composer-skill-card.is-floating,
+  .browser-panel-floating-layer) {
+  -webkit-app-region: no-drag;
+}
+
+/* Only controls inside drag strips need individual exclusion rectangles.
+   Content panes exclude their whole subtree; marking every feed link / button
+   separately makes Chromium collect and map redundant regions on layout. */
+:where(.codex-main-topbar, .codex-main-pane-panel-actions, .mori-panel-header)
+  :is(button, input, textarea, select, a, [role="button"], [contenteditable="true"]) {
   -webkit-app-region: no-drag;
 }
 
@@ -355,7 +369,6 @@ html[data-platform="linux"] .window-sidebar-toolbar {
 .window-sidebar-toolbar,
 .window-sidebar-toolbar * {
   pointer-events: auto;
-  -webkit-app-region: no-drag !important;
 }
 
 .macos-window-toolbar .codex-main-toolbar-button,
@@ -478,7 +491,6 @@ html[data-platform="linux"] .settings-nav {
 .codex-main-pane-panel-actions .codex-main-toolbar-button,
 .codex-main-pane-panel-actions .codex-main-toolbar-button * {
   pointer-events: auto;
-  -webkit-app-region: no-drag !important;
 }
 
 .codex-main-pane-panel-action-slot {
@@ -568,7 +580,6 @@ html[data-platform="linux"] .settings-nav {
 .codex-main-topbar-actions .codex-main-toolbar-button,
 .codex-main-topbar-actions .codex-main-toolbar-button * {
   pointer-events: auto;
-  -webkit-app-region: no-drag !important;
 }
 
 /*
@@ -577,9 +588,7 @@ html[data-platform="linux"] .settings-nav {
  * is the drag strip; only the icon buttons punch out of it.
  */
 .codex-main-scroll:has(.codex-chat-shell.is-landing) .codex-composer-wrap,
-.codex-main-scroll:has(.codex-chat-shell.is-landing) .codex-composer-wrap *,
 .codex-main-scroll:has(.codex-chat-shell.is-landing) .composer-skills-bar,
-.codex-main-scroll:has(.codex-chat-shell.is-landing) .composer-skills-bar *,
 .codex-main-scroll:has(.codex-chat-shell.is-landing) .codex-main-topbar-actions .codex-main-toolbar-button,
 .codex-main-scroll:has(.codex-chat-shell.is-landing) .codex-main-topbar-actions .codex-main-toolbar-button * {
   -webkit-app-region: no-drag;
@@ -803,10 +812,9 @@ html:not([data-platform="darwin"]) .codex-sidebar-chrome-drag {
   -webkit-app-region: drag;
 }
 
+/* Exclude content roots once, keeping the body gaps available for dragging. */
 .codex-sidebar-body-drag > *,
-.codex-sidebar-body-drag button,
-.project-tree,
-.project-tree * {
+.project-tree {
   -webkit-app-region: no-drag;
 }
 
@@ -2294,11 +2302,6 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .thread-info-workspac
   width: 100%;
   margin-top: auto;
   color: var(--sidebar-item-text);
-  -webkit-app-region: no-drag;
-}
-
-.sidebar-settings,
-.sidebar-settings * {
   -webkit-app-region: no-drag;
 }
 
@@ -22978,11 +22981,7 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .settings-nav {
   -webkit-app-region: drag;
 }
 
-.settings-nav > *,
-.settings-nav button,
-.settings-nav input,
-.settings-nav nav,
-.settings-nav nav * {
+.settings-nav > * {
   -webkit-app-region: no-drag;
 }
 
