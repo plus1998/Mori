@@ -17,6 +17,9 @@ echo "[pre-push] type checking the desktop app..."
 bunx tsc -b apps/desktop/tsconfig.json --pretty false
 bunx tsc --noEmit -p apps/desktop/tsconfig.json
 
+echo "[pre-push] running Supabase Edge Function tests with Deno..."
+bun run test:supabase
+
 echo "[pre-push] running the strict test gate..."
 node scripts/test-gate.mjs --strict
 

@@ -30,6 +30,7 @@
     "readme:screenshots:demo": "bun run --cwd apps/desktop readme:screenshots:demo",
     "feed:parity": "bun run --cwd apps/desktop feed:parity",
     "test": "node scripts/test.mjs",
+    "test:supabase": "deno test --allow-env --no-lock --node-modules-dir=none supabase/tests/conversation-share.deno.ts",
     "pi:regression": "node scripts/pi-regression.mjs",
     "test:e2e": "bun run --cwd apps/desktop test:e2e",
     "round": "bun scripts/round.mjs",

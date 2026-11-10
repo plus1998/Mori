@@ -51,6 +51,14 @@ jobs:
         # --ignore-scripts skips node-pty's Linux build; never rely on a developer's existing binary.
         run: bun run --cwd apps/desktop postinstall
 
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: "2.3.1"
+
+      - name: Supabase Edge Function tests (Deno)
+        run: bun run test:supabase
+
       - name: Desktop suite through the gate (strict)
         # `--strict` also fails when a listed known failure starts passing, now that the list
         # is empty (see docs/plans/feed-regression-test-plan.md 4.17).

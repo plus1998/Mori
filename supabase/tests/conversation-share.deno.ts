@@ -1,3 +1,4 @@
+// Deno-only Edge Function tests. Run with `bun run test:supabase`.
 import { handleHtmlPageView } from "../functions/html-page-view/handler.ts";
 import { handleHtmlPagePublish } from "../functions/html-page-publish/handler.ts";
 
