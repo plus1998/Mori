@@ -274,6 +274,7 @@ import {
   type WorkspaceFileBrowserRequest,
   type WorkspaceFileDiffResult,
   type WorkspaceFileEntry,
+  type WorkspacePathInfo,
   type WorkspaceFileReadRequest,
   type WorkspaceFileReadResult,
   type WorkspaceFileWriteRequest,
@@ -512,6 +513,9 @@ const api = {
   },
   listWorkspaceEntries(request: WorkspaceFileBrowserRequest): Promise<WorkspaceFileEntry[]> {
     return ipcRenderer.invoke(IPC_CHANNELS.workspaceListEntries, request);
+  },
+  inspectWorkspacePath(request: { path: string }): Promise<WorkspacePathInfo> {
+    return ipcRenderer.invoke(IPC_CHANNELS.workspaceInspectPath, request);
   },
   readWorkspaceFile(request: WorkspaceFileReadRequest): Promise<WorkspaceFileReadResult> {
     return ipcRenderer.invoke(IPC_CHANNELS.workspaceReadFile, request);

@@ -8,6 +8,7 @@ function createApi() {
   return {
     browserOpen: mock(async (_request: BrowserOpenRequest) => {}),
     openFileExternally: mock(async (_path: string) => {}),
+    openWorkspaceInFileManager: mock(async (_path: string) => {}),
   };
 }
 
@@ -27,6 +28,14 @@ test("regular files open via the system with their exact paths", async () => {
     expect(api.openFileExternally.mock.calls).toEqual([[path]]);
     expect(api.browserOpen).not.toHaveBeenCalled();
   }
+});
+
+test("a directory ending in html opens in the system file manager", async () => {
+  const api = createApi();
+  await openWorkspaceFileDefault("/outside/folder.html", api, { workspacePath: "/repo", kind: "directory" });
+  expect(api.openWorkspaceInFileManager.mock.calls).toEqual([["/outside/folder.html"]]);
+  expect(api.openFileExternally).not.toHaveBeenCalled();
+  expect(api.browserOpen).not.toHaveBeenCalled();
 });
 
 test("open errors propagate for display rather than turning into a successful no-op", async () => {

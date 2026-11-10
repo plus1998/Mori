@@ -15917,6 +15917,10 @@ button.default-agent-option:focus-visible {
   object-fit: contain;
 }
 
+.markdown-file-ref__icon[hidden] {
+  display: none;
+}
+
 .markdown-file-ref__label {
   min-width: 0;
   overflow-wrap: anywhere;

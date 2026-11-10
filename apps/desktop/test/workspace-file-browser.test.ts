@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { utils, write } from "xlsx";
 import {
+  inspectWorkspacePath,
   listWorkspaceEntries,
   readWorkspaceFile,
   workspaceFileStreams,
@@ -37,6 +38,38 @@ test("lists direct entries with directories first and case-insensitive names", a
     ["A.txt", "file"],
     ["b.txt", "file"],
   ]);
+});
+
+test("inspects actual path types regardless of extension, including external Chinese directories", async () => {
+  for (const name of ["1109", "订单图裁切店铺icon", "looks-like-a-file.html"]) {
+    const directoryPath = path.join(outsidePath, name);
+    await fs.mkdir(directoryPath);
+    expect(await inspectWorkspacePath({ path: directoryPath })).toEqual({ path: directoryPath, kind: "directory" });
+    expect((await inspectWorkspacePath({ path: `${directoryPath}/` })).kind).toBe("directory");
+  }
+  for (const name of ["README", ".env", "1109", "source.ts"]) {
+    const filePath = path.join(workspacePath, name);
+    await fs.writeFile(filePath, "text");
+    expect(await inspectWorkspacePath({ path: filePath })).toEqual({ path: filePath, kind: "file" });
+  }
+  expect((await inspectWorkspacePath({ path: workspacePath })).kind).toBe("directory");
+});
+
+test("path inspection follows symlinks and reports missing targets instead of guessing a file", async () => {
+  const directoryPath = path.join(outsidePath, "real-directory");
+  const filePath = path.join(outsidePath, "real-file");
+  await fs.mkdir(directoryPath);
+  await fs.writeFile(filePath, "text");
+  for (const [name, targetPath, kind] of [["directory.txt", directoryPath, "directory"], ["file", filePath, "file"]] as const) {
+    const link = path.join(workspacePath, name);
+    await fs.symlink(targetPath, link);
+    expect(await inspectWorkspacePath({ path: link })).toEqual({ path: link, kind });
+  }
+  const missing = path.join(outsidePath, "missing");
+  await fs.symlink(missing, path.join(workspacePath, "broken-link"));
+  await expect(inspectWorkspacePath({ path: missing })).rejects.toThrow("ENOENT");
+  await expect(inspectWorkspacePath({ path: path.join(workspacePath, "broken-link") })).rejects.toThrow("ENOENT");
+  await expect(inspectWorkspacePath({ path: "relative/path" })).rejects.toThrow("absolute");
 });
 
 test("reads UTF-8 text and truncates it at 2 MiB", async () => {

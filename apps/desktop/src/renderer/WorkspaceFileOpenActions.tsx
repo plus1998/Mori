@@ -14,11 +14,13 @@ interface AssociatedApp {
 interface FileOpenApi {
   browserOpen(request: BrowserOpenRequest): Promise<unknown>;
   openFileExternally(filePath: string): Promise<unknown>;
+  openWorkspaceInFileManager(directoryPath: string): Promise<unknown>;
 }
 
 interface FileOpenScope {
   workspacePath: string;
   threadId?: string;
+  kind?: "file" | "directory";
 }
 
 function isHtmlFile(filePath: string): boolean {
@@ -27,7 +29,9 @@ function isHtmlFile(filePath: string): boolean {
 
 /** Both file entry points use the same default: HTML in Eco, other files in the OS. */
 export async function openWorkspaceFileDefault(filePath: string, api: FileOpenApi, scope: FileOpenScope): Promise<void> {
-  if (isHtmlFile(filePath)) {
+  if (scope.kind === "directory") {
+    await api.openWorkspaceInFileManager(filePath);
+  } else if (isHtmlFile(filePath)) {
     await api.browserOpen({ url: filePath, reveal: true, activate: true,
       ...(scope.threadId ? { threadId: scope.threadId } : { workspacePath: scope.workspacePath }),
     });
@@ -36,7 +40,7 @@ export async function openWorkspaceFileDefault(filePath: string, api: FileOpenAp
   }
 }
 
-export function WorkspaceFileOpenActions({ filePath, requestId, workspacePath, threadId }: FileOpenScope & { filePath: string; requestId: number }) {
+export function WorkspaceFileOpenActions({ filePath, requestId, workspacePath, threadId, kind = "file", pending = false }: FileOpenScope & { filePath: string; requestId: number; pending?: boolean }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [apps, setApps] = useState<AssociatedApp[]>([]);
@@ -45,7 +49,7 @@ export function WorkspaceFileOpenActions({ filePath, requestId, workspacePath, t
   const [actionError, setActionError] = useState<string>();
   const [busy, setBusy] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
-  const html = isHtmlFile(filePath);
+  const html = kind === "file" && isHtmlFile(filePath);
   const defaultApp = apps.find(app => app.isDefault);
 
   useEffect(() => {
@@ -53,6 +57,10 @@ export function WorkspaceFileOpenActions({ filePath, requestId, workspacePath, t
     setApps([]);
     setAppsError(undefined);
     setLoadingApps(true);
+    if (pending || kind === "directory") {
+      setLoadingApps(false);
+      return;
+    }
     void (async () => {
       try {
         if (!window.eco?.getAssociatedApps) throw new Error(t("fileBrowser.apiUnavailable"));
@@ -65,7 +73,7 @@ export function WorkspaceFileOpenActions({ filePath, requestId, workspacePath, t
       }
     })();
     return () => { active = false; };
-  }, [filePath, requestId, t]);
+  }, [filePath, kind, pending, requestId, t]);
 
   useEffect(() => {
     if (!open) return;
@@ -102,15 +110,15 @@ export function WorkspaceFileOpenActions({ filePath, requestId, workspacePath, t
     <div ref={menuRef} className="workspace-file-header__open-menu-container">
       <div className="workspace-file-header__open-group" aria-busy={busy}>
         <button type="button" className="workspace-file-header__action-btn workspace-file-header__open-btn"
-          disabled={busy} title={t(html ? "fileViewer.openInBrowser" : "fileViewer.open")}
-          onClick={() => void runAction(api => openWorkspaceFileDefault(filePath, api, { workspacePath, ...(threadId ? { threadId } : {}) }))}>
-          {html ? <img src="./icon.png" alt="" className="workspace-file-header__app-icon" /> : defaultApp?.iconBase64 ? (
+          disabled={busy || pending} title={t(html ? "fileViewer.openInBrowser" : "fileViewer.open")}
+          onClick={() => void runAction(api => openWorkspaceFileDefault(filePath, api, { workspacePath, kind, ...(threadId ? { threadId } : {}) }))}>
+          {kind === "directory" ? <FolderOpen size={14} aria-hidden /> : html ? <img src="./icon.png" alt="" className="workspace-file-header__app-icon" /> : defaultApp?.iconBase64 ? (
             <img src={defaultApp.iconBase64} alt="" className="workspace-file-header__app-icon" />
           ) : <ExternalLink size={14} aria-hidden />}
           <span>{t("fileViewer.open")}</span>
         </button>
         <button type="button" className="workspace-file-header__action-btn workspace-file-header__dropdown-btn"
-          disabled={busy} aria-label={t("fileViewer.openWith")} title={t("fileViewer.openWith")}
+          disabled={busy || pending} aria-label={t("fileViewer.openWith")} title={t("fileViewer.openWith")}
           aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(current => !current)}>
           <ChevronDown size={13} aria-hidden />
         </button>
@@ -126,9 +134,9 @@ export function WorkspaceFileOpenActions({ filePath, requestId, workspacePath, t
               <span>{app.name}</span>
             </button>
           ))}
-          <button type="button" role="menuitem" onClick={() => void runAction(api => api.openContainingFolder(filePath))}>
+          <button type="button" role="menuitem" onClick={() => void runAction(api => kind === "directory" ? api.openWorkspaceInFileManager(filePath) : api.openContainingFolder(filePath))}>
             <FolderOpen size={14} aria-hidden />
-            <span>{t("fileViewer.openContainingFolder")}</span>
+            <span>{t(kind === "directory" ? "fileViewer.openInFileManager" : "fileViewer.openContainingFolder")}</span>
           </button>
         </div>
       ) : null}

@@ -1184,6 +1184,7 @@ import {
   type WorkflowSettingsStore,
 } from "./workflow-settings-store";
 import {
+  inspectWorkspacePath,
   listWorkspaceEntries,
   readWorkspaceFile,
   workspaceFileStreams,
@@ -6452,6 +6453,13 @@ function registerIpcHandlers(): void {
       ...(parentPath !== resolvedPath ? { parentPath } : {}),
       directories,
     };
+  });
+
+  registerDesktopCommand(IPC_CHANNELS.workspaceInspectPath, async (payload: unknown) => {
+    if (!payload || typeof payload !== "object" || !("path" in payload) || typeof payload.path !== "string") {
+      throw new Error("Path is required.");
+    }
+    return inspectWorkspacePath({ path: payload.path });
   });
 
   registerDesktopCommand(IPC_CHANNELS.workspaceListEntries, async (payload: unknown) => {

@@ -16,6 +16,13 @@ import {
 } from "../src/renderer/workspace-file-browser-logic";
 import { i18nCatalogs } from "../src/shared/i18n-catalogs";
 
+test("directory breadcrumbs keep the final segment a directory, including trailing separators", () => {
+  expect(workspacePathSegments("/repo", "/outside/folder.html/", "directory").at(-1)).toEqual({
+    name: "folder.html", path: "/outside/folder.html", kind: "directory",
+  });
+  expect(workspacePathSegments("C:/repo", "D:\\资料\\1109\\", "directory").at(-1)?.kind).toBe("directory");
+});
+
 test("normalizes tree item indexes for controlled tree state", () => {
   expect(itemIndex({ index: "/repo/src" })).toBe("/repo/src");
   expect(itemIndex({ index: 42 })).toBe("42");

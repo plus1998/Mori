@@ -9,6 +9,7 @@ import type {
   WorkspaceFileReadResult,
   WorkspaceFileWriteRequest,
   WorkspaceFileWriteResult,
+  WorkspacePathInfo,
 } from "../shared/ipc";
 import { SPREADSHEET_PREVIEW_MAX_BYTES } from "../shared/spreadsheet-preview";
 import { WorkspaceFileStreams } from "./workspace-file-stream";
@@ -119,6 +120,16 @@ async function resolvePreviewTarget(targetPath: string) {
   const requestedPath = requireString(targetPath, "Path");
   if (!path.isAbsolute(requestedPath)) throw new Error("Preview path must be absolute.");
   return { requestedPath, realPath: await fs.realpath(requestedPath) };
+}
+
+/** Follow symlinks and inspect the actual target, including paths outside the project. */
+export async function inspectWorkspacePath(request: { path: string }): Promise<WorkspacePathInfo> {
+  const { requestedPath, realPath } = await resolvePreviewTarget(request.path);
+  const stat = await fs.stat(realPath);
+  return {
+    path: requestedPath,
+    kind: stat.isDirectory() ? "directory" : stat.isFile() ? "file" : "unsupported",
+  };
 }
 
 export async function listWorkspaceEntries(

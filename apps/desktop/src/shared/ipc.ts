@@ -78,6 +78,7 @@ export const IPC_CHANNELS = {
   workspaceGetUserHomePath: "workspace:get-user-home-path",
   workspaceListDirectories: "workspace:list-directories",
   workspaceListEntries: "workspace:list-entries",
+  workspaceInspectPath: "workspace:inspect-path",
   workspaceReadFile: "workspace:read-file",
   workspaceWriteFile: "workspace:write-file",
   workspaceInspect: "workspace:inspect",
@@ -840,6 +841,11 @@ export interface WorkspaceFileEntry {
   path: string;
   kind: "directory" | "file";
   size?: number;
+}
+
+export interface WorkspacePathInfo {
+  path: string;
+  kind: "file" | "directory" | "unsupported";
 }
 
 export interface WorkspaceFileReadRequest {

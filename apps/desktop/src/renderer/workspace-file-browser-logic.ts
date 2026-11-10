@@ -38,7 +38,7 @@ export function parentDirectory(filePath: string): string {
   return normalized.slice(0, separator);
 }
 
-export function workspacePathSegments(workspacePath: string, filePath: string): WorkspacePathSegment[] {
+export function workspacePathSegments(workspacePath: string, filePath: string, targetKind: WorkspaceEntryKind = "file"): WorkspacePathSegment[] {
   const normalize = (value: string) => {
     const normalized = value.replace(/\\/g, "/").replace(/\/+$/, "");
     if (/^[A-Za-z]:$/.test(normalized)) return `${normalized}/`;
@@ -70,7 +70,7 @@ export function workspacePathSegments(workspacePath: string, filePath: string): 
       return {
         name,
         path: currentPath,
-        kind: index === relativeSegments.length - 1 ? ("file" as const) : ("directory" as const),
+        kind: index === relativeSegments.length - 1 ? targetKind : ("directory" as const),
       };
     }),
   ];

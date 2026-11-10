@@ -1,9 +1,10 @@
 import MarkdownIt from "markdown-it";
 import markdownItCjkFriendly from "markdown-it-cjk-friendly";
 import { defaultMarkdownParser, MarkdownParser, schema as markdownSchema } from "prosemirror-markdown";
-import { Fragment, type Mark, type NodeSpec, type Node as PMNode, Schema } from "prosemirror-model";
+import { DOMSerializer, Fragment, type Mark, type NodeSpec, type Node as PMNode, Schema } from "prosemirror-model";
 import { Plugin } from "prosemirror-state";
 import type { NodeViewConstructor } from "prosemirror-view";
+import { createWorkspacePathNodeView } from "./workspace-path-node-view";
 import { buildHtmlDataNavigateUrl } from "../../shared/browser";
 import { COMPOSER_REFERENCE_PATTERN, parseComposerReference } from "../../shared/composer-references";
 import { previewBrowserSelection } from "../browser-selection-events";
@@ -87,6 +88,7 @@ function fileRefToDOM(node: PMNode) {
       class: "markdown-file-ref",
       title: fileRefTitle(reference),
       "data-eco-file": "1",
+      "data-eco-path-kind": "unresolved",
     },
     [
       "img",
@@ -98,6 +100,7 @@ function fileRefToDOM(node: PMNode) {
         height: "14",
         draggable: "false",
         "aria-hidden": "true",
+        hidden: "",
       },
     ],
     ["span", { class: "markdown-file-ref__label" }, formatWorkspaceFileReferenceLabel(reference)],
@@ -607,8 +610,8 @@ function serializeInline(node: PMNode): string {
     const iconUrl = escapeHtml(getMaterialIconUrl(iconName));
     const label = escapeHtml(formatWorkspaceFileReferenceLabel(reference));
     return (
-      `<a href="${href}" class="markdown-file-ref" title="${title}" data-eco-file="1">` +
-      `<img class="markdown-file-ref__icon" src="${iconUrl}" alt="" width="14" height="14" draggable="false" aria-hidden="true"/>` +
+      `<a href="${href}" class="markdown-file-ref" title="${title}" data-eco-file="1" data-eco-path-kind="unresolved">` +
+      `<img class="markdown-file-ref__icon" src="${iconUrl}" alt="" width="14" height="14" draggable="false" aria-hidden="true" hidden/>` +
       `<span class="markdown-file-ref__label">${label}</span>` +
       `</a>`
     );
@@ -1778,6 +1781,10 @@ export function createFeedMarkdownPlugins(): Plugin[] {
     new Plugin({
       props: {
         nodeViews: {
+          file_ref: (node) => {
+            const { dom } = DOMSerializer.renderSpec(document, fileRefToDOM(node));
+            return createWorkspacePathNodeView(dom as HTMLAnchorElement, String(node.attrs.path));
+          },
           code_block: createCodeBlockNodeView(),
           table: () => createTableNodeView(),
         },

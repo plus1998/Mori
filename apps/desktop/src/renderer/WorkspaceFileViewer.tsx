@@ -1,6 +1,7 @@
 import { ChevronDown, ChevronRight, FolderOpen, RotateCcw, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import type { WorkspacePathInfo } from "../shared/ipc";
 import { MaterialFileIcon } from "./MaterialFileIcon";
 import { WorkspaceFileOpenActions } from "./WorkspaceFileOpenActions";
 import {
@@ -20,6 +21,7 @@ import type { WorkspaceFileReference } from "./workspace-file-reference";
 import "./workspace-file-browser.css";
 
 interface WorkspaceApi {
+  inspectWorkspacePath(input: { path: string }): Promise<WorkspacePathInfo>;
   listWorkspaceEntries(input: { workspacePath: string; directoryPath: string }): Promise<WorkspaceEntry[]>;
   readWorkspaceFile(input: { workspacePath: string; filePath: string }): Promise<WorkspaceFile>;
   writeWorkspaceFile(input: {
@@ -88,7 +90,7 @@ function FileNavigatorBranch({
               <span className="workspace-file-viewer__tree-chevron">
                 {isDirectory ? isExpanded ? <ChevronDown /> : <ChevronRight /> : null}
               </span>
-              {isDirectory ? null : (
+              {isDirectory ? <FolderOpen size={16} aria-hidden="true" /> : (
                 <span className="workspace-file-viewer__tree-icon">
                   <MaterialFileIcon path={entry.path} size={16} />
                 </span>
@@ -124,6 +126,8 @@ export function WorkspaceFileViewer({
   const { t } = useTranslation();
   const api = window.eco as unknown as WorkspaceApi | undefined;
   const [file, setFile] = useState<WorkspaceFile | null>(null);
+  const [pathKind, setPathKind] = useState<WorkspacePathInfo["kind"]>();
+  const [directoryPath, setDirectoryPath] = useState<string>();
   const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [activeTarget, setActiveTarget] = useState<FileViewerTarget | undefined>(target);
@@ -152,8 +156,8 @@ export function WorkspaceFileViewer({
   }, [t]);
 
   const breadcrumbs = useMemo(
-    () => (activeTarget ? workspacePathSegments(workspacePath, activeTarget.path) : []),
-    [activeTarget, workspacePath],
+    () => activeTarget ? workspacePathSegments(workspacePath, activeTarget.path, pathKind === "directory" ? "directory" : "file") : [],
+    [activeTarget, pathKind, workspacePath],
   );
 
   const readFile = useCallback(
@@ -165,7 +169,24 @@ export function WorkspaceFileViewer({
       }
       setStatus("loading");
       setErrorMessage(null);
+      setPathKind(undefined);
+      setDirectoryPath(undefined);
       try {
+        const info = await api.inspectWorkspacePath({ path: fileTarget.path });
+        if (requestId !== requestRef.current) return;
+        setPathKind(info.kind);
+        if (info.kind === "unsupported") throw new Error(t("fileViewer.unsupportedPath"));
+        if (info.kind === "directory") {
+          const entries = await api.listWorkspaceEntries({ workspacePath, directoryPath: fileTarget.path });
+          if (requestId !== requestRef.current) return;
+          setEntriesByDirectory((current) => ({ ...current, [fileTarget.path]: entries }));
+          setExpandedDirectories(new Set());
+          setDirectoryPath(fileTarget.path);
+          setFile(null);
+          setDirty(false);
+          setStatus("idle");
+          return;
+        }
         const result = await api.readWorkspaceFile({
           workspacePath,
           filePath: fileTarget.path,
@@ -212,7 +233,7 @@ export function WorkspaceFileViewer({
         }
       }
     },
-    [t, workspacePath],
+    [api, t, workspacePath],
   );
 
   useEffect(() => {
@@ -225,12 +246,17 @@ export function WorkspaceFileViewer({
       }
       return;
     }
-    const requestId = target?.requestId ?? ++requestRef.current;
-    requestRef.current = Math.max(requestRef.current, requestId);
+    const requestId = ++requestRef.current;
     appliedTargetRequestRef.current = target?.requestId;
     activePathRef.current = target?.path;
     setActiveTarget(target);
     setFile(null);
+    setPathKind(undefined);
+    setDirectoryPath(undefined);
+    setNavigatorRoot(null);
+    navigatorRequestRef.current += 1;
+    setLoadingDirectories(new Set());
+    setDirectoryError(null);
     setDirty(false);
     setErrorMessage(null);
     if (!target) {
@@ -264,7 +290,7 @@ export function WorkspaceFileViewer({
       if (!activeTarget) return;
       const rootPath = segment.kind === "file" ? parentDirectory(segment.path) : segment.path;
       const requestId = ++navigatorRequestRef.current;
-      const branch = [rootPath, ...ancestorDirectories(rootPath, activeTarget.path)];
+      const branch = [...new Set([rootPath, ...ancestorDirectories(rootPath, activeTarget.path)])];
       setNavigatorRoot(segment);
       setDirectoryError(null);
       setExpandedDirectories(new Set(branch));
@@ -373,6 +399,8 @@ export function WorkspaceFileViewer({
               filePath={activeTarget.path}
               requestId={activeTarget.requestId}
               workspacePath={workspacePath}
+              pending={pathKind !== "file" && pathKind !== "directory"}
+              {...(pathKind === "directory" ? { kind: "directory" } : {})}
               {...(threadId ? { threadId } : {})}
             />
           ) : null}
@@ -437,17 +465,34 @@ export function WorkspaceFileViewer({
       <div className="workspace-file-viewer__preview">
         {status === "loading" ? (
           <div className="workspace-file-browser__message">
-            {t("fileBrowser.loadingFile", { name: basename(activeTarget?.path || "") })}
+            {t("fileViewer.loadingPath", { name: basename(activeTarget?.path || "") })}
           </div>
         ) : status === "error" ? (
           <div className="workspace-file-browser__error">
             <p>
-              {t("fileBrowser.readFailed")}: {errorMessage || t("fileBrowser.unknownError")}
+              {t("fileViewer.openFailed")}: {errorMessage || t("fileBrowser.unknownError")}
             </p>
             <button type="button" onClick={retry} disabled={!activeTarget}>
               <RotateCcw size={13} aria-hidden="true" />
               {t("fileBrowser.retry")}
             </button>
+          </div>
+        ) : directoryPath ? (
+          <div className="workspace-file-viewer__directory" aria-label={t("fileViewer.fileList", { name: basename(directoryPath) })}>
+            {directoryError ? <p role="status">{directoryError}</p> : null}
+            {entriesByDirectory[directoryPath]?.length === 0 ? (
+              <div className="workspace-file-viewer__navigator-message">{t("fileViewer.emptyDirectory")}</div>
+            ) : (
+              <FileNavigatorBranch
+                directoryPath={directoryPath}
+                depth={0}
+                entriesByDirectory={entriesByDirectory}
+                expandedDirectories={expandedDirectories}
+                loadingDirectories={loadingDirectories}
+                onSelectFile={selectFile}
+                onToggleDirectory={toggleDirectory}
+              />
+            )}
           </div>
         ) : file ? (
           <WorkspaceFilePreview

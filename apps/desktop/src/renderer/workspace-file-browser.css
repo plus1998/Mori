@@ -359,6 +359,12 @@
   background: var(--bg-main, transparent);
 }
 
+.workspace-file-viewer__directory {
+  flex: 1;
+  min-width: 0;
+  padding: 8px;
+}
+
 .workspace-file-viewer__navigator {
   position: absolute;
   top: 51px;
