@@ -1,11 +1,23 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { moriAvatarCrop, type MoriAvatarSettings } from "../shared/mori-avatar";
 import { MORI_PET_CELL_HEIGHT, MORI_PET_CELL_WIDTH } from "../shared/mori-pet";
 import { MoriIcon, type MoriIconMood } from "./MoriIcon";
 import { DEFAULT_MORI_PET } from "./mori-default-pet";
+import { getMoriAvatarSnapshot, subscribeMoriAvatar } from "./mori-avatar-store";
 import "./mori-avatar.css";
 
 const atlases = new Map<string, Promise<{ image: HTMLImageElement; pixels: Uint8ClampedArray }>>();
+
+/** Shared subscription keeps every navigation entry in sync, even while chat is closed. */
+export function MoriAssistantAvatar({ size }: { size: number }) {
+  const { avatar, error } = useSyncExternalStore(subscribeMoriAvatar, getMoriAvatarSnapshot);
+  if (error) return (
+    <span className="mori-avatar has-error" style={{ width: size, height: size }}
+      role="img" aria-label={`头像设置读取失败：${error}`} title={error}>!</span>
+  );
+  return <MoriAvatar avatar={avatar} size={size} />;
+}
+
 function loadAtlas(key: string) {
   const cached = atlases.get(key);
   if (cached) return cached;

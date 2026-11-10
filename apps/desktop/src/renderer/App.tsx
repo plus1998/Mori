@@ -2,7 +2,7 @@ import { ThreadWorktreeControl } from "./ThreadWorktreeControl";
 import type { ThreadDevelopmentMode, ThreadWorkLocation, ThreadWorktreeRecord } from "../shared/thread-worktree";
 import { formatAccelerator } from "../shared/keyboard-shortcuts";
 import { useKeyboardShortcuts, shortcutMatches } from "./keyboard-shortcuts";
-import { MoriIcon } from "./MoriIcon";
+import { MoriAssistantAvatar } from "./MoriAvatar";
 import { MoriAssistantPanel, MoriAssistantSettingsPanel, MoriAssistantSurface } from "./MoriAssistant";
 import { appendProjectTodoReference, type ProjectTodo, type ProjectTodoHandoff } from "../shared/project-todos";
 import type { TodoEditorDraft } from "./ProjectTodoPanel";
@@ -13094,7 +13094,7 @@ function App() {
           {/* Only Mori and New Chat stay fixed; utility entries scroll with the projects. */}
           <div className="sidebar-nav-list">
             <button type="button" className={moriOpen ? "sidebar-action active" : "sidebar-action"} aria-label="Mori" aria-current={moriOpen ? "page" : undefined} onClick={() => setMoriOpen(true)}>
-              <MoriIcon size={ICON_SIZE.md} />
+              <MoriAssistantAvatar size={ICON_SIZE.md} />
               Mori
               {renderSidebarShortcut("open-mori")}
             </button>
@@ -13955,7 +13955,7 @@ function App() {
                           }
                           onClick={() => setSettingsSection(section.id)}
                         >
-                            {section.id === "moriAssistant" ? <MoriIcon size={18} /> : <Icon size={16} />}
+                            {section.id === "moriAssistant" ? <MoriAssistantAvatar size={18} /> : <Icon size={16} />}
                           {section.label}
                         </button>
                       );
