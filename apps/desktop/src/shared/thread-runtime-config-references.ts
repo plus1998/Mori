@@ -30,16 +30,7 @@ export function pruneThreadRuntimeConfigReferences(
       !settings.mainAgentPrompts.some(entry => entry.id === prompt.promptId)) {
       selection.mainPrompt = { mode: "builtin" };
     }
-    const subagents = selection.subagents;
-    if (subagents.mode === "orchestration") {
-      const resource = settings.subagentOrchestrations.find(entry => entry.id === subagents.orchestrationId);
-      const savedRoster = next.resolvedOrchestrationSnapshot?.selection.subagents;
-      const agents = savedRoster?.mode === "orchestration" && savedRoster.orchestrationId === subagents.orchestrationId
-        ? next.resolvedOrchestrationSnapshot!.agents : resource?.agents;
-      if (!resource || !agents?.some(agent => isModelAvailable(agent.modelRef))) {
-        selection.subagents = { mode: "none" };
-      }
-    }
+    pruneSubagentSelection(settings, next, isModelAvailable);
   }
   if (next.mainAgentModelOverride && !isModelAvailable(next.mainAgentModelOverride)) {
     delete next.mainAgentModelOverride;
@@ -53,6 +44,54 @@ export function pruneThreadRuntimeConfigReferences(
   const snapshot = next.resolvedOrchestrationSnapshot;
   if (snapshot && selection) {
     snapshot.selection = structuredClone(selection);
+  }
+  pruneSubagentSnapshot(next, isModelAvailable);
+  if (snapshot && selection &&
+    (!hasCompleteOrchestrationSelection(selection) || !isModelAvailable(snapshot.mainAgent.modelRef))) {
+    delete next.resolvedOrchestrationSnapshot;
+  }
+  return normalizeThreadRuntimeConfig(next);
+}
+
+/** Scheduled tasks keep their frozen main model and prompt, sharing only subagent cleanup. */
+export function pruneThreadRuntimeSubagentReferences(
+  settings: ModelSettingsSnapshot,
+  config: ThreadRuntimeConfig,
+  isModelAvailable: (model: ModelRef) => boolean,
+): ThreadRuntimeConfig {
+  const next = structuredClone(config);
+  pruneSubagentSelection(settings, next, isModelAvailable);
+  pruneSubagentSnapshot(next, isModelAvailable);
+  return normalizeThreadRuntimeConfig(next);
+}
+
+function pruneSubagentSelection(
+  settings: ModelSettingsSnapshot,
+  next: ThreadRuntimeConfig,
+  isModelAvailable: (model: ModelRef) => boolean,
+): void {
+  const selection = next.orchestrationSelection;
+  if (!selection) return;
+  const subagents = selection.subagents;
+  if (subagents.mode === "orchestration") {
+    const resource = settings.subagentOrchestrations.find(entry => entry.id === subagents.orchestrationId);
+    const savedRoster = next.resolvedOrchestrationSnapshot?.selection.subagents;
+    const agents = savedRoster?.mode === "orchestration" && savedRoster.orchestrationId === subagents.orchestrationId
+      ? next.resolvedOrchestrationSnapshot!.agents : resource?.agents;
+    if (!resource || !agents?.some(agent => isModelAvailable(agent.modelRef))) {
+      selection.subagents = { mode: "none" };
+    }
+  }
+}
+
+function pruneSubagentSnapshot(
+  next: ThreadRuntimeConfig,
+  isModelAvailable: (model: ModelRef) => boolean,
+): void {
+  const selection = next.orchestrationSelection;
+  const snapshot = next.resolvedOrchestrationSnapshot;
+  if (snapshot && selection) {
+    snapshot.selection.subagents = structuredClone(selection.subagents);
     snapshot.agents = selection.subagents.mode === "none"
       ? [] : snapshot.agents.filter(agent => isModelAvailable(agent.modelRef));
     if (snapshot.agents.length === 0) {
@@ -62,16 +101,12 @@ export function pruneThreadRuntimeConfigReferences(
       snapshot.strategy = { kind: "autonomous" };
     }
     next.subagentEnabled = deriveSubagentEnabledFromSnapshot(snapshot, next.subagentEnabled);
-    if (!hasCompleteOrchestrationSelection(selection) || !isModelAvailable(snapshot.mainAgent.modelRef)) {
-      delete next.resolvedOrchestrationSnapshot;
-    }
   }
   if (selection?.subagents.mode === "none") {
     for (const role of Object.keys(next.subagentEnabled) as Array<keyof typeof next.subagentEnabled>) {
       next.subagentEnabled[role] = false;
     }
   }
-  return normalizeThreadRuntimeConfig(next);
 }
 
 /** Editing can persist an incomplete draft; starting a run still requires a main model. */

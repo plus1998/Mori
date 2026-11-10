@@ -14725,7 +14725,10 @@ function markAcceptedConversationMessageFailed(
 
 function pinSchedulingProfile(profile: ScheduleExecutionProfile): ScheduleExecutionProfile {
   const settings = getModelSettingsSnapshot();
-  return freezeSchedulingProfile(profile, settings, (config) => roleRoutesForThreadConfig(settings, config));
+  const source = candidateModelRouteSource();
+  return freezeSchedulingProfile(profile, settings, (config) => roleRoutesForThreadConfig(settings, config),
+    (model) => (settings.providers.some(provider => provider.id === model.providerId) || source.isBuiltInCodexProvider(model.providerId))
+      && isCandidateModelReferenceAvailable(model, source));
 }
 
 function validateSchedulingProfile(profile: ScheduleExecutionProfile): void {

@@ -9,7 +9,7 @@ test("freezes effective main-model override and stays fixed when global configur
   const settings: ModelSettingsSnapshot = { providers: [], routeProfiles: [], agentTemplates: [], mainAgentConfigs: [bundle.mainAgentConfig], mainAgentPrompts: [], subagentOrchestrations: [] };
   const selection = { mainAgentConfigId: "main", mainPrompt: { mode: "builtin" as const }, subagents: { mode: "none" as const } };
   const config = normalizeThreadRuntimeConfig({ ...buildAcpThreadRuntimeConfig(), ...materializeThreadOrchestrationSnapshot(settings, selection), mainAgentModelOverride: { providerId: "provider", modelId: "cheap", candidateModelId: "candidate" } });
-  const saved = freezeSchedulingProfile({ coreKind: "pi", runtimeConfig: config }, settings, input => runtimeRoleRoutesFromOrchestrationSnapshot(resolveThreadOrchestrationSnapshot(settings, input)!, input.mainAgentModelOverride).map(route => ({ ...route, modelId: "effective-cheap" })));
+  const saved = freezeSchedulingProfile({ coreKind: "pi", runtimeConfig: config }, settings, input => runtimeRoleRoutesFromOrchestrationSnapshot(resolveThreadOrchestrationSnapshot(settings, input)!, input.mainAgentModelOverride).map(route => ({ ...route, modelId: "effective-cheap" })), () => true);
   expect(saved.coreKind).toBe("pi");
   expect(saved.runtimeConfig.mainAgentModelOverride).toBeUndefined();
   expect(saved.runtimeConfig.resolvedOrchestrationSnapshot?.mainAgent.modelRef.modelId).toBe("effective-cheap");
@@ -20,6 +20,6 @@ test("freezes effective main-model override and stays fixed when global configur
 
 test("incomplete configuration and implicit Cursor model are rejected", () => {
   const settings: ModelSettingsSnapshot = { providers: [], routeProfiles: [], agentTemplates: [], mainAgentConfigs: [], mainAgentPrompts: [], subagentOrchestrations: [] };
-  expect(() => freezeSchedulingProfile({ coreKind: "claude", runtimeConfig: buildAcpThreadRuntimeConfig() }, settings, () => [])).toThrow();
-  expect(() => freezeSchedulingProfile({ coreKind: "acp", runtimeConfig: buildAcpThreadRuntimeConfig() }, settings, () => [])).toThrow();
+  expect(() => freezeSchedulingProfile({ coreKind: "claude", runtimeConfig: buildAcpThreadRuntimeConfig() }, settings, () => [], () => true)).toThrow();
+  expect(() => freezeSchedulingProfile({ coreKind: "acp", runtimeConfig: buildAcpThreadRuntimeConfig() }, settings, () => [], () => true)).toThrow();
 });
