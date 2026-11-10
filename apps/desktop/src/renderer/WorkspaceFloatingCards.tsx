@@ -81,6 +81,7 @@ import { resolveWorkspacePlanTitle } from "./workspace-plan-title";
 import type { ScheduleDefinition, ScheduleOccurrence } from "../shared/scheduling";
 import { ScheduledMessagesCardBody } from "./ScheduledMessagesCardBody";
 import { ImageDisplayArtifactIcon } from "./ImageDisplayArtifactIcon";
+import { ImageDisplayDeleteButton } from "./ImageDisplayDeleteButton";
 import { OverflowFadeText } from "./OverflowFadeText";
 
 export interface ThreadUsageSummary {
@@ -160,6 +161,7 @@ export interface WorkspaceFloatingCardsProps {
   onOpenImageArtifact?: (artifactId: string) => void;
   imageDisplayArtifacts?: readonly ImageDisplayArtifact[];
   onOpenImageDisplayArtifact?: (artifactId: string) => void;
+  onDeleteImageDisplayArtifact?: (artifactId: string) => Promise<void>;
   htmlHostArtifacts?: readonly HtmlHostArtifact[];
   onOpenHtmlHostArtifact?: (artifactId: string) => void;
   subagentRunCards?: readonly ThreadRunProjectionSubagentCard[];
@@ -697,9 +699,11 @@ function ImageGenerationWorkspaceCardBody({
 function ImageDisplayWorkspaceCardBody({
   artifacts,
   onOpenImageDisplayArtifact,
+  onDeleteImageDisplayArtifact,
 }: {
   artifacts: readonly ImageDisplayArtifact[];
   onOpenImageDisplayArtifact?: (artifactId: string) => void;
+  onDeleteImageDisplayArtifact?: (artifactId: string) => Promise<void>;
 }) {
   const { t } = useTranslation();
 
@@ -714,18 +718,22 @@ function ImageDisplayWorkspaceCardBody({
         const source = t(`task.imageDisplay.source.${artifact.sourceKind}`);
         const meta = [status, source].filter(Boolean).join(" · ");
         return (
-          <button
-            key={artifact.id}
-            type="button"
-            className="workspace-resource-row workspace-image-artifact-trigger"
-            onClick={() => onOpenImageDisplayArtifact?.(artifact.id)}
-            disabled={!onOpenImageDisplayArtifact}
-            title={title}
-          >
-            <ImageDisplayArtifactIcon artifact={artifact} />
-            <OverflowFadeText className="workspace-resource-row-title">{title}</OverflowFadeText>
-            <span className="workspace-resource-row-meta">{meta}</span>
-          </button>
+          <div key={artifact.id} className="workspace-image-display-row">
+            <button
+              type="button"
+              className="workspace-resource-row workspace-image-artifact-trigger"
+              onClick={() => onOpenImageDisplayArtifact?.(artifact.id)}
+              disabled={!onOpenImageDisplayArtifact}
+              title={title}
+            >
+              <ImageDisplayArtifactIcon artifact={artifact} />
+              <OverflowFadeText className="workspace-resource-row-title">{title}</OverflowFadeText>
+              <span className="workspace-resource-row-meta">{meta}</span>
+            </button>
+            {onDeleteImageDisplayArtifact ? (
+              <ImageDisplayDeleteButton artifactId={artifact.id} title={title} onDelete={onDeleteImageDisplayArtifact} />
+            ) : null}
+          </div>
         );
       })}
     </div>
@@ -845,6 +853,7 @@ export function WorkspaceFloatingCards({
   onOpenImageArtifact,
   imageDisplayArtifacts = [],
   onOpenImageDisplayArtifact,
+  onDeleteImageDisplayArtifact,
   htmlHostArtifacts = [],
   onOpenHtmlHostArtifact,
   subagentRunCards = [],
@@ -1235,6 +1244,7 @@ export function WorkspaceFloatingCards({
             <ImageDisplayWorkspaceCardBody
               artifacts={imageDisplayArtifacts}
               {...(onOpenImageDisplayArtifact && { onOpenImageDisplayArtifact })}
+              {...(onDeleteImageDisplayArtifact && { onDeleteImageDisplayArtifact })}
             />
           </WorkspacePanelSection>
         ) : null}

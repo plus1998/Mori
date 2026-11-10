@@ -161,6 +161,15 @@ export class ImageDisplayStore {
     return row ? toArtifact(row) : undefined;
   }
 
+  async deleteArtifact(artifactId: string): Promise<ImageDisplayArtifact> {
+    const artifact = this.getArtifact(artifactId);
+    // Only remove the managed copy; sourceRef may point to the user's original file.
+    await fs.rm(artifact.filePath, { force: true });
+    this.db.prepare("DELETE FROM image_display_artifacts WHERE id = ?").run(artifact.id);
+    this.thumbnailCache.delete(artifact.id);
+    return artifact;
+  }
+
   getLatestArtifact(threadId: string): ImageDisplayArtifact | undefined {
     return this.listArtifacts(threadId)[0];
   }

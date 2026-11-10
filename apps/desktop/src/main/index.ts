@@ -9292,6 +9292,20 @@ function registerIpcHandlers(): void {
     }
     return imageDisplayStore.listArtifacts(payload.threadId);
   });
+  registerDesktopCommand(IPC_CHANNELS.imageDisplayArtifactDelete, async (payload: unknown) => {
+    if (!isRecord(payload) || typeof payload.artifactId !== "string" || !payload.artifactId.trim()) {
+      throw new Error("Invalid media display delete request.");
+    }
+    const artifact = await imageDisplayStore.deleteArtifact(payload.artifactId);
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed()) {
+        window.webContents.send(IPC_CHANNELS.imageDisplayArtifactDeleted, {
+          artifactId: artifact.id,
+          threadId: artifact.threadId,
+        });
+      }
+    }
+  });
   registerDesktopCommand(IPC_CHANNELS.htmlHostArtifactsList, async (payload: unknown) => {
     if (!isRecord(payload) || typeof payload.threadId !== "string") {
       throw new Error("Invalid html host list request.");

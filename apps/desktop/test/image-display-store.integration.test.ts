@@ -220,3 +220,42 @@ test("failed thumbnail reads can retry after the managed image becomes available
   expect((await store.readArtifactThumbnail(artifact.id, encode)).dataBase64).toBe(PNG.toString("base64"));
   await expect(store.readArtifactThumbnail("missing", encode)).rejects.toMatchObject({ code: "not_found" });
 });
+
+test("deletion removes the persisted entry, managed copy and cached thumbnail but preserves the source", async () => {
+  const { store, root } = await createStore();
+  const sourcePath = path.join(root, "keep-original.png");
+  await fs.writeFile(sourcePath, PNG);
+  const artifact = await store.ingestFromToolInput({
+    threadId: "thr_delete",
+    toolUseId: "tool_delete",
+    toolInput: { source: "path", path: sourcePath },
+  });
+  const encode = () => ({ data: PNG, width: 1, height: 1 });
+  await store.readArtifactThumbnail(artifact.id, encode);
+  expect((await store.deleteArtifact(artifact.id)).id).toBe(artifact.id);
+  expect(store.listArtifacts("thr_delete")).toEqual([]);
+  expect(store.getArtifactByToolUseId("tool_delete")).toBeUndefined();
+  expect(await fs.readFile(sourcePath)).toEqual(PNG);
+  expect(await fs.stat(artifact.filePath).catch(() => undefined)).toBeUndefined();
+  await expect(store.readArtifactThumbnail(artifact.id, encode)).rejects.toMatchObject({ code: "not_found" });
+  await expect(store.readArtifactFile(artifact.id)).rejects.toMatchObject({ code: "not_found" });
+  const reopened = await createImageDisplayStore(path.join(root, "display.db"), path.join(root, "files"));
+  stores.push(reopened);
+  expect(reopened.listArtifacts("thr_delete")).toEqual([]);
+});
+
+test("deletion tolerates a missing copy and keeps the entry when removing a copy fails", async () => {
+  const { store } = await createStore();
+  const artifact = await store.ingestFromToolInput({
+    threadId: "thr_delete_failure",
+    toolInput: { source: "base64", data: WAV.toString("base64") },
+  });
+  await fs.rm(artifact.filePath);
+  await fs.mkdir(artifact.filePath);
+  await expect(store.deleteArtifact(artifact.id)).rejects.toThrow();
+  expect(store.listArtifacts("thr_delete_failure")).toHaveLength(1);
+  await fs.rmdir(artifact.filePath);
+  await store.deleteArtifact(artifact.id);
+  expect(store.listArtifacts("thr_delete_failure")).toEqual([]);
+  await expect(store.deleteArtifact(artifact.id)).rejects.toMatchObject({ code: "not_found" });
+});

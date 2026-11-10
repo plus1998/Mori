@@ -154,6 +154,7 @@ import {
   type GitSettingsSnapshot,
   type GitWorkingTreeStatus,
   type ImageDisplayArtifact,
+  type ImageDisplayArtifactDeleted,
   type ImageDisplayArtifactReadRequest,
   type ImageDisplayReadResult,
   type ImageGenerationArtifact,
@@ -1215,6 +1216,14 @@ const api = {
   },
   listImageDisplayArtifacts(threadId: string): Promise<ImageDisplayArtifact[]> {
     return ipcRenderer.invoke(IPC_CHANNELS.imageDisplayArtifactsList, { threadId });
+  },
+  deleteImageDisplayArtifact(artifactId: string): Promise<void> {
+    return ipcRenderer.invoke(IPC_CHANNELS.imageDisplayArtifactDelete, { artifactId });
+  },
+  onImageDisplayArtifactDeleted(callback: (event: ImageDisplayArtifactDeleted) => void): () => void {
+    const listener = (_event: Electron.IpcRendererEvent, payload: ImageDisplayArtifactDeleted) => callback(payload);
+    ipcRenderer.on(IPC_CHANNELS.imageDisplayArtifactDeleted, listener);
+    return () => ipcRenderer.off(IPC_CHANNELS.imageDisplayArtifactDeleted, listener);
   },
   readImageDisplay(request: ImageDisplayArtifactReadRequest): Promise<ImageDisplayReadResult> {
     return ipcRenderer.invoke(IPC_CHANNELS.imageDisplayRead, request);

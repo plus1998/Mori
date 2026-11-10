@@ -56,6 +56,7 @@ import { copyTextToClipboard } from "./clipboard";
 import { i18n } from "./i18n";
 import { ImageLightbox } from "./image-lightbox";
 import { MediaArtifactPreview } from "./MediaArtifactPreview";
+import { ImageDisplayDeleteButton } from "./ImageDisplayDeleteButton";
 import {
   createImageObjectUrlFromBase64,
   revokeImageObjectUrl,
@@ -466,7 +467,10 @@ function PlanDetailPanel({ plan }: { plan: ThreadPendingPlan }) {
   );
 }
 
-function ImageDisplayArtifactDetail({ artifact }: { artifact: ImageDisplayArtifact }) {
+function ImageDisplayArtifactDetail({ artifact, onDelete }: {
+  artifact: ImageDisplayArtifact;
+  onDelete?: (artifactId: string) => Promise<void>;
+}) {
   const { t } = useTranslation();
   const [src, setSrc] = useState<string>();
   const [fileName, setFileName] = useState<string>();
@@ -556,6 +560,7 @@ function ImageDisplayArtifactDetail({ artifact }: { artifact: ImageDisplayArtifa
         <span className={`image-artifact-status is-${artifact.status}`}>
           {t(`task.imageDisplay.status.${artifact.status}`)}
         </span>
+        {onDelete ? <ImageDisplayDeleteButton artifactId={artifact.id} title={title} onDelete={onDelete} /> : null}
       </header>
       {loadError ? <p className="image-artifact-error" role="alert">{loadError}</p> : null}
       {!src && !loadError ? (
@@ -608,6 +613,7 @@ export function SubagentTaskDrawer({
   onSelectTtsArtifact,
   imageArtifacts = [],
   imageDisplayArtifacts = [],
+  onDeleteImageDisplayArtifact,
   reviewDiff,
   reviewLoading,
   reviewError,
@@ -675,6 +681,7 @@ export function SubagentTaskDrawer({
   onSelectTtsArtifact?: (id: string) => void;
   imageArtifacts?: readonly ImageGenerationArtifact[];
   imageDisplayArtifacts?: readonly ImageDisplayArtifact[];
+  onDeleteImageDisplayArtifact?: (artifactId: string) => Promise<void>;
   reviewDiff?: WorkspaceDiffResult;
   reviewLoading?: boolean;
   reviewError?: string;
@@ -1404,7 +1411,7 @@ export function SubagentTaskDrawer({
             className="subagent-task-panel-tab-pane subagent-task-panel-tab-pane--image-artifact"
             role="tabpanel"
           >
-            <ImageDisplayArtifactDetail artifact={activeImageDisplayArtifact} />
+            <ImageDisplayArtifactDetail artifact={activeImageDisplayArtifact} {...(onDeleteImageDisplayArtifact ? { onDelete: onDeleteImageDisplayArtifact } : {})} />
           </div>
         ) : null}
         {activeSubagentCard ? (

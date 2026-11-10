@@ -6874,6 +6874,59 @@ button.sidebar-settings-meta {
   opacity: 0.85;
 }
 
+.workspace-image-display-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  min-width: 0;
+  gap: 4px;
+}
+
+.workspace-image-display-row > .workspace-resource-row {
+  flex: 1;
+  min-width: 0;
+}
+
+.image-display-delete-control {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+}
+
+.workspace-image-display-row .image-display-delete-control {
+  display: contents;
+}
+
+.workspace-image-display-row .image-artifact-error {
+  flex: 0 0 100%;
+  overflow-wrap: anywhere;
+}
+
+.image-display-delete-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.image-display-delete-button:hover:not(:disabled) {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+}
+
+.image-display-delete-button:disabled {
+  cursor: wait;
+  opacity: 0.5;
+}
+
 .workspace-resource-row-icon {
   display: inline-flex;
   flex: 0 0 auto;

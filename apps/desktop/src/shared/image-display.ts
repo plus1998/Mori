@@ -41,6 +41,11 @@ export interface ImageDisplayArtifactReadRequest {
   thumbnail?: boolean;
 }
 
+export interface ImageDisplayArtifactDeleted {
+  artifactId: string;
+  threadId: string;
+}
+
 export interface ImageDisplayArtifactReadResult {
   dataBase64: string;
   mimeType: string;

@@ -2282,6 +2282,7 @@ function App() {
   imageArtifactsByThreadRef.current = imageArtifactsByThread;
   const imageDisplayArtifactsByThreadRef = useRef(imageDisplayArtifactsByThread);
   imageDisplayArtifactsByThreadRef.current = imageDisplayArtifactsByThread;
+  const deletedImageDisplayArtifactIdsRef = useRef(new Set<string>());
   const [imageGalleryQueue, setImageGalleryQueue] = useState<ImageGalleryQueueItem[]>([]);
   const [imageGalleryOpen, setImageGalleryOpen] = useState(false);
   const [imageGalleryFocusKey, setImageGalleryFocusKey] = useState<string>();
@@ -2290,7 +2291,10 @@ function App() {
   const activeThreadIdRef = useRef<string | undefined>(undefined);
 
   const enqueueImageGalleryItems = useCallback((items: ImageGalleryQueueItem[]) => {
-    const fresh = items.filter((item) => !imageGalleryEnqueuedRef.current.has(item.key));
+    const fresh = items.filter((item) =>
+      !imageGalleryEnqueuedRef.current.has(item.key) &&
+      (item.kind !== "display" || !deletedImageDisplayArtifactIdsRef.current.has(item.artifactId)),
+    );
     if (fresh.length === 0) {
       return;
     }
@@ -3894,7 +3898,9 @@ function App() {
         if (!cancelled) {
           setImageDisplayArtifactsByThread((current) => ({
             ...current,
-            [selectedThreadId]: artifacts,
+            [selectedThreadId]: artifacts.filter(
+              (artifact) => !deletedImageDisplayArtifactIdsRef.current.has(artifact.id),
+            ),
           }));
         }
       })
@@ -3953,6 +3959,7 @@ function App() {
   useEffect(() => {
     if (!window.eco?.onImageDisplayArtifactChanged) return;
     return window.eco.onImageDisplayArtifactChanged((artifact) => {
+      if (deletedImageDisplayArtifactIdsRef.current.has(artifact.id)) return;
       setImageDisplayArtifactsByThread((current) => {
         const existing = current[artifact.threadId] ?? [];
         const next = [artifact, ...existing.filter((item) => item.id !== artifact.id)].sort((a, b) =>
@@ -6919,6 +6926,7 @@ function App() {
 
   const openImageDisplayArtifact = useCallback(
     (artifactId: string) => {
+      if (deletedImageDisplayArtifactIdsRef.current.has(artifactId)) return;
       const tabId = imageDisplayTaskTabId(artifactId);
       setOpenTaskPanelTabIds((current) => addOpenTaskPanelTab(current, tabId));
       setTaskPanelActiveTab(tabId);
@@ -6997,6 +7005,28 @@ function App() {
     (tabId: TaskPanelActiveTab) => closeTaskPanelTabs([tabId]),
     [closeTaskPanelTabs],
   );
+
+  const deleteImageDisplayArtifact = useCallback(
+    async (artifactId: string) => {
+      if (!window.eco) throw new Error(t("activity.imageDisplay.error.bridgeUnavailable"));
+      await window.eco.deleteImageDisplayArtifact(artifactId);
+    },
+    [t],
+  );
+
+  useEffect(() => {
+    return window.eco?.onImageDisplayArtifactDeleted(({ artifactId, threadId }) => {
+      deletedImageDisplayArtifactIdsRef.current.add(artifactId);
+      setImageDisplayArtifactsByThread((current) => ({
+        ...current,
+        [threadId]: (current[threadId] ?? []).filter((artifact) => artifact.id !== artifactId),
+      }));
+      setImageGalleryQueue((current) => current.filter(
+        (item) => item.kind !== "display" || item.artifactId !== artifactId,
+      ));
+      closeTaskPanelTab(imageDisplayTaskTabId(artifactId));
+    });
+  }, [closeTaskPanelTab]);
 
   const handleTaskPanelResizePointerDown = useCallback(
     (event: ReactPointerEvent<HTMLElement>) => {
@@ -11975,6 +12005,7 @@ function App() {
             onSelectImageArtifact={openImageGenerationArtifact}
             imageDisplayArtifacts={activeThread ? (imageDisplayArtifactsByThread[activeThread.id] ?? []) : []}
             onSelectImageDisplayArtifact={openImageDisplayArtifact}
+            onDeleteImageDisplayArtifact={deleteImageDisplayArtifact}
             {...(reviewDiff && { reviewDiff })}
             reviewLoading={reviewDiffLoading}
             {...(reviewDiffError && { reviewError: reviewDiffError })}
@@ -13659,6 +13690,7 @@ function App() {
                     activeThread ? (imageDisplayArtifactsByThread[activeThread.id] ?? []) : []
                   }
                   onOpenImageDisplayArtifact={openImageDisplayArtifact}
+                  onDeleteImageDisplayArtifact={deleteImageDisplayArtifact}
                   htmlHostArtifacts={activeThread ? (htmlHostArtifactsByThread[activeThread.id] ?? []) : []}
                   onOpenHtmlHostArtifact={openHtmlHostArtifact}
                   {...(projectWorkspace && activeWorkspacePath === currentProjectPath

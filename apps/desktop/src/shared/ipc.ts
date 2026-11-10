@@ -454,6 +454,8 @@ export const IPC_CHANNELS = {
   imageViewRead: "image-view:read",
   imageRevealInFolder: "image:reveal-in-folder",
   imageDisplayArtifactsList: "image-display-artifacts:list",
+  imageDisplayArtifactDelete: "image-display-artifact:delete",
+  imageDisplayArtifactDeleted: "image-display-artifact:deleted",
   imageDisplayRead: "image-display:read",
   imageDisplayArtifactChanged: "image-display-artifact:changed",
   htmlHostArtifactsList: "html-host-artifacts:list",
@@ -641,6 +643,7 @@ export interface ConversationV2ProjectionExtras {
 
 export type {
   ImageDisplayArtifact,
+  ImageDisplayArtifactDeleted,
   ImageDisplayArtifactReadRequest,
   ImageDisplayArtifactReadResult,
   ImageDisplayReadFailureCode,
