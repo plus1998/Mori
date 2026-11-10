@@ -163,7 +163,8 @@ function applyIdle(browserId: string): void {
   if (overlay) {
     overlay.classList.remove(ACTIVE_CLASS, CLICKING_CLASS, PULSE_CLASS);
     const cursor = overlay.querySelector<HTMLDivElement>(`.${CURSOR_CLASS}`);
-    cursor?.classList.remove("is-visible", "is-pressed");
+    cursor?.classList.remove("is-visible", "is-pressed", "is-click-pop");
+    overlay.querySelector(`.${RIPPLE_CLASS}`)?.classList.remove("is-active");
   }
   const timer = moveTimers.get(browserId);
   if (timer) {
@@ -219,10 +220,14 @@ function applyClick(browserId: string, x: number, y: number): void {
       cursor.classList.add("is-click-pop");
       ripple.classList.add("is-active");
       overlay.classList.remove(CLICKING_CLASS);
-      setTimeout(() => {
-        cursor.classList.remove("is-click-pop");
-        cursor.classList.add("is-pressed");
-      }, 420);
+      moveTimers.set(
+        browserId,
+        setTimeout(() => {
+          moveTimers.delete(browserId);
+          cursor.classList.remove("is-click-pop");
+          cursor.classList.add("is-pressed");
+        }, 420),
+      );
     }, MOVE_MS),
   );
 }
@@ -310,9 +315,19 @@ export function installBrowserAgentPresenceOverlay(): () => void {
   if (typeof window === "undefined" || !window.eco?.onBrowserAgentPresence) {
     return () => {};
   }
-  return window.eco.onBrowserAgentPresence((event) => {
+  const syncPageVisibility = () => {
+    document.documentElement.toggleAttribute("data-browser-agent-page-hidden", document.hidden);
+  };
+  syncPageVisibility();
+  document.addEventListener("visibilitychange", syncPageVisibility);
+  const unsubscribe = window.eco.onBrowserAgentPresence((event) => {
     applyBrowserAgentPresenceEvent(event);
   });
+  return () => {
+    unsubscribe();
+    document.removeEventListener("visibilitychange", syncPageVisibility);
+    document.documentElement.removeAttribute("data-browser-agent-page-hidden");
+  };
 }
 
 /** Rainbow arrow pointer (hotspot ~1,1). */

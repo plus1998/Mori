@@ -40282,6 +40282,13 @@ body.is-resizing-browser-split::before {
   overflow: hidden;
 }
 
+/* Persistent guests keep their overlay DOM. Hidden overlays must not animate. */
+.browser-panel-overlay-host:not(.is-agent-active),
+[data-browser-host-hidden="true"] .browser-panel-overlay-host,
+:root[data-browser-agent-page-hidden] .browser-panel-overlay-host {
+  display: none;
+}
+
 /* Agent presence: block human input on the page while Agent is operating. */
 .browser-panel-overlay-host.is-agent-active {
   pointer-events: auto;
