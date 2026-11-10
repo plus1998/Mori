@@ -12,6 +12,7 @@
  * The old Mongo/Redis Center Server WebSocket `/v1/rpc` client has been removed.
  */
 import { createClient, type Session, type SupabaseClient, type User } from "@supabase/supabase-js";
+import { SHARE_MEDIA_BUCKET } from "../shared/conversation-share";
 import {
   buildCenterQrPayload,
   buildEcoAuthEmailConfirmRedirect,
@@ -314,6 +315,8 @@ export class SupabaseCenterDesktopClient implements DesktopEventCenterSink {
     html: string;
     pageId?: string;
     threadId?: string;
+    shareMediaPrefix?: string;
+    isSnapshot?: boolean;
   }): Promise<{
     pageId: string;
     slug: string;
@@ -338,6 +341,8 @@ export class SupabaseCenterDesktopClient implements DesktopEventCenterSink {
         html: input.html,
         ...(input.pageId ? { pageId: input.pageId } : {}),
         ...(input.threadId ? { threadId: input.threadId } : {}),
+        ...(input.shareMediaPrefix ? { shareMediaPrefix: input.shareMediaPrefix } : {}),
+        ...(input.isSnapshot ? { isSnapshot: true } : {}),
       },
     });
     if (error) {
@@ -372,6 +377,27 @@ export class SupabaseCenterDesktopClient implements DesktopEventCenterSink {
       canExtend: record.canExtend === true,
       createdAt,
     };
+  }
+
+  async uploadConversationShareMedia(snapshotId: string, mediaId: string, bytes: Buffer, mimeType: string): Promise<string> {
+    const settings = this.store.getSettingsWithSecrets();
+    const client = this.requireClient(settings);
+    await this.ensureAccessToken(settings, client);
+    const userId = await this.requireUserId(client);
+    const objectPath = `${userId}/${snapshotId}/${mediaId}`;
+    const { error } = await client.storage.from(SHARE_MEDIA_BUCKET).upload(objectPath, bytes, {
+      contentType: mimeType, upsert: false,
+    });
+    if (error) throw new Error(`上传分享媒体失败：${error.message}`);
+    return objectPath;
+  }
+
+  async removeConversationShareMedia(paths: string[]): Promise<void> {
+    const settings = this.store.getSettingsWithSecrets();
+    const client = this.requireClient(settings);
+    await this.ensureAccessToken(settings, client);
+    const { error } = await client.storage.from(SHARE_MEDIA_BUCKET).remove(paths);
+    if (error) throw new Error(`清理分享媒体失败：${error.message}`);
   }
 
   async start(): Promise<void> {

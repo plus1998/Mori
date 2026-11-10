@@ -1,0 +1,70 @@
+.conversation-share-trigger {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--codex-log-muted, #a3a3a3);
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+.conversation-share-trigger:hover {
+  background: color-mix(in srgb, var(--codex-log-text) 8%, transparent);
+  color: var(--codex-log-text);
+}
+.conversation-share-trigger:focus-visible {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 1px;
+}
+.conversation-share-backdrop {
+  z-index: 1000;
+}
+.conversation-share-modal {
+  width: min(520px, calc(100vw - 32px));
+}
+.conversation-share-modal .settings-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.conversation-share-modal .settings-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+.conversation-share-modal button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.conversation-share-hint {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.conversation-share-result {
+  margin-top: 20px;
+}
+.conversation-share-result label {
+  display: block;
+  margin-bottom: 8px;
+}
+.conversation-share-result input {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--bg-main);
+  color: inherit;
+  user-select: text;
+}
+.conversation-share-error {
+  color: var(--danger, #ef4444);
+  overflow-wrap: anywhere;
+}

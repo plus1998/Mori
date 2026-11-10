@@ -461,6 +461,7 @@ export const IPC_CHANNELS = {
   imageDisplayRead: "image-display:read",
   imageDisplayArtifactChanged: "image-display-artifact:changed",
   htmlHostArtifactsList: "html-host-artifacts:list",
+  conversationShare: "conversation:share",
   htmlHostArtifactChanged: "html-host-artifact:changed",
   centerServerHtmlHostingRefresh: "center-server:html-hosting-refresh",
   appEcoDeepLinkOpen: "app:eco-deep-link-open",

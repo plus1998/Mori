@@ -122,6 +122,7 @@ import {
   resolveProjectName,
 } from "../shared/home-project";
 import type { HtmlHostArtifact } from "../shared/html-host";
+import { ConversationShareButton } from "./ConversationShareButton";
 import { imageDisplayTaskTabId, parseImageDisplayTaskTabId } from "../shared/image-display";
 import { imageGenerationTaskTabId, parseImageGenerationTaskTabId } from "../shared/image-generation";
 import type { IntegrationId } from "../shared/integrations";
@@ -13336,6 +13337,7 @@ function App() {
                         onError={showAppMessageError}
                       />
                       <h2 title={activeThread.title}>{activeThread.title}</h2>
+                      <ConversationShareButton key={`share:${activeThread.id}`} threadId={activeThread.id} />
                       <ThreadNotificationControls
                         key={activeThread.id}
                         threadId={activeThread.id}

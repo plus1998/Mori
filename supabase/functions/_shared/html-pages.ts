@@ -17,6 +17,16 @@ export interface HtmlPageRow {
   created_at: string;
   expires_at: string;
   extended_at: string | null;
+  share_media_prefix?: string | null;
+  is_snapshot?: boolean;
+}
+
+export const SHARE_MEDIA_BUCKET = "conversation-share-media";
+export const SHARE_MEDIA_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+export function resolveSnapshotMediaHtml(html: string, supabaseUrl: string, slug: string): string {
+  return html.replace(/mori-share-media:([0-9a-f-]{36})/g, (_match, id: string) =>
+    `${buildPublicViewUrl(supabaseUrl, slug)}?media=${encodeURIComponent(id)}`);
 }
 
 export function createHtmlPageSlug(): string {

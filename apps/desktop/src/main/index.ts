@@ -868,6 +868,7 @@ import {
 import { ensureHomeProject, getHomeProjectPath } from "./home-project-bootstrap";
 import { HtmlHostMcpGateway } from "./html-host-mcp-gateway";
 import { HtmlHostStore } from "./html-host-store";
+import { publishConversationShare } from "./conversation-share";
 import { ImageDisplayMcpGateway } from "./image-display-mcp-gateway";
 import { createImageDisplayStore, ImageDisplayError, type ImageDisplayStore } from "./image-display-store";
 import { createImageLibraryStore, type ImageLibraryStore } from "./image-library-store";
@@ -9413,6 +9414,29 @@ function registerIpcHandlers(): void {
       }
     }
   });
+  registerDesktopCommand(IPC_CHANNELS.conversationShare, async (payload: unknown) => {
+    if (!isRecord(payload) || typeof payload.threadId !== "string") throw new Error("分享会话参数无效。");
+    const threadId = payload.threadId.trim();
+    requireConversationV2Thread(threadId);
+    const thread = conversationStore.getThread(threadId)!;
+    const capability = await centerServerClient.refreshHtmlHostingCapability();
+    if (!capability.available || capability.renderRisk) {
+      throw new Error(capability.renderRisk
+        ? "当前 Supabase 域名会将 HTML 改为纯文本，请配置可渲染 HTML 的域名后再分享。"
+        : capability.detail ?? "请先连接支持 HTML 发布的 Supabase 服务。");
+    }
+    return publishConversationShare({
+      title: thread.title, threadId,
+      messages: conversationStore.conversationV2().snapshotForSharing(threadId),
+      artifacts: imageDisplayStore.listArtifacts(threadId),
+      api: {
+        uploadMedia: (...args) => centerServerClient.uploadConversationShareMedia(...args),
+        removeMedia: paths => centerServerClient.removeConversationShareMedia(paths),
+        publish: input => centerServerClient.publishHtmlPage(input),
+      },
+    });
+  });
+
   registerDesktopCommand(IPC_CHANNELS.htmlHostArtifactsList, async (payload: unknown) => {
     if (!isRecord(payload) || typeof payload.threadId !== "string") {
       throw new Error("Invalid html host list request.");

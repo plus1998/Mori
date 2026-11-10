@@ -1245,6 +1245,9 @@ const api = {
   listHtmlHostArtifacts(threadId: string): Promise<import("../shared/html-host").HtmlHostArtifact[]> {
     return ipcRenderer.invoke(IPC_CHANNELS.htmlHostArtifactsList, { threadId });
   },
+  shareConversation(threadId: string): Promise<import("../shared/conversation-share").ConversationShareResult> {
+    return ipcRenderer.invoke(IPC_CHANNELS.conversationShare, { threadId });
+  },
   onHtmlHostArtifactChanged(
     callback: (artifact: import("../shared/html-host").HtmlHostArtifact) => void,
   ): () => void {

@@ -240,6 +240,20 @@ bun run supabase:deploy -- --platform self-host --compose-dir <dir>
 
 ## 故障排查
 
+### 会话快照分享
+
+桌面会话标题旁的「分享会话」复用 `html-page-publish`、`html-page-view` 和 `html-page-extend`。部署后端 1.1.0 时，须先应用 `20261110120000_conversation_share_media.sql`，再更新函数；迁移创建私有 Storage bucket `conversation-share-media`，并为 HTML 页面增加快照标记与媒体目录。快照正文不能覆盖，后续对话需要生成新快照。
+
+分享正文只包含主会话的用户、助手正文；思考、工具调用、系统消息和引用内部详情不上传。`show_media_to_user` 展示的图片、音视频从本地受管副本上传，保留标题和展示时间；副本缺失或上传失败会终止分享。普通 Markdown 图片不会自动下载，用户消息附件不作为文件上传。
+
+正文 HTML 上限为 1 MiB，每个媒体文件上限为 100 MiB；Supabase Storage 全局上传上限也需容纳对应文件。媒体目录仅允许本人上传，发布后禁止继续增删、覆盖。公开媒体入口每次检查页面有效期，再签发 60 秒 Storage 访问地址；默认 7 天有效，可沿用页面的一次延期。过期会关闭公开访问，数据库记录和 Storage 文件不会自动删除，需由部署方安排存储清理。
+
+分享链接要求外部访问实际返回 `text/html`。若域名将 HTML 改写为纯文本，客户端会明确拒绝分享；应配置支持 HTML 响应的域名。自托管反向代理须正确配置 `SUPABASE_PUBLIC_URL`，以便页面和媒体签名链接均使用外部可访问地址。
+
+本地验证：`bun test apps/desktop/test/conversation-share.test.ts`；Edge Function 行为测试：`deno test --allow-env supabase/tests/conversation-share.test.ts`。后者模拟数据库、认证和 Storage 请求，不写入线上项目。
+
+### 常见部署问题
+
 | 现象 | 处理 |
 | --- | --- |
 | `db push` 要数据库密码 | Cloud 项目 DB password |

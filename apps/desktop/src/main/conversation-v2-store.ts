@@ -3272,6 +3272,25 @@ export class ConversationV2Store {
     return row ? rowToMessage(row) : undefined;
   }
 
+  /** Freeze main conversation text without tool payloads, thinking or internal metadata. */
+  snapshotForSharing(conversationId: string): import("../shared/conversation-share").ConversationShareMessage[] {
+    return this.readTransaction(() => {
+      this.requireExistingStream(conversationId);
+      const rows = this.db.prepare(`SELECT m.* FROM conversation_messages_v2 m
+        LEFT JOIN conversation_agents_v2 a ON a.agent_instance_id = m.agent_instance_id
+          AND a.conversation_id = m.conversation_id
+        WHERE m.conversation_id = ? AND m.is_deleted = 0
+          AND m.role IN ('user', 'assistant') AND m.channel IN ('answer', 'commentary')
+          AND m.status NOT IN ('queued', 'deleted')
+          AND (m.agent_instance_id IS NULL OR a.kind = 'main')
+        ORDER BY COALESCE(julianday(m.occurred_at), 0), m.created_seq, m.message_id`)
+        .all(conversationId) as unknown as MessageRow[];
+      return rows.filter(row => row.agent_instance_id || !row.agent_id || row.agent_id.startsWith("main:") || row.agent_id.startsWith("planner:"))
+        .map(row => ({ role: row.role as "user" | "assistant", text: row.body,
+          sequence: row.created_seq, ...(row.occurred_at ? { occurredAt: row.occurred_at } : {}) }));
+    });
+  }
+
   /** Candidates for rebuilding todo handoff links from durable, unexpanded reference tokens. */
   listTodoReferenceMessages(): ConversationMessage[] {
     const rows = this.db.prepare(`SELECT * FROM conversation_messages_v2
