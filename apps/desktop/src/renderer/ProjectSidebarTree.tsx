@@ -650,7 +650,7 @@ function ProjectSidebarTreeView({
                             </span>
                           ) : isThreadBusy ? (
                             <span
-                              className="chat-item-loading"
+                              className="chat-item-loading spinning"
                               title={thread.cancelling ? t("activity.stopping") : t("task.status.running")}
                               role="img"
                               aria-label={thread.cancelling ? t("activity.stopping") : t("task.status.running")}
@@ -658,7 +658,6 @@ function ProjectSidebarTreeView({
                               <LoaderCircle
                                 size={ICON_SIZE.sm}
                                 strokeWidth={ICON_STROKE}
-                                className="spinning"
                                 aria-hidden
                               />
                             </span>

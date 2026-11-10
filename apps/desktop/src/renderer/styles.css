@@ -12106,7 +12106,8 @@ button.integrated-web-search-clear-key:disabled {
   transform-origin: center;
 }
 
-.chat-item-loading .spinning {
+/* Animate the HTML box so Chromium can composite the rotation without SVG style ticks. */
+.chat-item-loading.spinning {
   animation-duration: 1.6s;
 }
 
