@@ -143,6 +143,7 @@ import {
   type CenterServerSyncDomain,
   type ClarificationRequest,
   type CoderTodoItem,
+  type PiBashTask,
   type ClaudeBackgroundTask,
   type CodexBackgroundTerminal,
   type CoreAvailabilitySnapshot,
@@ -558,6 +559,7 @@ import { installVitePreloadRecovery } from "./vite-preload-recovery";
 import { WebChatListPopover } from "./WebChatListPopover";
 import { RunningResourcesPopover } from "./RunningResourcesPopover";
 import {
+  selectPiBashTasksForThread,
   selectClaudeBackgroundTasksForThread,
   selectCodexBackgroundTerminalsForThread,
   type RunningTerminal,
@@ -2266,6 +2268,8 @@ function App() {
   const [backgroundTerminalTasks, setBackgroundTerminalTasks] = useState<BackgroundTerminalTask[]>([]);
   const [codexBackgroundTerminals, setCodexBackgroundTerminals] = useState<CodexBackgroundTerminal[]>([]);
   const [codexBackgroundTerminalError, setCodexBackgroundTerminalError] = useState<string>();
+  const [piBashTasks, setPiBashTasks] = useState<PiBashTask[]>([]);
+  const [piBashTaskError, setPiBashTaskError] = useState<string>();
   const [claudeBackgroundTasks, setClaudeBackgroundTasks] = useState<ClaudeBackgroundTask[]>([]);
   const [claudeBackgroundTaskError, setClaudeBackgroundTaskError] = useState<string>();
   const [imageArtifactsByThread, setImageArtifactsByThread] = useState<
@@ -4513,6 +4517,37 @@ function App() {
       await refreshClaudeBackgroundTasks();
     },
     [refreshClaudeBackgroundTasks, t],
+  );
+
+  const refreshPiBashTasks = useCallback(async () => {
+    if (!window.eco?.listPiBashTasks) {
+      setPiBashTasks([]);
+      setPiBashTaskError(undefined);
+      return;
+    }
+    try {
+      setPiBashTasks(await window.eco.listPiBashTasks());
+      setPiBashTaskError(undefined);
+    } catch (error) {
+      setPiBashTaskError(String(error));
+    }
+  }, []);
+
+  const stopPiBashTask = useCallback(
+    async (task: Pick<PiBashTask, "threadId" | "taskId">) => {
+      if (!window.eco?.stopPiBashTask) {
+        throw new Error(t("app.running.terminateUnavailable"));
+      }
+      const result = await window.eco.stopPiBashTask({
+        threadId: task.threadId,
+        taskId: task.taskId,
+      });
+      if (!result.stopped) {
+        throw new Error(t("app.running.terminateUnavailable"));
+      }
+      await refreshPiBashTasks();
+    },
+    [refreshPiBashTasks, t],
   );
 
   const handleRunningTerminalClosed = useCallback((terminal: RunningTerminal) => {
@@ -11667,6 +11702,10 @@ function App() {
     () => selectCodexBackgroundTerminalsForThread(codexBackgroundTerminals, activeThread?.id),
     [activeThread?.id, codexBackgroundTerminals],
   );
+  const piBashTasksForActiveThread = useMemo(
+    () => selectPiBashTasksForThread(piBashTasks, activeThread?.id),
+    [activeThread?.id, piBashTasks],
+  );
   const claudeBackgroundTasksForActiveThread = useMemo(
     () => selectClaudeBackgroundTasksForThread(claudeBackgroundTasks, activeThread?.id),
     [activeThread?.id, claudeBackgroundTasks],
@@ -11677,15 +11716,18 @@ function App() {
     }
     void refreshCodexBackgroundTerminals();
     void refreshClaudeBackgroundTasks();
+    void refreshPiBashTasks();
     const timer = window.setInterval(() => {
       void refreshCodexBackgroundTerminals();
       void refreshClaudeBackgroundTasks();
+      void refreshPiBashTasks();
     }, 2000);
     return () => {
       window.clearInterval(timer);
     };
   }, [
     refreshClaudeBackgroundTasks,
+    refreshPiBashTasks,
     refreshCodexBackgroundTerminals,
     runningResourcesOpen,
     workspaceCardsPanelOpen,
@@ -11828,6 +11870,9 @@ function App() {
               codexTerminals={codexBackgroundTerminals}
               {...(codexBackgroundTerminalError && { codexTerminalError: codexBackgroundTerminalError })}
               onTerminateCodexTerminal={stopCodexBackgroundTerminal}
+              piTasks={piBashTasks}
+              {...(piBashTaskError && { piTaskError: piBashTaskError })}
+              onStopPiTask={stopPiBashTask}
               claudeTasks={claudeBackgroundTasks}
               {...(claudeBackgroundTaskError && { claudeTaskError: claudeBackgroundTaskError })}
               onStopClaudeTask={stopClaudeBackgroundTask}
@@ -13537,6 +13582,10 @@ function App() {
                   })}
                   onStopCodexBackgroundTerminal={stopCodexBackgroundTerminal}
                   onCodexBackgroundTerminalError={(message) => showAppMessageErrorRef.current(message)}
+                  piBashTasks={piBashTasksForActiveThread}
+                  {...(piBashTaskError && { piBashTaskError })}
+                  onStopPiBashTask={stopPiBashTask}
+                  onPiBashTaskError={(message) => showAppMessageErrorRef.current(message)}
                   claudeBackgroundTasks={claudeBackgroundTasksForActiveThread}
                   {...(claudeBackgroundTaskError && {
                     claudeBackgroundTaskError,

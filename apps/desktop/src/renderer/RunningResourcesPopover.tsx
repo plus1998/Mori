@@ -4,7 +4,7 @@ import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { type BrowserInstanceView, isPersonalBrowserScopeId } from "../shared/browser";
 import { pathToName } from "../shared/home-project";
-import type { ClaudeBackgroundTask, CodexBackgroundTerminal } from "../shared/ipc";
+import type { PiBashTask, ClaudeBackgroundTask, CodexBackgroundTerminal } from "../shared/ipc";
 import { AgentBrowserProcessesSection } from "./AgentBrowserProcessesSection";
 import { CodexAppServerProcessesSection } from "./CodexAppServerProcessesSection";
 import { DisplayControlsSection } from "./DisplayControlsSection";
@@ -25,11 +25,12 @@ interface RunningResourcesPopoverProps {
   onTerminateCodexTerminal: (
     terminal: Pick<CodexBackgroundTerminal, "codexThreadId" | "processId">,
   ) => Promise<void>;
+  piTasks: readonly PiBashTask[];
+  piTaskError?: string;
+  onStopPiTask: (task: Pick<PiBashTask, "threadId" | "taskId">) => Promise<void>;
   claudeTasks: readonly ClaudeBackgroundTask[];
   claudeTaskError?: string;
-  onStopClaudeTask: (
-    task: Pick<ClaudeBackgroundTask, "threadId" | "taskId">,
-  ) => Promise<void>;
+  onStopClaudeTask: (task: Pick<ClaudeBackgroundTask, "threadId" | "taskId">) => Promise<void>;
   onClose: () => void;
   onTerminalClosed: (terminal: RunningTerminal) => void;
 }
@@ -49,6 +50,9 @@ export function RunningResourcesPopover({
   codexTerminals,
   codexTerminalError,
   onTerminateCodexTerminal,
+  piTasks,
+  piTaskError,
+  onStopPiTask,
   claudeTasks,
   claudeTaskError,
   onStopClaudeTask,
@@ -139,8 +143,8 @@ export function RunningResourcesPopover({
           api.listBackgroundTerminalTasks(),
         ]);
         if (!cancelled) {
-          setTerminals(collectRunningTerminals(sessions, tasks, codexTerminals, claudeTasks));
-          setTerminalError([codexTerminalError, claudeTaskError].filter(Boolean).join("\n"));
+          setTerminals(collectRunningTerminals(sessions, tasks, codexTerminals, claudeTasks, piTasks));
+          setTerminalError([codexTerminalError, claudeTaskError, piTaskError].filter(Boolean).join("\n"));
         }
       } catch (error) {
         if (!cancelled) setTerminalError(String(error));
@@ -159,7 +163,7 @@ export function RunningResourcesPopover({
       unsubscribe?.();
       stopPolling();
     };
-  }, [claudeTaskError, claudeTasks, codexTerminalError, codexTerminals, refreshEpoch]);
+  }, [claudeTaskError, claudeTasks, piTaskError, piTasks, codexTerminalError, codexTerminals, refreshEpoch]);
 
   const threadLabel = (threadId: string) =>
     isPersonalBrowserScopeId(threadId)
@@ -205,6 +209,8 @@ export function RunningResourcesPopover({
           threadId: terminal.threadId,
           taskId: terminal.claudeTaskId,
         });
+      } else if (terminal.piTaskId && terminal.threadId) {
+        await onStopPiTask({ threadId: terminal.threadId, taskId: terminal.piTaskId });
       } else if (terminal.taskId) {
         await api.stopBackgroundTerminalTask({ taskId: terminal.taskId });
       } else {
@@ -365,20 +371,25 @@ export function RunningResourcesPopover({
                         ? `processId ${terminal.codexProcessId}`
                         : terminal.claudeTaskId
                           ? `Claude taskId ${terminal.claudeTaskId}`
-                          : undefined,
+                          : terminal.piTaskId
+                            ? `PI taskId ${terminal.piTaskId}`
+                            : undefined,
                       terminal.endpoint || terminal.sessionId,
-                    ].filter(Boolean).join("\n")}
+                    ]
+                      .filter(Boolean)
+                      .join("\n")}
                   >
                     <span className="running-resources-title-line">
                       <span className="running-resources-item-title">{label}</span>
                       {terminal.kind === "ssh" ||
                       terminal.taskId ||
                       terminal.codexProcessId ||
-                      terminal.claudeTaskId ? (
+                      terminal.claudeTaskId ||
+                      terminal.piTaskId ? (
                         <span className="running-resources-tag">
                           {terminal.kind === "ssh"
                             ? "SSH"
-                            : terminal.codexProcessId || terminal.claudeTaskId
+                            : terminal.codexProcessId || terminal.claudeTaskId || terminal.piTaskId
                               ? t("app.running.agentBash")
                               : t("app.running.background")}
                         </span>

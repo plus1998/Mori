@@ -1,3 +1,4 @@
+import { ClaudeBashTaskTracker } from "./claude-bash-tasks.js";
 import type { ResolvedModelRoute } from "../../model-router/src";
 import {
   type AgentEvent,
@@ -143,6 +144,7 @@ export interface ClaudeBackgroundTaskSnapshot {
   taskId: string;
   taskType: string;
   description: string;
+  isBackgrounded?: boolean;
 }
 
 export interface ClaudeBackgroundTasksChangedInput {
@@ -784,7 +786,7 @@ export interface ClaudeAgentSdkDriverOptions {
   onContextProbe?: (phase: string, detail: Record<string, unknown>) => void;
   /** Record raw SDK messages for offline replay fixtures (tests / conversation-round). */
   onSdkMessage?: (message: unknown) => void;
-  /** Live background-task level signal owned by the current Claude Query. */
+  /** Live foreground and background Bash tasks owned by the current Claude Query. */
   onBackgroundTasksChanged?: (input: ClaudeBackgroundTasksChangedInput) => void;
   /** Clears producer-owned task handles when the Query closes. */
   onBackgroundTasksClosed?: (input: { threadId: string; query: SdkQueryHandle }) => void;
@@ -1580,6 +1582,7 @@ export class ClaudeAgentSdkDriver implements AgentRuntimeDriver {
       // A new user turn is in flight — keep the mailbox open until its result.
       heldPromptCloseGate.cancel();
     };
+    const bashTaskTracker = new ClaudeBashTaskTracker();
     const iterator = query[Symbol.asyncIterator]();
     let pendingIteratorNext: Promise<IteratorResult<unknown>> | undefined;
     try {
@@ -1770,11 +1773,12 @@ export class ClaudeAgentSdkDriver implements AgentRuntimeDriver {
         }
 
         this.options.onSdkMessage?.(message);
-        if (backgroundTasks) {
+        const liveBashTasks = bashTaskTracker.apply(message);
+        if (liveBashTasks) {
           this.options.onBackgroundTasksChanged?.({
             threadId: input.threadId,
             query,
-            tasks: backgroundTasks,
+            tasks: liveBashTasks,
           });
         }
 

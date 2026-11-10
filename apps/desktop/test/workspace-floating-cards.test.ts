@@ -288,6 +288,21 @@ test("Claude background Bash tasks render as a stoppable workspace card", () => 
   expect(markup).toContain('aria-label="停止 Agent Bash 进程"');
 });
 
+test("PI Bash tasks render their own card and stop control alongside Claude", () => {
+  const markup = renderToStaticMarkup(createElement(WorkspaceFloatingCards, {
+    hasActiveThread: true,
+    piBashTasks: [{ threadId: "pi", taskId: "pi-bash", workspacePath: "/tmp", label: "PI sleep", taskType: "bash", status: "running" }],
+    claudeBackgroundTasks: [{ threadId: "claude", taskId: "claude-bash", workspacePath: "/tmp", label: "Claude sleep", taskType: "local_bash", status: "running", isBackgrounded: false }],
+    onStopPiBashTask: async () => {},
+    onStopClaudeBackgroundTask: async () => {},
+  }));
+  expect(markup).toContain("PI Bash");
+  expect(markup).toContain("Claude Bash");
+  expect(markup).toContain("PI sleep");
+  expect(markup).toContain("Claude sleep");
+  expect(markup.match(/aria-label="停止 Agent Bash 进程"/g)).toHaveLength(2);
+});
+
 test("image generation tasks render as a workspace card and open the task panel", () => {
   const artifact: ImageGenerationArtifact = {
     id: "image_1",

@@ -107,6 +107,8 @@ export const IPC_CHANNELS = {
   codexAppServerProcessList: "codex-app-server:process-list",
   claudeBackgroundTaskList: "claude-background-task:list",
   claudeBackgroundTaskStop: "claude-background-task:stop",
+  piBashTaskList: "pi-bash-task:list",
+  piBashTaskStop: "pi-bash-task:stop",
   workspacePrepareGit: "workspace:prepare-git",
   modelSettingsGet: "model-settings:get",
   settingsDigest: "settings:digest",
@@ -1058,14 +1060,24 @@ export interface CodexAppServerProcessView {
   pid: number;
 }
 
-/** A live Claude SDK background Bash task owned by an active Query. */
-export interface ClaudeBackgroundTask {
+/** A live Bash execution owned by an agent runtime. */
+export interface AgentBashTask {
   threadId: string;
   taskId: string;
   workspacePath: string;
   label: string;
   status: "running";
   taskType: string;
+}
+
+export interface ClaudeBackgroundTask extends AgentBashTask {
+  isBackgrounded?: boolean;
+}
+
+export type PiBashTask = AgentBashTask;
+export type PiBashTaskStopRequest = ClaudeBackgroundTaskStopRequest;
+export interface PiBashTaskStopResult {
+  stopped: boolean;
 }
 
 export interface ClaudeBackgroundTaskStopRequest {
@@ -1075,7 +1087,7 @@ export interface ClaudeBackgroundTaskStopRequest {
 
 export interface ClaudeBackgroundTaskStopResult {
   stopped: boolean;
-  mode?: "task" | "query";
+  mode?: "task";
 }
 
 export interface TerminalSpawnRequest {
@@ -3290,6 +3302,8 @@ export function isCodexBackgroundTerminalTerminateRequest(
     Boolean(record.processId.trim())
   );
 }
+
+export const isPiBashTaskStopRequest = isClaudeBackgroundTaskStopRequest;
 
 export function isClaudeBackgroundTaskStopRequest(
   value: unknown,

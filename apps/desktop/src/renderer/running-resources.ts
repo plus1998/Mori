@@ -1,5 +1,6 @@
 import type {
   BackgroundTerminalTask,
+  PiBashTask,
   ClaudeBackgroundTask,
   CodexBackgroundTerminal,
   TerminalSessionView,
@@ -14,6 +15,7 @@ export interface RunningTerminal extends TerminalSessionView {
   cpuPercent?: number;
   rssKb?: number;
   claudeTaskId?: string;
+  piTaskId?: string;
 }
 
 export function selectCodexBackgroundTerminalsForThread(
@@ -21,9 +23,7 @@ export function selectCodexBackgroundTerminalsForThread(
   threadId?: string,
 ): CodexBackgroundTerminal[] {
   const normalizedThreadId = threadId?.trim();
-  return normalizedThreadId
-    ? terminals.filter((terminal) => terminal.threadId === normalizedThreadId)
-    : [];
+  return normalizedThreadId ? terminals.filter((terminal) => terminal.threadId === normalizedThreadId) : [];
 }
 
 export function selectClaudeBackgroundTasksForThread(
@@ -34,12 +34,18 @@ export function selectClaudeBackgroundTasksForThread(
   return normalizedThreadId ? tasks.filter((task) => task.threadId === normalizedThreadId) : [];
 }
 
+export function selectPiBashTasksForThread(tasks: readonly PiBashTask[], threadId?: string): PiBashTask[] {
+  const id = threadId?.trim();
+  return id ? tasks.filter((task) => task.threadId === id) : [];
+}
+
 /** A background task and its PTY describe the same running terminal. */
 export function collectRunningTerminals(
   sessions: readonly TerminalSessionView[],
   tasks: readonly BackgroundTerminalTask[],
   codexTerminals: readonly CodexBackgroundTerminal[] = [],
   claudeTasks: readonly ClaudeBackgroundTask[] = [],
+  piTasks: readonly PiBashTask[] = [],
 ): RunningTerminal[] {
   const terminals = new Map<string, RunningTerminal>(
     sessions.map((session) => [session.sessionId, { ...session }]),
@@ -81,6 +87,17 @@ export function collectRunningTerminals(
       label: task.label,
       threadId: task.threadId,
       claudeTaskId: task.taskId,
+    });
+  }
+  for (const task of piTasks) {
+    const key = `pi:${task.threadId}:${task.taskId}`;
+    terminals.set(key, {
+      sessionId: key,
+      workspacePath: task.workspacePath,
+      kind: "command",
+      label: task.label,
+      threadId: task.threadId,
+      piTaskId: task.taskId,
     });
   }
   return [...terminals.values()];

@@ -1,8 +1,5 @@
 import { expect, test } from "bun:test";
-import {
-  ClaudeBackgroundTaskRegistry,
-  isClaudeBashTaskType,
-} from "../src/main/claude-background-tasks";
+import { ClaudeBackgroundTaskRegistry, isClaudeBashTaskType } from "../src/main/claude-background-tasks";
 
 test("recognizes Claude shell task type variants", () => {
   expect(isClaudeBashTaskType("local_bash")).toBe(true);
@@ -33,8 +30,14 @@ test("tracks only live Claude Bash tasks and stops them through their Query", as
     ],
     stopTask: async (taskId) => {
       stopped.push(taskId);
+      registry.replaceThread({
+        threadId: "thr_1",
+        workspacePath: "/workspace",
+        owner,
+        tasks: [],
+        stopTask: async () => {},
+      });
     },
-    forceClose: () => {},
   });
 
   expect(registry.list("thr_1")).toEqual([
@@ -60,7 +63,6 @@ test("level snapshots replace membership and stale Query owners cannot clear a n
   const firstOwner = {};
   const secondOwner = {};
   const noopStop = async () => {};
-  const noopClose = () => {};
   registry.replaceThread({
     threadId: "thr_1",
     workspacePath: "/workspace",
@@ -70,7 +72,6 @@ test("level snapshots replace membership and stale Query owners cannot clear a n
       { taskId: "bash_keep", taskType: "shell", description: "keep" },
     ],
     stopTask: noopStop,
-    forceClose: noopClose,
   });
   registry.replaceThread({
     threadId: "thr_1",
@@ -78,7 +79,6 @@ test("level snapshots replace membership and stale Query owners cannot clear a n
     owner: firstOwner,
     tasks: [{ taskId: "bash_keep", taskType: "shell", description: "keep" }],
     stopTask: noopStop,
-    forceClose: noopClose,
   });
   expect(registry.list("thr_1").map((task) => task.taskId)).toEqual(["bash_keep"]);
 
@@ -88,7 +88,6 @@ test("level snapshots replace membership and stale Query owners cannot clear a n
     owner: secondOwner,
     tasks: [{ taskId: "bash_new", taskType: "shell", description: "new" }],
     stopTask: noopStop,
-    forceClose: noopClose,
   });
   registry.clearThread("thr_1", firstOwner);
   expect(registry.list("thr_1").map((task) => task.taskId)).toEqual(["bash_new"]);
@@ -96,24 +95,48 @@ test("level snapshots replace membership and stale Query owners cannot clear a n
   expect(registry.list("thr_1")).toEqual([]);
 });
 
-test("falls back to closing the owning Query when task stop does not settle", async () => {
+test("does not report success without a terminal event or close the owning Query", async () => {
   const registry = new ClaudeBackgroundTaskRegistry({ stopTaskTimeoutMs: 10 });
-  let closed = false;
   registry.replaceThread({
     threadId: "thr_1",
     workspacePath: "/workspace",
     owner: {},
     tasks: [{ taskId: "bash_hung", taskType: "local_bash", description: "sleep 120" }],
-    stopTask: async () => new Promise<void>(() => {}),
-    forceClose: () => {
-      closed = true;
+    stopTask: async () => {},
+  });
+  await expect(registry.stop("thr_1", "bash_hung")).rejects.toThrow("timed out");
+  expect(registry.list("thr_1")).toHaveLength(1);
+});
+
+test("keeps the task visible and surfaces SDK stop errors", async () => {
+  const registry = new ClaudeBackgroundTaskRegistry();
+  registry.replaceThread({
+    threadId: "thr_1",
+    workspacePath: "/workspace",
+    owner: {},
+    tasks: [{ taskId: "bash", taskType: "local_bash", description: "sleep 120", isBackgrounded: false }],
+    stopTask: async () => {
+      throw new Error("SDK refused stop");
     },
   });
+  await expect(registry.stop("thr_1", "bash")).rejects.toThrow("SDK refused stop");
+  expect(registry.list()[0]?.isBackgrounded).toBe(false);
+});
 
-  await expect(registry.stop("thr_1", "bash_hung")).resolves.toEqual({
-    stopped: true,
-    mode: "query",
-  });
-  expect(closed).toBe(true);
-  expect(registry.list("thr_1")).toEqual([]);
+test("a replacement Query cannot confirm termination of the previous Query's task", async () => {
+  const registry = new ClaudeBackgroundTaskRegistry();
+  const replace = (owner: object) =>
+    registry.replaceThread({
+      threadId: "thr_1",
+      workspacePath: "/workspace",
+      owner,
+      tasks: [{ taskId: "bash", taskType: "local_bash", description: "sleep 120" }],
+      stopTask: async () => {},
+    });
+  replace({});
+  const stopping = registry.stop("thr_1", "bash");
+  const rejected = stopping.catch((error) => error);
+  replace({});
+  expect(String(await rejected)).toContain("before Bash termination was confirmed");
+  expect(registry.list()).toHaveLength(1);
 });

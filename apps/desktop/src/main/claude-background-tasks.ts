@@ -1,18 +1,17 @@
-import type {
-  ClaudeBackgroundTask,
-  ClaudeBackgroundTaskStopResult,
-} from "../shared/ipc";
+import type { ClaudeBackgroundTask, ClaudeBackgroundTaskStopResult } from "../shared/ipc";
 
 export interface ClaudeBackgroundTaskSnapshot {
   taskId: string;
   taskType: string;
   description: string;
+  isBackgrounded?: boolean;
 }
 
 interface RegisteredClaudeBackgroundTask extends ClaudeBackgroundTask {
   owner: object;
   stopTask(taskId: string): Promise<void>;
-  forceClose(): void;
+  confirmations: Set<(confirmed: boolean) => void>;
+  stopping?: Promise<ClaudeBackgroundTaskStopResult>;
 }
 
 export function isClaudeBashTaskType(taskType: string): boolean {
@@ -21,7 +20,7 @@ export function isClaudeBashTaskType(taskType: string): boolean {
 }
 
 /**
- * Producer-owned Claude background task registry. Task IDs are meaningful only
+ * Producer-owned Claude Bash task registry. Task IDs are meaningful only
  * inside the Query that emitted them, so each entry retains the exact stopTask
  * closure for that Query.
  */
@@ -30,7 +29,7 @@ export class ClaudeBackgroundTaskRegistry {
   private readonly stopTaskTimeoutMs: number;
 
   constructor(options: { stopTaskTimeoutMs?: number } = {}) {
-    this.stopTaskTimeoutMs = Math.max(1, options.stopTaskTimeoutMs ?? 2_000);
+    this.stopTaskTimeoutMs = Math.max(1, options.stopTaskTimeoutMs ?? 5_000);
   }
 
   replaceThread(input: {
@@ -39,37 +38,40 @@ export class ClaudeBackgroundTaskRegistry {
     owner: object;
     tasks: readonly ClaudeBackgroundTaskSnapshot[];
     stopTask(taskId: string): Promise<void>;
-    forceClose(): void;
   }): void {
     const threadId = input.threadId.trim();
     const workspacePath = input.workspacePath.trim();
     if (!threadId || !workspacePath) {
       return;
     }
+    const nextIds = new Set(
+      input.tasks.filter((task) => isClaudeBashTaskType(task.taskType)).map((task) => task.taskId.trim()),
+    );
     for (const [key, task] of this.tasks) {
-      // background_tasks_changed is a level snapshot for the active thread Query.
-      // Replace the entire thread set so a restarted Query cannot inherit stale IDs.
-      if (task.threadId === threadId) {
+      if (task.threadId !== threadId) continue;
+      if (task.owner !== input.owner || !nextIds.has(task.taskId)) {
         this.tasks.delete(key);
+        for (const confirm of task.confirmations) confirm(task.owner === input.owner);
       }
     }
     for (const task of input.tasks) {
       const taskId = task.taskId.trim();
-      if (!taskId || !isClaudeBashTaskType(task.taskType)) {
-        continue;
-      }
-      const label = task.description.trim() || `Claude Bash ${taskId}`;
-      this.tasks.set(taskKey(threadId, taskId), {
+      if (!taskId || !isClaudeBashTaskType(task.taskType)) continue;
+      const key = taskKey(threadId, taskId);
+      const current = this.tasks.get(key);
+      const fields = {
         threadId,
         taskId,
         workspacePath,
-        label,
-        status: "running",
+        label: task.description.trim() || `Claude Bash ${taskId}`,
+        status: "running" as const,
         taskType: task.taskType.trim(),
+        ...(task.isBackgrounded !== undefined && { isBackgrounded: task.isBackgrounded }),
         owner: input.owner,
         stopTask: input.stopTask,
-        forceClose: input.forceClose,
-      });
+      };
+      if (current) Object.assign(current, fields);
+      else this.tasks.set(key, { ...fields, confirmations: new Set() });
     }
   }
 
@@ -77,7 +79,15 @@ export class ClaudeBackgroundTaskRegistry {
     const normalizedThreadId = threadId?.trim();
     return [...this.tasks.values()]
       .filter((task) => !normalizedThreadId || task.threadId === normalizedThreadId)
-      .map(({ owner: _owner, stopTask: _stopTask, forceClose: _forceClose, ...task }) => ({ ...task }))
+      .map(
+        ({
+          owner: _owner,
+          stopTask: _stopTask,
+          confirmations: _confirmations,
+          stopping: _stopping,
+          ...task
+        }) => ({ ...task }),
+      )
       .sort((left, right) => left.taskId.localeCompare(right.taskId));
   }
 
@@ -89,23 +99,35 @@ export class ClaudeBackgroundTaskRegistry {
     if (!task) {
       return { stopped: false };
     }
-    let mode: "task" | "query" = "task";
+    if (task.stopping) return task.stopping;
+    let confirm!: (confirmed: boolean) => void;
+    const confirmation = new Promise<void>((resolve, reject) => {
+      confirm = (confirmed) =>
+        confirmed
+          ? resolve()
+          : reject(new Error("Claude Query closed before Bash termination was confirmed."));
+      task.confirmations.add(confirm);
+    });
+    const operation = withTimeout(
+      Promise.all([Promise.resolve().then(() => task.stopTask(normalizedTaskId)), confirmation]).then(
+        () => {},
+      ),
+      this.stopTaskTimeoutMs,
+    ).then(() => ({ stopped: true, mode: "task" as const }));
+    task.stopping = operation;
     try {
-      await withTimeout(task.stopTask(normalizedTaskId), this.stopTaskTimeoutMs);
-    } catch {
-      mode = "query";
-      task.forceClose();
+      return await operation;
+    } finally {
+      task.confirmations.delete(confirm);
+      delete task.stopping;
     }
-    if (this.tasks.get(key) === task) {
-      this.tasks.delete(key);
-    }
-    return { stopped: true, mode };
   }
 
   clearThread(threadId: string, owner: object): void {
     for (const [key, task] of this.tasks) {
       if (task.threadId === threadId && task.owner === owner) {
         this.tasks.delete(key);
+        for (const confirm of task.confirmations) confirm(false);
       }
     }
   }

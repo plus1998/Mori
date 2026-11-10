@@ -5,6 +5,7 @@ import type { SdkToolPermissionHandler } from "./ask-user-question.js";
 import { createPlanReadyEvent } from "./claude-agent-sdk.js";
 import type { CoreSessionMode } from "./core-runtime.js";
 import type { AgentRuntimeDriver, AgentRuntimeRunInput } from "./index.js";
+import { createPiBashTaskExtensionFactory } from "./pi-bash-tasks.js";
 import { createPiCodemodeExtensionFactory, PI_CODEMODE_EXTENSION_NAME } from "./pi-codemode-extension.js";
 import { createEcoPiAgentExtensionFactory } from "./pi-eco-extensions.js";
 import {
@@ -903,6 +904,13 @@ async function createDefaultPiSession(input: PiSessionFactoryInput): Promise<PiS
       factory: mcpFactory as never,
     });
   }
+  extensionFactories.push({
+    name: "eco-pi-bash-tasks",
+    factory: createPiBashTaskExtensionFactory({
+      threadId: input.threadId,
+      bashTool: pi.createBashToolDefinition(input.cwd),
+    }) as never,
+  });
   // Registered for every mode; the tool only activates when the session's
   // allowlist names it (Agent), so Ask/Plan never see a script sandbox.
   extensionFactories.push({

@@ -36,6 +36,8 @@ import type {
 import type { HtmlHostArtifact } from "../shared/html-host";
 import type {
   CoderTodoItem,
+  AgentBashTask,
+  PiBashTask,
   ClaudeBackgroundTask,
   CodexBackgroundTerminal,
   CursorAgentInfo,
@@ -171,11 +173,13 @@ export interface WorkspaceFloatingCardsProps {
     terminal: Pick<CodexBackgroundTerminal, "codexThreadId" | "processId">,
   ) => Promise<void>;
   onCodexBackgroundTerminalError?: (message: string) => void;
+  piBashTasks?: readonly PiBashTask[];
+  piBashTaskError?: string;
+  onStopPiBashTask?: (task: Pick<PiBashTask, "threadId" | "taskId">) => Promise<void>;
+  onPiBashTaskError?: (message: string) => void;
   claudeBackgroundTasks?: readonly ClaudeBackgroundTask[];
   claudeBackgroundTaskError?: string;
-  onStopClaudeBackgroundTask?: (
-    task: Pick<ClaudeBackgroundTask, "threadId" | "taskId">,
-  ) => Promise<void>;
+  onStopClaudeBackgroundTask?: (task: Pick<ClaudeBackgroundTask, "threadId" | "taskId">) => Promise<void>;
   onClaudeBackgroundTaskError?: (message: string) => void;
 }
 
@@ -261,7 +265,9 @@ function WorkspacePanelSection({
   }
 
   return (
-    <section className={`workspace-panel-section${variant === "card" ? " workspace-panel-section--card" : ""}${expanded ? " is-expanded" : " is-collapsed"}`}>
+    <section
+      className={`workspace-panel-section${variant === "card" ? " workspace-panel-section--card" : ""}${expanded ? " is-expanded" : " is-collapsed"}`}
+    >
       <div className="workspace-panel-section-header">
         {collapsible ? (
           <button
@@ -460,19 +466,19 @@ function CodexBackgroundTerminalsCardBody({
   );
 }
 
-function ClaudeBackgroundTasksCardBody({
+function AgentBashTasksCardBody({
   tasks,
   onStop,
   onError,
 }: {
-  tasks: readonly ClaudeBackgroundTask[];
-  onStop?: (task: Pick<ClaudeBackgroundTask, "threadId" | "taskId">) => Promise<void>;
+  tasks: readonly AgentBashTask[];
+  onStop?: (task: Pick<AgentBashTask, "threadId" | "taskId">) => Promise<void>;
   onError?: (message: string) => void;
 }) {
   const { t } = useTranslation();
   const [stopping, setStopping] = useState<Set<string>>(() => new Set());
 
-  async function stopTask(task: ClaudeBackgroundTask) {
+  async function stopTask(task: AgentBashTask) {
     if (!onStop || stopping.has(task.taskId)) {
       return;
     }
@@ -850,6 +856,10 @@ export function WorkspaceFloatingCards({
   codexBackgroundTerminalError,
   onStopCodexBackgroundTerminal,
   onCodexBackgroundTerminalError,
+  piBashTasks = [],
+  piBashTaskError,
+  onStopPiBashTask,
+  onPiBashTaskError,
   claudeBackgroundTasks = [],
   claudeBackgroundTaskError,
   onStopClaudeBackgroundTask,
@@ -864,7 +874,10 @@ export function WorkspaceFloatingCards({
     workspace?.name ||
     t("workspaceCards.noProject");
   const showProgress = hasProgressInfo(todos);
-  const showEnvironment = hasActiveThread || Boolean(onOpenScriptsDialog || worktreeControl) || gitStatus?.isGitRepository !== false;
+  const showEnvironment =
+    hasActiveThread ||
+    Boolean(onOpenScriptsDialog || worktreeControl) ||
+    gitStatus?.isGitRepository !== false;
   const [commitsRefreshKey, setCommitsRefreshKey] = useState(0);
   const [gitActionsAnchor, setGitActionsAnchor] = useState<HTMLButtonElement | null>(null);
   const closeGitActions = useCallback(() => setGitActionsAnchor(null), []);
@@ -920,7 +933,7 @@ export function WorkspaceFloatingCards({
                 aria-expanded={Boolean(gitActionsAnchor)}
                 onClick={(event) => {
                   const anchor = event.currentTarget;
-                  setGitActionsAnchor((current) => current ? null : anchor);
+                  setGitActionsAnchor((current) => (current ? null : anchor));
                 }}
               >
                 <MoreHorizontal size={16} strokeWidth={1.75} aria-hidden />
@@ -1009,13 +1022,42 @@ export function WorkspaceFloatingCards({
                 {t("app.running.loadFailed", { detail: claudeBackgroundTaskError })}
               </p>
             ) : null}
-            <ClaudeBackgroundTasksCardBody
+            <AgentBashTasksCardBody
               tasks={claudeBackgroundTasks}
               {...(onStopClaudeBackgroundTask && {
                 onStop: onStopClaudeBackgroundTask,
               })}
               {...(onClaudeBackgroundTaskError && {
                 onError: onClaudeBackgroundTaskError,
+              })}
+            />
+          </WorkspacePanelSection>
+        ) : null}
+        {piBashTasks.length > 0 || piBashTaskError ? (
+          <WorkspacePanelSection
+            id="workspace-pi-bash"
+            title={t("workspaceCards.piBash")}
+            defaultExpanded
+            summary={
+              <>
+                <Terminal size={14} aria-hidden />
+                <span>{piBashTasks.length}</span>
+              </>
+            }
+            maxBodyHeight={240}
+          >
+            {piBashTaskError ? (
+              <p className="workspace-agent-bash-error" role="alert">
+                {t("app.running.loadFailed", { detail: piBashTaskError })}
+              </p>
+            ) : null}
+            <AgentBashTasksCardBody
+              tasks={piBashTasks}
+              {...(onStopPiBashTask && {
+                onStop: onStopPiBashTask,
+              })}
+              {...(onPiBashTaskError && {
+                onError: onPiBashTaskError,
               })}
             />
           </WorkspacePanelSection>
@@ -1136,7 +1178,12 @@ export function WorkspaceFloatingCards({
         ) : null}
 
         {ttsArtifacts.length > 0 ? (
-          <WorkspacePanelSection id="workspace-tts-artifacts" title={t("task.tts.history")} defaultExpanded maxBodyHeight={360}>
+          <WorkspacePanelSection
+            id="workspace-tts-artifacts"
+            title={t("task.tts.history")}
+            defaultExpanded
+            maxBodyHeight={360}
+          >
             <div className="workspace-resource-list">
               {ttsArtifacts.map((artifact) => (
                 <TtsArtifactPlayer

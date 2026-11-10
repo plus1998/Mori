@@ -113,6 +113,9 @@ import {
   type CodexBackgroundTerminalTerminateRequest,
   type CodexBackgroundTerminalTerminateResult,
   type CodexAppServerProcessView,
+  type PiBashTask,
+  type PiBashTaskStopRequest,
+  type PiBashTaskStopResult,
   type ClaudeBackgroundTask,
   type ClaudeBackgroundTaskStopRequest,
   type ClaudeBackgroundTaskStopResult,
@@ -645,6 +648,12 @@ const api = {
     request: CodexBackgroundTerminalTerminateRequest,
   ): Promise<CodexBackgroundTerminalTerminateResult> {
     return ipcRenderer.invoke(IPC_CHANNELS.codexBackgroundTerminalTerminate, request);
+  },
+  listPiBashTasks(): Promise<PiBashTask[]> {
+    return ipcRenderer.invoke(IPC_CHANNELS.piBashTaskList);
+  },
+  stopPiBashTask(request: PiBashTaskStopRequest): Promise<PiBashTaskStopResult> {
+    return ipcRenderer.invoke(IPC_CHANNELS.piBashTaskStop, request);
   },
   listClaudeBackgroundTasks(): Promise<ClaudeBackgroundTask[]> {
     return ipcRenderer.invoke(IPC_CHANNELS.claudeBackgroundTaskList);

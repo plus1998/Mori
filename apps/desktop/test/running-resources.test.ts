@@ -3,6 +3,7 @@ import {
   collectRunningTerminals,
   selectClaudeBackgroundTasksForThread,
   selectCodexBackgroundTerminalsForThread,
+  selectPiBashTasksForThread,
 } from "../src/renderer/running-resources";
 import type { BackgroundTerminalTask } from "../src/shared/ipc";
 
@@ -44,6 +45,16 @@ test("merges PTYs with background task ownership without duplicating the termina
     kind: "ssh",
     endpoint: "dev@host",
   });
+});
+
+test("PI Bash resources use independent stop identities and stay scoped to their thread", () => {
+  const task = { threadId: "pi-thread", taskId: "same-task", workspacePath: "/tmp", label: "sleep 60", status: "running" as const, taskType: "bash" };
+  const terminals = collectRunningTerminals([], [], [], [task], [task]);
+  expect(terminals).toHaveLength(2);
+  expect(terminals[1]).toMatchObject({ sessionId: "pi:pi-thread:same-task", piTaskId: "same-task", threadId: "pi-thread" });
+  expect(terminals[1]?.claudeTaskId).toBeUndefined();
+  expect(selectPiBashTasksForThread([task], "pi-thread")).toEqual([task]);
+  expect(selectPiBashTasksForThread([task], "other-thread")).toEqual([]);
 });
 
 test("includes starting tasks and excludes finished task history across all workspaces", () => {

@@ -351,6 +351,7 @@ import {
   isStartupScriptSaveInput,
   isBusyMutableOnlyRuntimeConfigUpdate,
   isCodexBackgroundTerminalTerminateRequest,
+  isPiBashTaskStopRequest,
   isClaudeBackgroundTaskStopRequest,
   isGitCommitRequest,
   isGitFetchRequest,
@@ -596,6 +597,7 @@ import { createStartupScriptStore, type StartupScriptStore } from "./startup-scr
 import { StartupScriptService } from "./startup-script-service";
 import { resolveBashApprovalAgentId } from "./bash-approval-agent-id.js";
 import { CodexBackgroundTerminalService } from "./codex-background-terminals";
+import { globalPiBashTaskRegistry } from "@eco/runtime";
 import { ClaudeBackgroundTaskRegistry } from "./claude-background-tasks";
 import {
   approveAllPendingBashApprovalsForThread,
@@ -6895,6 +6897,12 @@ function registerIpcHandlers(): void {
     return getCodexBackgroundTerminalService().terminate(payload);
   });
 
+  registerDesktopCommand(IPC_CHANNELS.piBashTaskList, async () => globalPiBashTaskRegistry.list());
+  registerDesktopCommand(IPC_CHANNELS.piBashTaskStop, async (payload: unknown) => {
+    if (!isPiBashTaskStopRequest(payload)) throw new Error("Invalid PI Bash task stop request.");
+    return globalPiBashTaskRegistry.stop(payload.threadId, payload.taskId);
+  });
+
   registerDesktopCommand(IPC_CHANNELS.claudeBackgroundTaskList, async () => {
     return claudeBackgroundTaskRegistry.list();
   });
@@ -11162,7 +11170,9 @@ function worktreeOccupancyReasons(worktreePath: string, codexTerminals: readonly
     .filter(task => isInsideWorktree(worktreePath, task.workspacePath) && (task.status === "starting" || task.status === "running"));
   if (tasks.length) reasons.push(`工作树仍有后台任务：${tasks.map(item => item.taskId).join("、")}，请先停止。`);
   const claudeTasks = claudeBackgroundTaskRegistry.list().filter(task => isInsideWorktree(worktreePath, task.workspacePath));
-  if (claudeTasks.length) reasons.push(`工作树仍有 Claude 后台任务：${claudeTasks.map(item => item.taskId).join("、")}，请先停止。`);
+  if (claudeTasks.length) reasons.push(`工作树仍有 Claude Bash：${claudeTasks.map(item => item.taskId).join("、")}，请先停止。`);
+  const piTasks = globalPiBashTaskRegistry.list().filter(task => isInsideWorktree(worktreePath, task.workspacePath));
+  if (piTasks.length) reasons.push(`工作树仍有 PI Bash：${piTasks.map(item => item.taskId).join("、")}，请先停止。`);
   const nativeTerminals = codexTerminals.filter(item => isInsideWorktree(worktreePath, item.workspacePath));
   if (nativeTerminals.length) reasons.push(`工作树仍有 Codex 后台进程：${nativeTerminals.map(item => item.processId).join("、")}，请先停止。`);
   return reasons;
@@ -17229,15 +17239,9 @@ function createSdkDriver(
         tasks,
         stopTask: async (taskId) => {
           if (typeof query.stopTask !== "function") {
-            throw new Error("Claude Agent SDK cannot stop this background task: stopTask is unavailable.");
+            throw new Error("Claude Agent SDK cannot stop this Bash task: stopTask is unavailable.");
           }
           await query.stopTask(taskId);
-        },
-        forceClose: () => {
-          if (typeof query.close !== "function") {
-            throw new Error("Claude Agent SDK cannot close the Query owning this background task.");
-          }
-          query.close();
         },
       });
     },

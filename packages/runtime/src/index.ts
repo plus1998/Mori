@@ -602,3 +602,5 @@ export {
   shortenModelId,
 } from "./usage";
 export * from "./windows-job-object.js";
+
+export { globalPiBashTaskRegistry, type PiBashTask } from "./pi-bash-tasks.js";
