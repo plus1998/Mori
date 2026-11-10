@@ -427,7 +427,7 @@ export function PlanApprovalPanel({
                       }}
                     />
                     <label className="plan-approval-delegation-message-label" htmlFor={textareaId}>
-                      补充要求
+                      {t("multiAgents.additionalInstructions")}
                     </label>
                     <textarea
                       id={textareaId}

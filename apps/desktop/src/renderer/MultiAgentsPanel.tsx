@@ -19,11 +19,11 @@ import {
   UsersRound,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { ModelRef } from "../shared/agent-orchestration";
 import type { ModelSettingsSnapshot, ThreadRuntimeConfig } from "../shared/ipc";
 import {
   MULTI_AGENTS_CHANGED,
-  MULTI_AGENTS_STATUS_LABELS,
   type MultiAgentsConfig,
   type MultiAgentsMember,
   type MultiAgentsRun,
@@ -119,30 +119,31 @@ function MemberEditor({
   accountNames: Record<string, string>;
   settings: ModelSettingsSnapshot;
 }) {
+  const { t } = useTranslation();
   const anchor = useRef<HTMLDivElement>(null);
   const model = member.runtimeConfig.orchestrationSelection?.mainModel;
   return (
-    <section className="multi-agents-member" aria-label={`${member.name || "未命名成员"} 配置`}>
+    <section className="multi-agents-member" aria-label={t("multiAgents.memberConfiguration", { name: member.name || t("multiAgents.unnamedMember") })}>
       <header className="multi-agents-member-header">
         <img src={`./agent-icons/${harnessIcons[member.coreKind]}`} alt="" aria-hidden />
-        <h3>{member.name || "未命名成员"}</h3>
+        <h3>{member.name || t("multiAgents.unnamedMember")}</h3>
         <SettingsButton
           variant="ghost"
           onClick={onRemove}
-          aria-label={`移除成员 ${member.name}`}
-          title="移除成员"
+          aria-label={t("multiAgents.removeMemberName", { name: member.name })}
+          title={t("multiAgents.removeMember")}
         >
           <Trash2 size={14} aria-hidden />
         </SettingsButton>
       </header>
       <SettingsGroup>
         <SettingsRow
-          label="成员名称"
+          label={t("multiAgents.memberName")}
           stackControlOnNarrow
           control={(controlProps) => (
             <SettingsInput
               {...controlProps}
-              aria-label="成员名称"
+              aria-label={t("multiAgents.memberName")}
               value={member.name}
               onChange={(event) => onChange({ ...member, name: event.target.value })}
             />
@@ -156,7 +157,7 @@ function MemberEditor({
               <SettingsSelect
                 {...controlProps}
                 variant="inline"
-                aria-label="成员 Harness"
+                aria-label={t("multiAgents.memberHarness")}
                 value={member.coreKind}
                 onChange={(event) => {
                   const runtimeConfig = memberConfig(member.runtimeConfig);
@@ -179,18 +180,18 @@ function MemberEditor({
           )}
         />
         <SettingsRow
-          label="模型与账号"
+          label={t("multiAgents.modelAndAccount")}
           description={
             model
               ? `${providerLabel(model.providerId, settings)}${model.accountId ? ` · ${accountNames[model.accountId] ?? model.accountId}` : ""}`
-              : "为此成员单独选择模型和账号"
+              : t("multiAgents.modelAccountHint")
           }
           stackControlOnNarrow
           control={(controlProps) => (
             <div ref={anchor} className="multi-agents-model-field" {...controlProps}>
               {member.coreKind === "acp" ? (
                 <SettingsInput
-                  aria-label="Cursor 模型"
+                  aria-label={t("multiAgents.cursorModel")}
                   value={member.runtimeConfig.cursorModelId ?? "auto"}
                   onChange={(event) =>
                     onChange({
@@ -214,15 +215,15 @@ function MemberEditor({
           )}
         />
         <SettingsRow
-          label="职责"
-          description="主代理根据职责拆分并分配任务"
+          label={t("multiAgents.responsibility")}
+          description={t("multiAgents.responsibilityHint")}
           className="multi-agents-responsibility-row"
           control={(controlProps) => (
             <SettingsTextarea
               {...controlProps}
-              aria-label="成员职责"
+              aria-label={t("multiAgents.memberResponsibility")}
               rows={2}
-              placeholder="例如：负责后端接口和单元测试"
+              placeholder={t("multiAgents.responsibilityPlaceholder")}
               value={member.responsibility}
               onChange={(event) => onChange({ ...member, responsibility: event.target.value })}
             />
@@ -240,6 +241,7 @@ export function MultiAgentsSettingsPanel({
   baseConfig: ThreadRuntimeConfig | null;
   settings: ModelSettingsSnapshot;
 }) {
+  const { t } = useTranslation();
   const { snapshot, error, refresh } = useMultiAgentsSnapshot();
   const [draft, setDraft] = useState<MultiAgentsConfig>();
   const [failure, setFailure] = useState("");
@@ -258,7 +260,7 @@ export function MultiAgentsSettingsPanel({
           );
       })
       .catch((error) => {
-        if (!disposed) setFailure(`读取账号名称失败：${String(error)}`);
+        if (!disposed) setFailure(t("multiAgents.accountNamesFailed", { message: String(error) }));
       });
     return () => {
       disposed = true;
@@ -311,12 +313,12 @@ export function MultiAgentsSettingsPanel({
     <SettingsPage
       className="multi-agents-settings"
       title="Multi-Agents"
-      description="由当前会话的主代理拆分任务，派发给成员执行，最后统一整合与验收。"
+      description={t("multiAgents.intro")}
       actions={
         draft ? (
           <SettingsButton variant="ghost" disabled={busy} onClick={() => setDraft(undefined)}>
             <ArrowLeft size={14} aria-hidden />
-            配置列表
+            {t("multiAgents.configurations")}
           </SettingsButton>
         ) : undefined
       }
@@ -328,12 +330,12 @@ export function MultiAgentsSettingsPanel({
       )}
       {!draft ? (
         <SettingsSection
-          title="执行配置"
-          description="保存常用成员组合，在计划执行菜单中选择。"
+          title={t("multiAgents.executionConfiguration")}
+          description={t("multiAgents.configurationsHint")}
           actions={
             <SettingsButton variant="primary" disabled={busy} onClick={newConfig}>
               <Plus size={15} aria-hidden />
-              新建配置
+              {t("multiAgents.newConfiguration")}
             </SettingsButton>
           }
         >
@@ -346,8 +348,8 @@ export function MultiAgentsSettingsPanel({
                   icon={<UsersRound size={20} />}
                   description={
                     config.mode === "sessions"
-                      ? `${config.members.length} 个成员 · 独立会话 · 最多 ${config.maxConcurrency} 个并行`
-                      : `${config.agentKeys.length} 个原生子代理 · 最多 ${config.maxConcurrency} 个并行`
+                      ? t("multiAgents.sessionSummary", { members: config.members.length, limit: config.maxConcurrency })
+                      : t("multiAgents.nativeSummary", { members: config.agentKeys.length, limit: config.maxConcurrency })
                   }
                   metadata={
                     config.mode === "sessions"
@@ -360,13 +362,13 @@ export function MultiAgentsSettingsPanel({
                     <>
                       <SettingsButton disabled={busy} onClick={() => setDraft(structuredClone(config))}>
                         <Pencil size={13} aria-hidden />
-                        编辑
+                        {t("multiAgents.edit")}
                       </SettingsButton>
                       <SettingsButton
                         variant="ghost"
                         disabled={busy}
-                        aria-label={`删除配置 ${config.name}`}
-                        title="删除配置"
+                        aria-label={t("multiAgents.deleteConfigurationName", { name: config.name })}
+                        title={t("multiAgents.deleteConfiguration")}
                         onClick={() => void mutate(() => window.eco!.deleteMultiAgentsConfig(config.id))}
                       >
                         <Trash2 size={14} aria-hidden />
@@ -379,11 +381,11 @@ export function MultiAgentsSettingsPanel({
           ) : !error ? (
             <div className="multi-agents-empty">
               <UsersRound size={24} aria-hidden />
-              <strong>还没有执行配置</strong>
-              <p>添加成员，为他们选择 Harness、模型和账号。</p>
+              <strong>{t("multiAgents.noConfigurations")}</strong>
+              <p>{t("multiAgents.addMembersHint")}</p>
               <SettingsButton disabled={busy} onClick={newConfig}>
                 <Plus size={14} aria-hidden />
-                新建配置
+                {t("multiAgents.newConfiguration")}
               </SettingsButton>
             </div>
           ) : null}
@@ -398,30 +400,30 @@ export function MultiAgentsSettingsPanel({
         >
           <fieldset disabled={busy} className="multi-agents-form-fields">
             <SettingsSection
-              title={snapshot.configs.some((config) => config.id === draft.id) ? "编辑配置" : "新建配置"}
+              title={snapshot.configs.some((config) => config.id === draft.id) ? t("multiAgents.editConfiguration") : t("multiAgents.newConfiguration")}
             >
               <SettingsGroup>
                 <SettingsRow
-                  label="配置名称"
+                  label={t("multiAgents.configurationName")}
                   stackControlOnNarrow
                   control={(controlProps) => (
                     <SettingsInput
                       {...controlProps}
                       autoFocus
                       required
-                      aria-label="Multi-Agents 配置名称"
-                      placeholder="例如：前后端开发"
+                      aria-label={t("multiAgents.multiAgentsConfigurationName")}
+                      placeholder={t("multiAgents.configurationNamePlaceholder")}
                       value={draft.name}
                       onChange={(event) => setDraft({ ...draft, name: event.target.value })}
                     />
                   )}
                 />
                 <SettingsRow
-                  label="执行方式"
+                  label={t("multiAgents.executionMode")}
                   description={
                     draft.mode === "sessions"
-                      ? "成员使用独立会话，可分别选择账号"
-                      : "调用当前 Harness 的原生子代理"
+                      ? t("multiAgents.sessionsHint")
+                      : t("multiAgents.nativeModeHint")
                   }
                   stackControlOnNarrow
                   control={(controlProps) => (
@@ -429,27 +431,27 @@ export function MultiAgentsSettingsPanel({
                       <SettingsSelect
                         {...controlProps}
                         variant="inline"
-                        aria-label="Multi-Agents 执行方式"
+                        aria-label={t("multiAgents.multiAgentsExecutionMode")}
                         value={draft.mode}
                         onChange={(event) =>
                           setDraft({ ...draft, mode: event.target.value as MultiAgentsConfig["mode"] })
                         }
                       >
-                        <option value="sessions">独立会话</option>
-                        <option value="subagents">原生子代理</option>
+                        <option value="sessions">{t("multiAgents.separateSessions")}</option>
+                        <option value="subagents">{t("multiAgents.nativeSubagents")}</option>
                       </SettingsSelect>
                       <ChevronDown size={13} aria-hidden />
                     </span>
                   )}
                 />
                 <SettingsRow
-                  label="并发上限"
-                  description="同时执行的任务数量"
+                  label={t("multiAgents.concurrencyLimit")}
+                  description={t("multiAgents.concurrencyHint")}
                   control={(controlProps) => (
                     <SettingsInput
                       {...controlProps}
                       className="multi-agents-concurrency"
-                      aria-label="并发上限"
+                      aria-label={t("multiAgents.concurrencyLimit")}
                       type="number"
                       min={1}
                       max={16}
@@ -462,12 +464,12 @@ export function MultiAgentsSettingsPanel({
             </SettingsSection>
             {draft.mode === "sessions" ? (
               <SettingsSection
-                title="执行成员"
-                description="主代理根据各成员的职责分配任务。"
+                title={t("multiAgents.executionMembers")}
+                description={t("multiAgents.membersHint")}
                 actions={
                   <SettingsButton disabled={!baseConfig || draft.members.length >= 16} onClick={addMember}>
                     <Plus size={14} aria-hidden />
-                    添加成员
+                    {t("multiAgents.addMember")}
                   </SettingsButton>
                 }
               >
@@ -497,27 +499,27 @@ export function MultiAgentsSettingsPanel({
                 ) : (
                   <div className="multi-agents-empty is-compact">
                     <Bot size={22} aria-hidden />
-                    <strong>添加第一个执行成员</strong>
-                    <p>每个成员可使用不同的 Harness、模型和账号。</p>
+                    <strong>{t("multiAgents.addTheFirstMember")}</strong>
+                    <p>{t("multiAgents.firstMemberHint")}</p>
                   </div>
                 )}
                 {!baseConfig && (
                   <p role="status" className="multi-agents-hint">
-                    请先在输入框选择有效运行配置，再添加成员。
+                    {t("multiAgents.runtimeRequired")}
                   </p>
                 )}
                 <p className="multi-agents-hint">
-                  工具、MCP、Skills 和审批方式沿用添加成员时的运行配置。成员只接收主代理派发的任务。
+                  {t("multiAgents.memberRuntimeHint")}
                 </p>
                 <p className="multi-agents-hint">
                   <FolderGit2 size={13} aria-hidden />
-                  每个任务使用独立会话和工作树，返工沿用原会话。需要在 Git 仓库根目录执行。
+                  {t("multiAgents.worktreeHint")}
                 </p>
               </SettingsSection>
             ) : (
               <SettingsSection
-                title="原生子代理"
-                description="执行时使用主会话已启用的子代理，账号由 Harness 继承。"
+                title={t("multiAgents.nativeSubagents")}
+                description={t("multiAgents.nativeMembersHint")}
               >
                 {agentOptions.length > 0 ? (
                   <SettingsResourceList>
@@ -529,7 +531,7 @@ export function MultiAgentsSettingsPanel({
                         icon={<Bot size={18} />}
                         status={
                           <Switch
-                            aria-label={`启用子代理 ${name}`}
+                            aria-label={t("multiAgents.enableSubagent", { name })}
                             checked={draft.agentKeys.includes(key)}
                             onCheckedChange={(checked) =>
                               setDraft({
@@ -547,21 +549,21 @@ export function MultiAgentsSettingsPanel({
                 ) : (
                   <div className="multi-agents-empty is-compact">
                     <Bot size={22} aria-hidden />
-                    <strong>还没有原生子代理</strong>
-                    <p>请先在编排组件中添加子代理。</p>
+                    <strong>{t("multiAgents.noNativeSubagentsYet")}</strong>
+                    <p>{t("multiAgents.addNativeSubagentsHint")}</p>
                   </div>
                 )}
               </SettingsSection>
             )}
             <footer className="multi-agents-editor-footer">
-              <SettingsButton onClick={() => setDraft(undefined)}>取消</SettingsButton>
+              <SettingsButton onClick={() => setDraft(undefined)}>{t("multiAgents.cancel")}</SettingsButton>
               <SettingsButton type="submit" variant="primary">
                 {busy ? (
                   <LoaderCircle size={14} className="spinning" aria-hidden />
                 ) : (
                   <Check size={14} aria-hidden />
                 )}
-                保存配置
+                {t("multiAgents.saveConfiguration")}
               </SettingsButton>
             </footer>
           </fieldset>
@@ -586,12 +588,13 @@ export function MultiAgentsChoices({
   disabled: boolean;
   loadError?: string | undefined;
 }) {
+  const { t } = useTranslation();
   return (
     <div className="multi-agents-choices">
-      <p>主代理拆分任务并统一验收</p>
+      <p>{t("multiAgents.choicesHint")}</p>
       {loadError && (
         <p role="alert" className="multi-agents-error">
-          读取配置失败：{loadError}
+          {t("multiAgents.unableToLoadConfigurations")}{loadError}
         </p>
       )}
       {configs.map((config) => {
@@ -604,7 +607,7 @@ export function MultiAgentsChoices({
             type="button"
             className="plan-approval-menu-option multi-agents-choice"
             disabled={disabled || unavailable}
-            title={unavailable ? "当前会话的编排缺少选中的原生子代理" : undefined}
+            title={unavailable ? t("multiAgents.missingNativeMembers") : undefined}
             onClick={() => onSelect(config.id)}
           >
             <UsersRound size={16} className="multi-agents-choice-icon" aria-hidden />
@@ -612,19 +615,19 @@ export function MultiAgentsChoices({
               <strong>{config.name}</strong>
               <small>
                 {config.mode === "sessions"
-                  ? `${config.members.length} 个执行成员 · 独立会话 · 并发 ${config.maxConcurrency}`
-                  : `${config.agentKeys.length} 个原生子代理`}
+                  ? t("multiAgents.sessionSummary", { members: config.members.length, limit: config.maxConcurrency })
+                  : t("multiAgents.nativeMembers", { members: config.agentKeys.length })}
               </small>
-              {unavailable && <small>当前会话缺少成员</small>}
+              {unavailable && <small>{t("multiAgents.membersUnavailableInThisSession")}</small>}
             </span>
             <ChevronRight size={14} aria-hidden />
           </button>
         );
       })}
-      {!configs.length && !loadError && <p>还没有 Multi-Agents 配置。</p>}
+      {!configs.length && !loadError && <p>{t("multiAgents.noMultiAgentsConfigurationsYet")}</p>}
       <button type="button" className="plan-approval-menu-option multi-agents-manage" onClick={onConfigure}>
         <Settings2 size={15} aria-hidden />
-        管理 Multi-Agents 配置
+        {t("multiAgents.manageMultiAgentsConfigurations")}
       </button>
     </div>
   );
@@ -635,10 +638,11 @@ function StatusBadge({
 }: {
   status: MultiAgentsRun["status"] | MultiAgentsRun["tasks"][number]["status"];
 }) {
+  const { t } = useTranslation();
   return (
     <span className="multi-agents-status" data-status={status}>
       <i aria-hidden />
-      {MULTI_AGENTS_STATUS_LABELS[status]}
+      {t(`multiAgents.status.${status}`)}
     </span>
   );
 }
@@ -652,6 +656,7 @@ export function MultiAgentsRunPanel({
   onNavigate: (id: string) => void;
   loadError?: string | undefined;
 }) {
+  const { t } = useTranslation();
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   if (!runs.length && !loadError) return null;
@@ -670,7 +675,7 @@ export function MultiAgentsRunPanel({
     <div className="multi-agents-runs">
       {loadError && (
         <p role="alert" className="multi-agents-notice is-error">
-          读取 Multi-Agents 状态失败：{loadError}
+          {t("multiAgents.unableToLoadMultiAgentsStatus")}{loadError}
         </p>
       )}
       {error && (
@@ -690,7 +695,7 @@ export function MultiAgentsRunPanel({
               <UsersRound size={17} aria-hidden />
               <span className="multi-agents-run-heading">
                 <strong>{run.config.name}</strong>
-                <small>Multi-Agents · 计划 v{run.plan.version ?? 1}</small>
+                <small>{t("multiAgents.planVersion", { version: run.plan.version ?? 1 })}</small>
               </span>
               <StatusBadge status={run.status} />
               <ChevronRight size={14} className="multi-agents-run-chevron" aria-hidden />
@@ -699,11 +704,11 @@ export function MultiAgentsRunPanel({
               {run.tasks.length > 0 && (
                 <div className="multi-agents-progress">
                   <span>
-                    {succeeded} / {run.tasks.length} 个任务执行完成
+                    {t("multiAgents.taskProgress", { completed: succeeded, total: run.tasks.length })}
                   </span>
                   <div
                     role="progressbar"
-                    aria-label="成员任务执行进度"
+                    aria-label={t("multiAgents.memberTaskProgress")}
                     aria-valuemin={0}
                     aria-valuemax={run.tasks.length}
                     aria-valuenow={succeeded}
@@ -718,11 +723,11 @@ export function MultiAgentsRunPanel({
                 </p>
               )}
               {run.status === "planning" && (
-                <p className="multi-agents-run-message">等待主代理拆分任务，所选成员是可用成员池。</p>
+                <p className="multi-agents-run-message">{t("multiAgents.waitingForTasks")}</p>
               )}
               {run.config.mode === "subagents" && (
                 <p className="multi-agents-run-message">
-                  原生子代理：{run.config.agentKeys.join("、")}。详细进度见 Harness 子代理面板。
+                  {t("multiAgents.nativeProgress", { members: run.config.agentKeys.join(", ") })}
                 </p>
               )}
               <div className="multi-agents-tasks">
@@ -742,8 +747,8 @@ export function MultiAgentsRunPanel({
                           <SettingsButton
                             variant="ghost"
                             className="multi-agents-open-thread"
-                            title="打开成员会话"
-                            aria-label={`打开 ${member?.name ?? "成员"} 会话`}
+                            title={t("multiAgents.openMemberSession")}
+                            aria-label={t("multiAgents.openNamedSession", { name: member?.name ?? t("multiAgents.member") })}
                             onClick={() => onNavigate(task.threadId!)}
                           >
                             <ArrowUpRight size={15} aria-hidden />
@@ -753,54 +758,54 @@ export function MultiAgentsRunPanel({
                       <div className="multi-agents-task-meta">
                         <span>{member?.name}</span>
                         <span>{member && harnessLabels[member.coreKind]}</span>
-                        <span>第 {task.attempt} 次执行</span>
+                        <span>{t("multiAgents.attempt", { attempt: task.attempt })}</span>
                         {integrated && (
                           <span className="multi-agents-integrated">
                             <CircleCheck size={12} aria-hidden />
-                            {task.integrationResolution ? "已人工整合" : "已整合"}
+                            {task.integrationResolution ? t("multiAgents.manuallyIntegrated") : t("multiAgents.integrated")}
                           </span>
                         )}
                       </div>
                       {model && (
                         <p className="multi-agents-task-model">
                           {providerLabel(model.providerId)} · {model.modelId}
-                          {model.accountId ? ` · 账号 ${model.accountId}` : ""}
+                          {model.accountId ? t("multiAgents.account", { id: model.accountId }) : ""}
                         </p>
                       )}
                       {task.dependsOn.length > 0 && (
-                        <p className="multi-agents-task-model">依赖：{task.dependsOn.join("、")}</p>
+                        <p className="multi-agents-task-model">{t("multiAgents.dependencies")}{task.dependsOn.join("、")}</p>
                       )}
                       {task.error && <p className="multi-agents-notice is-error">{task.error}</p>}
                       {task.integrationError && (
-                        <p className="multi-agents-notice is-error">整合冲突：{task.integrationError}</p>
+                        <p className="multi-agents-notice is-error">{t("multiAgents.integrationConflict")}{task.integrationError}</p>
                       )}
                       {task.integrationResolution && (
                         <p className="multi-agents-task-model">
-                          人工整合：{task.integrationResolution.review}
+                          {t("multiAgents.manualIntegration")}{task.integrationResolution.review}
                         </p>
                       )}
                       <div className="multi-agents-task-details">
                         <details>
                           <summary>
                             <ChevronRight size={12} aria-hidden />
-                            任务与验收标准
+                            {t("multiAgents.taskAndAcceptanceCriteria")}
                           </summary>
                           <div>
                             <p>{task.instructions}</p>
-                            <p>范围：{task.scope.join("、")}</p>
-                            <p>验收：{task.acceptance}</p>
+                            <p>{t("multiAgents.scope")}{task.scope.join("、")}</p>
+                            <p>{t("multiAgents.review")}{task.acceptance}</p>
                           </div>
                         </details>
                         {Boolean(task.history?.length) && (
                           <details>
                             <summary>
                               <ChevronRight size={12} aria-hidden />
-                              此前执行记录（{task.history!.length}）
+                              {t("multiAgents.previousAttempts", { total: task.history!.length })}
                             </summary>
                             <div>
                               {task.history!.map((attempt, index) => (
                                 <p key={index}>
-                                  第 {attempt.attempt} 次 · {MULTI_AGENTS_STATUS_LABELS[attempt.status]}
+                                  {t("multiAgents.attempt", { attempt: attempt.attempt })} · {t(`multiAgents.status.${attempt.status}`)}
                                   <br />
                                   {attempt.error || attempt.result}
                                 </p>
@@ -812,7 +817,7 @@ export function MultiAgentsRunPanel({
                           <details>
                             <summary>
                               <ChevronRight size={12} aria-hidden />
-                              执行结果
+                              {t("multiAgents.executionResults")}
                             </summary>
                             <pre>{task.result}</pre>
                           </details>
@@ -825,7 +830,7 @@ export function MultiAgentsRunPanel({
               {run.review && (
                 <p className="multi-agents-run-review">
                   <CircleCheck size={15} aria-hidden />
-                  <span>验收：{run.review}</span>
+                  <span>{t("multiAgents.review")}{run.review}</span>
                 </p>
               )}
             </div>
@@ -838,7 +843,7 @@ export function MultiAgentsRunPanel({
                     onClick={() => void control(run.id, "resume")}
                   >
                     <Play size={13} aria-hidden />
-                    恢复调度
+                    {t("multiAgents.resumeScheduling")}
                   </SettingsButton>
                 ) : (
                   <SettingsButton
@@ -847,7 +852,7 @@ export function MultiAgentsRunPanel({
                     onClick={() => void control(run.id, "pause")}
                   >
                     <Pause size={13} aria-hidden />
-                    暂停派发
+                    {t("multiAgents.pauseDispatch")}
                   </SettingsButton>
                 )}
                 <SettingsButton
@@ -857,7 +862,7 @@ export function MultiAgentsRunPanel({
                   onClick={() => void control(run.id, "stop")}
                 >
                   <Square size={12} aria-hidden />
-                  停止全部
+                  {t("multiAgents.stopAll")}
                 </SettingsButton>
               </footer>
             )}

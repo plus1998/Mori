@@ -1,4 +1,5 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
+import { useTranslation } from "react-i18next";
 import { moriAvatarCrop, type MoriAvatarSettings } from "../shared/mori-avatar";
 import { MORI_PET_CELL_HEIGHT, MORI_PET_CELL_WIDTH } from "../shared/mori-pet";
 import { MoriIcon, type MoriIconMood } from "./MoriIcon";
@@ -10,10 +11,11 @@ const atlases = new Map<string, Promise<{ image: HTMLImageElement; pixels: Uint8
 
 /** Shared subscription keeps every navigation entry in sync, even while chat is closed. */
 export function MoriAssistantAvatar({ size }: { size: number }) {
+  const { t } = useTranslation();
   const { avatar, error } = useSyncExternalStore(subscribeMoriAvatar, getMoriAvatarSnapshot);
   if (error) return (
     <span className="mori-avatar has-error" style={{ width: size, height: size }}
-      role="img" aria-label={`头像设置读取失败：${error}`} title={error}>!</span>
+      role="img" aria-label={t("moriAvatar.settingsFailed", { message: error })} title={error}>!</span>
   );
   return <MoriAvatar avatar={avatar} size={size} />;
 }
@@ -46,6 +48,7 @@ export function MoriAvatar({ avatar, size = 34, mood = "idle", animated = false 
   mood?: MoriIconMood;
   animated?: boolean;
 }) {
+  const { t } = useTranslation();
   const [result, setResult] = useState<{ key: string; image?: string; error?: string }>();
   const petKey = avatar?.petKey;
   const animation = avatar?.animation ?? "idle";
@@ -75,7 +78,7 @@ export function MoriAvatar({ avatar, size = 34, mood = "idle", animated = false 
   const current = result?.key === key ? result : undefined;
   return (
     <span className={`mori-avatar${current?.error ? " has-error" : ""}`} style={{ width: size, height: size }}
-      role="img" aria-label={current?.error ? `头像加载失败：${current.error}` : "助手头像"}
+      role="img" aria-label={current?.error ? t("moriAvatar.loadFailed", { message: current.error }) : t("moriUi.moriAssistant.assistantAvatar")}
       title={current?.error}>
       {current?.image ? <img src={current.image} alt="" /> : current?.error ? "!" : null}
     </span>

@@ -1,3 +1,4 @@
+import { executionSettingsTranslations } from "./execution-settings-i18n";
 import { imageLibraryTranslations } from "./image-library-i18n";
 import { accountWakeTranslations } from "./account-wake-i18n";
 import type { AppLocale } from "./locale";
@@ -160,6 +161,7 @@ export const i18nCatalogs = {
       ...accountWakeTranslations["zh-CN"],
       ...usageOverviewTranslations["zh-CN"],
       ...worktreeTranslations["zh-CN"],
+      ...executionSettingsTranslations["zh-CN"],
       ...imageLibraryTranslations["zh-CN"],
       "app.running.displayCount_one": "已检测到 {{count}} 块显示器",
       "app.running.displayCount_other": "已检测到 {{count}} 块显示器",
@@ -4009,6 +4011,7 @@ export const i18nCatalogs = {
       ...accountWakeTranslations["en-US"],
       ...usageOverviewTranslations["en-US"],
       ...worktreeTranslations["en-US"],
+      ...executionSettingsTranslations["en-US"],
       ...imageLibraryTranslations["en-US"],
       "app.running.displayCount_one": "{{count}} display detected",
       "app.running.displayCount_other": "{{count}} displays detected",
@@ -6243,7 +6246,7 @@ export const i18nCatalogs = {
       "fileBrowser.spreadsheetNotice":
         "Read-only preview: saved formula results are shown, or formulas when no result is saved. Formulas are not recalculated. Charts and original styles are not displayed.",
       "fileBrowser.spreadsheetLimit":
-        "Each worksheet previews up to the first {{rows}} rows and {{columns}} columns. Open in an external app to see all content.",
+        "Preview limits per worksheet: rows {{rows}}, columns {{columns}}. Open in an external app to see all content.",
       "fileBrowser.spreadsheetEmpty": "This worksheet is empty.",
       "fileBrowser.spreadsheetSheets": "Worksheets",
       "fileBrowser.spreadsheetFailed": "Spreadsheet preview failed: {{message}}",

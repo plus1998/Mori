@@ -271,7 +271,7 @@ export function MoriAssistantSettingsPanel({
       <fieldset disabled={locked}>
         {tab === "conversation" ? (
           <>
-            <SettingsSection className="mori-settings-section" title="助手头像">
+            <SettingsSection className="mori-settings-section" title={t("moriUi.moriAssistant.assistantAvatar")}>
               <MoriAvatarSettings value={settings.avatar} onChange={(value) => patch("avatar", value)} />
             </SettingsSection>
             <SettingsSection
@@ -521,8 +521,8 @@ export function MoriAssistantSettingsPanel({
         {tab === "mcp" ? (
           <SettingsSection
             className="mori-settings-section"
-            title="MCP 服务"
-            description="为每个服务选择调用权限，保存后生效。始终允许后无需逐次确认，仅对 Mori 助手生效。"
+            title={t("moriUi.moriAssistant.mcpServices")}
+            description={t("moriUi.moriAssistant.mcpPermissionsHint")}
           >
             <SettingsGroup>
               {snapshot.mcpServers.map((server) => (
@@ -541,9 +541,9 @@ export function MoriAssistantSettingsPanel({
                         setMcpAccess(server.id, event.target.value as MoriMcpApprovalMode | "disabled")
                       }
                     >
-                      <option value="disabled">不使用</option>
-                      <option value="always_ask" disabled={!server.available}>每次询问</option>
-                      <option value="always_allow" disabled={!server.available}>始终允许</option>
+                      <option value="disabled">{t("moriUi.moriAssistant.disabled")}</option>
+                      <option value="always_ask" disabled={!server.available}>{t("moriUi.moriAssistant.askEveryTime")}</option>
+                      <option value="always_allow" disabled={!server.available}>{t("moriUi.moriAssistant.alwaysAllow")}</option>
                     </SettingsSelect>
                   )}
                 />
@@ -553,8 +553,8 @@ export function MoriAssistantSettingsPanel({
                 .map((id) => (
                   <SettingsRow
                     key={id}
-                    label="已删除的 MCP 服务"
-                    description="取消勾选并保存以移除服务和授权。"
+                    label={t("moriUi.moriAssistant.deletedMcpServices")}
+                    description={t("moriUi.moriAssistant.removeMissingMcpHint")}
                     control={(controlProps) => (
                       <input
                         {...controlProps}
@@ -573,7 +573,7 @@ export function MoriAssistantSettingsPanel({
             </p>
             {onOpenMcp ? (
               <SettingsButton variant="secondary" type="button" onClick={onOpenMcp}>
-                管理 MCP 服务
+                {t("moriUi.moriAssistant.manageMcpServices")}
                 <ChevronRight size={13} />
               </SettingsButton>
             ) : null}
@@ -1079,7 +1079,7 @@ export function MoriAssistantPanel({
       aria-label={t("moriUi.moriAssistant.chatLabel")}
     >
       <header className="mori-panel-header">
-        <button className="mori-mark mori-avatar-trigger" type="button" onClick={openSettings} aria-label="更换助手头像" title="更换助手头像">
+        <button className="mori-mark mori-avatar-trigger" type="button" onClick={openSettings} aria-label={t("moriUi.moriAssistant.changeAssistantAvatar")} title={t("moriUi.moriAssistant.changeAssistantAvatar")}>
           <MoriAvatar
             avatar={snapshot?.settings.avatar}
             animated
