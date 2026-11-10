@@ -110,7 +110,7 @@ test("ComposerRouteCardBody keeps auxiliary / approval / vision switchable while
   expect(markup).toMatch(/composer-route-builder-button[^>]*\sdisabled/);
   expect(markup).toMatch(/<button[^>]*composer-field-select-trigger[^>]*\sdisabled/);
   // Auxiliary / approval / vision requests are stateless: their selectors stay live.
-  const statelessButtons = markup.match(/<div class="stateless-model-control">[\s\S]*?<button[^>]*>/g) ?? [];
+  const statelessButtons = markup.match(/<div class="stateless-model-control(?: [^"]*)?">[\s\S]*?<button[^>]*>/g) ?? [];
   expect(statelessButtons).toHaveLength(3);
   expect(statelessButtons.every(button => !/\sdisabled/.test(button))).toBe(true);
 });
@@ -126,7 +126,7 @@ test("ComposerRouteCardBody locks the stateless role selectors when canEditState
     "zh-CN",
   );
 
-  const statelessButtons = markup.match(/<div class="stateless-model-control">[\s\S]*?<button[^>]*>/g) ?? [];
+  const statelessButtons = markup.match(/<div class="stateless-model-control(?: [^"]*)?">[\s\S]*?<button[^>]*>/g) ?? [];
   expect(statelessButtons).toHaveLength(3);
   expect(statelessButtons.every(button => /\sdisabled/.test(button))).toBe(true);
 });

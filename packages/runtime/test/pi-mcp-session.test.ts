@@ -312,7 +312,10 @@ test("Plan connects MCP and executes research tools through the normal permissio
         { text: "done" },
       ],
     });
-    expect(result.requests[0]?.toolNames).toEqual(["read", "finalize_plan", "bash", echoTool]);
+    // Tool availability is the contract; the registry may change declaration order.
+    expect([...(result.requests[0]?.toolNames ?? [])].sort()).toEqual(
+      ["read", "finalize_plan", "bash", echoTool].sort(),
+    );
     expect(toolResult(result.events, "research")?.content).toContain("MCP-ECHO: PLAN-RESEARCH");
     expect(toolResult(result.events, "bash-research")?.content).toContain("PLAN-BASH-RESEARCH");
     expect(approvals).toContain(echoTool);
