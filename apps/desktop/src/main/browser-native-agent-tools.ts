@@ -4,6 +4,7 @@ import path from "node:path";
 import type { WebContents } from "electron";
 import { isBrowserPlaceholderUrl } from "../shared/browser";
 import type { AgentBrowserMcpToolResult } from "./agent-browser-cli-bridge";
+import { prepareGuestScreenshotSurface } from "./browser-screenshot-surface";
 
 const SCREENSHOT_MIN_BYTES = 512;
 
@@ -38,25 +39,44 @@ function ensureDebugger(wc: WebContents) {
 
 async function tryCdpCapture(
   webContents: WebContents,
-  outputPath: string,
   full: boolean,
-  fromSurface: boolean,
-): Promise<number> {
+  requestFrame = false,
+): Promise<Buffer> {
   const dbg = ensureDebugger(webContents);
   const params: Record<string, unknown> = {
     format: "png",
-    fromSurface,
-    captureBeyondViewport: full,
+    fromSurface: true,
+    captureBeyondViewport: full || requestFrame,
   };
-  if (full) {
+  if (full || requestFrame) {
     const layout = (await dbg.sendCommand("Page.getLayoutMetrics")) as {
-      contentSize?: { width?: number; height?: number };
+      cssContentSize?: { width: number; height: number };
+      cssVisualViewport?: { pageX: number; pageY: number; clientWidth: number; clientHeight: number; scale: number };
     };
-    const width = Math.ceil(layout.contentSize?.width ?? 1280);
-    const height = Math.ceil(layout.contentSize?.height ?? 720);
-    params.clip = { x: 0, y: 0, width, height, scale: 1 };
+    const viewport = layout.cssVisualViewport;
+    const width = full ? Math.ceil(layout.cssContentSize?.width ?? 0) : viewport?.clientWidth ?? 0;
+    const height = full ? Math.ceil(layout.cssContentSize?.height ?? 0) : viewport?.clientHeight ?? 0;
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+      throw new Error("Page.getLayoutMetrics returned no valid CSS content size");
+    }
+    if (!full && (!viewport || !Number.isFinite(viewport.pageX) || !Number.isFinite(viewport.pageY) ||
+        !Number.isFinite(viewport.scale) || viewport.scale <= 0)) {
+      throw new Error("Page.getLayoutMetrics returned no valid CSS visual viewport");
+    }
+    // An explicit viewport clip also makes Chromium prepare the emulated-DPR
+    // surface when the containing native window is hidden.
+    params.clip = { x: full ? 0 : viewport!.pageX, y: full ? 0 : viewport!.pageY,
+      width, height, scale: full ? 1 : viewport!.scale };
   }
-  const shot = (await dbg.sendCommand("Page.captureScreenshot", params)) as { data?: string };
+  const pendingShot = dbg.sendCommand("Page.captureScreenshot", params);
+  // Full-page capture temporarily expands Chromium's surface. A transparent
+  // embedder does not paint that new size until another native frame is requested.
+  const refreshFrame = async () => {
+    if (!full || !requestFrame) return;
+    await dbg.sendCommand("Page.getLayoutMetrics");
+    await webContents.capturePage(undefined, { stayHidden: true, stayAwake: true });
+  };
+  const [shot] = await Promise.all([pendingShot, refreshFrame()]) as [{ data?: string }, unknown];
   if (!shot.data) {
     throw new Error("Page.captureScreenshot returned no image data");
   }
@@ -64,8 +84,7 @@ async function tryCdpCapture(
   if (buffer.length < SCREENSHOT_MIN_BYTES) {
     throw new Error(`Page.captureScreenshot image too small (${buffer.length} bytes)`);
   }
-  fs.writeFileSync(outputPath, buffer);
-  return buffer.length;
+  return buffer;
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
@@ -84,22 +103,28 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
   });
 }
 
-async function tryCapturePage(webContents: WebContents, outputPath: string): Promise<number> {
-  const image = await webContents.capturePage(undefined, {
-    stayHidden: true,
-    stayAwake: true,
-  });
-  const png = image.toPNG();
-  if (png.length < SCREENSHOT_MIN_BYTES) {
-    throw new Error(`capturePage image too small (${png.length} bytes)`);
-  }
-  fs.writeFileSync(outputPath, png);
-  return png.length;
-}
+const SCREENSHOT_TIMEOUT_MS = 12_000;
 
-const SCREENSHOT_TIER_TIMEOUT_MS = 12_000;
+const screenshotCalls = new WeakMap<WebContents, Promise<unknown>>();
 
 export async function captureGuestScreenshot(
+  webContents: WebContents,
+  outputPath: string,
+  full = false,
+): Promise<string> {
+  // Guests in one window share its render scheduler and temporary capture styles.
+  const key = webContents.hostWebContents ?? webContents;
+  const previous = screenshotCalls.get(key) ?? Promise.resolve();
+  const call = previous.catch(() => {}).then(() => captureGuestScreenshotNow(webContents, outputPath, full));
+  screenshotCalls.set(key, call);
+  try {
+    return await call;
+  } finally {
+    if (screenshotCalls.get(key) === call) screenshotCalls.delete(key);
+  }
+}
+
+async function captureGuestScreenshotNow(
   webContents: WebContents,
   outputPath: string,
   full = false,
@@ -114,36 +139,32 @@ export async function captureGuestScreenshot(
   }
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
 
-  const tiers: Array<{ name: string; run: () => Promise<number> }> = [
-    {
-      name: "cdp-fromSurface-true",
-      run: () => tryCdpCapture(webContents, outputPath, full, true),
-    },
-    {
-      name: "cdp-fromSurface-false",
-      run: () => tryCdpCapture(webContents, outputPath, full, false),
-    },
-    {
-      name: "capturePage-stayHidden",
-      run: () => tryCapturePage(webContents, outputPath),
-    },
-  ];
-
-  let lastError: unknown;
-  for (const tier of tiers) {
-    try {
-      await withTimeout(tier.run(), SCREENSHOT_TIER_TIMEOUT_MS, tier.name);
-      return outputPath;
-    } catch (error) {
-      lastError = error;
+  const surface = await prepareGuestScreenshotSurface(webContents);
+  try {
+    if (surface.prepared) {
+      // A never-painted hidden guest has no surface for CDP. Request a real
+      // guest frame first, then use CDP to preserve emulated viewport/DPR.
+      try {
+        await withTimeout(webContents.capturePage(undefined, { stayHidden: true, stayAwake: true }),
+          SCREENSHOT_TIMEOUT_MS, "prepare-guest-frame");
+      } catch (error) {
+        throw new Error(`Screenshot guest frame preparation failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
+    let png: Buffer;
+    try {
+      png = await withTimeout(tryCdpCapture(webContents, full, surface.prepared),
+        SCREENSHOT_TIMEOUT_MS, "Page.captureScreenshot");
+    } catch (error) {
+      // View/native captures can silently change DPR or truncate a full page.
+      // Preserve the actual failure instead of returning a different screenshot.
+      throw new Error(`Screenshot CDP capture failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    fs.writeFileSync(outputPath, png);
+    return outputPath;
+  } finally {
+    await surface.dispose();
   }
-
-  throw new Error(
-    `Screenshot failed after all capture methods: ${
-      lastError instanceof Error ? lastError.message : String(lastError)
-    }`,
-  );
 }
 
 export function agentBrowserTextResult(text: string, isError = false): AgentBrowserMcpToolResult {
