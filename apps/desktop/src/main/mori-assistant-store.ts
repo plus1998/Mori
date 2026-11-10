@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { MORI_PET_ANIMATIONS } from "../shared/mori-pet";
 import {
   DEFAULT_MORI_ASSISTANT_SETTINGS,
   MORI_PET_SIZE_MAX,
@@ -35,6 +36,18 @@ export function parseAssistantSettings(value: unknown): MoriAssistantSettings {
     throw new Error("启用助手前请选择自定义模型服务商。");
   if (result.petKey && !/^(codex|codex-home|mori):[^/\\]+$/.test(result.petKey))
     throw new Error("宠物标识无效。");
+  if (result.avatar !== null) {
+    const avatar = result.avatar;
+    if (!avatar || typeof avatar !== "object" || Array.isArray(avatar) ||
+      typeof avatar.petKey !== "string" ||
+      (avatar.petKey !== "builtin:mori" && !/^(codex|codex-home|mori):[^/\\]+$/.test(avatar.petKey)) ||
+      typeof avatar.animation !== "string" || !Object.hasOwn(MORI_PET_ANIMATIONS, avatar.animation) ||
+      !Number.isInteger(avatar.frame) || avatar.frame < 0 ||
+      avatar.frame >= MORI_PET_ANIMATIONS[avatar.animation].durations.length ||
+      !Number.isFinite(avatar.zoom) || avatar.zoom < 1 || avatar.zoom > 2.5)
+      throw new Error("助手头像设置无效。");
+    result.avatar = { petKey: avatar.petKey, animation: avatar.animation, frame: avatar.frame, zoom: avatar.zoom };
+  }
   if (!result.petSizes || typeof result.petSizes !== "object" || Array.isArray(result.petSizes))
     throw new Error("宠物大小设置无效。");
   for (const [key, size] of Object.entries(result.petSizes)) {

@@ -1,5 +1,6 @@
 import type { ConversationMessage } from "@eco/shared";
 import type { ComputerUseActionApprovalMode } from "./computer-use";
+import type { MoriAvatarSettings } from "./mori-avatar";
 import type { ThreadSummary } from "./ipc";
 import type { OpenAIAccount } from "./openai-account";
 import type { ScheduleDefinition, ScheduleOccurrence } from "./scheduling";
@@ -9,6 +10,7 @@ export type MoriMcpApprovalMode = "always_ask" | "always_allow";
 export interface MoriAssistantSettings {
   enabled: boolean;
   name: string;
+  avatar: MoriAvatarSettings | null;
   instructions: string;
   modelSource: "chatgpt" | "custom";
   providerId: string;
@@ -143,6 +145,7 @@ export const MORI_ASSISTANT_CHANNELS = {
 export const DEFAULT_MORI_ASSISTANT_SETTINGS: MoriAssistantSettings = {
   enabled: false,
   name: "Mori",
+  avatar: null,
   instructions: "使用中文，简洁清楚地回答。需要操作桌面端时使用提供的工具；只有工具执行成功后才能确认完成。",
   modelSource: "chatgpt",
   providerId: "",

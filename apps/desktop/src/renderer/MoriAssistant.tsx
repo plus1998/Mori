@@ -51,7 +51,8 @@ import { ICON_SIZE, ICON_STROKE } from "./icon-metrics";
 import { shortcutMatches, useKeyboardShortcuts } from "./keyboard-shortcuts";
 import { LazyOpenAIAccountsPanel } from "./lazy-app-panels";
 import { MarkdownContent } from "./MarkdownContent";
-import { MoriIcon } from "./MoriIcon";
+import { MoriAvatar } from "./MoriAvatar";
+import { MoriAvatarSettings } from "./MoriAvatarSettings";
 import { MoriPetSettings } from "./MoriPetSettings";
 import { MoriPetSprite } from "./MoriPetSprite";
 import { MoriScheduledCards } from "./MoriScheduledCards";
@@ -270,6 +271,9 @@ export function MoriAssistantSettingsPanel({
       <fieldset disabled={locked}>
         {tab === "conversation" ? (
           <>
+            <SettingsSection className="mori-settings-section" title="助手头像">
+              <MoriAvatarSettings value={settings.avatar} onChange={(value) => patch("avatar", value)} />
+            </SettingsSection>
             <SettingsSection
               className="mori-settings-section"
               title={<>{t("moriUi.moriAssistant.modelSource")}</>}
@@ -1075,8 +1079,9 @@ export function MoriAssistantPanel({
       aria-label={t("moriUi.moriAssistant.chatLabel")}
     >
       <header className="mori-panel-header">
-        <span className="mori-mark">
-          <MoriIcon
+        <button className="mori-mark mori-avatar-trigger" type="button" onClick={openSettings} aria-label="更换助手头像" title="更换助手头像">
+          <MoriAvatar
+            avatar={snapshot?.settings.avatar}
             animated
             mood={
               snapshot?.status === "waiting"
@@ -1088,7 +1093,7 @@ export function MoriAssistantPanel({
                     : "idle"
             }
           />
-        </span>
+        </button>
         <div className="mori-heading">
           <strong title={snapshot?.settings.name ?? "Mori"}>{snapshot?.settings.name ?? "Mori"}</strong>
           <small>
@@ -1271,7 +1276,7 @@ export function MoriAssistantPanel({
             {snapshot && !snapshot.settings.enabled && !messages.length ? (
               <div className="mori-empty">
                 <span className="mori-mark large">
-                  <MoriIcon size={60} animated />
+                  <MoriAvatar avatar={snapshot.settings.avatar} size={60} animated />
                 </span>
                 <h2>{t("moriUi.moriAssistant.greeting")}</h2>
                 <p>{t("moriUi.moriAssistant.greetingHint")}</p>
@@ -1293,7 +1298,7 @@ export function MoriAssistantPanel({
             {snapshot?.settings.enabled && !messages.length ? (
               <div className="mori-empty">
                 <span className="mori-mark large">
-                  <MoriIcon size={60} animated />
+                  <MoriAvatar avatar={snapshot.settings.avatar} size={60} animated />
                 </span>
                 <h2>{t("moriUi.moriAssistant.todayPrompt")}</h2>
                 <p>{t("moriUi.moriAssistant.todayHint")}</p>
