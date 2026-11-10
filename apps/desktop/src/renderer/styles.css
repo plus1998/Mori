@@ -15922,7 +15922,7 @@ button.default-agent-option:focus-visible {
 .markdown-content a.markdown-file-ref,
 .markdown-content .markdown-file-ref {
   display: inline-flex;
-  align-items: center;
+  align-items: baseline;
   gap: 5px;
   max-width: 100%;
   color: var(--markdown-link);
@@ -15941,7 +15941,7 @@ button.default-agent-option:focus-visible {
 
 .markdown-file-ref {
   display: inline-flex;
-  align-items: center;
+  align-items: baseline;
   gap: 5px;
   max-width: 100%;
   color: var(--markdown-link);
@@ -15954,6 +15954,12 @@ button.default-agent-option:focus-visible {
   text-decoration: underline;
   text-decoration-color: var(--markdown-link-decoration);
   text-underline-offset: 2px;
+}
+
+/* Let the label establish the inline baseline while keeping icons centered. */
+.markdown-file-ref > svg,
+.markdown-file-ref__icon {
+  align-self: center;
 }
 
 .markdown-file-ref__icon {
@@ -43866,7 +43872,7 @@ body.is-resizing-browser-split::before {
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 16%, transparent);
 }
 .composer-reference-inline.is-selected::selection, .composer-reference-inline.is-selected *::selection { background: transparent; }
-.composer-reference-display { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; vertical-align: baseline; }
+.composer-reference-display { display: inline-flex; align-items: baseline; gap: 4px; max-width: 100%; vertical-align: baseline; }
 @container (max-width: 400px) {
   .composer-references-footer-note { display: none; }
   .composer-references-footer { justify-content: flex-end; }
