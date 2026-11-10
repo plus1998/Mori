@@ -41,18 +41,18 @@ Object.assign(window, {
     },
     async chatGptSubscriptionAccountsList() {
       if (pending === "oauth-accounts") return never();
-      return [{ accountId: "oauth-account", displayName: "Local OAuth account", enabled: true, hasCredentials: true }];
+      return [{ accountId: "oauth-account", displayName: "Local OAuth account", enabled: true, hasCredentials: true, status: "ready" }];
     },
     async getCodexModelCatalog() {
       return holdCatalogs ? never() : catalog("Login local model");
     },
     async getChatGptModelCatalog() {
-      if (pending === "oauth-models") return new Promise((_resolve, reject) => { rejectOauthCatalog = reject; });
       return holdCatalogs ? never() : catalog("OAuth local model");
     },
     async chatGptSubscriptionAccountModelsList() {
       remoteModelReads += 1;
-      return never();
+      if (pending === "oauth-models") return new Promise((_resolve, reject) => { rejectOauthCatalog = reject; });
+      return holdCatalogs ? never() : [{ id: "OAuth local model", displayName: "OAuth local model" }];
     },
     async openAIAccountsQueryQuota() { return never(); },
   },
