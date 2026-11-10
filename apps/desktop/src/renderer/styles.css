@@ -1930,6 +1930,15 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .thread-info-workspac
   font-weight: 600;
 }
 
+.sidebar-thread-tooltip-core-icon {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  margin-right: 6px;
+  object-fit: contain;
+  vertical-align: -2px;
+}
+
 .sidebar-thread-tooltip-time {
   flex: none;
   color: var(--text-muted);
@@ -2105,24 +2114,6 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .thread-info-workspac
   line-height: 20px;
   color: var(--sidebar-thread-text);
   font-size: var(--ui-font-size);
-}
-
-.chat-item-core-icon {
-  position: absolute;
-  top: 50%;
-  left: 10px;
-  width: 14px;
-  height: 14px;
-  object-fit: contain;
-  opacity: 0;
-  pointer-events: none;
-  transform: translateY(-50%);
-  transition: opacity 0.12s ease;
-}
-
-.chat-item-row:hover .chat-item-core-icon,
-.chat-item-row:focus-within .chat-item-core-icon {
-  opacity: 1;
 }
 
 .chat-item-title {

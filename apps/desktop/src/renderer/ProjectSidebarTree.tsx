@@ -621,14 +621,6 @@ function ProjectSidebarTreeView({
                       onBlur={hideThreadTooltip}
                       onClick={() => { hideThreadTooltip(); onSelectThread(thread); }}
                     >
-                      {thread.coreKind ? (
-                        <img
-                          className="chat-item-core-icon"
-                          src={coreIconSrc(thread.coreKind)}
-                          alt={coreDisplayName(thread.coreKind)}
-                          draggable={false}
-                        />
-                      ) : null}
                       <span className="chat-item-title-row">
                         <OverflowFadeText className="chat-item-title">{thread.title}</OverflowFadeText>
                         {draftThreadIds?.has(thread.id) ? (
@@ -792,7 +784,17 @@ function ProjectSidebarTreeView({
       {threadTooltip ? createPortal(
         <div id="sidebar-thread-tooltip" className="sidebar-thread-tooltip" role="tooltip" style={{ top: threadTooltip.top, left: threadTooltip.left }}>
           <div className="sidebar-thread-tooltip-heading">
-            <span className="sidebar-thread-tooltip-title">{threadTooltip.thread.title}</span>
+            <span className="sidebar-thread-tooltip-title">
+              {threadTooltip.thread.coreKind ? (
+                <img
+                  className="sidebar-thread-tooltip-core-icon"
+                  src={coreIconSrc(threadTooltip.thread.coreKind)}
+                  alt={coreDisplayName(threadTooltip.thread.coreKind)}
+                  draggable={false}
+                />
+              ) : null}
+              {threadTooltip.thread.title}
+            </span>
             <span className="sidebar-thread-tooltip-time">{formatRelativeTime(threadTooltip.thread.updatedAt ?? threadTooltip.thread.createdAt, Date.now(), locale)}</span>
           </div>
           <div className="sidebar-thread-tooltip-project"><Folder size={ICON_SIZE.sm} strokeWidth={ICON_STROKE} aria-hidden />{threadTooltip.projectName}</div>
