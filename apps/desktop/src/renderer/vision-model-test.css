@@ -1,0 +1,160 @@
+.stateless-model-control.has-vision-test {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.has-vision-test > .composer-model-selector {
+  flex: 1;
+  min-width: 0;
+}
+
+.vision-test-trigger,
+.vision-test-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 6px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--text-secondary);
+  background: transparent;
+  cursor: pointer;
+}
+
+.vision-test-trigger:hover:not(:disabled),
+.vision-test-close:hover {
+  color: var(--text-primary);
+  background: var(--bg-elevated-hover);
+}
+
+.vision-test-trigger:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.settings-modal.vision-test-dialog {
+  margin: auto;
+  padding: 0;
+  width: min(660px, calc(100vw - 48px));
+}
+.vision-test-dialog::backdrop {
+  background: rgb(0 0 0 / 32%);
+  backdrop-filter: blur(4px);
+}
+.vision-test-dialog .settings-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.vision-test-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.vision-test-model {
+  margin: 0 0 6px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.vision-test-hint {
+  margin: 6px 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.vision-test-image {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 190px;
+  object-fit: contain;
+  background: white;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+}
+.vision-test-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.vision-test-duration {
+  margin-left: auto;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: normal;
+}
+.vision-test-checks {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  table-layout: fixed;
+}
+.vision-test-checks th,
+.vision-test-checks td {
+  padding: 8px 6px;
+  text-align: left;
+  border-bottom: 1px solid var(--border-subtle);
+  overflow-wrap: anywhere;
+}
+.vision-test-checks thead {
+  color: var(--text-secondary);
+}
+.vision-test-checks tbody th {
+  font-weight: normal;
+}
+.vision-test-pass,
+.vision-test-fail {
+  display: inline-flex;
+  vertical-align: middle;
+  margin-right: 5px;
+}
+.vision-test-pass {
+  color: var(--success, #16a34a);
+}
+.vision-test-fail,
+.vision-test-status.is-error {
+  color: var(--danger, #dc2626);
+}
+.vision-test-output-label {
+  font-size: 12px;
+  margin: 12px 0 6px;
+}
+.vision-test-response {
+  margin-top: 10px;
+  font-size: 12px;
+}
+.vision-test-response summary {
+  cursor: pointer;
+  color: var(--text-secondary);
+  padding: 4px 0;
+}
+.vision-test-output {
+  margin: 0;
+  padding: 12px;
+  max-height: 180px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border-radius: 8px;
+  background: var(--bg-elevated-hover);
+  font-size: 12px;
+  line-height: 1.6;
+  user-select: text;
+}
+.vision-test-spinner {
+  animation: vision-test-spin 1s linear infinite;
+}
+@keyframes vision-test-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .vision-test-spinner {
+    animation: none;
+  }
+}

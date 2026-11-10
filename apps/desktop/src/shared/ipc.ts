@@ -116,6 +116,8 @@ export const IPC_CHANNELS = {
   modelProviderDelete: "model-provider:delete",
   modelProviderListModels: "model-provider:list-models",
   modelProviderTest: "model-provider:test",
+  visionModelTest: "vision-model:test",
+  visionModelTestCancel: "vision-model:test-cancel",
   cursorApiKeysList: "cursor-api-keys:list",
   cursorApiKeySave: "cursor-api-keys:save",
   cursorApiKeyDelete: "cursor-api-keys:delete",

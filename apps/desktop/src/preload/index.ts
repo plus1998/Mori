@@ -1,3 +1,4 @@
+import type { VisionModelTestRequest, VisionModelTestResult } from "../shared/vision-model-test";
 import type { ImageLibraryQuery, ImageLibraryPage, LibraryImage, ImageLibraryReadResult, ImageLibraryBatchResult } from "../shared/image-library";
 import type { KeyboardShortcutsSnapshot, ShortcutBindings } from "../shared/keyboard-shortcuts";
 import type { AccountUsageHistory, AccountUsageQuery, UsageOverview, UsageOverviewQuery } from "../shared/account-usage";
@@ -729,6 +730,12 @@ const api = {
   },
   testProviderConnection(request: TestProviderConnectionRequest): Promise<TestProviderConnectionResult> {
     return ipcRenderer.invoke(IPC_CHANNELS.modelProviderTest, request);
+  },
+  testVisionModel(request: VisionModelTestRequest): Promise<VisionModelTestResult> {
+    return ipcRenderer.invoke(IPC_CHANNELS.visionModelTest, request);
+  },
+  cancelVisionModelTest(requestId: string): Promise<void> {
+    return ipcRenderer.invoke(IPC_CHANNELS.visionModelTestCancel, requestId);
   },
   chatGptSubscriptionAccountsList(): Promise<Array<{
     accountId: string;

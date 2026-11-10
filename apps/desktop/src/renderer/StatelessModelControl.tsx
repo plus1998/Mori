@@ -1,6 +1,9 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
+import { ScanEye } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import type { AuxiliaryModelSelection, ModelRef } from "../shared/ipc";
 import { ComposerMainModelPicker } from "./ComposerMainModelPicker";
+import { VisionModelTestDialog } from "./VisionModelTestDialog";
 
 /** The same provider/account/model picker used by the main model, without Harness controls. */
 export function StatelessModelControl({
@@ -25,8 +28,13 @@ export function StatelessModelControl({
   panelZIndex?: number | undefined;
 }) {
   const anchorRef = useRef<HTMLDivElement>(null);
+  const { t } = useTranslation();
+  const [testSelection, setTestSelection] = useState<AuxiliaryModelSelection>();
   return (
-    <div ref={anchorRef} className="stateless-model-control">
+    <div
+      ref={anchorRef}
+      className={`stateless-model-control${purpose === "vision" ? " has-vision-test" : ""}`}
+    >
       <ComposerMainModelPicker
         anchorRef={anchorRef}
         coreKind=""
@@ -48,6 +56,23 @@ export function StatelessModelControl({
           });
         }}
       />
+      {purpose === "vision" ? (
+        <button
+          type="button"
+          className="vision-test-trigger"
+          disabled={disabled || !value}
+          title={t(value ? "visionTest.title" : "visionTest.selectFirst")}
+          aria-label={t("visionTest.title")}
+          onClick={() => {
+            if (value) setTestSelection({ ...value });
+          }}
+        >
+          <ScanEye size={16} />
+        </button>
+      ) : null}
+      {testSelection ? (
+        <VisionModelTestDialog selection={testSelection} onClose={() => setTestSelection(undefined)} />
+      ) : null}
     </div>
   );
 }

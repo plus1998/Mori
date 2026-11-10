@@ -1172,6 +1172,8 @@ import type { RunAttemptCommandDispatch, RunAttemptPhase, RunAttemptStatus } fro
 import { UsageLedgerCoordinator } from "./usage-ledger-coordinator";
 import { type ImageViewHost, runImageView } from "./vision-analysis";
 import { resolveThreadVisionAnalysisRoute, resolveVisionModelRoute } from "./vision-model-route";
+import { runVisionModelTest } from "./vision-model-test";
+import type { VisionModelTestRequest } from "../shared/vision-model-test";
 import {
   createWebChatListStore,
   isWebChatListSnapshot,
@@ -7823,6 +7825,47 @@ function registerIpcHandlers(): void {
   registerDesktopCommand(IPC_CHANNELS.modelProviderListModels, listModelProviderUpstreamModels);
 
   registerDesktopCommand(IPC_CHANNELS.modelProviderTest, testModelProvider);
+
+  const visionModelTests = new Map<string, AbortController>();
+  registerDesktopCommand(IPC_CHANNELS.visionModelTest, async (request: VisionModelTestRequest) => {
+    if (!request || typeof request.requestId !== "string" || !request.requestId.trim())
+      throw new Error("Invalid vision model test request.");
+    if (visionModelTests.has(request.requestId)) throw new Error("Vision model test is already running.");
+    const controller = new AbortController();
+    visionModelTests.set(request.requestId, controller);
+    try {
+      return await runVisionModelTest(
+        request,
+        {
+          resolveRoute: () => resolveVisionModelRoute(request.selection, providerStore),
+          async startProxy(route, attachments) {
+            // Settings tests have no conversation. Keep the standard route/proxy and account usage
+            // recording, without emitting activity or conversation billing for a synthetic thread.
+            const proxy = await startRuntimeProxy([route], [...attachments]);
+            const alias = proxy.routes[0];
+            if (!alias) {
+              await proxy.close();
+              throw new Error("Vision model test has no callable model alias.");
+            }
+            return {
+              baseUrl: proxy.baseUrl,
+              apiKey: proxy.apiKey,
+              aliasModelId: alias.aliasModelId,
+              close: () => proxy.close(),
+            };
+          },
+          registerBilling() {},
+          unregisterBilling() {},
+        },
+        controller.signal,
+      );
+    } finally {
+      visionModelTests.delete(request.requestId);
+    }
+  });
+  registerDesktopCommand(IPC_CHANNELS.visionModelTestCancel, (requestId: string) => {
+    if (typeof requestId === "string") visionModelTests.get(requestId)?.abort();
+  });
 
   registerDesktopCommand(IPC_CHANNELS.chatGptModelCatalogGet, chatGptModelCatalogSnapshot);
   registerDesktopCommand(IPC_CHANNELS.chatGptModelCatalogRefresh, async (accountId?: string) => {
