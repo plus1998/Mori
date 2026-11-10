@@ -24,6 +24,7 @@ import {
   type Dispatch,
   type DragEvent,
   type SetStateAction,
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -31,6 +32,7 @@ import {
   useState,
 } from "react";
 import { useTranslation } from "react-i18next";
+import { useOpenAIAccountsData } from "./useOpenAIAccountsData";
 import { requestPathPlaceholderForApiCompat } from "../shared/api-compat";
 import type { CenterServerSyncDomain, CenterServerSyncDomainResult } from "../shared/center-server";
 import type {
@@ -256,6 +258,7 @@ export function ModelsSettingsPanel({
       ? providerSettingsTabItems.some((tab) => tab.id === initialTab) ? initialTab : "providers"
       : initialTab === "providers" ? "subagents" : initialTab;
   const [activeTab, setActiveTab] = useState<ModelsSettingsTab>(resolvedInitialTab);
+  const openAIAccountsData = useOpenAIAccountsData(mode === "providerSettings" || activeTab === "openaiAccounts");
   const [cursorKeysRevision, setCursorKeysRevision] = useState(0);
   const [runtimeConfigTab, setRuntimeConfigTab] = useState<RuntimeConfigTab>("defaults");
   const [providerModalOpen, setProviderModalOpen] = useState(false);
@@ -834,7 +837,11 @@ export function ModelsSettingsPanel({
         </section>
       )}
 
-      {activeTab === "openaiAccounts" && <LazyOpenAIAccountsPanel onError={showAppMessageError} />}
+      {activeTab === "openaiAccounts" && (
+        <Suspense fallback={<div className="codex-empty-state" role="status" aria-busy="true">{t("common.loading")}</div>}>
+          <LazyOpenAIAccountsPanel onError={showAppMessageError} data={openAIAccountsData} />
+        </Suspense>
+      )}
 
       {activeTab === "chatgptAccounts" && (
         <ChatGPTSubscriptionAccountsPanel

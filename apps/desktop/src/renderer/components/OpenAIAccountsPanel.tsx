@@ -3,6 +3,7 @@ import { AccountWakeBatchesPanel } from "./AccountWakeBatchesPanel";
 import { canUseOpenAIAccountCredentials } from "../../shared/openai-account";
 import { useImageQuotaResetRefresh } from "../useImageQuotaResetRefresh";
 import { QuotaRefreshedAt } from "../QuotaRefreshedAt";
+import { useOpenAIAccountsData, type OpenAIAccountsData } from "../useOpenAIAccountsData";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -57,6 +58,7 @@ type Translate = TFunction<"translation", undefined>;
 
 const CODEX_ACCOUNT_ACTION_MENU_WIDTH = 220;
 const MENU_VIEWPORT_MARGIN = 8;
+const EMPTY_ACCOUNTS: OpenAIAccount[] = [];
 
 function formatResetTime(window: OpenAIAccountQuotaWindow, fetchedAt: number, t: Translate): string {
   const resetAt = window.resetAt > 0 ? window.resetAt * 1_000 : fetchedAt + window.resetAfterSeconds * 1_000;
@@ -313,16 +315,35 @@ export function OpenAIAccountProfilePresence({ fields }: { fields: OpenAIAccount
   </div>;
 }
 
-export function OpenAIAccountsPanel({ onError }: { onError: (message: string) => void }) {
+export function OpenAIAccountsPanel({ onError, data }: {
+  onError: (message: string) => void;
+  data?: OpenAIAccountsData;
+}) {
+  const localData = useOpenAIAccountsData(!data);
+  return <OpenAIAccountsContent onError={onError} data={data ?? localData} />;
+}
+
+function OpenAIAccountsContent({ onError, data }: {
+  onError: (message: string) => void;
+  data: OpenAIAccountsData;
+}) {
   const { t, i18n } = useTranslation();
   const locale = (i18n.resolvedLanguage ?? i18n.language) as AppLocale;
   const eco = window.eco;
-  const [accounts, setAccounts] = useState<OpenAIAccount[]>([]);
-  const [accountOrder, setAccountOrder] = useState<string[]>([]);
+  const { accounts: snapshot, error: loadError, refresh } = data;
+  const accounts = snapshot ?? EMPTY_ACCOUNTS;
+  const [initialOrder] = useState(() => {
+    try {
+      return { ids: readOpenAIAccountOrder(window.localStorage), error: "" };
+    } catch (cause) {
+      return { ids: [], error: cause instanceof Error ? cause.message : String(cause) };
+    }
+  });
+  const [accountOrder, setAccountOrder] = useState<string[]>(initialOrder.ids);
   const [draggedAccountId, setDraggedAccountId] = useState<string | null>(null);
   const [accountDropTarget, setAccountDropTarget] = useState<{ id: string; position: "before" | "after" } | null>(null);
-  const [loadError, setLoadError] = useState<string>();
-  const [operationError, setOperationError] = useState("");
+  const [operationError, setOperationError] = useState(() => initialOrder.error
+    ? t("settings.openaiAccounts.orderLoadFailed", { message: initialOrder.error }) : "");
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "ready" | "missing">("all");
   const [busy, setBusy] = useState(false);
@@ -349,16 +370,6 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
   const menuRef = useRef<HTMLDivElement>(null);
   const menuTriggerRef = useRef<HTMLButtonElement | null>(null);
 
-  useEffect(() => {
-    try {
-      setAccountOrder(readOpenAIAccountOrder(window.localStorage));
-    } catch (error) {
-      setOperationError(t("settings.openaiAccounts.orderLoadFailed", {
-        message: error instanceof Error ? error.message : String(error),
-      }));
-    }
-  }, [t]);
-
   // Modal state
   const [modalOpen, setModalOpen] = useState(false);
   const [modalEditId, setModalEditId] = useState<string | null>(null);
@@ -380,20 +391,13 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
   const [manualAuthId, setManualAuthId] = useState<string | null>(null);
   const [manualAuthContent, setManualAuthContent] = useState("");
 
-  const refresh = useCallback(async () => {
-    if (!eco) return;
-    try {
-      const list = await eco.openAIAccountsList();
-      setAccounts(list);
-      setQuotaErrors((previous) => Object.fromEntries(Object.entries(previous).filter(([id, error]) => {
-        const account = list.find((entry) => entry.id === id);
-        return account && (account.quota?.fetchedAt ?? 0) < error.attemptedAt;
-      })));
-      setLoadError(undefined);
-    } catch (error) {
-      setLoadError(error instanceof Error ? error.message : String(error));
-    }
-  }, [eco]);
+  useEffect(() => {
+    if (!snapshot) return;
+    setQuotaErrors((previous) => Object.fromEntries(Object.entries(previous).filter(([id, error]) => {
+      const account = snapshot.find((entry) => entry.id === id);
+      return account && (account.quota?.fetchedAt ?? 0) < error.attemptedAt;
+    })));
+  }, [snapshot]);
 
   useEffect(() => {
     if (!eco) return;
@@ -435,7 +439,6 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
 
   useEffect(() => {
     if (!eco) return undefined;
-    void refresh();
     const unsubOauth = eco.onCodexOauthLoginResult(async (result) => {
       if (result.accountId && !result.loginId) {
         setLoggingInId((current) => current === result.accountId ? null : current);
@@ -446,12 +449,8 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
       }
       await refresh();
     });
-    const unsubAccounts = eco.onOpenAIAccountsChanged(async () => {
-      await refresh();
-    });
     return () => {
       if (typeof unsubOauth === "function") unsubOauth();
-      unsubAccounts();
     };
   }, [eco, onError, refresh]);
 
@@ -889,69 +888,78 @@ export function OpenAIAccountsPanel({ onError }: { onError: (message: string) =>
         <p className="codex-accounts-description">{t("settings.openaiAccounts.description")}</p>
       </div>
 
-      {loadError ? <div className="codex-account-sync-error">{t("settings.openaiAccounts.loadFailed", { message: loadError })}</div> : null}
+      {loadError && snapshot !== undefined ? <div className="codex-account-sync-error" role="alert">
+        {t("settings.openaiAccounts.loadFailed", { message: loadError })}
+        <button type="button" className="chatgpt-inline-link" onClick={() => void refresh()}>{t("common.retry")}</button>
+      </div> : null}
       {operationError ? <div className="codex-account-sync-error">{operationError}</div> : null}
-      <div className="codex-accounts-toolbar">
-        <span>
-          {t("settings.openaiAccounts.accountCount", { count: accounts.length })}
-          <span className="codex-toolbar-divider">·</span>
-          {t("settings.openaiAccounts.loggedInCount", { total: loggedInCount })}
-        </span>
-        <div className="codex-toolbar-links">
-          <button
-            type="button"
-            className="chatgpt-inline-link"
-            onClick={() => void refreshQuotas()}
-            disabled={quotaLoading || quotaLoadingId !== null || !accounts.some((account) => canUseOpenAIAccountCredentials(account))}
-          >
-            <RefreshCw
-              size={13}
-              className={quotaLoading ? "mcp-spin" : undefined}
-            />
-            {quotaLoading
-              ? t("settings.openaiAccounts.refreshing")
-              : t("settings.openaiAccounts.refreshQuota")}
-          </button>
-        </div>
-      </div>
+      {snapshot !== undefined ? (
+        <>
+          <div className="codex-accounts-toolbar">
+            <span>
+              {t("settings.openaiAccounts.accountCount", { count: accounts.length })}
+              <span className="codex-toolbar-divider">·</span>
+              {t("settings.openaiAccounts.loggedInCount", { total: loggedInCount })}
+            </span>
+            <div className="codex-toolbar-links">
+              <button
+                type="button"
+                className="chatgpt-inline-link"
+                onClick={() => void refreshQuotas()}
+                disabled={quotaLoading || quotaLoadingId !== null || !accounts.some((account) => canUseOpenAIAccountCredentials(account))}
+              >
+                <RefreshCw
+                  size={13}
+                  className={quotaLoading ? "mcp-spin" : undefined}
+                />
+                {quotaLoading
+                  ? t("settings.openaiAccounts.refreshing")
+                  : t("settings.openaiAccounts.refreshQuota")}
+              </button>
+            </div>
+          </div>
 
-      <div className="codex-account-controls">
-        <div className="codex-account-filters" role="group" aria-label={t("settings.openaiAccounts.filterAria")}>
-          {([
-            ["all", t("settings.openaiAccounts.filterAll"), accounts.length],
-            ["ready", t("settings.openaiAccounts.filterReady"), loggedInCount],
-            ["missing", t("settings.openaiAccounts.filterMissing"), accounts.length - loggedInCount],
-          ] as const).map(([value, label, count]) =>
-            <button key={value} type="button" aria-pressed={statusFilter === value} className={statusFilter === value ? "is-selected" : ""} onClick={() => setStatusFilter(value)}>{label}<span>{count}</span></button>)}
-        </div>
-        <div className="codex-accounts-search">
-          <Search size={14} className="search-input-icon" />
-          <input
-            className="mcp-field-input search-input"
-            type="text"
-            value={searchQuery}
-            placeholder={t("settings.openaiAccounts.searchPlaceholder")}
-            onChange={(event) => setSearchQuery(event.target.value)}
-          />
-          {searchQuery ? (
-            <button
-              type="button"
-              className="search-input-clear"
-              aria-label={t("common.clearSearch")}
-              onClick={() => setSearchQuery("")}
-            >
-              <X size={12} />
-            </button>
-          ) : null}
-        </div>
-      </div>
+          <div className="codex-account-controls">
+            <div className="codex-account-filters" role="group" aria-label={t("settings.openaiAccounts.filterAria")}>
+              {([
+                ["all", t("settings.openaiAccounts.filterAll"), accounts.length],
+                ["ready", t("settings.openaiAccounts.filterReady"), loggedInCount],
+                ["missing", t("settings.openaiAccounts.filterMissing"), accounts.length - loggedInCount],
+              ] as const).map(([value, label, count]) =>
+                <button key={value} type="button" aria-pressed={statusFilter === value} className={statusFilter === value ? "is-selected" : ""} onClick={() => setStatusFilter(value)}>{label}<span>{count}</span></button>)}
+            </div>
+            <div className="codex-accounts-search">
+              <Search size={14} className="search-input-icon" />
+              <input
+                className="mcp-field-input search-input"
+                type="text"
+                value={searchQuery}
+                placeholder={t("settings.openaiAccounts.searchPlaceholder")}
+                onChange={(event) => setSearchQuery(event.target.value)}
+              />
+              {searchQuery ? (
+                <button
+                  type="button"
+                  className="search-input-clear"
+                  aria-label={t("common.clearSearch")}
+                  onClick={() => setSearchQuery("")}
+                >
+                  <X size={12} />
+                </button>
+              ) : null}
+            </div>
+          </div>
+        </>
+      ) : null}
 
-      {loadError ? (
-        <div className="codex-empty-state">
+      {snapshot === undefined ? loadError ? (
+        <div className="codex-empty-state" role="alert">
           <strong>{t("settings.openaiAccounts.listLoadFailed")}</strong>
           <p>{loadError}</p>
           <button type="button" className="settings-primary-button" onClick={() => void refresh()}>{t("common.retry")}</button>
         </div>
+      ) : (
+        <div className="codex-empty-state" role="status" aria-busy="true">{t("common.loading")}</div>
       ) : filteredAccounts.length === 0 ? (
         <div className="codex-empty-state">
           {searchQuery || accounts.length > 0 ? (
