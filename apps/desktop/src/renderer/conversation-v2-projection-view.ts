@@ -71,7 +71,7 @@ import {
   reasoningSummaryLabel,
   resolveSubagentRunDisplayTitle,
 } from "./activity-log";
-import { i18n } from "./i18n";
+import { getRendererTranslationRevision, i18n } from "./i18n";
 import type { RuntimeAgentDisplayNames } from "./runtime-agent-display";
 import { type ThinkingDisplayMode, thinkingModeUsesEphemeralTip } from "./thinking-display-preferences";
 
@@ -3239,7 +3239,36 @@ function buildProjectionToolActionBlock(
   };
 }
 
+// Projection reducers replace changed items and metadata. Reuse tool details
+// across grouping, lifecycle checks and rendering; consumers treat them as immutable.
+// Weak keys let unloaded history go, and the revision keeps translated labels fresh.
+const toolDetailBlocks = new WeakMap<
+  ThreadRunProjectionTimelineItem,
+  {
+    revision: number;
+    block: ActivityDetailBlock | undefined;
+  }
+>();
+
 export function projectionItemToDetailBlock(
+  item: ThreadRunProjectionTimelineItem,
+): ActivityDetailBlock | undefined {
+  if (
+    item.eventType !== "tool.started" &&
+    item.eventType !== "tool.completed" &&
+    item.eventType !== "tool.failed"
+  ) {
+    return buildProjectionItemDetailBlock(item);
+  }
+  const revision = getRendererTranslationRevision();
+  const cached = toolDetailBlocks.get(item);
+  if (cached?.revision === revision) return cached.block;
+  const block = buildProjectionItemDetailBlock(item);
+  toolDetailBlocks.set(item, { revision, block });
+  return block;
+}
+
+function buildProjectionItemDetailBlock(
   item: ThreadRunProjectionTimelineItem,
 ): ActivityDetailBlock | undefined {
   const text = item.text.trim();

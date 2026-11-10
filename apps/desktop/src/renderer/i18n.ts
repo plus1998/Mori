@@ -37,6 +37,19 @@ void i18n.use(initReactI18next).init({
   returnNull: false,
 });
 
+let translationRevision = 0;
+const advanceTranslationRevision = () => {
+  translationRevision += 1;
+};
+i18n.on("languageChanged", advanceTranslationRevision);
+i18n.store.on("added", advanceTranslationRevision);
+i18n.store.on("removed", advanceTranslationRevision);
+
+/** Also changes when an existing resource bundle is updated in place (including HMR). */
+export function getRendererTranslationRevision(): number {
+  return translationRevision;
+}
+
 export async function applyLocalePreference(preference: AppLocalePreference): Promise<AppLocale> {
   persistLocalePreference(preference, typeof window === "undefined" ? undefined : window.localStorage);
   const locale = getResolvedRendererLocale(preference);
