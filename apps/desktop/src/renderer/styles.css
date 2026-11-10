@@ -6918,6 +6918,22 @@ button.sidebar-settings-meta {
   opacity: 0.5;
 }
 
+.workspace-image-display-row .image-display-delete-button {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+
+.workspace-image-display-row:is(:hover, :focus-within) .image-display-delete-button {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.workspace-image-display-row .image-display-delete-button:disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
 .workspace-resource-row-icon {
   display: inline-flex;
   flex: 0 0 auto;
