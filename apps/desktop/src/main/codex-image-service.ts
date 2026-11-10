@@ -4,13 +4,14 @@ import {
   ImageGenerationError,
   type ImageGenerationToolInput,
 } from "../shared/image-generation";
-import { canUseOpenAIAccountCredentials, type OpenAIAccount, type OpenAIAccountDetails, type OpenAIAccountImageQuota } from "../shared/openai-account";
+import { canUseOpenAIAccountCredentials, canUseOpenAIAccountWebCredentials, type OpenAIAccount, type OpenAIAccountDetails, type OpenAIAccountImageQuota } from "../shared/openai-account";
 import { generateChatGptWebImage } from "./chatgpt-web-image-client";
 import type { CodexImageGenerationOptions, ImagePayload, LoadedInputImage } from "./image-generation-client";
 import { CHATGPT_WEB_IMAGE_MODELS_PATH } from "./chatgpt-web-image-model-catalog";
 
 export interface CodexImageAccountPort {
   listAccounts(): Promise<OpenAIAccount[]>;
+  getWebAccount?(id: string): Promise<OpenAIAccountDetails>;
   getAccountDetails(id: string): Promise<OpenAIAccountDetails>;
   ensureAccountCredentials(id: string): Promise<void>;
   saveImageQuota(id: string, authJson: string, quota: OpenAIAccountImageQuota): void | Promise<void>;
@@ -97,9 +98,8 @@ export class CodexImageService {
   ) {}
 
   async queryWebModels(id: string, signal: AbortSignal): Promise<unknown> {
-    await this.accounts.ensureAccountCredentials(id);
+    const account = await this.webAccount(id);
     signal.throwIfAborted();
-    const account = await this.accounts.getAccountDetails(id);
     const { token } = credentials(account);
     const connection = await this.connect(account);
     try {
@@ -115,8 +115,7 @@ export class CodexImageService {
   }
 
   async queryQuota(id: string): Promise<OpenAIAccountImageQuota> {
-    await this.accounts.ensureAccountCredentials(id);
-    const account = await this.accounts.getAccountDetails(id);
+    const account = await this.webAccount(id);
     if (!account.authJson) throw new Error("账号尚未登录，无法查询图片额度。");
     let connection: CodexImageConnection | undefined;
     let quota: OpenAIAccountImageQuota;
@@ -295,14 +294,15 @@ export class CodexImageService {
     const candidates: OpenAIAccountDetails[] = [];
     const reasons: string[] = [];
     for (const account of list) {
-      if (!canUseOpenAIAccountCredentials(account)) {
+      if (!canUseOpenAIAccountCredentials(account) && !(route === "chatgpt_web" && canUseOpenAIAccountWebCredentials(account))) {
         reasons.push(`账号“${account.name}”未登录或登录已过期。`);
         continue;
       }
       const details = await this.accounts.getAccountDetails(account.id);
       if (!details.imageGenerationEnabled) continue;
       try {
-        const { plan } = credentials(details, account.authState === "refreshable" || account.authState === "refreshing");
+        const { plan } = route === "chatgpt_web" && canUseOpenAIAccountWebCredentials(account)
+          ? { plan: undefined } : credentials(details, account.authState === "refreshable" || account.authState === "refreshing");
         if (
           route === "chatgpt_web" &&
           details.imageQuota?.status === "available" &&
@@ -335,11 +335,18 @@ export class CodexImageService {
     return candidates;
   }
 
+  private async webAccount(id: string): Promise<OpenAIAccountDetails> {
+    if (this.accounts.getWebAccount) return this.accounts.getWebAccount(id);
+    await this.accounts.ensureAccountCredentials(id);
+    return this.accounts.getAccountDetails(id);
+  }
+
   private async nextAccount(route: "codex" | "chatgpt_web"): Promise<OpenAIAccountDetails> {
     const candidates = await this.eligibleAccounts(route);
     const previous = candidates.findIndex((account) => account.id === this.lastAccountId);
     const selected = candidates[(previous + 1) % candidates.length]!;
     this.lastAccountId = selected.id;
+    if (route === "chatgpt_web") return this.webAccount(selected.id);
     await this.accounts.ensureAccountCredentials(selected.id);
     return this.accounts.getAccountDetails(selected.id);
   }

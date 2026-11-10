@@ -808,7 +808,7 @@ const api = {
     return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsDelete, { accountId });
   },
 
-  openAIAccountsStartLogin(accountId: string, mode?: "external"): Promise<{ success: boolean; message: string; authUrl?: string; loginId?: string; expiresAt?: number }> {
+  openAIAccountsStartLogin(accountId: string, mode?: "external" | "web"): Promise<{ success: boolean; message: string; authUrl?: string; loginId?: string; expiresAt?: number }> {
     return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsStartLogin, { accountId, mode });
   },
 

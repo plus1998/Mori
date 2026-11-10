@@ -689,6 +689,8 @@ import { buildThreadRuntimeConfigFromDefaults } from "../shared/thread-runtime-c
 import { DEFAULT_CORE_KIND } from "../shared/default-core-kind";
 import { connectCodexImageAccount, disposeCodexImageConnections } from "./codex-image-electron-transport";
 import { ChatGptWebImageModelCatalogService } from "./chatgpt-web-image-model-catalog";
+import { ChatGptWebSessionError, webAuthJson } from "./chatgpt-web-session";
+import { ChatGptWebAccountCredentials } from "./chatgpt-web-account-credentials";
 import { CodexImageService } from "./codex-image-service";
 import { consumeCodexQuotaReset } from "./codex-quota-reset";
 import {
@@ -899,7 +901,7 @@ import {
   normalizeNotificationSettingsSnapshot,
 } from "./notification-settings-store";
 import { OpenAIAccountAssistant } from "./openai-account-assistant";
-import { OpenAIAccountBrowser } from "./openai-account-browser";
+import { OpenAIAccountBrowser, isOpenAIAccountBackgroundWindow } from "./openai-account-browser";
 import { installCodexAuthCompletionGuard } from "./codex-auth-completion-guard";
 import type { OpenAIAccount, OpenAIAccountService } from "./openai-account-service";
 import { resolveOrchestrationGuardrails } from "./orchestration-run-budget";
@@ -1298,7 +1300,7 @@ const initialDesktopRendererReady = new Promise<void>((resolve) => {
 
 function getMainWindow(): BrowserWindow | undefined {
   return BrowserWindow.getAllWindows().find(
-    (window) => !window.isDestroyed() && !startupSplashWindows.has(window) && !isMoriAssistantWindow(window) && !isBrowserWindow(window),
+    (window) => !window.isDestroyed() && !startupSplashWindows.has(window) && !isMoriAssistantWindow(window) && !isBrowserWindow(window) && !isOpenAIAccountBackgroundWindow(window),
   );
 }
 
@@ -8233,6 +8235,13 @@ function registerIpcHandlers(): void {
     reportError: error => logEcoDiag("openai-account-browser.flush.failed", { error: errorMessage(error) }),
   });
   openaiAccountBrowser = accountBrowser;
+  const webAccountCredentials = new ChatGptWebAccountCredentials({
+    run: (id, action) => accountBrowser.run(id, action),
+    getAccount: async id => (await getOpenAIAccountService()).getAccountDetails(id),
+    readSession: (id, email) => accountBrowser.readWebSession(id, email),
+    saveSession: async (id, auth, error) => (await getOpenAIAccountService()).saveWebAuth(id, auth, error),
+    ensureCodex: async id => (await getOpenAIAccountService()).ensureAccountCredentials(id),
+  });
   registerDesktopCommand(IPC_CHANNELS.openAIAccountsOpenChatGPT, async (payload: { accountId: string }) => {
     await accountBrowser.open(payload.accountId);
   });
@@ -8263,8 +8272,10 @@ function registerIpcHandlers(): void {
   }, async () => {
     const accounts = await (await getOpenAIAccountService()).listAccounts();
     // Keep the account contract, without proxy URLs or private profile data.
-    return accounts.map(({ id, name, email, isLoggedIn, authState, quota, quotaRefresh, proxyMode, createdAt, hasProfileData }) => ({
+    return accounts.map(({ id, name, email, isLoggedIn, authState, webAuthState, webAuthError, quota, quotaRefresh, proxyMode, createdAt, hasProfileData }) => ({
       id, name, isLoggedIn, authState, proxyMode, createdAt, hasProfileData,
+      ...(webAuthState === undefined ? {} : { webAuthState }),
+      ...(webAuthError === undefined ? {} : { webAuthError }),
       ...(email === undefined ? {} : { email }),
       ...(quota === undefined ? {} : { quota }),
       ...(quotaRefresh === undefined ? {} : { quotaRefresh }),
@@ -8293,8 +8304,59 @@ function registerIpcHandlers(): void {
     (await getOpenAIAccountService()).cancelLogin(payload.accountId, payload.loginId);
   });
 
-  registerDesktopCommand(IPC_CHANNELS.openAIAccountsStartLogin, async (payload: { accountId: string; mode?: "external" }) => accountBrowser.run(payload.accountId, async () => {
+  registerDesktopCommand(IPC_CHANNELS.openAIAccountsStartLogin, async (payload: { accountId: string; mode?: "external" | "web" }) => accountBrowser.run(payload.accountId, async () => {
+    if (payload.mode !== undefined && payload.mode !== "external" && payload.mode !== "web") throw new Error("登录方式无效。");
     const svc = await getOpenAIAccountService();
+    if (payload.mode === "web") {
+      const page = await accountBrowser.createPage(payload.accountId, true);
+      const account = await svc.getAccountDetails(payload.accountId);
+      const contents = page.webContents;
+      const expiresAt = Date.now() + 10 * 60_000;
+      requireAccountAssistant().attachLogin(payload.accountId, page, expiresAt);
+      let done = false;
+      let checking = false;
+      let timer: ReturnType<typeof setInterval> | undefined;
+      const finish = (success: boolean, message: string) => {
+        if (done) return;
+        done = true;
+        if (timer) clearInterval(timer);
+        contents.removeListener("did-finish-load", check);
+        for (const win of BrowserWindow.getAllWindows()) if (!win.isDestroyed()) {
+          win.webContents.send("codex-oauth:login-result", { accountId: payload.accountId, success, message });
+        }
+      };
+      const check = () => {
+        if (done || checking || page.isDestroyed()) return;
+        if (Date.now() >= expiresAt) { finish(false, "Web 登录超时，请重试。"); return; }
+        if (!page.webContents.getURL().startsWith("https://chatgpt.com/")) return;
+        checking = true;
+        void accountBrowser.readWebSession(payload.accountId, account.email, contents).then(async auth => {
+          if (done) return;
+          svc.saveWebAuth(payload.accountId, auth);
+          finish(true, "Web 已登录，可用于 Web 生图。Codex 需单独授权。");
+          await page.close();
+        }, error => {
+          // Missing cookies are expected while the user is signing in. Surface all
+          // other failures instead of declaring the Web session authenticated.
+          if (!(error instanceof ChatGptWebSessionError && error.waitingForLogin)) {
+            finish(false, errorMessage(error));
+          }
+        }).catch(error => finish(false, errorMessage(error))).finally(() => { checking = false; });
+      };
+      page.onClosed(() => finish(false, "Web 登录已取消。"));
+      page.webContents.on("did-finish-load", check);
+      timer = setInterval(check, 2_000);
+      try {
+        await requireAccountAssistant().open(payload.accountId);
+        await page.webContents.loadURL("https://chatgpt.com/");
+        check();
+      } catch (error) {
+        finish(false, errorMessage(error));
+        await page.close();
+        return { success: false, message: errorMessage(error) };
+      }
+      return { success: true, message: "Web 登录已开始", expiresAt };
+    }
     const authInfo = await svc.startLogin(payload.accountId);
     if (!authInfo) {
       return { success: false, message: "Failed to start login" };
@@ -8457,10 +8519,12 @@ function registerIpcHandlers(): void {
       listAccounts: async () => (await getOpenAIAccountService()).listAccounts(),
       getAccountDetails: async (id) => (await getOpenAIAccountService()).getAccountDetails(id),
       ensureAccountCredentials: async (id) => (await getOpenAIAccountService()).ensureAccountCredentials(id),
+      getWebAccount: id => webAccountCredentials.forImages(id),
       saveImageQuota: async (id, authJson, quota) =>
         (await getOpenAIAccountService()).saveImageQuota(id, authJson, quota),
     },
-    connectCodexImageAccount,
+    async account => connectCodexImageAccount(account,
+      account.webAuth && account.authJson === webAuthJson(account.webAuth) ? await accountBrowser.getSession(account.id) : undefined),
   );
   app.once("before-quit", () => {
     void disposeCodexImageConnections();

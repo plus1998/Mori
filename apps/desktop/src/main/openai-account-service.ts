@@ -456,6 +456,11 @@ export class OpenAIAccountService {
     }
   }
 
+  saveWebAuth(accountId: string, auth: import("../shared/openai-account").OpenAIAccountWebAuth | undefined, error?: string): void {
+    this.getStore().saveWebAuth(accountId, auth, error);
+    this.onAccountsChanged?.();
+  }
+
   /** List all accounts with their login status. */
   async listAccounts(): Promise<OpenAIAccount[]> {
     return this.getStore().list().map((account) => {
@@ -471,6 +476,10 @@ export class OpenAIAccountService {
         name: account.name,
         createdAt: account.createdAt,
         isLoggedIn: authState === "configured",
+        webAuthState: account.webAuth
+          ? account.webAuth.expiresAt > Date.now() + 60_000 ? "configured" : "refreshable"
+          : account.webAuthError ? "reauthorization_required" : "missing",
+        ...(account.webAuthError ? { webAuthError: account.webAuthError } : {}),
         authState,
         hasProfileData,
         profileFields: { email: Boolean(account.email), password: Boolean(account.password), pickupUrl: Boolean(account.pickupUrl), twoFactorSecret: Boolean(account.twoFactorSecret) },

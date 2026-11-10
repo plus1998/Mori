@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { ChatGptWebImageModelCatalogSnapshot, ImageGenerationChatModelOption } from "../shared/image-generation";
-import { canUseOpenAIAccountCredentials } from "../shared/openai-account";
+import { canUseOpenAIAccountCredentials, canUseOpenAIAccountWebCredentials } from "../shared/openai-account";
 import type { CodexImageAccountPort } from "./codex-image-service";
 
 export const CHATGPT_WEB_IMAGE_MODELS_PATH = "/backend-api/models?iim=false&include_icons=false&is_gizmo=false";
@@ -113,12 +113,12 @@ export class ChatGptWebImageModelCatalogService {
   private async read(refresh: boolean): Promise<ChatGptWebImageModelCatalogSnapshot> {
     await this.load();
     if (this.cacheError && !refresh) return { models: [], lastError: this.cacheError };
-    const selected = (await this.options.accounts.listAccounts()).filter((a) => a.imageGenerationEnabled && canUseOpenAIAccountCredentials(a));
+    const selected = (await this.options.accounts.listAccounts()).filter((a) => a.imageGenerationEnabled && (canUseOpenAIAccountCredentials(a) || canUseOpenAIAccountWebCredentials(a)));
     if (!selected.length) return { models: [], lastError: "请先在账号池中选择至少一个已登录的账号。" };
     const accounts = await Promise.all(selected.map(async (account) => {
       const details = await this.options.accounts.getAccountDetails(account.id);
       const auth = details.authJson ? JSON.parse(details.authJson) : {};
-      const identity = auth.tokens?.account_id ?? auth.account_id;
+      const identity = details.webAuth?.accountId ?? auth.tokens?.account_id ?? auth.account_id;
       if (typeof identity !== "string" || !identity) throw new Error(`账号“${account.name}”缺少账号标识，请重新登录。`);
       const key = createHash("sha256").update(`${account.id}\0${identity}`).digest("hex");
       return { ...account, key };

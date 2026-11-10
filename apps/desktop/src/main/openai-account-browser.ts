@@ -1,6 +1,10 @@
-import { BrowserWindow, session, type Session } from "electron";
+import { BrowserWindow, session, type Session, type WebContents } from "electron";
 import type { AccountBrowserPage } from "./account-browser-page";
 import fs from "node:fs/promises";
+import { ChatGptWebSessionError, parseChatGptWebSession } from "./chatgpt-web-session";
+
+const backgroundWindows = new WeakSet<BrowserWindow>();
+export const isOpenAIAccountBackgroundWindow = (window: BrowserWindow): boolean => backgroundWindows.has(window);
 
 /** A disk-backed Chromium profile shared by an account's OAuth and ChatGPT tabs. */
 export class OpenAIAccountBrowser {
@@ -78,6 +82,48 @@ export class OpenAIAccountBrowser {
       void ses.cookies.flushStore().catch(this.deps.reportError);
     });
     return page;
+  }
+
+  /** Fetch in an account page so Chromium can renew cookies and handle proxy auth. */
+  async readWebSession(accountId: string, expectedEmail?: string, contents?: WebContents) {
+    const ses = await this.getSession(accountId);
+    const hidden = contents ? undefined : new BrowserWindow({
+      show: false, webPreferences: { session: ses, nodeIntegration: false, contextIsolation: true, sandbox: true },
+    });
+    if (hidden) {
+      backgroundWindows.add(hidden);
+      hidden.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+    }
+    const page = contents ?? hidden!.webContents;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        (async () => {
+          if (hidden) await page.loadURL("https://chatgpt.com/");
+          if (new URL(page.getURL()).origin !== "https://chatgpt.com") {
+            throw new ChatGptWebSessionError("请在账号浏览器中完成 ChatGPT Web 登录。", true, true);
+          }
+          const result = await page.executeJavaScript(`(async () => {
+            const response = await fetch("https://chatgpt.com/api/auth/session", {
+              credentials: "include", mode: "same-origin", cache: "no-store", redirect: "error",
+              signal: AbortSignal.timeout(20000), headers: { Accept: "application/json" }
+            });
+            const json = response.headers.get("content-type")?.includes("application/json");
+            return { status: response.status, json, body: json ? await response.json() : null };
+          })()`) as { status: number; json: boolean; body: unknown };
+          if (result.status !== 200) throw new ChatGptWebSessionError(
+            `ChatGPT Web 会话刷新失败（HTTP ${result.status}），请打开 Web 检查登录或验证。`,
+            result.status === 401, result.status === 401,
+          );
+          if (!result.json) throw new ChatGptWebSessionError("ChatGPT Web 会话接口返回了验证页面，请打开 Web 完成验证。");
+          return parseChatGptWebSession(result.body, expectedEmail);
+        })(),
+        new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new ChatGptWebSessionError("ChatGPT Web 会话刷新超时，请打开 Web 检查网络或验证。")), 30_000); }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+      hidden?.destroy();
+    }
   }
 
   async refreshProxy(accountId: string): Promise<void> {

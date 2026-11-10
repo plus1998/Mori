@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { canUseOpenAIAccountCredentials, type OpenAIAccount } from "../shared/openai-account";
+import { canUseOpenAIAccountCredentials, canUseOpenAIAccountWebCredentials, type OpenAIAccount } from "../shared/openai-account";
 import { nextImageQuotaResetCheckAt } from "../shared/codex-quota-refresh";
 
 const IMAGE_RESET_CHECK_COOLDOWN_MS = 2 * 60_000;
@@ -20,7 +20,7 @@ export function useImageQuotaResetRefresh(
       if (timer) clearTimeout(timer);
       if (disposed || document.hidden) return;
       const due = accounts.flatMap((account) => {
-        const imageAt = canUseOpenAIAccountCredentials(account) && account.imageGenerationEnabled
+        const imageAt = (canUseOpenAIAccountCredentials(account) || canUseOpenAIAccountWebCredentials(account)) && account.imageGenerationEnabled
           ? nextImageQuotaResetCheckAt(account.imageQuota)
           : undefined;
         return [

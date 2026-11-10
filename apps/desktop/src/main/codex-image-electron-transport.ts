@@ -13,7 +13,7 @@ interface NetworkEntry {
 const networks = new Map<string, Promise<NetworkEntry>>();
 
 /** Chromium TLS + account-scoped cookies and proxies; credentials never leave chatgpt.com. */
-export async function connectCodexImageAccount(account: OpenAIAccountDetails): Promise<CodexImageConnection> {
+export async function connectCodexImageAccount(account: OpenAIAccountDetails, webSession?: Session): Promise<CodexImageConnection> {
   const auth = account.authJson ? JSON.parse(account.authJson) : {};
   const identity = auth.tokens?.account_id ?? auth.account_id ?? "";
   const key = createHash("sha256")
@@ -76,7 +76,8 @@ export async function connectCodexImageAccount(account: OpenAIAccountDetails): P
         const request = net.request({
           url: remote ? remote.toString() : `https://chatgpt.com${path}`,
           method: init.method ?? "GET",
-          session: entry.session,
+          session: webSession ?? entry.session,
+          useSessionCookies: Boolean(webSession),
           redirect: "error",
         });
         const abort = () => {

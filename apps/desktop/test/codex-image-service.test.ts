@@ -315,3 +315,23 @@ test("renewable image accounts stay available and refresh only before a real ima
   expect(refreshes).toBe(1);
   expect(connections).toBe(1);
 });
+
+test("Web-only accounts can query models and image quota while Codex stays unavailable", async () => {
+  const item = { ...account("web-only", "free"), authJson: null };
+  let webReads = 0;
+  let codexRefreshes = 0;
+  const service = new CodexImageService({
+    listAccounts: async () => [{ ...item, isLoggedIn: false, authState: "missing", webAuthState: "refreshable" }] as unknown as OpenAIAccount[],
+    getAccountDetails: async () => item,
+    ensureAccountCredentials: async () => { codexRefreshes++; throw new Error("Codex is not authorized"); },
+    getWebAccount: async () => { webReads++; return account("web-only", "free"); },
+    saveImageQuota: () => {},
+  }, async () => ({ close: () => {}, fetch: async path => Response.json(path === CHATGPT_WEB_IMAGE_MODELS_PATH
+    ? { models: [] } : { limits_progress: [{ feature_name: "image_gen", remaining: 5 }] }) }));
+  expect((await service.getAvailability("chatgpt_web")).available).toBe(true);
+  expect((await service.getAvailability("codex")).available).toBe(false);
+  expect(await service.queryWebModels("web-only", new AbortController().signal)).toEqual({ models: [] });
+  expect((await service.queryQuota("web-only")).remaining).toBe(5);
+  expect(webReads).toBe(2);
+  expect(codexRefreshes).toBe(0);
+});

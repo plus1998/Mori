@@ -1,6 +1,6 @@
 import { codexQuotaPeriod } from "../codex-quota-reminder";
 import { AccountWakeBatchesPanel } from "./AccountWakeBatchesPanel";
-import { canUseOpenAIAccountCredentials } from "../../shared/openai-account";
+import { canUseOpenAIAccountCredentials, canUseOpenAIAccountWebCredentials } from "../../shared/openai-account";
 import { useImageQuotaResetRefresh } from "../useImageQuotaResetRefresh";
 import { QuotaRefreshedAt } from "../QuotaRefreshedAt";
 import { useOpenAIAccountsData, type OpenAIAccountsData } from "../useOpenAIAccountsData";
@@ -59,6 +59,7 @@ type Translate = TFunction<"translation", undefined>;
 const CODEX_ACCOUNT_ACTION_MENU_WIDTH = 220;
 const MENU_VIEWPORT_MARGIN = 8;
 const EMPTY_ACCOUNTS: OpenAIAccount[] = [];
+const hasAnyLogin = (account: OpenAIAccount) => canUseOpenAIAccountCredentials(account) || canUseOpenAIAccountWebCredentials(account);
 
 function formatResetTime(window: OpenAIAccountQuotaWindow, fetchedAt: number, t: Translate): string {
   const resetAt = window.resetAt > 0 ? window.resetAt * 1_000 : fetchedAt + window.resetAfterSeconds * 1_000;
@@ -347,6 +348,7 @@ function OpenAIAccountsContent({ onError, data }: {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "ready" | "missing">("all");
   const [busy, setBusy] = useState(false);
+  const [loginChoiceId, setLoginChoiceId] = useState<string | null>(null);
   const [loggingInId, setLoggingInId] = useState<string | null>(null);
   const [quotaErrors, setQuotaErrors] = useState<Record<string, { message: string; attemptedAt: number }>>({});
   const [quotaLoading, setQuotaLoading] = useState(false);
@@ -620,7 +622,7 @@ function OpenAIAccountsContent({ onError, data }: {
   const filteredAccounts = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     return orderedAccounts.filter((a) => (!query || a.name.toLowerCase().includes(query) || a.email?.toLowerCase().includes(query))
-      && (statusFilter === "all" || (statusFilter === "ready" ? canUseOpenAIAccountCredentials(a) : !canUseOpenAIAccountCredentials(a))));
+      && (statusFilter === "all" || (statusFilter === "ready" ? hasAnyLogin(a) : !hasAnyLogin(a))));
   }, [orderedAccounts, searchQuery, statusFilter]);
 
   useImageQuotaResetRefresh(orderedAccounts, eco, refresh, onError);
@@ -666,16 +668,7 @@ function OpenAIAccountsContent({ onError, data }: {
           const authResult = await eco.openAIAccountsSetAuthJson(account.id, modalAuthJson.trim());
           if (!authResult.success) throw new Error(authResult.message);
         } else if (!saveOnly && modalMode === "login") {
-          try {
-            const loginResult = await eco.openAIAccountsStartLogin(account.id);
-            if (!loginResult.success) {
-              onError(loginResult.message);
-              return;
-            }
-          } catch (error) {
-            onError(error instanceof Error ? error.message : String(error));
-            return;
-          }
+          setLoginChoiceId(account.id);
         } else if (!saveOnly && modalMode === "external") {
           setExternalLoginId(account.id);
         }
@@ -730,12 +723,13 @@ function OpenAIAccountsContent({ onError, data }: {
   );
 
   const handleLogin = useCallback(
-    async (accountId: string) => {
+    async (accountId: string, mode?: "web") => {
       if (!eco) return;
+      setLoginChoiceId(null);
       setLoggingInId(accountId);
       setOperationError("");
       try {
-        const result = await eco.openAIAccountsStartLogin(accountId);
+        const result = await eco.openAIAccountsStartLogin(accountId, mode);
         if (!result.success) {
           onError(result.message);
           setLoggingInId(null);
@@ -834,7 +828,7 @@ function OpenAIAccountsContent({ onError, data }: {
     }
   }, [eco, importText, refresh, t]);
 
-  const loggedInCount = accounts.filter((account) => canUseOpenAIAccountCredentials(account)).length;
+  const loggedInCount = accounts.filter(hasAnyLogin).length;
   const defaultWakeModel = latestLunaModelId(wakeModels.map((model) => model.modelId));
   const wakeAccount = accounts.find((account) => account.id === wakeDialogAccountId);
   const currentWakeStatus = wakeDialogAccountId ? wakeStatus[wakeDialogAccountId] : undefined;
@@ -1004,8 +998,8 @@ function OpenAIAccountsContent({ onError, data }: {
               : account.authState === "refreshable"
                 ? t("settings.openaiAccounts.refreshableCredentials")
                 : !canUseOpenAIAccountCredentials(account)
-                  ? t(account.authState === "expired" ? "settings.openaiAccounts.expired" : "settings.openaiAccounts.needsLogin")
-                  : t("settings.openaiAccounts.loggedIn");
+                  ? t(account.authState === "expired" ? "settings.openaiAccounts.expired" : "settings.openaiAccounts.codexNotLoggedIn")
+                  : t("settings.openaiAccounts.codexLoggedIn");
             const statusTone = account.authState === "refreshable" || account.authState === "refreshing"
               ? "warning" : canUseOpenAIAccountCredentials(account) ? "ready" : "danger";
             const email = account.email || accountQuota?.email;
@@ -1057,6 +1051,9 @@ function OpenAIAccountsContent({ onError, data }: {
                     <i />
                     {status}
                   </span>
+                  <span className={`codex-status-badge is-${account.webAuthState === "refreshable" ? "warning" : canUseOpenAIAccountWebCredentials(account) ? "ready" : "danger"}`} title={account.webAuthError}>
+                    {t(account.webAuthState === "refreshable" ? "settings.openaiAccounts.webRefreshable" : canUseOpenAIAccountWebCredentials(account) ? "settings.openaiAccounts.webLoggedIn" : "settings.openaiAccounts.webNotLoggedIn")}
+                  </span>
                   <div className="codex-account-actions">
                     <button
                       type="button"
@@ -1092,7 +1089,7 @@ function OpenAIAccountsContent({ onError, data }: {
                         type="button"
                         className="codex-action-primary"
                         disabled={busy || loggingInId !== null}
-                        onClick={() => void handleLogin(account.id)}
+                        onClick={() => setLoginChoiceId(account.id)}
                       >
                         {loggingInId === account.id ? <Loader2 size={14} className="mcp-spin" /> : <LogIn size={14} />}
                         {loggingInId === account.id ? t("settings.openaiAccounts.loggingIn") : t("settings.openaiAccounts.login")}
@@ -1204,7 +1201,7 @@ function OpenAIAccountsContent({ onError, data }: {
                           className="account-action-item"
                           onClick={() => {
                             setMenuOpenId(null);
-                            void handleLogin(account.id);
+                            setLoginChoiceId(account.id);
                           }}
                           disabled={busy || loggingInId !== null}
                         >
@@ -1305,7 +1302,7 @@ function OpenAIAccountsContent({ onError, data }: {
                           type="button"
                           role="menuitem"
                           className="account-action-item"
-                          disabled={busy || !canUseOpenAIAccountCredentials(account) || imageOperation !== null}
+                          disabled={busy || !(canUseOpenAIAccountCredentials(account) || canUseOpenAIAccountWebCredentials(account)) || imageOperation !== null}
                           onClick={() => {
                             setMenuOpenId(null);
                             void handleImageQuotaRefresh(account.id);
@@ -1350,6 +1347,20 @@ function OpenAIAccountsContent({ onError, data }: {
         </div>
       )}
 
+      {loginChoiceId ? <div className="settings-modal-backdrop" onClick={() => setLoginChoiceId(null)}>
+        <div className="settings-modal settings-modal-provider-editor" role="dialog" aria-modal="true" aria-labelledby="account-login-choice-title" onClick={event => event.stopPropagation()}>
+          <div className="settings-modal-header">
+            <h3 className="settings-modal-title" id="account-login-choice-title">{t("settings.openaiAccounts.chooseLogin")}</h3>
+            <button className="mcp-icon-button" aria-label={t("common.close")} onClick={() => setLoginChoiceId(null)}><X size={18} /></button>
+          </div>
+          <div className="settings-modal-body">
+            <p>{t("settings.openaiAccounts.webLoginHint")}</p>
+            <button className="mcp-add-button" onClick={() => void handleLogin(loginChoiceId, "web")}><Globe2 size={16} />{t("settings.openaiAccounts.loginWeb")}</button>
+            <p>{t("settings.openaiAccounts.codexLoginHint")}</p>
+            <button className="mcp-add-button" onClick={() => void handleLogin(loginChoiceId)}><ShieldCheck size={16} />{t("settings.openaiAccounts.loginCodex")}</button>
+          </div>
+        </div>
+      </div> : null}
       {externalLoginId ? <CodexExternalLoginDialog accountId={externalLoginId} onClose={() => setExternalLoginId(null)} /> : null}
 
       {/* Manual auth inline editor */}

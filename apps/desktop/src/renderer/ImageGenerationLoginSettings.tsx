@@ -6,7 +6,7 @@ import {
   type ImageGenerationProfileSnapshot,
   type ImageGenerationChatModelOption,
 } from "../shared/image-generation";
-import { canUseOpenAIAccountCredentials, type OpenAIAccount } from "../shared/openai-account";
+import { canUseOpenAIAccountCredentials, canUseOpenAIAccountWebCredentials, type OpenAIAccount } from "../shared/openai-account";
 import { ModelFieldLabel } from "./ModelFieldLabel";
 import { ComposerFieldSelect } from "./ComposerFieldSelect";
 import { SettingsButton, SettingsSelect } from "./components/SettingsControls";
@@ -61,7 +61,7 @@ export function ImageGenerationLoginSettings({
   const saving = useRef(false);
   const web = profile.provider === "chatgpt_web";
   const poolKey = accounts.filter((account) => account.imageGenerationEnabled)
-    .map((account) => `${account.id}:${account.authState}`).join(",");
+    .map((account) => `${account.id}:${account.authState}:${account.webAuthState}`).join(",");
 
   useEffect(() => {
     if (web && loading) return;
@@ -320,7 +320,7 @@ export function ImageGenerationLoginSettings({
             <SettingsResourceList>
               {accounts.map((account) => {
                 const plan = account.quota?.planType;
-                const credentialsUsable = canUseOpenAIAccountCredentials(account);
+                const credentialsUsable = canUseOpenAIAccountCredentials(account) || (web && canUseOpenAIAccountWebCredentials(account));
                 const status =
                   account.authState === "refreshing"
                     ? "refreshingCredentials"
@@ -337,7 +337,7 @@ export function ImageGenerationLoginSettings({
                     metadata={
                       <>
                         <span>
-                          {t(`settings.openaiAccounts.${status}`)}
+                          {web && canUseOpenAIAccountWebCredentials(account) ? t(account.webAuthState === "refreshable" ? "settings.openaiAccounts.webRefreshable" : "settings.openaiAccounts.webLoggedIn") : t(`settings.openaiAccounts.${status}`)}
                           {plan ? ` · ${plan}` : ""}
                         </span>
                         {!web && plan && !["plus", "team", "pro"].includes(plan.toLowerCase()) ? (

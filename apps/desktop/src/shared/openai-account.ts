@@ -92,7 +92,23 @@ export function canUseOpenAIAccountCredentials(account: {
   );
 }
 
+/** Web authorization is independent of Codex OAuth. */
+export interface OpenAIAccountWebAuth {
+  accessToken: string;
+  accountId: string;
+  email?: string;
+  expiresAt: number;
+}
+
+export function canUseOpenAIAccountWebCredentials(account: {
+  webAuthState?: "missing" | "configured" | "refreshable" | "reauthorization_required";
+}): boolean {
+  return account.webAuthState === "configured" || account.webAuthState === "refreshable";
+}
+
 export interface OpenAIAccount {
+  webAuthState?: "missing" | "configured" | "refreshable" | "reauthorization_required";
+  webAuthError?: string;
   imageGenerationEnabled?: boolean;
   imageQuota?: OpenAIAccountImageQuota;
   id: string;
@@ -142,6 +158,8 @@ export interface OpenAIAccountAssistantActionResult {
 }
 
 export interface OpenAIAccountDetails extends OpenAIAccountProfile {
+  webAuth?: OpenAIAccountWebAuth;
+  webAuthError?: string;
   imageGenerationEnabled?: boolean;
   imageQuota?: OpenAIAccountImageQuota;
   id: string;

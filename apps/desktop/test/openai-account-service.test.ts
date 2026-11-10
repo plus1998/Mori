@@ -375,3 +375,28 @@ test('conversations fetch only their chosen account tokens; deleting one account
     expect(await service.getExternalChatGptTokens(b.id)).toEqual(tokens[1]);
   } finally { await service.dispose(); }
 });
+
+test("Web-only login survives restart, renews independently and never becomes Codex login", async () => {
+  const { root, service } = await createService();
+  const account = await service.createAccount("Web only");
+  const auth = { accessToken: "web-test-token", accountId: "web-identity", expiresAt: Date.now() + 3600_000 };
+  service.saveWebAuth(account.id, auth);
+  expect((await service.listAccounts())[0]).toMatchObject({ isLoggedIn: false, authState: "missing", webAuthState: "configured" });
+  expect(await service.isAccountLoggedIn(account.id)).toBe(false);
+  expect((await service.getAccountDetails(account.id)).authJson).toBeNull();
+  service.saveImageQuota(account.id, JSON.stringify({ tokens: { account_id: auth.accountId } }), {
+    source: "chatgpt_image_gen", status: "available", remaining: 4, fetchedAt: Date.now(),
+  });
+  service.dispose();
+  const reopened = new OpenAIAccountService(root, "codex-test");
+  try {
+    await reopened.initialize();
+    expect((await reopened.getAccountDetails(account.id)).webAuth).toEqual(auth);
+    expect((await reopened.listAccounts())[0]?.imageQuota?.remaining).toBe(4);
+    reopened.saveWebAuth(account.id, { ...auth, expiresAt: 1 });
+    expect((await reopened.listAccounts())[0]?.webAuthState).toBe("refreshable");
+    reopened.saveWebAuth(account.id, undefined, "Web session expired");
+    expect((await reopened.listAccounts())[0]).toMatchObject({ webAuthState: "reauthorization_required", isLoggedIn: false });
+    expect((await reopened.listAccounts())[0]?.imageQuota).toBeUndefined();
+  } finally { reopened.dispose(); }
+});

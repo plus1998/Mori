@@ -1,6 +1,6 @@
 # 登录账号生图接入
 
-创意绘画已接入 [basketikun/chatgpt2api](https://github.com/basketikun/chatgpt2api) 的两条生图路径，使用现有 Codex 登录账号，不需要 API Key：
+创意绘画已接入 [basketikun/chatgpt2api](https://github.com/basketikun/chatgpt2api) 的两条生图路径，使用 ChatGPT Login 账号，不需要 API Key：
 
 | 渠道 | 账号范围 | 当前能力 |
 | --- | --- | --- |
@@ -11,7 +11,7 @@
 
 ## 使用
 
-1. 设置 → 提供商 → Codex 账号：登录账号，在账号卡片的「更多操作」菜单中勾选「用于创意绘画」。每个账号独立保存，默认不勾选。
+1. 设置 → 服务商 → ChatGPT Login：选择 Web 或 Codex 登录账号，在账号卡片的「更多操作」菜单中勾选「用于创意绘画」。每个账号独立保存，默认不勾选。
 2. 设置 → 创意绘画：添加或编辑配置，选择「GPT网页生图」，保存、激活并打开绘画总开关。新配置默认支持图片编辑，已有配置可打开「支持图片编辑」。
 3. 在 Composer 的会话集成中开启创意绘画。沿用现有 `create_image` 工具、绘画审批、图片产物保存和展示。
 4. 账号卡片「更多操作」菜单中的「刷新图片额度」只刷新该账号；网页生图成功后也查询一次服务端额度。卡片上只显示额度和时间。
@@ -43,3 +43,11 @@ Free 原生测试图片在 `/tmp/eco-native-web-free-20261014/.eco/generated-ima
 真实 Free 账号经 Eco MCP 上传蓝色圆形参考图，成功编辑为红色，返回 `completed`，保存 931,621 字节 PNG。图片解码和目视检查通过，中心 RGB 从 (42,132,252) 变为 (251,1,0)。本次消耗 1 张，生成后服务端查询剩余 1 张。记录见 [网页图片编辑实测](chatgpt-web-image-edit-2026-10-14.json)。上传、失败处理、参考图过滤、配置和图片客户端等 44 项回归通过，类型检查与桌面构建通过。
 
 网页尺寸和质量按参考项目作为提示词传递，实测返回 1254×1254，不保证严格匹配请求尺寸。多真实账号上游轮询、代理和多参考图编辑尚未进行上游实测，轮询和多参考图请求已由自动测试覆盖。
+
+## 独立 Web 登录（2026-11-10）
+
+ChatGPT Login 现在分别保存 Web 会话凭据和 Codex OAuth 凭据，账号卡片分别显示两种状态。点击登录后选择「登录 Web」或「登录 Codex」。Web 登录后可以启用 Web 生图，无需先取得 Codex 授权；继续登录 Codex 时复用同一账号的浏览器会话，但上游要求的手机验证仍需完成。
+
+Web access token 来自账号浏览器内携带会话 Cookie 的 `GET https://chatgpt.com/api/auth/session`。访问令牌临近过期时，在该账号独立持久浏览器会话中静默打开网页并重新读取 session；不借用 Codex refresh token。会话失效、邮箱不匹配、验证页面和网络错误直接显示，不能视为已刷新。Web token 只进入 Web 生图、模型列表和图片额度请求，不进入 Codex 对话或 Codex 生图。
+
+本次用一个未完成 Codex 手机验证的 Free 账号实测：Web 密码及 TOTP 登录成功，session 接口返回 access token，使用该 token 查询图片额度返回 5 次，随后网页实际生成一张 1536×1024 图片。重复读取 session 时仍返回同一个有效 token；上游 token 自然过期后的实际轮换尚未实测，过期状态和 Web/Codex 路由隔离由自动测试覆盖。
