@@ -203,6 +203,19 @@ test("formatBashRunMeta summarizes chained commands", () => {
   expect(formatBashRunMeta("cd apps/desktop && bun test && echo done")).toBe("cd, 2+");
 });
 
+test("Bash meta preserves whitespace and separator handling for multiline commands", () => {
+  for (const [command, expected] of [
+    [" \n /usr/bin/env bun test \t && \n echo done ; ; ", "env, 1+"],
+    ["&& ; ||", ""],
+    ["echo first\n\t || \n echo second ; echo third", "echo, 2+"],
+    ["echo 'a;b'", "echo, 1+"],
+    [`python3 - <<'PY'\n${" ".repeat(4096)}print('done')\nPY`, "python3"],
+  ] as const) {
+    expect(formatBashRunMeta(command)).toBe(expected);
+  }
+  expect(formatBashRunMeta(" \n /usr/bin/env bun test && echo done ", 1500)).toBe("env, 1+, 1.5s");
+});
+
 test("readBashApprovalMetadata reads structured projection metadata", () => {
   expect(
     readBashApprovalMetadata({

@@ -298,8 +298,12 @@ export function formatBashRunMeta(command: string, durationMs?: number): string 
       ? `${(durationMs / 1000).toFixed(1)}s`
       : "";
   }
-  const segments = trimmed.split(/\s*(?:&&|\|\||;)\s*/u).filter(Boolean);
-  const firstToken = segments[0]?.trim().split(/\s+/u)[0] ?? "";
+  // Split separators first so long whitespace runs are not scanned at every position.
+  const segments = trimmed
+    .split(/&&|\|\||;/u)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+  const firstToken = segments[0]?.match(/^\S+/u)?.[0] ?? "";
   const metaToken =
     firstToken && (firstToken.startsWith("/") || firstToken.startsWith("./") || firstToken.startsWith("~/"))
       ? pathBasename(firstToken)
