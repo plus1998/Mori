@@ -277,6 +277,9 @@ export const i18nCatalogs = {
       "todos.composed": "已将待办引用加入新对话",
 
       "scheduling.title": "定时任务",
+      "scheduling.createTask": "新建定时任务",
+      "scheduling.editTask": "编辑定时任务",
+      "scheduling.emptyDescription": "安排好时间，让 Mori 为你按时处理任务。",
       "scheduling.threadMissing": "关联对话不存在。",
       "scheduling.enableSchedule": "启用定时",
       "scheduling.scheduled_task": "定时任务",
@@ -4123,6 +4126,9 @@ export const i18nCatalogs = {
       "todos.composed": "Added a todo reference to a new conversation",
 
       "scheduling.title": "Scheduled tasks",
+      "scheduling.createTask": "New scheduled task",
+      "scheduling.editTask": "Edit scheduled task",
+      "scheduling.emptyDescription": "Set a time and let Mori take care of your tasks on schedule.",
       "scheduling.threadMissing": "The associated conversation does not exist.",
       "scheduling.enableSchedule": "Enable schedule",
       "scheduling.scheduled_task": "Scheduled tasks",

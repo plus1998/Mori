@@ -2,13 +2,14 @@ import { useTranslation } from "react-i18next";
 import { ScheduleDurationField } from "./ScheduleDurationField";
 import type { ScheduleTimingForm } from "./schedule-form";
 
-export function ScheduleTimingFields({ form, onChange, onceOnly = false }: {
+export function ScheduleTimingFields({ form, onChange, onceOnly = false, showCatchUp = true }: {
   form: ScheduleTimingForm;
   onceOnly?: boolean;
+  showCatchUp?: boolean;
   onChange(update: Partial<ScheduleTimingForm>): void;
 }) {
   const { t } = useTranslation();
-  return <>
+  return <div className="scheduling-timing-group">
     <label>{t("scheduling.trigger")}<select value={form.triggerType} onChange={event => onChange({ triggerType: event.target.value as ScheduleTimingForm["triggerType"] })}>
       <option value="at">{t("scheduling.at")}</option>{!onceOnly && <><option value="interval">{t("scheduling.interval")}</option><option value="cron">Cron</option></>}
     </select></label>
@@ -19,6 +20,6 @@ export function ScheduleTimingFields({ form, onChange, onceOnly = false }: {
       <label>{t(form.triggerType === "at" ? "scheduling.time" : "scheduling.firstTime")}<input type="datetime-local" step={1} required value={form.at} onChange={event => onChange({ at: event.target.value })}/></label>
       {form.triggerType === "interval" && <ScheduleDurationField label={t("scheduling.repeatInterval")} value={form.interval} minSeconds={60} onChange={interval => onChange({ interval })}/>}
     </div>}
-    <ScheduleDurationField label={t("scheduling.taskCatchUp")} value={form.catchUp} minSeconds={0} maxSeconds={86400} onChange={catchUp => onChange({ catchUp })}/>
-  </>;
+    {showCatchUp && <ScheduleDurationField label={t("scheduling.taskCatchUp")} value={form.catchUp} minSeconds={0} maxSeconds={86400} onChange={catchUp => onChange({ catchUp })}/>}
+  </div>;
 }
