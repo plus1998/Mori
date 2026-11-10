@@ -3,7 +3,6 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:webview_flutter/webview_flutter.dart';
 
 import '../../core/locale/app_localizations_ext.dart';
 import '../../core/models/git_models.dart';
@@ -17,6 +16,7 @@ import '../../core/theme/eco_theme.dart';
 import '../../core/widgets/eco_action_sheet.dart';
 import '../../core/widgets/eco_markdown.dart';
 import '../../core/widgets/eco_modal_sheet.dart';
+import '../../core/widgets/web_page_viewer.dart';
 import '../../core/utils/package_script_run.dart';
 import '../../core/utils/package_script_search.dart';
 import '../../core/utils/strip_ansi.dart';
@@ -1651,7 +1651,7 @@ class _HtmlHostArtifactsSheetState
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (context) =>
-            _HtmlHostPageViewer(title: artifact.displayTitle, url: url),
+            WebPageViewer(title: artifact.displayTitle, url: url),
       ),
     );
   }
@@ -1721,82 +1721,6 @@ class _HtmlHostArtifactsSheetState
               },
             ),
           ),
-        ],
-      ),
-    );
-  }
-}
-
-class _HtmlHostPageViewer extends StatefulWidget {
-  const _HtmlHostPageViewer({required this.title, required this.url});
-
-  final String title;
-  final String url;
-
-  @override
-  State<_HtmlHostPageViewer> createState() => _HtmlHostPageViewerState();
-}
-
-class _HtmlHostPageViewerState extends State<_HtmlHostPageViewer> {
-  late final WebViewController _controller;
-  var _loading = true;
-  String? _error;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setNavigationDelegate(
-        NavigationDelegate(
-          onPageStarted: (_) {
-            if (!mounted) return;
-            setState(() {
-              _loading = true;
-              _error = null;
-            });
-          },
-          onPageFinished: (_) {
-            if (!mounted) return;
-            setState(() => _loading = false);
-          },
-          onWebResourceError: (error) {
-            if (!mounted) return;
-            setState(() {
-              _loading = false;
-              _error = error.description;
-            });
-          },
-        ),
-      )
-      ..loadRequest(Uri.parse(widget.url));
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-      ),
-      body: Stack(
-        fit: StackFit.expand,
-        children: [
-          if (_error != null)
-            Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Text(
-                  _error!.isEmpty
-                      ? context.l10n.taskHtmlHostOpenFailed
-                      : _error!,
-                  textAlign: TextAlign.center,
-                ),
-              ),
-            )
-          else
-            WebViewWidget(controller: _controller),
-          if (_loading && _error == null)
-            const Center(child: CircularProgressIndicator()),
         ],
       ),
     );

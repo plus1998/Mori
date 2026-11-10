@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:markdown/markdown.dart' as md;
 
+import '../locale/app_localizations_ext.dart';
 import '../theme/eco_theme.dart';
 import '../utils/feed_text.dart';
 import '../utils/markdown_repair.dart';
 import 'eco_markdown_table.dart';
 import 'feed_code_builder.dart';
+import 'web_page_viewer.dart';
 
 class EcoMarkdown extends StatefulWidget {
   const EcoMarkdown({
@@ -131,6 +133,26 @@ class _EcoMarkdownState extends State<EcoMarkdown> {
       key: ValueKey((widget.references, segmentIndex)),
       data: data,
       selectable: widget.selectable,
+      onTapLink: (text, href, title) {
+        final uri = Uri.tryParse(href?.trim() ?? '');
+        if (uri == null ||
+            !uri.hasAuthority ||
+            uri.host.isEmpty ||
+            (uri.scheme != 'http' && uri.scheme != 'https')) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(context.l10n.taskHtmlHostOpenFailed)),
+          );
+          return;
+        }
+        Navigator.of(context).push<void>(
+          MaterialPageRoute(
+            builder: (_) => WebPageViewer(
+              title: title.trim().isNotEmpty ? title : text,
+              url: uri.toString(),
+            ),
+          ),
+        );
+      },
       shrinkWrap: true,
       builders: {'code': FeedCodeBuilder()},
       inlineSyntaxes: widget.references == null

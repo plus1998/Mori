@@ -6,7 +6,8 @@
     <application
         android:label="@string/app_name"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:usesCleartextTraffic="true">
         <provider
             android:name=".ImageClipboardFileProvider"
             android:authorities="${applicationId}.image_clipboard"
