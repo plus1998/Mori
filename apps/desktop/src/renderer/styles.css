@@ -38505,6 +38505,16 @@ body,
   vertical-align: middle;
 }
 
+.codex-composer.is-icon-only .composer-model-fast-badge {
+  gap: 0;
+  padding: 0;
+  background: transparent;
+}
+
+.codex-composer.is-icon-only .composer-model-fast-label {
+  display: none;
+}
+
 .composer-main-model-picker-effort-slider {
   padding: 2px 10px 9px;
 }
