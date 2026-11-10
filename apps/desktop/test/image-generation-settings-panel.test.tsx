@@ -176,5 +176,7 @@ test.each(["chatgpt_web", "codex"] as const)("%s exposes the saved chat model an
   } else {
     expect(markup).not.toContain('role="radiogroup"');
     expect(markup).not.toContain("gpt-image-");
+    expect(markup).toContain("Refresh models");
+    expect(markup).toContain("Fetched automatically once");
   }
 });

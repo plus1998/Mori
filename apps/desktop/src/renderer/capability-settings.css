@@ -8,6 +8,17 @@
     text-align: right;
     text-align-last: right;
   }
+  & .image-generation-chat-model-controls {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 8px;
+    min-width: 0;
+  }
+  & .image-generation-chat-model-controls .settings-ui-select {
+    max-width: 340px;
+  }
   & .image-generation-model-select {
     position: relative;
     display: flex;

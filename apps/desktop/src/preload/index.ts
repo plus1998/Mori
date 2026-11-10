@@ -159,6 +159,7 @@ import {
   type ImageGenerationProfileSaveInput,
   type ImageGenerationProfileSnapshot,
   type ImageGenerationSettingsSnapshot,
+  type ChatGptWebImageModelCatalogSnapshot,
   type ImageRevealInFolderRequest,
   type ImageViewReadRequest,
   type ImageViewReadResult,
@@ -1094,6 +1095,12 @@ const api = {
   },
   getImageGenerationSettings(): Promise<ImageGenerationSettingsSnapshot> {
     return ipcRenderer.invoke(IPC_CHANNELS.imageGenerationSettingsGet);
+  },
+  getImageGenerationWebModels(): Promise<ChatGptWebImageModelCatalogSnapshot> {
+    return ipcRenderer.invoke(IPC_CHANNELS.imageGenerationWebModelsGet);
+  },
+  refreshImageGenerationWebModels(): Promise<ChatGptWebImageModelCatalogSnapshot> {
+    return ipcRenderer.invoke(IPC_CHANNELS.imageGenerationWebModelsRefresh);
   },
   saveImageGenerationEnabled(enabled: boolean): Promise<ImageGenerationSettingsSnapshot> {
     return ipcRenderer.invoke(IPC_CHANNELS.imageGenerationSettingsSave, { enabled });

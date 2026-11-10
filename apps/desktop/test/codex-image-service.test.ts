@@ -10,6 +10,7 @@ import type {
   OpenAIAccountDetails,
   OpenAIAccountImageQuota,
 } from "../src/shared/openai-account";
+import { CHATGPT_WEB_IMAGE_MODELS_PATH } from "../src/main/chatgpt-web-image-model-catalog";
 
 const png = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a9xkAAAAASUVORK5CYII=",
@@ -60,6 +61,37 @@ function imageResponse(): Response {
     { headers: { "content-type": "text/event-stream" } },
   );
 }
+
+test("Web model discovery uses the refreshed Free account's image transport and closes it on HTTP failure", async () => {
+  const item = account("free", "free");
+  let refreshed = false;
+  let closed = 0;
+  const requests: string[] = [];
+  let status = 200;
+  const service = new CodexImageService({
+    listAccounts: async () => [],
+    ensureAccountCredentials: async (id) => { expect(id).toBe("free"); refreshed = true; },
+    getAccountDetails: async () => { expect(refreshed).toBe(true); return item; },
+    saveImageQuota: () => {},
+  }, async (connected) => {
+    expect(connected.id).toBe("free");
+    return {
+      close: () => { closed++; },
+      fetch: async (path, init) => {
+        requests.push(path);
+        expect(init.body).toBeUndefined();
+        expect(new Headers(init.headers).get("authorization")).toBe(`Bearer ${JSON.parse(item.authJson!).tokens.access_token}`);
+        expect(new Headers(init.headers).get("X-OpenAI-Target-Path")).toBe(CHATGPT_WEB_IMAGE_MODELS_PATH);
+        return Response.json({ models: [] }, { status });
+      },
+    };
+  });
+  expect(await service.queryWebModels("free", new AbortController().signal)).toEqual({ models: [] });
+  status = 401;
+  await expect(service.queryWebModels("free", new AbortController().signal)).rejects.toThrow("HTTP 401");
+  expect(requests).toEqual([CHATGPT_WEB_IMAGE_MODELS_PATH, CHATGPT_WEB_IMAGE_MODELS_PATH]);
+  expect(closed).toBe(2);
+});
 function harness(
   items = [account("A"), account("B"), account("disabled", "plus", false), account("free", "free")],
 ) {

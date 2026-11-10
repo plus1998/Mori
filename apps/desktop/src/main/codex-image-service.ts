@@ -7,6 +7,7 @@ import {
 import { canUseOpenAIAccountCredentials, type OpenAIAccount, type OpenAIAccountDetails, type OpenAIAccountImageQuota } from "../shared/openai-account";
 import { generateChatGptWebImage } from "./chatgpt-web-image-client";
 import type { CodexImageGenerationOptions, ImagePayload, LoadedInputImage } from "./image-generation-client";
+import { CHATGPT_WEB_IMAGE_MODELS_PATH } from "./chatgpt-web-image-model-catalog";
 
 export interface CodexImageAccountPort {
   listAccounts(): Promise<OpenAIAccount[]>;
@@ -94,6 +95,24 @@ export class CodexImageService {
     private readonly accounts: CodexImageAccountPort,
     private readonly connect: CodexImageConnect,
   ) {}
+
+  async queryWebModels(id: string, signal: AbortSignal): Promise<unknown> {
+    await this.accounts.ensureAccountCredentials(id);
+    signal.throwIfAborted();
+    const account = await this.accounts.getAccountDetails(id);
+    const { token } = credentials(account);
+    const connection = await this.connect(account);
+    try {
+      const response = await connection.fetch(CHATGPT_WEB_IMAGE_MODELS_PATH, {
+        signal,
+        headers: headers(token, CHATGPT_WEB_IMAGE_MODELS_PATH),
+      });
+      if (!response.ok) throw new Error(`Web 生图模型列表获取失败（HTTP ${response.status}）。`);
+      return await response.json();
+    } finally {
+      connection.close();
+    }
+  }
 
   async queryQuota(id: string): Promise<OpenAIAccountImageQuota> {
     await this.accounts.ensureAccountCredentials(id);

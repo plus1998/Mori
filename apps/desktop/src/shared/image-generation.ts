@@ -35,6 +35,18 @@ export type ImageGenerationProvider = (typeof IMAGE_GENERATION_PROVIDERS)[number
 
 export type ImageGenerationLoginRoute = "chatgpt_web" | "codex";
 export type ImageGenerationSource = "api" | "chatgpt_login";
+export interface ImageGenerationChatModelOption {
+  modelId: string;
+  displayName: string;
+}
+
+/** Dedicated to the Creative Drawing Web route, independent of the Codex catalog. */
+export interface ChatGptWebImageModelCatalogSnapshot {
+  models: ImageGenerationChatModelOption[];
+  fetchedAt?: number;
+  lastError?: string;
+}
+
 export interface ImageGenerationSourceInput {
   source: ImageGenerationSource;
   route?: ImageGenerationLoginRoute;

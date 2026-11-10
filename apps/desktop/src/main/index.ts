@@ -686,6 +686,7 @@ import { MoriNotificationUncertainError } from "../shared/mori-scheduled-action"
 import { buildThreadRuntimeConfigFromDefaults } from "../shared/thread-runtime-config";
 import { DEFAULT_CORE_KIND } from "../shared/default-core-kind";
 import { connectCodexImageAccount, disposeCodexImageConnections } from "./codex-image-electron-transport";
+import { ChatGptWebImageModelCatalogService } from "./chatgpt-web-image-model-catalog";
 import { CodexImageService } from "./codex-image-service";
 import { consumeCodexQuotaReset } from "./codex-quota-reset";
 import {
@@ -8405,6 +8406,16 @@ function registerIpcHandlers(): void {
   app.once("before-quit", () => {
     void disposeCodexImageConnections();
   });
+  const webImageModelCatalog = new ChatGptWebImageModelCatalogService({
+    cachePath: path.join(app.getPath("userData"), "chatgpt-web-image-model-catalog.json"),
+    accounts: {
+      listAccounts: async () => (await getOpenAIAccountService()).listAccounts(),
+      getAccountDetails: async (id) => (await getOpenAIAccountService()).getAccountDetails(id),
+    },
+    fetchModels: (id, signal) => codexImages.queryWebModels(id, signal),
+  });
+  registerDesktopCommand(IPC_CHANNELS.imageGenerationWebModelsGet, () => webImageModelCatalog.get());
+  registerDesktopCommand(IPC_CHANNELS.imageGenerationWebModelsRefresh, () => webImageModelCatalog.get(true));
 
   registerDesktopCommand(
     IPC_CHANNELS.openAIAccountsImageEnabled,

@@ -4,9 +4,9 @@ import {
   IMAGE_GENERATION_CODEX_IMAGE_MODELS,
   type ImageGenerationLoginRoute,
   type ImageGenerationProfileSnapshot,
+  type ImageGenerationChatModelOption,
 } from "../shared/image-generation";
 import { canUseOpenAIAccountCredentials, type OpenAIAccount } from "../shared/openai-account";
-import type { CodexCatalogModelView } from "../shared/models";
 import { ModelFieldLabel } from "./ModelFieldLabel";
 import { ComposerFieldSelect } from "./ComposerFieldSelect";
 import { SettingsButton, SettingsSelect } from "./components/SettingsControls";
@@ -53,20 +53,39 @@ export function ImageGenerationLoginSettings({
   const [loadError, setLoadError] = useState("");
   const [savingId, setSavingId] = useState("");
   const [reload, setReload] = useState(0);
-  const [chatModels, setChatModels] = useState<CodexCatalogModelView[]>([]);
+  const [chatModels, setChatModels] = useState<ImageGenerationChatModelOption[]>([]);
   const [modelsLoading, setModelsLoading] = useState(true);
   const [modelsError, setModelsError] = useState("");
+  const [modelsReload, setModelsReload] = useState(0);
+  const refreshRequested = useRef(false);
   const saving = useRef(false);
   const web = profile.provider === "chatgpt_web";
+  const poolKey = accounts.filter((account) => account.imageGenerationEnabled)
+    .map((account) => `${account.id}:${account.authState}`).join(",");
 
   useEffect(() => {
+    if (web && loading) return;
     let disposed = false;
     let request = 0;
+    const force = refreshRequested.current;
+    refreshRequested.current = false;
     async function refreshModels() {
       const current = ++request;
       setModelsLoading(true);
+      setChatModels([]);
+      setModelsError("");
       try {
         if (!window.eco) throw new Error(t("settings.imageGeneration.desktopOnly"));
+        if (web) {
+          const catalog = force
+            ? await window.eco.refreshImageGenerationWebModels()
+            : await window.eco.getImageGenerationWebModels();
+          if (!disposed && current === request) {
+            setChatModels(catalog.models);
+            setModelsError(catalog.lastError ?? "");
+          }
+          return;
+        }
         const catalog = await window.eco.getCodexModelCatalog();
         if (!disposed && current === request) {
           setChatModels(catalog.models.filter((model) => !model.hidden));
@@ -82,7 +101,7 @@ export function ImageGenerationLoginSettings({
       }
     }
     void refreshModels();
-    const unsubscribe = window.eco?.onThreadEvent((event) => {
+    const unsubscribe = web ? undefined : window.eco?.onThreadEvent((event) => {
       if (event && typeof event === "object" && "type" in event && event.type === "settings.updated")
         void refreshModels();
     });
@@ -90,7 +109,7 @@ export function ImageGenerationLoginSettings({
       disposed = true;
       unsubscribe?.();
     };
-  }, [t]);
+  }, [t, web, web && loading, web ? poolKey : "", modelsReload]);
 
   useEffect(() => {
     let disposed = false;
@@ -171,39 +190,52 @@ export function ImageGenerationLoginSettings({
               {t(
                 !web && profile.chatModel === "gpt-5.5"
                   ? "settings.imageGeneration.codexChatModelUnavailable"
-                  : "settings.imageGeneration.chatModelHelp",
+                  : web ? "settings.imageGeneration.webChatModelHelp" : "settings.imageGeneration.chatModelHelp",
               )}
               {modelsError ? (
                 <span className="settings-form-error" role="alert">
-                  {t("codexModels.refreshFailed", { message: modelsError })}
+                  {web ? modelsError : t("codexModels.refreshFailed", { message: modelsError })}
                 </span>
               ) : !modelsLoading && !chatModels.length ? (
-                <span>{t("codexModels.empty")}</span>
+                <span>{t(web ? "settings.imageGeneration.webModelsEmpty" : "codexModels.empty")}</span>
               ) : null}
             </>
           }
           control={(props) => (
-            <SettingsSelect
-              {...props}
-              variant="inline"
-              value={profile.chatModel}
-              disabled={busy || Boolean(savingId) || modelsLoading || !chatModels.length}
-              aria-busy={modelsLoading}
-              onChange={(event) => onChatModelChange(event.target.value)}
-            >
-              {chatModels.some((model) => model.modelId === profile.chatModel) ? null : (
-                <option value={profile.chatModel} disabled>
-                  {modelsLoading || modelsError
-                    ? profile.chatModel
-                    : t("settings.imageGeneration.chatModelNotInCatalog", { model: profile.chatModel })}
-                </option>
-              )}
-              {chatModels.map((model) => (
-                <option key={model.modelId} value={model.modelId}>
-                  {model.displayName}
-                </option>
-              ))}
-            </SettingsSelect>
+            <div className="image-generation-chat-model-controls">
+              <SettingsSelect
+                {...props}
+                variant="inline"
+                value={profile.chatModel}
+                disabled={busy || Boolean(savingId) || modelsLoading || !chatModels.length}
+                aria-busy={modelsLoading}
+                onChange={(event) => onChatModelChange(event.target.value)}
+              >
+                {chatModels.some((model) => model.modelId === profile.chatModel) ? null : (
+                  <option value={profile.chatModel} disabled>
+                    {modelsLoading || modelsError
+                      ? profile.chatModel
+                      : t("settings.imageGeneration.chatModelNotInCatalog", { model: profile.chatModel })}
+                  </option>
+                )}
+                {chatModels.map((model) => (
+                  <option key={model.modelId} value={model.modelId}>
+                    {model.displayName}{web ? ` (${model.modelId})` : ""}
+                  </option>
+                ))}
+              </SettingsSelect>
+              {web ? (
+                <SettingsButton
+                  disabled={busy || Boolean(savingId) || loading || modelsLoading}
+                  onClick={() => {
+                    refreshRequested.current = true;
+                    setModelsReload((value) => value + 1);
+                  }}
+                >
+                  {t("settings.imageGeneration.refreshWebModels")}
+                </SettingsButton>
+              ) : null}
+            </div>
           )}
         />
         {web ? null : (

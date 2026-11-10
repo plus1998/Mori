@@ -4,6 +4,7 @@ import type {
   ThreadRunProjectionSnapshot,
 } from "./conversation-v2-projection";
 import type {
+  ChatGptWebImageModelCatalogSnapshot,
   ImageGenerationArtifact,
   ImageGenerationArtifactListRequest,
   ImageGenerationArtifactReadRequest,
@@ -417,6 +418,8 @@ export const IPC_CHANNELS = {
   browserAgentPresence: "browser:agent-presence",
   integrationAvailabilityGet: "integration-availability:get",
   imageGenerationSettingsGet: "image-generation-settings:get",
+  imageGenerationWebModelsGet: "image-generation-web-models:get",
+  imageGenerationWebModelsRefresh: "image-generation-web-models:refresh",
   imageGenerationSettingsSave: "image-generation-settings:save",
   imageGenerationSourceSelect: "image-generation-source:select",
   imageGenerationProfileSave: "image-generation-profile:save",
@@ -1205,6 +1208,7 @@ export type {
   ImageGenerationProfileSnapshot,
   ImageGenerationSettingsSaveInput,
   ImageGenerationSettingsSnapshot,
+  ChatGptWebImageModelCatalogSnapshot,
   IntegrationAvailabilitySnapshot,
   TtsArtifact,
   TtsArtifactListRequest,
