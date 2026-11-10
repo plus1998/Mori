@@ -1770,6 +1770,8 @@ export interface RuntimeRoleRouteConfig {
   version?: string;
   tokenCountMode?: ProviderTokenCountMode;
   thinkingEffort?: ThinkingEffort;
+  /** ChatGPT Login speed preference; standard explicitly clears a previous Fast turn. */
+  serviceTier?: "fast" | "default";
   modelsDevMapping?: ModelsDevMapping;
   manualSpec?: RouteManualSpec;
   candidateModelId?: string;

@@ -100,3 +100,13 @@ test("resolves each quota window reset from its absolute or snapshot-relative ti
   expect(codexQuotaResetAt({ ...window, resetAt: 0 }, 1_700_000_000_000)).toBe(1_700_000_300_000);
   expect(codexQuotaResetAt({ ...window, resetAt: 0, resetAfterSeconds: 0 }, 1_700_000_000_000)).toBeUndefined();
 });
+
+
+test("the Login picker preserves explicit Fast availability from the catalog", () => {
+  const login = buildMainModelProviderOptions([], [
+    { modelId: "fast", displayName: "Fast model", supportsFast: true },
+    { modelId: "standard", displayName: "Standard model", supportsFast: false },
+    { modelId: "unknown", displayName: "Unknown model" },
+  ], true).find(provider => provider.id === "login")!;
+  expect(login.models.map(model => model.supportsFast)).toEqual([true, false, undefined]);
+});

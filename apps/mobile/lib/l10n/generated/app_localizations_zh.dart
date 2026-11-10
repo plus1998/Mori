@@ -9,6 +9,13 @@ class AppLocalizationsZh extends AppLocalizations {
   AppLocalizationsZh([String locale = 'zh']) : super(locale);
 
   @override
+  String get composerFastHint => '更快的响应速度，会增加账号额度消耗。切换后从下一轮请求生效。';
+
+  @override
+  String get composerFastUnavailable =>
+      '模型目录尚未确认此模型支持 Fast，请在 ChatGPT Login 设置中刷新模型目录。';
+
+  @override
   String get activityNamedShowMediaToUser => '向用户展示媒体';
 
   @override

@@ -26,6 +26,7 @@ typedef _PickerModel = ({
   String name,
   String? candidateId,
   List<String>? efforts,
+  bool supportsFast,
 });
 
 const _allEfforts = ['off', 'low', 'medium', 'high', 'xhigh', 'max'];
@@ -297,6 +298,7 @@ class _MainModelPickerState extends ConsumerState<_MainModelPicker> {
                       model['modelId'] as String,
                   candidateId: null,
                   efforts: _parseEfforts(model['reasoningEfforts']),
+                  supportsFast: model['supportsFast'] == true,
                 ),
           ];
         }),
@@ -348,6 +350,7 @@ class _MainModelPickerState extends ConsumerState<_MainModelPicker> {
                   ? 'account:eco-coding-chatgpt:${Uri.encodeComponent(model['id'] as String)}'
                   : null,
               efforts: _parseEfforts(model['reasoningEfforts']),
+              supportsFast: false,
             ),
         ];
         _oauthModelsLoading = false;
@@ -445,6 +448,11 @@ class _MainModelPickerState extends ConsumerState<_MainModelPicker> {
       candidateModelId: model.candidateId,
       accountId: _source == 'login' || _source == 'oauth' ? _accountId : null,
       thinkingEffort: widget.stateless ? null : _normalizedEffort(efforts),
+      serviceTier: _source == 'login'
+          ? model.supportsFast && _selectedModel?.serviceTier == 'fast'
+                ? 'fast'
+                : 'default'
+          : null,
     );
     await _save(next);
   }
@@ -518,6 +526,7 @@ class _MainModelPickerState extends ConsumerState<_MainModelPicker> {
                 id: model.id,
                 name: model.name,
                 candidateId: model.candidateId,
+                supportsFast: false,
                 efforts:
                     model.efforts ??
                     _loginModels
@@ -534,6 +543,7 @@ class _MainModelPickerState extends ConsumerState<_MainModelPicker> {
                   name: option.modelLabel,
                   candidateId: option.candidateModelId,
                   efforts: null,
+                  supportsFast: false,
                 ),
           ];
     final needle = _query.trim().toLowerCase();
@@ -629,6 +639,7 @@ class _MainModelPickerState extends ConsumerState<_MainModelPicker> {
                 modelId: current.modelId,
                 accountId: current.accountId,
                 candidateModelId: current.candidateModelId,
+                serviceTier: current.serviceTier,
                 thinkingEffort: supported.contains('low')
                     ? 'low'
                     : supported.first,
@@ -881,6 +892,55 @@ class _MainModelPickerState extends ConsumerState<_MainModelPicker> {
                 ),
               ),
               Divider(height: 1, color: eco.borderSubtle),
+              if (!widget.stateless &&
+                  _source == 'login' &&
+                  selectedEntry != null &&
+                  _selectedModel != null)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Row(
+                    children: [
+                      const Text('Fast', style: TextStyle(fontSize: 12)),
+                      const SizedBox(width: 6),
+                      Tooltip(
+                        message: selectedEntry.supportsFast
+                            ? context.l10n.composerFastHint
+                            : context.l10n.composerFastUnavailable,
+                        child: Icon(
+                          Icons.info_outline,
+                          size: 14,
+                          color: eco.textMuted,
+                        ),
+                      ),
+                      const Spacer(),
+                      Switch.adaptive(
+                        value: _selectedModel?.serviceTier == 'fast',
+                        onChanged:
+                            !widget.enabled ||
+                                _saving ||
+                                (!selectedEntry.supportsFast &&
+                                    _selectedModel?.serviceTier != 'fast')
+                            ? null
+                            : (enabled) {
+                                final current = _selectedModel!;
+                                unawaited(
+                                  _save(
+                                    OrchestrationModelRef(
+                                      providerId: current.providerId,
+                                      modelId: current.modelId,
+                                      accountId: current.accountId,
+                                      candidateModelId:
+                                          current.candidateModelId,
+                                      thinkingEffort: current.thinkingEffort,
+                                      serviceTier: enabled ? 'fast' : 'default',
+                                    ),
+                                  ),
+                                );
+                              },
+                      ),
+                    ],
+                  ),
+                ),
               if (!widget.stateless)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
@@ -975,6 +1035,7 @@ class _MainModelPickerState extends ConsumerState<_MainModelPicker> {
                               providerId: current.providerId,
                               modelId: current.modelId,
                               candidateModelId: current.candidateModelId,
+                              serviceTier: current.serviceTier,
                               accountId: current.accountId,
                               thinkingEffort: effort,
                             ),

@@ -24,6 +24,7 @@ void main() {
     modelId: 'gpt-6.1-sol',
     accountId: 'account_1',
     thinkingEffort: 'high',
+    serviceTier: 'fast',
   );
   setUp(() => SharedPreferences.setMockInitialValues({}));
 

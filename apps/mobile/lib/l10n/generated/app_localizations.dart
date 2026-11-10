@@ -98,6 +98,18 @@ abstract class AppLocalizations {
     Locale('zh'),
   ];
 
+  /// No description provided for @composerFastHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Faster responses with higher account usage. Changes apply from the next turn.'**
+  String get composerFastHint;
+
+  /// No description provided for @composerFastUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Fast support is not confirmed by the catalog. Refresh models in ChatGPT Login settings.'**
+  String get composerFastUnavailable;
+
   /// No description provided for @activityNamedShowMediaToUser.
   ///
   /// In en, this message translates to:

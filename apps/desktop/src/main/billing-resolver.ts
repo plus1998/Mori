@@ -36,6 +36,8 @@ export interface RuntimeRoute {
   modelId: string;
   apiCompat: UpstreamApiCompat;
   thinkingEffort?: ThinkingEffort;
+  /** ChatGPT Login speed preference; standard explicitly clears a previous Fast turn. */
+  serviceTier?: "fast" | "default";
   modelsDevMapping?: ModelsDevMapping;
   manualSpec?: RouteManualSpec;
 }
@@ -113,6 +115,7 @@ export function buildResolvedProxyRoutes(routes: readonly RuntimeRoute[]): Anthr
     apiCompat: route.apiCompat,
     aliasModelId: route.candidateModelId || createModelAlias(route.role, route.provider.id, route.modelId),
     ...(route.thinkingEffort && { thinkingEffort: route.thinkingEffort }),
+    ...(route.serviceTier ? { serviceTier: route.serviceTier } : {}),
   }));
 }
 
@@ -253,6 +256,7 @@ export function resolveRuntimeRoutesFromSettings(
         ...(route.accountId ? { accountId: route.accountId } : {}),
         apiCompat: resolveUpstreamApiCompat(route.apiCompat, provider.apiCompat),
         ...(route.thinkingEffort && { thinkingEffort: route.thinkingEffort }),
+        ...(route.serviceTier ? { serviceTier: route.serviceTier } : {}),
         ...(route.modelsDevMapping && { modelsDevMapping: route.modelsDevMapping }),
         ...(route.manualSpec && { manualSpec: route.manualSpec }),
       },

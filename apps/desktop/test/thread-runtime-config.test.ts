@@ -815,3 +815,19 @@ test("resolveThreadRuntimeMcpServerKeys returns empty without snapshot", () => {
     }),
   ).toEqual([]);
 });
+
+
+test("Login Fast survives model selection, snapshot materialization and serialized thread restore", () => {
+  const config = normalizeThreadRuntimeConfig({
+    orchestrationSelection: {
+      mainModel: { providerId: "openai", modelId: "gpt-6.1-sol", accountId: "account", serviceTier: "fast" },
+      mainPrompt: { mode: "builtin" }, subagents: { mode: "none" },
+    },
+    subagentEnabled: {}, sessionMode: "agent", bashReviewMode: "always",
+  });
+  const materialized = { ...config, ...materializeThreadOrchestrationSnapshot(settings, config.orchestrationSelection!) };
+  const restored = parseThreadRuntimeConfigJson(serializeThreadRuntimeConfig(materialized));
+  expect(restored?.orchestrationSelection?.mainModel?.serviceTier).toBe("fast");
+  expect(restored?.resolvedOrchestrationSnapshot?.mainAgent.modelRef.serviceTier).toBe("fast");
+  expect(runtimeRoleRoutesFromOrchestrationSnapshot(restored!.resolvedOrchestrationSnapshot!)[0]?.serviceTier).toBe("fast");
+});

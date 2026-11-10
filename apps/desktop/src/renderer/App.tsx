@@ -5409,6 +5409,7 @@ function App() {
       modelId: route.modelId,
       ...(route.candidateModelId ? { candidateModelId: route.candidateModelId } : {}),
       ...(route.thinkingEffort ? { thinkingEffort: route.thinkingEffort } : {}),
+      ...(route.serviceTier ? { serviceTier: route.serviceTier } : {}),
     };
   }, [composerUsableProviders, selectedOrchestrationSnapshot]);
   const composerMainAgentModelOverride = resolveMainAgentModelOverrideForProvider(

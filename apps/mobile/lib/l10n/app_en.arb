@@ -1,4 +1,6 @@
 {
+  "composerFastHint": "Faster responses with higher account usage. Changes apply from the next turn.",
+  "composerFastUnavailable": "Fast support is not confirmed by the catalog. Refresh models in ChatGPT Login settings.",
   "activityNamedShowMediaToUser": "Show media to user",
   "mediaPlay": "Play",
   "mediaPause": "Pause",

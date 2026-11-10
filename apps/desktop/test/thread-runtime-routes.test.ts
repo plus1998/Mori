@@ -357,3 +357,15 @@ test("resolveContextTokensByRole keeps a model window smaller than the global ca
   const byRole = await resolveContextTokensByRole(resolved.routes, cache, 262_144);
   expect(byRole.main).toBe(128_000);
 });
+
+
+test("Login speed survives runtime resolution and both driver-route builders", () => {
+  const resolved = resolveThreadRuntimeConfig({} as never, [], [
+    { role: "main", providerId: "openai", modelId: "gpt-6.1-sol", serviceTier: "fast" },
+  ], { requireCompleteCodingRoutes: false });
+  expect(resolved.ok).toBe(true);
+  if (!resolved.ok) return;
+  expect(roleRoutesFromRuntime(resolved.routes)[0]?.serviceTier).toBe("fast");
+  expect(buildDriverRoutesFromRuntime(resolved.routes)[0]?.serviceTier).toBe("fast");
+  expect(buildDriverRoutes(resolved.routes.map(route => ({ ...route, aliasModelId: "alias" })))[0]?.serviceTier).toBe("fast");
+});

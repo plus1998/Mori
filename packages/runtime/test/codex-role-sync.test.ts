@@ -918,3 +918,20 @@ test("generated role TOML keeps the candidate ID while sharing a supplier config
     expect(text).not.toContain("eco_route_v1.");
   }
 });
+
+
+test("Login role files keep their own speed preference instead of inheriting the parent's Fast tier", async () => {
+  const ecoDataDir = await makeTempEcoDataDir();
+  const orchestration = buildOrchestration();
+  for (const agent of orchestration.agents) {
+    agent.modelRef.providerId = "openai";
+    if (agent.agentKey === "coder") agent.modelRef.serviceTier = "fast";
+  }
+  const result = await syncOrchestrationAgentsToCodexRoles({
+    codexHomeDir: resolveCodexHomeDir(ecoDataDir), orchestration, templates: [researchTemplate, codingTemplate],
+  });
+  const coder = await fs.readFile(path.join(result.agentsDir, "coder.toml"), "utf8");
+  const researcher = await fs.readFile(path.join(result.agentsDir, "researcher.toml"), "utf8");
+  expect(coder).toContain('service_tier = "fast"');
+  expect(researcher).toContain('service_tier = "default"');
+});

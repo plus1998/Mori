@@ -115,6 +115,7 @@ class _AccountsRpc extends DesktopRpc {
       {
         'modelId': 'gpt-test',
         'displayName': 'GPT Test',
+        'supportsFast': true,
         'reasoningEfforts': ['low', 'medium', 'high'],
       },
     ];
@@ -491,12 +492,20 @@ void main() {
       await tester.pumpAndSettle();
       expect(changes.single.toJson(), containsPair('accountId', 'B'));
       expect(changes.single.thinkingEffort, 'low');
+      expect(changes.single.serviceTier, 'default');
+      await tester.tap(find.byType(Switch));
+      await tester.pumpAndSettle();
+      expect(changes.last.serviceTier, 'fast');
       expect(find.text('Done'), findsNothing);
       expect(find.byType(Slider), findsOneWidget);
       await tester.drag(find.byType(Slider), const Offset(260, 0));
       await tester.pumpAndSettle();
       expect(changes.last.accountId, 'B');
       expect(changes.last.thinkingEffort, 'high');
+      expect(changes.last.serviceTier, 'fast');
+      await tester.tap(find.byType(Switch));
+      await tester.pumpAndSettle();
+      expect(changes.last.serviceTier, 'default');
       expect(tester.takeException(), isNull);
     },
   );
@@ -509,6 +518,7 @@ void main() {
     await _open(tester, rpc, changes);
     await tester.tap(find.text('ChatGPT OAuth'));
     await tester.pumpAndSettle();
+    expect(find.byType(Switch), findsNothing);
     expect(find.byType(Slider), findsOneWidget);
     expect(rpc.oauthRequests, isEmpty);
     await _chooseAccount(tester, 'OAuth B');
@@ -516,6 +526,7 @@ void main() {
     await tester.tap(find.text('GPT Test'));
     await tester.pumpAndSettle();
     expect(changes.single.providerId, 'eco-coding-chatgpt');
+    expect(changes.single.serviceTier, isNull);
     expect(changes.single.accountId, 'oauth-B');
     expect(changes.single.thinkingEffort, 'low');
     expect(tester.takeException(), isNull);

@@ -140,6 +140,7 @@ function plannerRoute(
     upstreamModelId?: string;
     primaryModelId?: string;
     thinkingEffort?: ResolvedModelRoute["thinkingEffort"];
+    serviceTier?: ResolvedModelRoute["serviceTier"];
     apiCompat?: ResolvedModelRoute["apiCompat"];
   } = {},
 ): ResolvedModelRoute {
@@ -149,6 +150,7 @@ function plannerRoute(
     providerId: overrides.providerId ?? "anthropic-main",
     upstreamModelId: overrides.upstreamModelId ?? "claude-sonnet-4",
     ...(overrides.thinkingEffort ? { thinkingEffort: overrides.thinkingEffort } : {}),
+    ...(overrides.serviceTier ? { serviceTier: overrides.serviceTier } : {}),
     ...(overrides.apiCompat ? { apiCompat: overrides.apiCompat } : {}),
     primary: {
       id: "sonnet",
@@ -1846,4 +1848,43 @@ test("CodexAppServerDriver surfaces turn/interrupt failure and does not pretend 
   }
   expect(registry.size).toBe(0);
   driver.dispose();
+});
+
+
+test("Login Fast can be enabled and cleared across resumed turns without affecting gateway routes", async () => {
+  const stdin = new PassThrough();
+  const stdout = new PassThrough();
+  const client = new CodexAppServerClient(stdin, stdout);
+  const tiers: unknown[] = [];
+  let count = 0;
+  stdin.on("data", (chunk) => {
+    for (const line of String(chunk).trim().split("\n")) {
+      const message = JSON.parse(line);
+      if (!message.id) continue;
+      if (message.method === "initialize") writeResponse(stdout, { id: message.id, result: {} });
+      else if (message.method === "thread/resume") writeResponse(stdout, { id: message.id, result: { thread: { id: "native-fast" } } });
+      else if (message.method === "turn/start") {
+        tiers.push(message.params.serviceTier);
+        const turn = { id: `fast-${++count}`, items: [], status: "completed" };
+        writeResponse(stdout, { id: message.id, result: { turn } });
+        writeResponse(stdout, { method: "turn/completed", params: { threadId: "native-fast", turn } });
+      }
+    }
+  });
+  await client.initialize();
+  const driver = new CodexAppServerDriver({ client, existingCodexThreadId: "native-fast" });
+  try {
+    for (const route of [
+      plannerRoute({ providerId: "openai", serviceTier: "fast" }),
+      plannerRoute({ providerId: "openai", serviceTier: "default" }),
+      plannerRoute({ providerId: "openai" }),
+      plannerRoute({ serviceTier: "fast" }),
+      plannerRoute({ providerId: "eco-coding-chatgpt", serviceTier: "fast" }),
+      plannerRoute({ providerId: "custom-provider", serviceTier: "fast" }),
+    ]) {
+      for await (const _event of driver.run({ threadId: "eco-fast", prompt: "hi", workspacePath: "/repo",
+        worktreePath: "/repo", routes: [route], signal: new AbortController().signal })) { /* drain */ }
+    }
+    expect(tiers).toEqual(["fast", "default", "default", undefined, undefined, undefined]);
+  } finally { driver.dispose(); client.close(); }
 });

@@ -9,6 +9,14 @@ class AppLocalizationsEn extends AppLocalizations {
   AppLocalizationsEn([String locale = 'en']) : super(locale);
 
   @override
+  String get composerFastHint =>
+      'Faster responses with higher account usage. Changes apply from the next turn.';
+
+  @override
+  String get composerFastUnavailable =>
+      'Fast support is not confirmed by the catalog. Refresh models in ChatGPT Login settings.';
+
+  @override
   String get activityNamedShowMediaToUser => 'Show media to user';
 
   @override

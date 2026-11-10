@@ -685,6 +685,7 @@ export function buildCodexRoleToml(input: {
   providerId: string;
   apiCompat?: CodexGatewayApiCompat;
   reasoningEffort?: string;
+  serviceTier?: "fast" | "default";
   supportsImageInput?: boolean;
   toolPolicy: EcoToolPolicy;
   mcpVisibility?: Readonly<Record<string, CodexMcpServerVisibilityOverride>>;
@@ -713,6 +714,9 @@ export function buildCodexRoleToml(input: {
   ];
   if (permission.web_search) {
     lines.push(`web_search = ${tomlString(permission.web_search)}`);
+  }
+  if (isBuiltInOpenAi) {
+    lines.push(`service_tier = ${tomlString(input.serviceTier ?? "default")}`);
   }
   if (input.reasoningEffort) {
     lines.push(`model_reasoning_effort = ${tomlString(input.reasoningEffort)}`);
@@ -813,6 +817,7 @@ function buildCodexRole(
       ...(apiCompat && { apiCompat }),
       ...(supportsImageInput !== undefined && { supportsImageInput }),
       ...withCodexReasoningEffort(agent.modelRef.thinkingEffort),
+      ...(agent.modelRef.serviceTier ? { serviceTier: agent.modelRef.serviceTier } : {}),
       toolPolicy,
       mcpVisibility,
       mcpServers,
@@ -850,6 +855,7 @@ function buildExploreCodexRole(
       providerId: redactKnownSecrets(providerId, secretsToRedact),
       ...(apiCompat && { apiCompat }),
       ...withCodexReasoningEffort(modelRef.thinkingEffort),
+      ...(modelRef.serviceTier ? { serviceTier: modelRef.serviceTier } : {}),
       ...(supportsImageInput !== undefined && { supportsImageInput }),
       toolPolicy,
       mcpVisibility,

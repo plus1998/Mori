@@ -66,6 +66,7 @@ export function resolveThreadRuntimeConfig(
         ? "openai_responses"
         : resolveUpstreamApiCompat(route.apiCompat, resolvedProvider.apiCompat),
       ...(route.thinkingEffort && { thinkingEffort: route.thinkingEffort }),
+      ...(route.serviceTier ? { serviceTier: route.serviceTier } : {}),
       ...(route.modelsDevMapping && { modelsDevMapping: route.modelsDevMapping }),
       ...(route.manualSpec && { manualSpec: route.manualSpec }),
     };
@@ -118,6 +119,7 @@ export function roleRoutesFromRuntime(routes: readonly RuntimeRoute[]): RuntimeR
     ...(route.candidateModelId ? { candidateModelId: route.candidateModelId } : {}),
     apiCompat: resolveUpstreamApiCompat(route.apiCompat, route.provider.apiCompat),
     ...(route.thinkingEffort && { thinkingEffort: route.thinkingEffort }),
+    ...(route.serviceTier ? { serviceTier: route.serviceTier } : {}),
     ...(route.modelsDevMapping && { modelsDevMapping: route.modelsDevMapping }),
     ...(route.manualSpec && { manualSpec: route.manualSpec }),
   }));
@@ -144,6 +146,7 @@ export function buildDriverRoutes(routes: readonly AnthropicProxyResolvedRoute[]
     },
     fallbacks: [],
     ...(route.thinkingEffort && { thinkingEffort: route.thinkingEffort }),
+    ...(route.serviceTier ? { serviceTier: route.serviceTier } : {}),
     ...(route.maxOutputTokens !== undefined && { maxOutputTokens: route.maxOutputTokens }),
   }));
 }
@@ -195,6 +198,7 @@ export function buildDriverRoutesFromRuntime(
       },
       fallbacks: [],
       ...(route.thinkingEffort && { thinkingEffort: route.thinkingEffort }),
+      ...(route.serviceTier ? { serviceTier: route.serviceTier } : {}),
     };
   });
 }

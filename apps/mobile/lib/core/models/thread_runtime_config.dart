@@ -14,6 +14,7 @@ OrchestrationModelRef? resolveThreadMainModel(ThreadRuntimeConfig config) {
     modelId: override.modelId,
     candidateModelId: override.candidateModelId,
     thinkingEffort: override.thinkingEffort,
+    serviceTier: override.serviceTier,
     accountId: override.providerId == selected?.providerId
         ? selected?.accountId
         : null,

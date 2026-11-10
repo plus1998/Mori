@@ -28,6 +28,7 @@ const MODELS_JSON = JSON.stringify({
         { effort: "ultra", description: "Delegation" },
       ],
       input_modalities: ["text", "image"],
+      service_tiers: [{ id: "priority", name: "Fast" }],
       model_messages: { instructions_template: "x".repeat(5000) },
     },
     {
@@ -75,6 +76,7 @@ describe("parseCodexModelsJson", () => {
       defaultReasoningEffort: "low",
       reasoningEfforts: ["low", "ultra"],
       supportsImageInput: true,
+      supportsFast: true,
       hidden: false,
       origin: "remote",
     });
@@ -277,4 +279,23 @@ describe("CodexRemoteModelCatalogService", () => {
       path.join("/tmp/eco-user-data", "codex-model-catalog.json"),
     );
   });
+});
+
+
+test("Fast support is retained after refreshing and reloading the disk catalog", async () => {
+  const cachePath = await tempCachePath();
+  const options = { cachePath, ...fetchReturning(MODELS_JSON) };
+  await new CodexRemoteModelCatalogService(options).refresh();
+  const reloaded = await new CodexRemoteModelCatalogService(options).listModels();
+  expect(reloaded.find(model => model.modelId === "gpt-6-astra")?.supportsFast).toBe(true);
+});
+
+
+test("Fast capability is derived only from explicit upstream tiers", () => {
+  const entries = parseCodexModelsJson(JSON.stringify({ models: [
+    { slug: "fast-alias", additional_speed_tiers: ["fast"] },
+    { slug: "standard-only", service_tiers: [] },
+    { slug: "unknown" },
+  ] }));
+  expect(entries.map(model => model.supportsFast)).toEqual([true, false, undefined]);
 });

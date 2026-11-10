@@ -163,6 +163,7 @@ class OrchestrationModelRef {
     required this.providerId,
     required this.modelId,
     this.thinkingEffort,
+    this.serviceTier,
     this.candidateModelId,
     this.accountId,
   });
@@ -172,6 +173,7 @@ class OrchestrationModelRef {
         providerId: json['providerId'] as String? ?? '',
         modelId: json['modelId'] as String? ?? '',
         thinkingEffort: json['thinkingEffort'] as String?,
+        serviceTier: json['serviceTier'] as String?,
         candidateModelId: json['candidateModelId'] as String?,
         accountId: json['accountId'] as String?,
       );
@@ -180,6 +182,7 @@ class OrchestrationModelRef {
     'providerId': providerId,
     'modelId': modelId,
     if (thinkingEffort != null) 'thinkingEffort': thinkingEffort,
+    if (serviceTier != null) 'serviceTier': serviceTier,
     if (candidateModelId != null) 'candidateModelId': candidateModelId,
     if (accountId != null) 'accountId': accountId,
   };
@@ -187,6 +190,7 @@ class OrchestrationModelRef {
   final String providerId;
   final String modelId;
   final String? thinkingEffort;
+  final String? serviceTier;
   final String? candidateModelId;
   final String? accountId;
 }

@@ -22,6 +22,8 @@ export interface ModelRef extends Pick<RuntimeRoleRouteConfig, "baseUrl" | "requ
   accountId?: string;
   apiCompat?: UpstreamApiCompat;
   thinkingEffort?: ThinkingEffort;
+  /** ChatGPT Login speed preference; standard explicitly clears a previous Fast turn. */
+  serviceTier?: "fast" | "default";
   modelsDevMapping?: ModelsDevMapping;
   manualSpec?: RouteManualSpec;
   /** 引用供应商候选模型的稳定 ID；不存在时必须重新选择 */
@@ -477,6 +479,7 @@ function routeToModelRef(route: RoleRouteConfig): ModelRef {
     ...(route.accountId ? { accountId: route.accountId } : {}),
     ...(route.apiCompat && { apiCompat: route.apiCompat }),
     ...(route.thinkingEffort && { thinkingEffort: route.thinkingEffort }),
+    ...(route.serviceTier ? { serviceTier: route.serviceTier } : {}),
     ...(route.modelsDevMapping && { modelsDevMapping: route.modelsDevMapping }),
     ...(route.manualSpec && { manualSpec: route.manualSpec }),
   };
@@ -520,6 +523,8 @@ function isModelRef(value: unknown): value is ModelRef {
   return typeof model.providerId === "string" && Boolean(model.providerId.trim()) &&
     typeof model.modelId === "string" && Boolean(model.modelId.trim()) &&
     (model.accountId === undefined || typeof model.accountId === "string") &&
+    (model.serviceTier === undefined || model.providerId === "openai" &&
+      (model.serviceTier === "fast" || model.serviceTier === "default")) &&
     (model.candidateModelId === undefined || typeof model.candidateModelId === "string");
 }
 
@@ -765,6 +770,7 @@ function cloneModelRef(modelRef: ModelRef): ModelRef {
     ...(modelRef.version && { version: modelRef.version }),
     ...(modelRef.tokenCountMode && { tokenCountMode: modelRef.tokenCountMode }),
     ...(modelRef.thinkingEffort && { thinkingEffort: modelRef.thinkingEffort }),
+    ...(modelRef.serviceTier ? { serviceTier: modelRef.serviceTier } : {}),
     ...(modelRef.modelsDevMapping && { modelsDevMapping: { ...modelRef.modelsDevMapping } }),
     ...(modelRef.manualSpec && { manualSpec: { ...modelRef.manualSpec } }),
     ...(modelRef.candidateModelId && { candidateModelId: modelRef.candidateModelId }),

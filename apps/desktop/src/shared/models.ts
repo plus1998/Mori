@@ -37,6 +37,7 @@ export interface CodexCatalogModelView {
   maxContextWindow?: number;
   defaultReasoningEffort?: string;
   reasoningEfforts: string[];
+  supportsFast?: boolean;
   supportsImageInput?: boolean;
   priority?: number;
   hidden: boolean;

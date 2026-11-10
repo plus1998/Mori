@@ -82,6 +82,11 @@ function trimRemoteEntry(value: Record<string, unknown>, modelId: string): Codex
     origin: "remote",
   };
 
+  if (Array.isArray(value.service_tiers) || Array.isArray(value.additional_speed_tiers)) {
+    entry.supportsFast = (Array.isArray(value.service_tiers) && value.service_tiers.some(
+      (tier) => isRecord(tier) && (tier.id === "priority" || tier.id === "fast"),
+    )) || (Array.isArray(value.additional_speed_tiers) && value.additional_speed_tiers.includes("fast"));
+  }
   const description = readTrimmedString(value.description);
   if (description) entry.description = description;
   const contextWindow = readPositiveNumber(value.context_window);

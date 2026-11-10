@@ -53,6 +53,7 @@ class MainAgentModelOverride {
     required this.providerId,
     required this.modelId,
     this.thinkingEffort,
+    this.serviceTier,
     this.candidateModelId,
   });
 
@@ -75,6 +76,7 @@ class MainAgentModelOverride {
       providerId: providerId,
       modelId: modelId,
       thinkingEffort: thinkingEffort,
+      serviceTier: json['serviceTier'] as String?,
       candidateModelId: candidateModelId,
     );
   }
@@ -83,12 +85,14 @@ class MainAgentModelOverride {
     'providerId': providerId,
     'modelId': modelId,
     if (thinkingEffort != null) 'thinkingEffort': thinkingEffort,
+    if (serviceTier != null) 'serviceTier': serviceTier,
     if (candidateModelId != null) 'candidateModelId': candidateModelId,
   };
 
   final String providerId;
   final String modelId;
   final String? thinkingEffort;
+  final String? serviceTier;
   final String? candidateModelId;
 }
 

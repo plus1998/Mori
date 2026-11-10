@@ -1,6 +1,6 @@
 import { ComposerHoverTooltip } from "./ComposerHoverTooltip";
 import { codexQuotaPeriod, codexQuotaResetAt } from "./codex-quota-reminder";
-import { Check, ChevronDown, CircleHelp, Search } from "lucide-react";
+import { Check, ChevronDown, CircleHelp, Search, Zap } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import type { CandidateModelView, CommitModelOptionView, ModelRef, ThinkingEffort } from "../shared/ipc";
@@ -19,6 +19,7 @@ export function modelPickerAccountMode(source: Source, purpose: PickerPurpose): 
 type PickerDataKey = "custom" | "loginAccounts" | "oauthAccounts" | "loginModels";
 type Account = { id: string; name: string; available?: boolean; statusLabel?: string; quota?: OpenAIAccountQuota | undefined; quotaError?: string | undefined };
 type PickerModel = { id: string; name: string; candidateModelId?: string;
+  supportsFast?: boolean;
   reasoningEfforts?: ThinkingEffort[]; reasoningUnknown?: boolean; unsupportedCatalogEfforts?: string[] };
 type ProviderOption = { id: Source; name: string; color?: string; icon?: string; models: PickerModel[] };
 const THINKING_EFFORTS: readonly ThinkingEffort[] = ["off", "low", "medium", "high", "xhigh", "max"];
@@ -128,7 +129,7 @@ export function associateOAuthModelEfforts(
 
 export function buildMainModelProviderOptions(
   candidates: readonly CommitModelOptionView[],
-  loginModels: readonly { modelId: string; displayName: string; reasoningEfforts?: string[] }[],
+  loginModels: readonly { modelId: string; displayName: string; reasoningEfforts?: string[]; supportsFast?: boolean }[],
   includeLogin: boolean,
 ): ProviderOption[] {
   const custom = new Map<string, ProviderOption>();
@@ -152,6 +153,7 @@ export function buildMainModelProviderOptions(
     ...(includeLogin ? [{ id: "login", name: "ChatGPT Login", icon: "./provider-icons/openai.svg",
       models: loginModels.map((entry) => ({
       id: entry.modelId, name: entry.displayName,
+      ...(entry.supportsFast !== undefined ? { supportsFast: entry.supportsFast } : {}),
       ...(entry.reasoningEfforts ? { reasoningEfforts: catalogThinkingEfforts(entry.reasoningEfforts) } : {}),
     })) }] : []),
     { id: "oauth", name: "ChatGPT OAuth", icon: "./provider-icons/openai.svg", models: [] },
@@ -220,7 +222,7 @@ export function ComposerMainModelPicker({
   const [oauthAccounts, setOauthAccounts] = useState<Account[]>([]);
   const [oauthAccountsLoaded, setOauthAccountsLoaded] = useState(false);
   const [loginModels, setLoginModels] = useState<Array<{
-    modelId: string; displayName: string; reasoningEfforts: string[] }>>([]);
+    modelId: string; displayName: string; reasoningEfforts: string[]; supportsFast?: boolean }>>([]);
   const [accountModels, setAccountModels] = useState<{ accountId: string; models: PickerModel[] }>();
   const [accountModelsLoading, setAccountModelsLoading] = useState(false);
   const switchAccountIntent = useRef(false);
@@ -320,7 +322,8 @@ export function ComposerMainModelPicker({
     load("loginModels", eco.getCodexModelCatalog(), (catalog) => setLoginModels(catalog.models
       .filter((entry) => !entry.hidden)
       .map((entry) => ({ modelId: entry.modelId, displayName: entry.displayName,
-        reasoningEfforts: entry.reasoningEfforts }))));
+        reasoningEfforts: entry.reasoningEfforts,
+        ...(entry.supportsFast !== undefined ? { supportsFast: entry.supportsFast } : {}) }))));
 
     return () => { cancelled = true; };
   }, [open, purpose]);
@@ -445,6 +448,8 @@ export function ComposerMainModelPicker({
       ...(entry.candidateModelId ? { candidateModelId: entry.candidateModelId } : {}),
       ...(accountSource ? { accountId } : {}),
       ...(initialEffort ? { thinkingEffort: initialEffort } : {}),
+      ...(source === "login" ? { serviceTier: entry.supportsFast && activeChoice?.serviceTier === "fast"
+        ? "fast" : "default" } : {}),
     };
     setActiveChoice(choice);
     if (initialEffort) setPreferredEffort(initialEffort);
@@ -526,7 +531,8 @@ export function ComposerMainModelPicker({
     : model?.providerId === "openai" ? purpose === "subagent" ? t("composer.mainPicker.inheritMainAccount")
       : loginAccounts.find((account) => account.id === model.accountId)?.name
     : undefined;
-  const hoverDetails = [providerName, accountName, invalid ? invalidLabel : bindingError].filter(Boolean).join(" · ");
+  const hoverDetails = [providerName, accountName, model?.providerId === "openai" && model.serviceTier === "fast" ? "Fast" : undefined,
+    invalid ? invalidLabel : bindingError].filter(Boolean).join(" · ");
   const trigger = (
     <button ref={triggerRef} type="button"
       className={`composer-model-trigger${open ? " is-active" : ""}${model ? "" : " is-empty"}${invalid ? " is-invalid" : ""}`}
@@ -540,6 +546,7 @@ export function ComposerMainModelPicker({
           : purpose !== "main" ? `${providerName} · ` : "") : null}
         {supportsThinking ? <ComposerModelLabel modelId={model.modelId} thinkingEffort={model.thinkingEffort} size="medium" />
           : <span>{formatComposerModelName(model.modelId)}</span>}
+        {model.providerId === "openai" && model.serviceTier === "fast" ? <span className="composer-model-fast-badge"><Zap size={10} aria-hidden />Fast</span> : null}
       </span> : <span className="composer-model-empty-label">{t("composer.route.selectModel")}</span>}
       <ChevronDown size={13} className="composer-model-picker-chevron" aria-hidden />
     </button>
@@ -672,6 +679,21 @@ export function ComposerMainModelPicker({
               <span className="composer-main-model-picker-section-label">
                 {t("composer.mainPicker.thinkingEffort")}
               </span>
+              {source === "login" && activeModel && activeChoice ? <ComposerHoverTooltip
+                content={t(activeModel.supportsFast ? "composer.mainPicker.fastHint" : "composer.mainPicker.fastUnavailable")}>
+                <label className="composer-main-model-picker-fast">
+                  <input type="checkbox" aria-label="Fast" checked={activeChoice.serviceTier === "fast"}
+                    disabled={readOnly || (!activeModel.supportsFast && activeChoice.serviceTier !== "fast")}
+                    onChange={(event) => {
+                      const choice: ModelRef = { ...activeChoice, serviceTier: event.currentTarget.checked ? "fast" : "default" };
+                      setActiveChoice(choice);
+                      void saveChoice(choice);
+                    }} />
+                  <Zap size={12} aria-hidden />
+                  <span>Fast</span>
+                  <span className="composer-main-model-picker-fast-track" aria-hidden />
+                </label>
+              </ComposerHoverTooltip> : null}
             </div>
             <ThinkingEffortSlider key={`${source}:${accountId}:${activeModel?.candidateModelId ?? activeModel?.id ?? "none"}`}
               efforts={sliderEfforts} value={activeChoice?.thinkingEffort ?? preferredEffort}

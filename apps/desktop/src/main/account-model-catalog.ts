@@ -328,6 +328,7 @@ function normalizeCachedEntry(
     hidden: entry.hidden === true,
     origin,
   };
+  if (typeof entry.supportsFast === "boolean") normalized.supportsFast = entry.supportsFast;
   const description = readTrimmedString(entry.description);
   if (description) normalized.description = description;
   const contextWindow = readPositiveNumber(entry.contextWindow);

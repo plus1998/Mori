@@ -90,6 +90,7 @@ export interface CodexTurnStartParams {
   model: string;
   /** Top-level reasoning override; persists for subsequent turns on the thread. */
   effort?: CodexTurnReasoningEffort;
+  serviceTier?: "fast" | "default";
   /** Codex Settings.model is required whenever collaborationMode is sent. */
   collaborationMode: CodexCollaborationMode;
   sandboxPolicy: CodexAppServerSandboxPolicy;
@@ -514,6 +515,7 @@ export class CodexAppServerDriver implements AgentRuntimeDriver {
           cwd,
           model: codexGatewayModel,
           ...(effort ? { effort } : {}),
+          ...(isBuiltInOpenAi ? { serviceTier: route.serviceTier ?? "default" } : {}),
           collaborationMode,
           sandboxPolicy: toCodexAppServerSandboxPolicy(turnOptions.sandboxPolicy, turnOptions.networkAccess),
           approvalPolicy: turnOptions.approvalPolicy,

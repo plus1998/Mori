@@ -70,6 +70,8 @@ export interface MainAgentModelOverride {
   providerId: string;
   modelId: string;
   thinkingEffort?: ThinkingEffort;
+  /** ChatGPT Login speed preference; standard explicitly clears a previous Fast turn. */
+  serviceTier?: "fast" | "default";
   candidateModelId?: string;
 }
 
@@ -202,6 +204,7 @@ export function applyMainAgentModelOverride(
       ...(applicableOverride.thinkingEffort !== undefined
         ? { thinkingEffort: applicableOverride.thinkingEffort }
         : {}),
+      ...(applicableOverride.serviceTier ? { serviceTier: applicableOverride.serviceTier } : {}),
       ...(applicableOverride.candidateModelId
         ? { candidateModelId: applicableOverride.candidateModelId }
         : {}),
@@ -225,6 +228,7 @@ function routeFromModelRef(
     ...(modelRef.version && { version: modelRef.version }),
     ...(modelRef.tokenCountMode && { tokenCountMode: modelRef.tokenCountMode }),
     ...(modelRef.thinkingEffort && { thinkingEffort: modelRef.thinkingEffort }),
+    ...(modelRef.serviceTier ? { serviceTier: modelRef.serviceTier } : {}),
     ...(modelRef.modelsDevMapping && { modelsDevMapping: modelRef.modelsDevMapping }),
     ...(modelRef.manualSpec && { manualSpec: modelRef.manualSpec }),
     ...(modelRef.candidateModelId && { candidateModelId: modelRef.candidateModelId }),
@@ -816,6 +820,8 @@ export function isMainAgentModelOverride(value: unknown): value is MainAgentMode
     Boolean(record.providerId.trim()) &&
     typeof record.modelId === "string" &&
     Boolean(record.modelId.trim()) &&
+    (record.serviceTier === undefined || record.providerId === "openai" &&
+      (record.serviceTier === "fast" || record.serviceTier === "default")) &&
     (record.thinkingEffort === undefined ||
       (typeof record.thinkingEffort === "string" && isThinkingEffort(record.thinkingEffort))) &&
     (record.candidateModelId === undefined || typeof record.candidateModelId === "string")
@@ -828,6 +834,7 @@ export function normalizeMainAgentModelOverride(override: MainAgentModelOverride
     providerId: override.providerId.trim(),
     modelId: override.modelId.trim(),
     ...(override.thinkingEffort !== undefined ? { thinkingEffort: override.thinkingEffort } : {}),
+    ...(override.serviceTier ? { serviceTier: override.serviceTier } : {}),
     ...(candidateModelId ? { candidateModelId } : {}),
   };
 }

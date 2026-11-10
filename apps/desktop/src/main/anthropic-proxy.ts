@@ -72,6 +72,8 @@ export interface ClaudeMessagesRouteEntry {
   aliasModelId: string;
   apiCompat: UpstreamApiCompat;
   thinkingEffort?: ThinkingEffort;
+  /** ChatGPT Login speed preference; standard explicitly clears a previous Fast turn. */
+  serviceTier?: "fast" | "default";
   maxOutputTokens?: number;
   bindingId: string;
 }
@@ -83,6 +85,8 @@ export interface AnthropicProxyRoute {
   modelId: string;
   apiCompat?: UpstreamApiCompat;
   thinkingEffort?: ThinkingEffort;
+  /** ChatGPT Login speed preference; standard explicitly clears a previous Fast turn. */
+  serviceTier?: "fast" | "default";
   /** From RouteManualSpec; injected as Anthropic max_tokens on forwarded messages requests. */
   maxOutputTokens?: number;
   /** Resolved catalog/manual context window; drives SDK `[1m]` alias suffix when >= 1M. */
@@ -100,6 +104,8 @@ export interface RuntimeRouteProxySource {
   modelId: string;
   apiCompat?: UpstreamApiCompat;
   thinkingEffort?: ThinkingEffort;
+  /** ChatGPT Login speed preference; standard explicitly clears a previous Fast turn. */
+  serviceTier?: "fast" | "default";
   manualSpec?: RouteManualSpec;
 }
 
@@ -164,6 +170,7 @@ export function runtimeRouteToProxyRoute(
     ...(route.candidateModelId ? { candidateModelId: route.candidateModelId } : {}),
     ...(route.apiCompat && { apiCompat: route.apiCompat }),
     ...(route.thinkingEffort && { thinkingEffort: route.thinkingEffort }),
+    ...(route.serviceTier ? { serviceTier: route.serviceTier } : {}),
     maxOutputTokens,
     ...(route.manualSpec?.supportsImageInput !== undefined && {
       supportsImageInput: route.manualSpec.supportsImageInput,
@@ -314,6 +321,7 @@ export async function startAnthropicModelProxy(
       route.contextTokens,
     ),
     ...(route.thinkingEffort && { thinkingEffort: route.thinkingEffort }),
+    ...(route.serviceTier ? { serviceTier: route.serviceTier } : {}),
     ...(route.maxOutputTokens !== undefined && { maxOutputTokens: route.maxOutputTokens }),
     ...(route.contextTokens !== undefined && { contextTokens: route.contextTokens }),
     ...(route.contextTokensResolved !== undefined && { contextTokensResolved: route.contextTokensResolved }),
@@ -332,6 +340,7 @@ export async function startAnthropicModelProxy(
     aliasModelId: route.aliasModelId,
     apiCompat: route.apiCompat,
     ...(route.thinkingEffort ? { thinkingEffort: route.thinkingEffort } : {}),
+    ...(route.serviceTier ? { serviceTier: route.serviceTier } : {}),
     ...(route.maxOutputTokens !== undefined ? { maxOutputTokens: route.maxOutputTokens } : {}),
     ...(route.contextTokens !== undefined ? { contextTokens: route.contextTokens } : {}),
     ...(route.compactionContextTokens !== undefined
@@ -851,6 +860,7 @@ async function prepareAgainstBinding(
       apiCompat: route.apiCompat,
       bindingId: binding.bindingId,
       ...(route.thinkingEffort ? { thinkingEffort: route.thinkingEffort } : {}),
+      ...(route.serviceTier ? { serviceTier: route.serviceTier } : {}),
       ...(route.maxOutputTokens !== undefined ? { maxOutputTokens: route.maxOutputTokens } : {}),
     },
   };
@@ -1137,6 +1147,7 @@ export function resolveClaudeBridgeRoute(
       apiCompat: route.apiCompat,
       bindingId: binding.bindingId,
       ...(route.thinkingEffort ? { thinkingEffort: route.thinkingEffort } : {}),
+      ...(route.serviceTier ? { serviceTier: route.serviceTier } : {}),
       ...(route.maxOutputTokens !== undefined ? { maxOutputTokens: route.maxOutputTokens } : {}),
     },
   };

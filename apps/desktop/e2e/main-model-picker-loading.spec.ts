@@ -7,6 +7,53 @@ function fixtureUrl(query = ""): string {
   return new URL(`/e2e/fixtures/main-model-picker.html${query}`, rendererUrl).href;
 }
 
+test("Login Fast remains selected across panel reopen and thinking-effort changes", async ({ page }) => {
+  await page.goto(fixtureUrl());
+  const trigger = page.locator(".composer-model-trigger");
+  await trigger.click();
+  const fast = page.getByRole("checkbox", { name: "Fast", exact: true });
+  await expect(fast).toBeEnabled();
+  await fast.check();
+  await expect(page.locator(".composer-model-fast-badge")).toHaveText("Fast");
+  const effort = page.getByRole("slider");
+  await effort.focus();
+  await effort.press("End");
+  await expect(fast).toBeChecked();
+  await trigger.click();
+  await trigger.click();
+  await expect(fast).toBeChecked();
+  await fast.uncheck();
+  await expect(page.locator(".composer-model-fast-badge")).toHaveCount(0);
+});
+
+for (const query of ["?readOnly", "?noFast"]) {
+  test(`Login Fast is disabled for ${query}`, async ({ page }) => {
+    await page.goto(fixtureUrl(query));
+    await page.locator(".composer-model-trigger").click();
+    await expect(page.getByRole("checkbox", { name: "Fast", exact: true })).toBeDisabled();
+    await expect(page.locator(".composer-model-fast-badge")).toHaveCount(0);
+  });
+}
+
+test("Login Fast is hidden for OAuth and custom providers and is cleared when switching providers", async ({ page }) => {
+  await page.goto(fixtureUrl("?custom"));
+  await page.locator(".composer-model-trigger").click();
+  const fast = page.getByRole("checkbox", { name: "Fast", exact: true });
+  await fast.check();
+  await page.getByRole("button", { name: "ChatGPT OAuth", exact: true }).click();
+  await expect(fast).toHaveCount(0);
+  await page.getByRole("button", { name: "Custom provider", exact: true }).click();
+  await expect(fast).toHaveCount(0);
+  await page.getByRole("button", { name: "Custom local model", exact: true }).click();
+  await expect(page.locator(".composer-model-fast-badge")).toHaveCount(0);
+  expect(await page.evaluate(() => (window as unknown as {
+    pickerLastSelection(): { providerId: string; serviceTier?: string };
+  }).pickerLastSelection())).toMatchObject({ providerId: "custom-provider" });
+  expect(await page.evaluate(() => (window as unknown as {
+    pickerLastSelection(): { serviceTier?: string };
+  }).pickerLastSelection().serviceTier)).toBeUndefined();
+});
+
 test("read-only picker allows browsing without saving or changing model settings", async ({ page }) => {
   await page.goto(fixtureUrl("?readOnly"));
   await page.locator(".composer-model-trigger").click();

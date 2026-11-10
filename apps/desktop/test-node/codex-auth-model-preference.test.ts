@@ -34,7 +34,7 @@ test("ChatGPT Login account and model choice survives restart without changing e
   });
   const nextSelection = {
     ...selection,
-    mainModel: { providerId: "openai", modelId: "gpt-5.3-codex", accountId: "account-b", thinkingEffort: "xhigh" as const },
+    mainModel: { providerId: "openai", modelId: "gpt-5.3-codex", accountId: "account-b", thinkingEffort: "xhigh" as const, serviceTier: "fast" as const },
   };
   store.save({ ...store.get(), defaultOrchestrationSelection: nextSelection });
   db.close();
@@ -50,6 +50,7 @@ test("ChatGPT Login account and model choice survives restart without changing e
   });
   assert.equal(fresh.resolvedOrchestrationSnapshot?.mainAgent.modelRef.modelId, "gpt-5.3-codex");
   assert.equal(fresh.resolvedOrchestrationSnapshot?.mainAgent.modelRef.thinkingEffort, "xhigh");
+  assert.equal(fresh.resolvedOrchestrationSnapshot?.mainAgent.modelRef.serviceTier, "fast");
   assert.equal(fresh.resolvedOrchestrationSnapshot?.mainAgent.modelRef.accountId, "account-b");
   assert.equal(existing.resolvedOrchestrationSnapshot?.mainAgent.modelRef.modelId, "gpt-5.6-luna");
   assert.equal(existing.resolvedOrchestrationSnapshot?.mainAgent.modelRef.accountId, "account-a");

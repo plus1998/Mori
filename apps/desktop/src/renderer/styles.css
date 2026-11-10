@@ -38333,6 +38333,115 @@ body,
 .composer-main-model-picker-effort-heading {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  min-height: 28px;
+  gap: 12px;
+  padding: 0 2px 3px;
+}
+
+.composer-main-model-picker-fast {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--popover-border);
+  border-radius: 999px;
+  background: var(--popover-bg);
+  color: var(--popover-muted, var(--composer-toolbar-icon));
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.composer-main-model-picker-fast input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: inherit;
+}
+
+.composer-main-model-picker-fast:hover:not(:has(input:disabled)) {
+  background: var(--popover-hover);
+  color: var(--text-primary);
+}
+
+.composer-main-model-picker-fast:has(input:checked) {
+  border-color: color-mix(in srgb, var(--accent) 28%, transparent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--popover-bg));
+  color: var(--accent);
+}
+
+.composer-main-model-picker-fast:has(input:checked):hover:not(:has(input:disabled)) {
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--popover-bg));
+  color: var(--accent);
+}
+
+.composer-main-model-picker-fast:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.composer-main-model-picker-fast:has(input:disabled) {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.composer-main-model-picker-fast-track {
+  position: relative;
+  width: 22px;
+  height: 12px;
+  margin-left: 2px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--popover-muted, var(--composer-toolbar-icon)) 30%, transparent);
+  transition: background-color 0.15s;
+  pointer-events: none;
+}
+
+.composer-main-model-picker-fast-track::after {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: white;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 12%);
+  content: "";
+  transition: transform 0.15s;
+}
+
+.composer-main-model-picker-fast:has(input:checked) .composer-main-model-picker-fast-track {
+  background: var(--accent);
+}
+
+.composer-main-model-picker-fast:has(input:checked) .composer-main-model-picker-fast-track::after {
+  transform: translateX(10px);
+  background: white;
+}
+
+.composer-model-fast-badge {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 3px;
+  height: 18px;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 500;
+  vertical-align: middle;
 }
 
 .composer-main-model-picker-effort-slider {
