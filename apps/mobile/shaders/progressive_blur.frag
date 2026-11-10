@@ -28,7 +28,9 @@ uniform sampler2D uTexture;
 
 out vec4 fragColor;
 
-const int kHalf = 48;
+// Keep Gaussian sigma and dissolve, approximating broad kernels with at most
+// 65 samples rather than 97. Check both themes with the offline glass fixture.
+const int kHalf = 32;
 
 void main() {
   vec2 rn = clamp(
@@ -65,9 +67,9 @@ void main() {
 
   vec2 axis = (uAxis < 0.5) ? vec2(1.0 / uSize.x, 0.0) : vec2(0.0, 1.0 / uSize.y);
   float stride = max(1.0, 3.0 * sigma / float(kHalf));
-  // The old fixed kernel sampled far beyond the useful support of small
-  // sigmas. Four sigma omits less than 0.007% of a continuous Gaussian's mass;
-  // retain the original stride and full kernel for larger sigmas.
+  // Small kernels need only four sigma of support (omitting less than 0.007%
+  // of a continuous Gaussian's mass). Broad kernels use the bounded tap count
+  // above and a larger stride to cover approximately three sigma.
   float radius = min(float(kHalf), ceil(4.0 * sigma / stride));
 
   // Gaussian weights form a recurrence: w(i)/w(i-1) changes by a constant

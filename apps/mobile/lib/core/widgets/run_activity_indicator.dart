@@ -2,58 +2,17 @@ import 'package:flutter/material.dart';
 
 import '../locale/app_localizations_ext.dart';
 import '../theme/eco_theme.dart';
+import '../utils/activity_paint_clock.dart';
 
 /// A quiet, indeterminate mark for work that has no visible Feed output yet.
-class RunActivityIndicator extends StatefulWidget {
+class RunActivityIndicator extends StatelessWidget {
   const RunActivityIndicator({super.key});
 
   @override
-  State<RunActivityIndicator> createState() => _RunActivityIndicatorState();
-}
-
-class _RunActivityIndicatorState extends State<RunActivityIndicator>
-    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
-  late final _animation = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 1800),
-  );
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addObserver(this);
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _syncAnimation();
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) => _syncAnimation();
-
-  void _syncAnimation() {
-    final lifecycle = WidgetsBinding.instance.lifecycleState;
-    if (MediaQuery.disableAnimationsOf(context) ||
-        !TickerMode.valuesOf(context).enabled ||
-        (lifecycle != null && lifecycle != AppLifecycleState.resumed)) {
-      _animation.stop();
-      _animation.value = 0.5;
-    } else if (!_animation.isAnimating) {
-      _animation.repeat();
-    }
-  }
-
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    _animation.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
+    final enabled =
+        TickerMode.valuesOf(context).enabled &&
+        !MediaQuery.disableAnimationsOf(context);
     final colors = ecoColors(context);
     final label = context.l10n.activityProcessing;
     return Semantics(
@@ -67,7 +26,7 @@ class _RunActivityIndicatorState extends State<RunActivityIndicator>
               child: CustomPaint(
                 size: const Size(28, 2),
                 painter: _ActivityLinePainter(
-                  animation: _animation,
+                  clock: enabled ? activityPaintClock() : null,
                   color: colors.textSecondary,
                 ),
               ),
@@ -80,10 +39,10 @@ class _RunActivityIndicatorState extends State<RunActivityIndicator>
 }
 
 class _ActivityLinePainter extends CustomPainter {
-  _ActivityLinePainter({required this.animation, required this.color})
-    : super(repaint: animation);
+  _ActivityLinePainter({required this.clock, required this.color})
+    : super(repaint: clock);
 
-  final Animation<double> animation;
+  final ActivityPaintClock? clock;
   final Color color;
 
   @override
@@ -92,7 +51,7 @@ class _ActivityLinePainter extends CustomPainter {
     canvas.clipRRect(RRect.fromRectAndRadius(bounds, const Radius.circular(2)));
     canvas.drawRect(bounds, Paint()..color = color.withValues(alpha: 0.08));
     // Both endpoints sit outside the clipped track, so the loop has no jump.
-    final left = -size.width + animation.value * size.width * 2;
+    final left = -size.width + (clock?.phase ?? 0.5) * size.width * 2;
     canvas.drawRect(
       bounds,
       Paint()
@@ -108,5 +67,5 @@ class _ActivityLinePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_ActivityLinePainter oldDelegate) =>
-      oldDelegate.color != color || oldDelegate.animation != animation;
+      oldDelegate.color != color || oldDelegate.clock != clock;
 }

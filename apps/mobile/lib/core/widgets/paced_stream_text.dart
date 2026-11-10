@@ -7,6 +7,21 @@ import '../utils/stream_text.dart';
 typedef PacedStreamTextBuilder =
     Widget Function(BuildContext context, String displayText, bool revealing);
 
+/// V2 sessions already merge presentation updates at the source (50ms).
+/// Descendants can display that batch in the current build instead of adding
+/// a second timer, stale-text frame and layout pass. Unbatched callers retain
+/// the local pacing behavior.
+class BatchedStreamUpdates extends InheritedWidget {
+  const BatchedStreamUpdates({super.key, required super.child});
+
+  static bool of(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<BatchedStreamUpdates>() !=
+      null;
+
+  @override
+  bool updateShouldNotify(BatchedStreamUpdates oldWidget) => false;
+}
+
 class PacedStreamText extends StatefulWidget {
   const PacedStreamText({
     super.key,
@@ -30,6 +45,7 @@ class _PacedStreamTextState extends State<PacedStreamText>
   Timer? _revealTimer;
   bool _visible = true;
   bool _reduceMotion = false;
+  bool _alreadyBatched = false;
 
   @override
   void initState() {
@@ -44,6 +60,7 @@ class _PacedStreamTextState extends State<PacedStreamText>
     super.didChangeDependencies();
     _visible = TickerMode.valuesOf(context).enabled;
     _reduceMotion = MediaQuery.disableAnimationsOf(context);
+    _alreadyBatched = BatchedStreamUpdates.of(context);
     _syncReveal();
   }
 
@@ -61,8 +78,8 @@ class _PacedStreamTextState extends State<PacedStreamText>
   }
 
   void _syncReveal() {
-    if (!widget.streaming || _reduceMotion) {
-      // 已定稿或不再是逐字目标：直接补齐全量。
+    if (!widget.streaming || _reduceMotion || _alreadyBatched) {
+      // 已定稿、减少动态效果或上游已合并批次：当前帧直接补齐。
       _cancelReveal();
       if (_displayText != _targetText) {
         _displayText = _targetText;

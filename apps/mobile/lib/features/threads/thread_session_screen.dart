@@ -34,6 +34,7 @@ import '../../core/utils/thread_status.dart';
 import '../../core/platform/session_wake_lock.dart';
 import '../../core/widgets/eco_modal_sheet.dart';
 import '../../core/widgets/prompt_image_lightbox.dart';
+import '../../core/widgets/paced_stream_text.dart';
 import '../approvals/approval_sheets.dart';
 import '../approvals/bash_approval_panel.dart';
 import '../approvals/plan_approval_panel.dart';
@@ -2011,7 +2012,7 @@ class _ActivityFeedView extends ConsumerWidget {
       );
     }
 
-    return ActivityFeedAutoReadListener(
+    final feed = ActivityFeedAutoReadListener(
       threadId: threadId,
       running: isRunning,
       ready: conversationV2.syncState == ConversationV2SyncState.live,
@@ -2217,6 +2218,7 @@ class _ActivityFeedView extends ConsumerWidget {
             .loadOlder(),
       ),
     );
+    return BatchedStreamUpdates(child: feed);
   }
 }
 

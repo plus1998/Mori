@@ -104,10 +104,14 @@ class _StreamingEcoMarkdownState extends State<StreamingEcoMarkdown> {
       add(
         _completedWidgets.putIfAbsent(
           block,
-          () => _prose(
-            block.text,
+          // A reused widget can still be repainted when the growing tail marks
+          // their shared Column dirty. Keep completed blocks in retained layers.
+          () => RepaintBoundary(
             key: ObjectKey(block),
-            hasReferenceCandidate: block.hasReferenceCandidate,
+            child: _prose(
+              block.text,
+              hasReferenceCandidate: block.hasReferenceCandidate,
+            ),
           ),
         ),
         startsInTable: block.startsInTable,

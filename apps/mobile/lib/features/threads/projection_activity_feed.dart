@@ -16,6 +16,28 @@ import '../../core/utils/thread_status.dart';
 import '../../l10n/generated/app_localizations.dart';
 import 'activity_feed.dart';
 
+// Intrinsic classification depends only on an immutable timeline row, not on
+// neighboring rows, request spans or turn boundaries. Reuse it across batches;
+// weak keys release facts when the projection window no longer retains a row.
+typedef _ProjectionItemFacts = ({
+  String? reconnectKey,
+  String? lifecycleKey,
+  bool clarificationSummary,
+  bool internalNoise,
+});
+final _projectionItemFacts = Expando<_ProjectionItemFacts>();
+
+_ProjectionItemFacts _factsFor(ThreadRunProjectionTimelineItem item) =>
+    _projectionItemFacts[item] ??= (
+      reconnectKey: _computeProjectionReconnectDisplayKey(item),
+      lifecycleKey: _computeProjectionToolLifecycleKey(item),
+      clarificationSummary: isClarificationAnswerSummary(item.text),
+      internalNoise:
+          isLegacyBashApprovalActivityText(item.text) ||
+          _isProjectionInternalMessageText(item.text) ||
+          isThreadFollowUpActivityMessage(item.text),
+    );
+
 /// Reuses a row's display conversion while its immutable projection item,
 /// inferred Feed identity, owner and localization stay the same. Weak keys
 /// release rows once they leave the projection window.
@@ -1841,9 +1863,7 @@ bool _isMainTimelineNoiseItem(
   if (_isProjectionContextCompactionItem(item)) return false;
   if (_isSpuriousClarificationAnsweredItem(item)) return true;
   if (_isSupersededAskUserQuestionToolItem(item, timeline)) return true;
-  if (isLegacyBashApprovalActivityText(item.text) ||
-      _isProjectionInternalMessageText(item.text) ||
-      isThreadFollowUpActivityMessage(item.text)) {
+  if (_factsFor(item).internalNoise) {
     return true;
   }
   final liveType = _projectionLiveType(item);
@@ -2479,6 +2499,12 @@ _ProjectionApiError? _readProjectionApiError(
 }
 
 String? _projectionToolLifecycleKey(ThreadRunProjectionTimelineItem item) {
+  return _factsFor(item).lifecycleKey;
+}
+
+String? _computeProjectionToolLifecycleKey(
+  ThreadRunProjectionTimelineItem item,
+) {
   final bashApproval = readBashApprovalMetadata(item.metadata);
   if (bashApproval != null) return 'lifecycle:${bashApproval.toolUseId}';
   final tool = readProjectionToolMetadata(item.metadata);
@@ -2505,6 +2531,12 @@ String? _projectionToolDisplayKey(ThreadRunProjectionTimelineItem item) {
 }
 
 String? _projectionReconnectDisplayKey(ThreadRunProjectionTimelineItem item) {
+  return _factsFor(item).reconnectKey;
+}
+
+String? _computeProjectionReconnectDisplayKey(
+  ThreadRunProjectionTimelineItem item,
+) {
   final origin = item.metadata?['activityOrigin'];
   if (origin is String && isReconnectActivityOrigin(origin)) {
     return 'reconnect';
@@ -2571,7 +2603,7 @@ String? _projectionStreamDisplayKey(
   // the planner role stream and plant answers in the wrong feed slot).
   if (liveType == 'clarification.answered' ||
       liveType == 'clarification.requested' ||
-      isClarificationAnswerSummary(item.text)) {
+      _factsFor(item).clarificationSummary) {
     return null;
   }
   final channel = _streamDisplayChannel(item);

@@ -1,10 +1,9 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
 import '../theme/eco_theme.dart';
 import '../utils/shimmer_paint.dart';
+import '../utils/activity_paint_clock.dart';
 
 /// Same-hue shimmer: a soft highlight sweeps across [text] repeatedly.
 ///
@@ -56,14 +55,7 @@ class ShimmerText extends StatelessWidget {
       return child;
     }
 
-    final timing = (
-      sweep: duration,
-      pause: pauseDuration > Duration.zero ? pauseDuration : Duration.zero,
-    );
-    final clock = _shimmerClocks.putIfAbsent(
-      timing,
-      () => _ShimmerClock(timing),
-    );
+    final clock = activityPaintClock(sweep: duration, pause: pauseDuration);
     return RepaintBoundary(
       child: _ShimmerMask(
         clock: clock,
@@ -92,92 +84,6 @@ class ShimmerText extends StatelessWidget {
   }
 }
 
-typedef _ShimmerTiming = ({Duration sweep, Duration pause});
-
-// One dormant clock per configured cadence; only attached labels keep timers
-// and lifecycle observers active. Shared pauses prevent staggered tool rows
-// from keeping the engine continuously busy.
-final _shimmerClocks = <_ShimmerTiming, _ShimmerClock>{};
-
-/// A shared timer leaves the engine idle between paints even on 120Hz screens.
-/// A throttled Ticker would still request a frame on every display refresh.
-class _ShimmerClock extends ChangeNotifier with WidgetsBindingObserver {
-  _ShimmerClock(this.timing);
-
-  final _ShimmerTiming timing;
-  Timer? _timer;
-  Timer? _phaseTimer;
-  bool _resting = false;
-
-  double get phase => _resting
-      ? 0
-      : shimmerPhaseFromElapsed(
-          ms: (_timer?.tick ?? 0) * shimmerPaintIntervalMs,
-          durationMs: timing.sweep.inMilliseconds,
-        );
-
-  @override
-  void addListener(VoidCallback listener) {
-    if (!hasListeners) WidgetsBinding.instance.addObserver(this);
-    super.addListener(listener);
-    _syncTimer();
-  }
-
-  @override
-  void removeListener(VoidCallback listener) {
-    super.removeListener(listener);
-    if (!hasListeners) {
-      _cancelTimers();
-      WidgetsBinding.instance.removeObserver(this);
-    }
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) => _syncTimer();
-
-  void _syncTimer() {
-    final lifecycle = WidgetsBinding.instance.lifecycleState;
-    if (!hasListeners ||
-        (lifecycle != null && lifecycle != AppLifecycleState.resumed)) {
-      _cancelTimers();
-      return;
-    }
-    if (_timer != null || _phaseTimer != null) return;
-    _startSweep();
-  }
-
-  void _startSweep() {
-    _resting = false;
-    _timer = Timer.periodic(
-      const Duration(milliseconds: shimmerPaintIntervalMs),
-      (_) => notifyListeners(),
-    );
-    if (timing.pause > Duration.zero) {
-      _phaseTimer = Timer(timing.sweep, () {
-        _timer?.cancel();
-        _timer = null;
-        _resting = true;
-        // Phase 0 and 1 both put the highlight outside the text. Paint the
-        // neutral endpoint once, then sleep until the next sweep.
-        notifyListeners();
-        _phaseTimer = Timer(timing.pause, () {
-          _phaseTimer = null;
-          _startSweep();
-        });
-      });
-    }
-    notifyListeners();
-  }
-
-  void _cancelTimers() {
-    _timer?.cancel();
-    _timer = null;
-    _phaseTimer?.cancel();
-    _phaseTimer = null;
-    _resting = false;
-  }
-}
-
 class _ShimmerMask extends SingleChildRenderObjectWidget {
   const _ShimmerMask({
     required this.clock,
@@ -185,7 +91,7 @@ class _ShimmerMask extends SingleChildRenderObjectWidget {
     required super.child,
   });
 
-  final _ShimmerClock clock;
+  final ActivityPaintClock clock;
   final ShaderCallback shaderCallback;
 
   @override
@@ -205,14 +111,14 @@ class _ShimmerMask extends SingleChildRenderObjectWidget {
 
 class _RenderShimmerMask extends RenderShaderMask {
   _RenderShimmerMask({
-    required _ShimmerClock clock,
+    required ActivityPaintClock clock,
     required super.shaderCallback,
   }) : _clock = clock,
        super(blendMode: BlendMode.srcIn);
 
-  _ShimmerClock _clock;
+  ActivityPaintClock _clock;
 
-  set clock(_ShimmerClock value) {
+  set clock(ActivityPaintClock value) {
     if (identical(value, _clock)) return;
     if (attached) _clock.removeListener(markNeedsPaint);
     _clock = value;

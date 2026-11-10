@@ -4,6 +4,34 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets(
+    'upstream batches display in the current frame with no second timer',
+    (tester) async {
+      Widget batched(String text) => MaterialApp(
+        home: BatchedStreamUpdates(
+          child: PacedStreamText(
+            text: text,
+            streaming: true,
+            builder: (_, text, _) => Text(text),
+          ),
+        ),
+      );
+      await tester.pumpWidget(batched('首批'));
+      await tester.pumpWidget(batched('首批新增文本'));
+      expect(find.text('首批新增文本'), findsOneWidget);
+      expect(tester.binding.hasScheduledFrame, isFalse);
+      await tester.pump(pacedStreamInterval);
+      expect(tester.binding.hasScheduledFrame, isFalse);
+      await tester.pumpWidget(batched('首批'));
+      expect(
+        find.text('首批新增文本'),
+        findsOneWidget,
+        reason: 'Stale shorter snapshots remain ignored',
+      );
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
   Widget app(String text, {required bool streaming}) {
     return MaterialApp(
       home: PacedStreamText(

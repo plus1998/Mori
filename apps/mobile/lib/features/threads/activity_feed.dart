@@ -2998,7 +2998,7 @@ class _ClarificationAnswerTile extends StatelessWidget {
   }
 }
 
-class _AssistantNarrativeTile extends StatelessWidget {
+class _AssistantNarrativeTile extends StatefulWidget {
   const _AssistantNarrativeTile({
     required this.entryId,
     required this.text,
@@ -3017,19 +3017,43 @@ class _AssistantNarrativeTile extends StatelessWidget {
   final bool hideMessageActions;
 
   @override
+  State<_AssistantNarrativeTile> createState() =>
+      _AssistantNarrativeTileState();
+}
+
+class _AssistantNarrativeTileState extends State<_AssistantNarrativeTile> {
+  Widget? _content;
+
+  @override
+  void didUpdateWidget(covariant _AssistantNarrativeTile oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.entryId != widget.entryId ||
+        oldWidget.text != widget.text ||
+        oldWidget.streaming != widget.streaming ||
+        oldWidget.pacing != widget.pacing ||
+        oldWidget.usageBadge != widget.usageBadge ||
+        oldWidget.hideMessageActions != widget.hideMessageActions) {
+      _content = null;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final sanitizedText = sanitizeFeedText(text);
-    final live = streaming && pacing;
-    return PacedStreamText(
+    if (_content != null) return _content!;
+    final sanitizedText = sanitizeFeedText(widget.text);
+    final live = widget.streaming && widget.pacing;
+    // Keep the whole display subtree stable for unchanged history. Descendant
+    // elements still receive their own theme, locale and accessibility updates.
+    return _content = PacedStreamText(
       text: sanitizedText,
       streaming: live,
       builder: (context, displayText, revealing) => _AssistantNarrativeContent(
-        entryId: entryId,
+        entryId: widget.entryId,
         text: displayText,
         sourceText: sanitizedText,
         streaming: live || revealing,
-        usageBadge: usageBadge,
-        hideMessageActions: hideMessageActions,
+        usageBadge: widget.usageBadge,
+        hideMessageActions: widget.hideMessageActions,
       ),
     );
   }
@@ -3254,6 +3278,7 @@ class _ThinkingSummaryCarouselState extends State<_ThinkingSummaryCarousel> {
                   child: ShimmerText(
                     key: ValueKey(activeText),
                     text: activeText,
+                    pauseDuration: _toolWaitShimmerPause,
                     style: style,
                     baseColor: ecoColors(context).textMuted,
                     highlightColor: ecoColors(context).textSecondary,
