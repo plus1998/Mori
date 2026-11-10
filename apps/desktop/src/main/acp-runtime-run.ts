@@ -69,6 +69,7 @@ export interface AcpRuntimeOrchestrationDeps {
   resolveAcpMcpServers?: (input: { threadId: string; workspacePath: string }) => Promise<AcpMcpServer[]>;
   /** ACP has no system-prompt field, so pass Eco integration guidance as turn context. */
   resolveAcpSystemPromptAppend?: (input: { threadId: string }) => string | undefined;
+  resolveAcpPlanContinuePrompt?: (input: { threadId: string }) => string | undefined;
   resolvePromptImagesForMainContext?: (input: {
     threadId: string;
     prompt: string;
@@ -345,6 +346,7 @@ export async function startAcpThreadRunWithDriver(
           acpAgentId,
           sessionMode: mode,
           userPromptForPlan: input.prompt,
+          resolvePlanContinuePrompt: () => deps.resolveAcpPlanContinuePrompt?.({ threadId: input.thread.id }),
           ...(input.thread.runtimeConfig?.cursorModelId
             ? { model: input.thread.runtimeConfig.cursorModelId }
             : {}),

@@ -290,6 +290,7 @@ export function createForcedPlanDelegationSubagentStartHook(
 }
 
 export interface EcoHookContext {
+  resolveApprovedPlanExecutionContext?: () => string;
   resolveChangedFiles?: () => Promise<readonly string[]>;
   onExitPlanMode?: (request: SdkExitPlanModeRequest & { toolUseId: string }) => void | Promise<void>;
   /** Blocks until the user approves or denies ExitPlanMode (SDK canUseTool + PermissionRequest). */
@@ -2023,6 +2024,12 @@ export function buildEcoSdkHooks(ctx: EcoHookContext): Partial<Record<HookEvent,
     );
   }
   pushHook(hooks, "PreToolUse", createNormalizeSubagentPreToolHook(), "Agent|Task");
+  if (ctx.resolveApprovedPlanExecutionContext) {
+    pushHook(hooks, "PostToolUse", async () => {
+      const additionalContext = ctx.resolveApprovedPlanExecutionContext?.();
+      return additionalContext ? { hookSpecificOutput: { hookEventName: "PostToolUse" as const, additionalContext } } : {};
+    }, "ExitPlanMode");
+  }
   pushHook(hooks, "PreToolUse", createForcedPlanDelegationPreToolHook(ctx.resolveForcedPlanDelegation));
   pushHook(
     hooks,

@@ -11,6 +11,7 @@
 /** Where an approved plan should run. Legacy approvals omit this and mean the main agent. */
 export type PlanExecutionTarget =
   | { kind: "main" }
+  | { kind: "multi_agents"; configId: string; additionalMessage?: string }
   | {
       kind: "subagent";
       agentKey: string;
@@ -168,6 +169,9 @@ export function validatePlanExecutionTarget(input: {
   const target = input.target ?? { kind: "main" };
   if (target.kind === "main") {
     return { ok: true, target };
+  }
+  if (target.kind === "multi_agents") {
+    return { ok: false, code: "unsupported_core", reason: "Multi-Agents 由宿主验证和调度。" };
   }
 
   if (!supportsForcedPlanDelegation(input.coreKind)) {

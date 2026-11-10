@@ -33,6 +33,7 @@ import { type ConversationSyncEffect, type ConversationTodo, stableHash } from "
 import { AnimatePresence, motion, useAnimationControls, useReducedMotion } from "framer-motion";
 import {
   Activity,
+  UsersRound,
   ArrowUp,
   BookOpen,
   ChevronDown,
@@ -436,6 +437,7 @@ import {
 } from "./orchestration-readiness";
 import { PackageScriptsDialog } from "./PackageScriptsDialog";
 import { PlanApprovalPanel } from "./PlanApprovalPanel";
+import { MultiAgentsSettingsPanel, MultiAgentsRunPanel, useMultiAgentsSnapshot } from "./MultiAgentsPanel";
 import { PlanExecutionLinks } from "./PlanExecutionLinks";
 import { ProjectSidebarTree } from "./ProjectSidebarTree";
 import { ProjectTerminalSettingsDialog } from "./ProjectTerminalSettingsDialog";
@@ -723,6 +725,7 @@ type SettingsSectionId =
   | "contextWindow"
   | "agentLibrary"
   | "orchestrationComponents"
+  | "multiAgents"
   | "skills"
   | "git"
   | "asr";
@@ -1324,6 +1327,7 @@ function App() {
     requestId: number;
   }>();
   const [settingsSection, setSettingsSection] = useState<SettingsSectionId>("preferences");
+  const multiAgents = useMultiAgentsSnapshot();
   const [settingsSearch, setSettingsSearch] = useState("");
   const [appTheme, setAppTheme] = useState<AppTheme>(() => readStoredAppTheme());
   const [localePreference, setLocalePreference] = useState<AppLocalePreference>(initialLocalePreference);
@@ -1518,6 +1522,7 @@ function App() {
             icon: Workflow,
           },
           { id: "defaultAgent", label: t("settings.defaultAgent"), icon: Cpu },
+          { id: "multiAgents", label: "Multi-Agents", icon: UsersRound, keywords: ["multi agents", "多代理", "多会话"] },
           {
             id: "contextWindow",
             label: t("settings.contextWindow"),
@@ -12575,6 +12580,7 @@ function App() {
         {/* The overlay band is shared: a queued follow-up panel or the landing context bar
             already owns it, and stacking the dots under either would just collide. */}
         {composerAgentSilenceVisible && !showComposerInputOverlays ? <ComposerFloatingLoading /> : null}
+        <MultiAgentsRunPanel runs={multiAgents.snapshot.runs.filter(run => run.sourceThreadId === selectedThreadId)} loadError={multiAgents.error} onNavigate={id => void navigatePlanConversation(id)} />
         <ComposerDockMorph
           showApproval={showComposerDockApproval}
           surfaceKey={composerDockSurfaceKey}
@@ -12596,6 +12602,10 @@ function App() {
                 modelControl={renderComposerModelControl(planModelAnchorRef, planActionBusy)}
                 {...(planFailureMessage && { failureMessage: planFailureMessage })}
                 onApprove={() => void approvePendingPlan()}
+                multiAgentsConfigs={multiAgents.snapshot.configs}
+                multiAgentsLoadError={multiAgents.error}
+                onApproveMultiAgents={(configId, additionalMessage) => void approvePendingPlanWithTarget({ kind: "multi_agents", configId, ...(additionalMessage ? { additionalMessage } : {}) })}
+                onConfigureMultiAgents={() => { setSettingsSection("multiAgents"); setSettingsOpen(true); }}
                 onStartNewSession={() => void startNewChatWithPlan(pendingPlan)}
                 onNavigateExecution={(threadId) => void navigatePlanConversation(threadId)}
                 onReviewCode={() => void reviewPendingPlanCode()}
@@ -13140,6 +13150,7 @@ function App() {
                 {renderSidebarShortcut("open-folder")}
               </button>
               <ProjectSidebarTree
+                multiAgentsSnapshot={multiAgents.snapshot}
                 projectTree={projectTree}
                 currentProjectPath={moriOpen ? undefined : currentProjectPath}
                 activeThreadId={moriOpen ? undefined : selectedThreadId}
@@ -13967,6 +13978,7 @@ function App() {
 
           <div className="settings-main">
             <div className={settingsSection === "mcp" ? "settings-content is-wide" : "settings-content"}>
+                {settingsSection === "multiAgents" && <MultiAgentsSettingsPanel settings={settings} baseConfig={effectiveComposerRuntimeConfig ?? composerRuntimeConfig} />}
               <SuspensePanel>
                 {settingsSection === "moriAssistant" && <MoriAssistantSettingsPanel onDone={() => { setSettingsOpen(false); setMoriOpen(true); }} onOpenComputerUse={() => setSettingsSection("computerUse")} onOpenMcp={() => setSettingsSection("mcp")} />}
                 {settingsSection === "preferences" && (

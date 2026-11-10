@@ -27,6 +27,10 @@ const RPC_INVOKE = ["rpc:invoke"] as const;
 const APPROVAL_DECIDE = ["rpc:invoke", "approval:decide"] as const;
 
 export const REMOTE_COMMAND_DEFINITIONS = [
+  command("multi-agents:snapshot", "Read Multi-Agents configurations and runs", "read", RPC_INVOKE, []),
+  command("multi-agents:save", "Save Multi-Agents configuration", "write_safe", RPC_INVOKE, [objectArg(["id", "name", "mode", "members", "agentKeys", "maxConcurrency"])]),
+  command("multi-agents:delete", "Delete Multi-Agents configuration", "write_safe", RPC_INVOKE, [stringArg()]),
+  command("multi-agents:control", "Control Multi-Agents dispatch", "execute", RPC_INVOKE, [objectArg(["id", "action"])]),
   command("display-control:get", "Read desktop display and lock state", "read", RPC_INVOKE, []),
   command("display-control:set", "Change desktop display and lock controls", "write_safe", RPC_INVOKE, [objectArg(["control", "enabled"])]),
   command("composer-references:search", "Search composer references", "read", RPC_INVOKE, [objectArg(["query"])]),

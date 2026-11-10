@@ -2647,6 +2647,16 @@ test("buildEcoSdkHooks registers expected hook events", () => {
   expect(hooks.PreCompact).toHaveLength(1);
 });
 
+test("approved plan execution context is resolved after the approval bridge, not captured before user selection", async () => {
+  let context = "";
+  const hooks = buildEcoSdkHooks({ resolveApprovedPlanExecutionContext: () => context });
+  context = "Multi-Agents selected: fixed member-a and member-b";
+  const outputs = await Promise.all((hooks.PostToolUse ?? []).filter(entry => entry.matcher === "ExitPlanMode").flatMap(entry => entry.hooks).map(hook => hook({
+    hook_event_name: "PostToolUse", tool_name: "ExitPlanMode", tool_input: {}, tool_response: {}, tool_use_id: "exit-1", session_id: "session", transcript_path: "/tmp/transcript", cwd: "/tmp",
+  } as PostToolUseHookInput, "exit-1", { signal: new AbortController().signal })));
+  expect(outputs.some(output => "hookSpecificOutput" in output && output.hookSpecificOutput && "additionalContext" in output.hookSpecificOutput && output.hookSpecificOutput.additionalContext === context)).toBe(true);
+});
+
 test("buildEcoSdkHooks does not register AskUserQuestion PreToolUse hooks", () => {
   const hooks = buildEcoSdkHooks({
     toolPermissions: {

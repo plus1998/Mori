@@ -1721,6 +1721,18 @@ const api = {
   approvePlan(request: ThreadApprovePlanRequest): Promise<{ thread?: ThreadSummary }> {
     return ipcRenderer.invoke(IPC_CHANNELS.threadApprovePlan, request);
   },
+  getMultiAgentsSnapshot(): Promise<import("../shared/multi-agents").MultiAgentsSnapshot> {
+    return ipcRenderer.invoke(IPC_CHANNELS.multiAgentsSnapshot);
+  },
+  saveMultiAgentsConfig(config: import("../shared/multi-agents").MultiAgentsConfig): Promise<import("../shared/multi-agents").MultiAgentsConfig> {
+    return ipcRenderer.invoke(IPC_CHANNELS.multiAgentsSave, config);
+  },
+  deleteMultiAgentsConfig(id: string): Promise<void> {
+    return ipcRenderer.invoke(IPC_CHANNELS.multiAgentsDelete, id);
+  },
+  controlMultiAgentsRun(id: string, action: "pause" | "resume" | "stop"): Promise<import("../shared/multi-agents").MultiAgentsRun> {
+    return ipcRenderer.invoke(IPC_CHANNELS.multiAgentsControl, { id, action });
+  },
   dismissPlan(request: ThreadDismissPlanRequest): Promise<{ thread?: ThreadSummary }> {
     return ipcRenderer.invoke(IPC_CHANNELS.threadDismissPlan, request);
   },

@@ -4,6 +4,7 @@ import { BROWSER_REFERENCE_ACTION_VALUES } from "../shared/browser-reference-act
 import { CONTEXT_MCP_SERVER, CONTEXT_REFERENCE_PROMPT } from "../shared/composer-references";
 import { BrowserMcpAuthRegistry, createBrowserMcpControlSecret } from "./browser-mcp-auth";
 import type { ComposerReferenceService } from "./composer-reference-service";
+import type { MultiAgentsService } from "./multi-agents-service";
 import { PROJECT_TODO_STATUSES } from "../shared/project-todos";
 import { buildEcoHttpInjection } from "./mcp-http-descriptor";
 import {
@@ -29,6 +30,18 @@ function tool(
   };
 }
 export const contextReferenceTools = [
+  tool("multi_agents_status", "Read the current Multi-Agents run, fixed member roster, tasks, results and worktree integration status. Main conversation only.", {}, []),
+  tool("multi_agents_submit_tasks", "Dispatch the approved plan as structured tasks to configured independent member conversations. Host enforces member identity, concurrency, dependency DAG and isolated worktrees. End your turn after submission; the host delivers results as a follow-up.", {
+    tasks: { type: "array", minItems: 1, maxItems: 64, items: { type: "object", additionalProperties: false, required: ["id", "memberId", "title", "instructions", "scope", "dependsOn", "acceptance"], properties: {
+      id: string, memberId: string, title: string, instructions: string, acceptance: string,
+      scope: { type: "array", items: string }, dependsOn: { type: "array", items: string },
+    } } },
+  }, ["tasks"], false),
+  tool("multi_agents_report", "Member conversation only: report actual changes, tests and unresolved issues for your own task, then end your turn. The host verifies turn completion before collecting worktree changes.", { result: string }, ["result"], false),
+  tool("multi_agents_retry", "Main conversation only: return one task to the same member conversation with concrete rework instructions.", { taskId: string, instructions: string }, ["taskId", "instructions"], false),
+  tool("multi_agents_integrate", "Main conversation only: apply a completed member's changes into the main working directory, in dependency order. Fails without applying changes when a patch conflicts. Review and test after integration.", { taskId: string }, ["taskId"], false),
+  tool("multi_agents_resolve_integration", "Main conversation only: after an integration conflict, manually inspect and resolve the member changes in your working directory, then record concrete review/test evidence here. Host snapshots the actual resolved workspace; it does not apply or silently skip the conflicting patch.", { taskId: string, review: string }, ["taskId", "review"], false),
+  tool("multi_agents_accept", "Main conversation only: mark Multi-Agents complete after actual code review and testing. Independent tasks must all have succeeded and been integrated. Supply concrete acceptance evidence.", { review: string }, ["review"], false),
   tool(
     "list_todos",
     "List user-owned project todos in the authenticated conversation's project, separate from internal Agent plans. Returns todoId, revision, status, text preview and imageCount. Supports status/query filters and pagination.",
@@ -125,7 +138,7 @@ export class ContextReferenceMcpGateway {
   private readonly secret = createBrowserMcpControlSecret();
   private server: http.Server | undefined;
   private starting: Promise<void> | undefined;
-  constructor(private readonly service: ComposerReferenceService) {}
+  constructor(private readonly service: ComposerReferenceService, private readonly multiAgents?: MultiAgentsService) {}
   async resolveInjection(threadId: string) {
     this.starting ??= this.start();
     await this.starting;
@@ -172,6 +185,11 @@ export class ContextReferenceMcpGateway {
               const fields = definition.inputSchema!.properties as Record<string, unknown>;
               if (Object.keys(args).some((key) => !Object.hasOwn(fields, key)))
                 throw new Error("工具参数包含不允许的字段。");
+              if (name.startsWith("multi_agents_")) {
+                if (!this.multiAgents) throw new Error("Multi-Agents 尚未初始化。");
+                const result = await this.multiAgents.tool(threadId, name, args);
+                return { content: [{ type: "text", text: JSON.stringify(result) }] };
+              }
               if (name === "browser_reference")
                 return (await this.service.browserTool(threadId, args, signal)) as McpToolCallResult;
               if (name === "read_browser_selection")

@@ -567,6 +567,9 @@ import { ActiveRunBillingStateStore } from "./active-run-billing-state";
 import { type ActiveRunRuntimeStateInput, ActiveRunRuntimeStateStore } from "./active-run-runtime-state";
 import { AgentLifecycleService } from "./agent-lifecycle-service";
 import { type AgentOrchestrationStore, createAgentOrchestrationStore } from "./agent-orchestration-store";
+import { MultiAgentsService } from "./multi-agents-service";
+import { MultiAgentsWorkspace } from "./multi-agents-workspace";
+import { MULTI_AGENTS_CHANGED } from "../shared/multi-agents";
 import { mergeAgentRegistrySettings } from "./agent-registry-settings";
 import {
   type AnthropicProxyRoute,
@@ -1640,6 +1643,7 @@ let providerStore: ProviderStore;
 let chatgptSubscriptionService: ChatGptSubscriptionService | undefined;
 let chatgptSubscriptionServicePromise: Promise<ChatGptSubscriptionService> | undefined;
 let agentOrchestrationStore: AgentOrchestrationStore;
+let multiAgentsService: MultiAgentsService;
 let mcpStore: McpStore;
 let mcpHubGateway: McpHubGateway;
 let conversationStore: ConversationStore;
@@ -4137,7 +4141,63 @@ app
       browserTool: (id, action, args, signal) =>
         requireBrowserHost().invokeReferencedBrowserTool(id, action, args, signal),
     });
-    contextReferenceGateway = new ContextReferenceMcpGateway(composerReferenceService);
+    multiAgentsService = new MultiAgentsService(new todoSqlite.DatabaseSync(dbPath), {
+      thread: id => conversationStore.getThread(id),
+      busy: id => activeRunRuntimeState.hasRun(id) || threadRunPreparations.has(id),
+      latestAttempt: id => conversationStore.listRunAttempts(id).at(-1),
+      start: (request, threadId, title, baseline) => startNewThread(request, { threadId, title, multiAgentsBaseline: baseline }),
+      resume: async (conversationId, text, clientCommandId) => {
+        const memberRun = multiAgentsService.forThread(conversationId).find(run => run.tasks.some(task => task.threadId === conversationId));
+        if (memberRun) {
+          if (activeRunRuntimeState.hasRun(conversationId) || threadRunPreparations.has(conversationId)) throw new Error("成员仍在运行，请等待本次执行结束再返工。");
+          const thread = conversationStore.getThread(conversationId);
+          if (thread?.status === "awaiting_plan") throw new Error("成员有待批准计划，请先打开成员会话处理。");
+          const hasBinding = thread?.coreKind === "claude" ? Boolean(conversationStore.getSdkSession(conversationId)?.sessionId) : Boolean(conversationStore.getThreadCoreSession(conversationId)?.externalSessionId);
+          if (!hasBinding) throw new Error("成员的 Harness 会话绑定缺失，无法确认在原会话返工。请打开成员会话检查。");
+          const memberTask = memberRun.tasks.find(task => task.threadId === conversationId)!;
+          const member = memberRun.config.members.find(member => member.id === memberTask.memberId)!;
+          const accepted = conversationStore.conversationV2().sendMessage({ principalId: "eco-multi-agents", conversationId, clientCommandId, text });
+          return startThreadContinuation({ threadId: conversationId, prompt: text, runtimeConfigInput: member.runtimeConfig, v2AcceptedMessageIds: [accepted.messageId], allowWhileQueuePaused: true, requireResumeForInterrupted: true });
+        }
+        const accepted = conversationStore.conversationV2().sendMessage({ principalId: "eco-multi-agents", conversationId, clientCommandId, text });
+        const delivery = await scheduleAcceptedConversationMessage({ ...accepted, text });
+        if (delivery.state === "unknown") throw new Error(delivery.message || "主代理消息投递未确认，请检查会话后手动恢复。");
+        return accepted;
+      },
+      cancel: async id => {
+        const thread = conversationStore.getThread(id);
+        if (!thread) return;
+        threadFollowUpQueueControl.stopped(id);
+        threadRunPreparations.cancel(id);
+        activeRunRuntimeState.abortRun(id, "Multi-Agents stopped by user");
+        if (thread.coreKind) await threadRuntimeCoordinator.cancel(thread.coreKind, id);
+        cancelPlanApprovalsForThreadKeepPending(id, "Multi-Agents stopped by user");
+      },
+      changed: threadId => desktopEventCenter.publishThreadLiveEvent({ threadId, type: MULTI_AGENTS_CHANGED, message: "", role: "system", stream: false }),
+      validateMember: config => {
+        if (config.mode !== "sessions") return;
+        const settings = getModelSettingsSnapshot();
+        for (const member of config.members) {
+          if (member.coreKind === "acp") {
+            if (!member.runtimeConfig.cursorModelId?.trim()) throw new Error(`${member.name}: 请选择 Cursor 模型。`);
+            continue;
+          }
+          member.runtimeConfig = materializeThreadRuntimeConfig(settings, member.runtimeConfig);
+          const mainModel = member.runtimeConfig.resolvedOrchestrationSnapshot?.mainAgent.modelRef;
+          if (mainModel && isCodexLoginProvider(mainModel.providerId, settings.providers)) {
+            if (member.coreKind !== "codex") throw new Error(`${member.name}: ChatGPT Login 需要使用 Codex Harness。`);
+            if (!mainModel.accountId) throw new Error(`${member.name}: 必须选择具体的 ChatGPT Login 账号。`);
+          }
+          assertThreadCodexLoginSubagents(member.coreKind, settings, member.runtimeConfig);
+          const routes = roleRoutesForThreadConfig(settings, member.runtimeConfig);
+          const available = resolveRuntimeConfigForThreadConfig(settings, member.runtimeConfig, routes);
+          if (!available.ok) throw new Error(`${member.name}: ${available.reason}`);
+        }
+      },
+    });
+    multiAgentsService.start();
+    app.once("will-quit", () => multiAgentsService.close());
+    contextReferenceGateway = new ContextReferenceMcpGateway(composerReferenceService, multiAgentsService);
     modelManagementService = new ModelManagementService({
       listProviders: () => getModelSettingsSnapshot().providers,
       modelSource: id => isBuiltInCodexCatalogProvider(id) ? "codex_catalog" : id === "eco-coding-chatgpt" ? "chatgpt_catalog" : "provider",
@@ -5326,6 +5386,21 @@ async function approveThreadPlan(payload: unknown) {
             : undefined;
         })();
         const delegationAgents = listPlanDelegationAgents(approvalSnapshot);
+        if (request.executionTarget?.kind === "multi_agents") {
+          const multiTarget = request.executionTarget;
+          const pendingPlan = conversationStore.getPendingPlan(threadId);
+          if (!pendingPlan || approvalThread.status !== "awaiting_plan") throw new Error("当前会话没有待批准计划。");
+          const selected = multiAgentsService.configs().find(config => config.id === multiTarget.configId);
+          if (!selected) throw new Error("Multi-Agents 配置已删除。");
+          if (selected.mode === "subagents") {
+            if (!["claude", "codex", "pi"].includes(approvalThread.coreKind ?? "")) throw new Error("当前主会话 Harness 不支持原生子代理，请选择独立会话配置。");
+            for (const key of selected.agentKeys) {
+              if (!delegationAgents.some(agent => agent.agentKey === key)) throw new Error(`原生子代理「${key}」不在当前会话锁定的编排中。`);
+            }
+          }
+          await multiAgentsService.prepare(`multi_${request.clientCommandId}`, threadId, selected.id, pendingPlan,
+            resolveThreadWorktreePath(threadId) || approvalThread.workspacePath, request.executionTarget.additionalMessage);
+        }
         let forcedTarget: Extract<PlanExecutionTarget, { kind: "subagent" }> | undefined;
         if (request.executionTarget && request.executionTarget.kind === "subagent") {
           const validation = validatePlanExecutionTarget({
@@ -10691,6 +10766,10 @@ function registerIpcHandlers(): void {
   });
 
   registerDesktopCommand(IPC_CHANNELS.threadApprovePlan, approveThreadPlan);
+  registerDesktopCommand(IPC_CHANNELS.multiAgentsSnapshot, () => multiAgentsService.snapshot());
+  registerDesktopCommand(IPC_CHANNELS.multiAgentsSave, (config: import("../shared/multi-agents").MultiAgentsConfig) => multiAgentsService.saveConfig(config));
+  registerDesktopCommand(IPC_CHANNELS.multiAgentsDelete, (id: string) => multiAgentsService.deleteConfig(id));
+  registerDesktopCommand(IPC_CHANNELS.multiAgentsControl, (input: { id: string; action: "pause" | "resume" | "stop" }) => multiAgentsService.control(input.id, input.action));
   registerDesktopCommand(IPC_CHANNELS.threadPlanExecutions, (threadId: unknown) => {
     if (typeof threadId !== "string" || !threadId.trim()) throw new Error("会话 ID 不能为空。");
     requireConversationV2Thread(threadId);
@@ -11186,6 +11265,8 @@ function registerRemainingDesktopCommands(): void {
       v2: conversationStore.conversationV2(),
       errorMessage,
       cancel: async ({ threadId, worktreeDisposition }) => {
+        const multiRun = multiAgentsService.forThread(threadId).find(run => run.sourceThreadId === threadId && !["completed", "cancelled"].includes(run.status));
+        if (multiRun) await multiAgentsService.control(multiRun.id, "stop");
         schedulingGateway.disposeThread(threadId);
         contextReferenceGateway.revokeThread(threadId);
         modelManagementGateway.disposeThread(threadId);
@@ -12484,7 +12565,8 @@ function acpRuntimeOrchestrationDeps(): import("./acp-runtime-run").AcpRuntimeOr
       return toAcpMcpServers(prepared.mcpServers);
     },
     resolveAcpSystemPromptAppend: ({ threadId }) =>
-      appendBrowserPrompt(appendBrowserPrompt(mcpHubGateway.getThreadPromptAppend(threadId), CONTEXT_REFERENCE_PROMPT), MODEL_MANAGEMENT_PROMPT),
+      appendBrowserPrompt(appendBrowserPrompt(mcpHubGateway.getThreadPromptAppend(threadId), CONTEXT_REFERENCE_PROMPT + multiAgentsService.prompt(threadId)), MODEL_MANAGEMENT_PROMPT),
+    resolveAcpPlanContinuePrompt: ({ threadId }) => multiAgentsService.prompt(threadId),
     resolvePromptImagesForMainContext,
     resolveAcpCreatePlanHandler: ({ threadId, workspacePath, userPrompt }) => {
       return async (request) => {
@@ -13176,7 +13258,7 @@ async function startCodexThreadRun(
               append = appendBrowserPrompt(append, buildTtsPromptAppend(ttsStore.getActiveClientConfig()));
             }
             append = appendBrowserPrompt(append, SCHEDULING_PROMPT);
-            append = appendBrowserPrompt(append, CONTEXT_REFERENCE_PROMPT);
+            append = appendBrowserPrompt(append, CONTEXT_REFERENCE_PROMPT + multiAgentsService.prompt(input.thread.id));
             append = appendBrowserPrompt(append, MODEL_MANAGEMENT_PROMPT);
             append = appendBrowserPrompt(append, buildImageViewPromptAppend());
             append = appendBrowserPrompt(append, buildImageDisplayPromptAppend());
@@ -13741,7 +13823,7 @@ async function resolvePiSessionResourcesForThread(
   mcpSession.mcpServers[CONTEXT_MCP_SERVER] = (
     await contextReferenceGateway.resolveInjection(threadId)
   ).sdkEntry;
-  mcpSession.appendSystemPrompt.push(CONTEXT_REFERENCE_PROMPT);
+  mcpSession.appendSystemPrompt.push(CONTEXT_REFERENCE_PROMPT + multiAgentsService.prompt(threadId));
   mcpSession.mcpServers[MODEL_MANAGEMENT_MCP_SERVER] = (await modelManagementGateway.resolveInjection(threadId)).sdkEntry;
   mcpSession.appendSystemPrompt.push(MODEL_MANAGEMENT_PROMPT);
   mcpSession.mcpServers[SCHEDULING_MCP_SERVER] = schedulingInject.sdkEntry;
@@ -14913,7 +14995,7 @@ function createSchedulingService(dbPath: string): SchedulingService {
 
 async function startNewThread(
   payload: ThreadStartRequest,
-  options: { scheduled?: boolean; threadId?: string; title?: string; occurrenceId?: string } = {},
+  options: { scheduled?: boolean; threadId?: string; title?: string; occurrenceId?: string; multiAgentsBaseline?: string } = {},
 ): Promise<ThreadStartResult> {
   if (payload.developmentMode !== undefined && payload.developmentMode !== "direct" && payload.developmentMode !== "isolated") throw new Error("无效的开发方式。");
   if (payload.managedWorktreeId !== undefined &&
@@ -15006,6 +15088,10 @@ async function startNewThread(
         thread.message = result.error || result.location?.worktree?.error || "隔离工作树创建失败，请检查工作位置。";
         updateThread(thread.id, { status: "blocked", message: thread.message });
       }
+    }
+    if (options.multiAgentsBaseline && !worktreeCreationFailed) {
+      if (thread.workLocation?.mode !== "isolated" || !thread.workLocation.worktree) throw new Error("Multi-Agents 成员缺少隔离工作树。");
+      await new MultiAgentsWorkspace().seed(thread.workLocation.worktree.worktreePath, options.multiAgentsBaseline);
     }
     const scheduledAccepted = options.occurrenceId
       ? conversationStore.conversationV2().sendMessage({
@@ -17262,7 +17348,7 @@ function buildDesktopSdkRunInput(
     globalUserRules = appendBrowserPrompt(globalUserRules, buildTtsPromptAppend(config));
   }
   globalUserRules = appendBrowserPrompt(globalUserRules, SCHEDULING_PROMPT);
-  globalUserRules = appendBrowserPrompt(globalUserRules, CONTEXT_REFERENCE_PROMPT);
+  globalUserRules = appendBrowserPrompt(globalUserRules, CONTEXT_REFERENCE_PROMPT + (threadId ? multiAgentsService.prompt(threadId) : ""));
   globalUserRules = appendBrowserPrompt(globalUserRules, MODEL_MANAGEMENT_PROMPT);
   globalUserRules = appendBrowserPrompt(globalUserRules, buildImageViewPromptAppend());
   globalUserRules = appendBrowserPrompt(globalUserRules, buildImageDisplayPromptAppend());
@@ -21350,6 +21436,7 @@ async function handleThreadAskUserQuestion(
 
 function createThreadHookContext(threadId: string): EcoHookContext {
   return {
+    resolveApprovedPlanExecutionContext: () => multiAgentsService.prompt(threadId),
     awaitPlanApproval: async (request) => {
       const existingWait = getPendingPlanApprovalWaitForThread(threadId);
       // canUseTool and PermissionRequest can report the same ExitPlanMode with

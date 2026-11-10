@@ -19,6 +19,11 @@ function parsePlanExecutionTarget(raw: unknown): PlanExecutionTarget | undefined
   if (kind === "main") {
     return { kind: "main" };
   }
+  if (kind === "multi_agents") {
+    const configId = typeof record.configId === "string" ? record.configId.trim() : "";
+    if (!configId) throw new Error("请选择 Multi-Agents 配置。");
+    return { kind, configId, ...(typeof record.additionalMessage === "string" ? { additionalMessage: record.additionalMessage } : {}) };
+  }
   if (kind === "subagent") {
     const agentKey = typeof record.agentKey === "string" ? record.agentKey.trim() : "";
     if (!agentKey) {

@@ -73,6 +73,7 @@ export type AcpAgentRunInput = {
   userPromptForPlan?: string;
   /** Override plan→execute continue text (defaults to ACP_PLAN_CONTINUE_PROMPT). */
   planContinuePrompt?: string;
+  resolvePlanContinuePrompt?: () => string | undefined;
 };
 
 export type AcpAgentDriverOptions = {
@@ -332,7 +333,7 @@ export class AcpAgentDriver {
           // Same-session continue is the standard client handoff — not a Pi/Codex-style new run.
           if (turn.planAcceptedThisRun && !isCancelled()) {
             turn.planAcceptedThisRun = false;
-            const continueText = input.planContinuePrompt?.trim() || ACP_PLAN_CONTINUE_PROMPT;
+            const continueText = input.resolvePlanContinuePrompt?.()?.trim() || input.planContinuePrompt?.trim() || ACP_PLAN_CONTINUE_PROMPT;
             enqueue([
               createAgentEvent({
                 id: `${input.threadId}:acp:${sessionRunId}:plan_continue`,

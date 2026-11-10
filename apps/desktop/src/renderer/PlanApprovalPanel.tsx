@@ -21,6 +21,8 @@ import { ComposerAbovePanel } from "./ComposerAbovePanel";
 import { copyTextToClipboard } from "./clipboard";
 import { MarkdownContent } from "./MarkdownContent";
 import { PlanExecutionList, usePlanExecutions } from "./PlanExecutionLinks";
+import type { MultiAgentsConfig } from "../shared/multi-agents";
+import { MultiAgentsChoices } from "./MultiAgentsPanel";
 
 interface PlanApprovalPanelProps {
   plan: ThreadPendingPlan;
@@ -30,6 +32,10 @@ interface PlanApprovalPanelProps {
   modelControl?: ReactNode;
   dockRef?: Ref<HTMLDivElement>;
   onApprove: () => void;
+  multiAgentsConfigs?: MultiAgentsConfig[];
+  multiAgentsLoadError?: string;
+  onApproveMultiAgents?: (configId: string, additionalMessage?: string) => void;
+  onConfigureMultiAgents?: () => void;
   /**
    * Approved with an explicit delegation target. Only rendered when the thread's locked
    * orchestration snapshot exposes at least one enabled, delegation-capable subagent.
@@ -56,6 +62,10 @@ export function PlanApprovalPanel({
   modelControl,
   dockRef,
   onApprove,
+  multiAgentsConfigs = [],
+  multiAgentsLoadError,
+  onApproveMultiAgents,
+  onConfigureMultiAgents,
   onApproveWithSubagent,
   onStartNewSession,
   onReviewCode,
@@ -78,7 +88,7 @@ export function PlanApprovalPanel({
   const [expanded, setExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
   const [executeMenuOpen, setExecuteMenuOpen] = useState(false);
-  const [executeMenuView, setExecuteMenuView] = useState<"options" | "agents">("options");
+  const [executeMenuView, setExecuteMenuView] = useState<"options" | "agents" | "multi_agents">("options");
   const toggleRef = useRef<HTMLButtonElement | null>(null);
   const firstOptionRef = useRef<HTMLButtonElement | null>(null);
   const backRef = useRef<HTMLButtonElement | null>(null);
@@ -88,7 +98,11 @@ export function PlanApprovalPanel({
   const executableAgents = agents.filter((agent) => agent.canExecutePlan);
   const canDelegate = executableAgents.length > 0 && Boolean(onApproveWithSubagent);
   const canOpenExecuteMenu =
-    canDelegate || Boolean(onStartNewSession) || Boolean(onReviewCode) || Boolean(onScheduleExecution);
+    canDelegate ||
+    Boolean(onStartNewSession) ||
+    Boolean(onReviewCode) ||
+    Boolean(onScheduleExecution) ||
+    Boolean(onApproveMultiAgents);
   const executeMenuDisabled = Boolean(busy) || !planTrimmed;
 
   useEffect(() => {
@@ -108,16 +122,13 @@ export function PlanApprovalPanel({
     if (!canOpenExecuteMenu || executeMenuDisabled) {
       setExecuteMenuOpen(false);
     }
-    if (!canDelegate) {
-      setExecuteMenuView("options");
-    }
   }, [canDelegate, canOpenExecuteMenu, executeMenuDisabled]);
 
   useEffect(() => {
     if (!executeMenuOpen) {
       return;
     }
-    if (executeMenuView === "agents") {
+    if (executeMenuView !== "options") {
       backRef.current?.focus();
     } else {
       firstOptionRef.current?.focus();
@@ -310,11 +321,14 @@ export function PlanApprovalPanel({
               className="plan-approval-execution-panel"
               role="dialog"
               width={280}
+              minHeight={executeMenuView === "options" ? 80 : 320}
               autoFocus={false}
               label={
-                executeMenuView === "agents"
-                  ? t("approval.plan.delegateTitle")
-                  : t("approval.plan.executeMenuAria")
+                executeMenuView === "multi_agents"
+                  ? "Multi-Agents"
+                  : executeMenuView === "agents"
+                    ? t("approval.plan.delegateTitle")
+                    : t("approval.plan.executeMenuAria")
               }
               onClose={closeExecuteMenu}
             >
@@ -358,6 +372,18 @@ export function PlanApprovalPanel({
                         <ChevronRight size={15} aria-hidden />
                       </button>
                     ) : null}
+                    {onApproveMultiAgents && onConfigureMultiAgents ? (
+                      <button
+                        type="button"
+                        className="plan-approval-menu-option"
+                        disabled={executeMenuDisabled}
+                        onClick={() => setExecuteMenuView("multi_agents")}
+                      >
+                        <UsersRound size={16} aria-hidden />
+                        <span>Multi-Agents</span>
+                        <ChevronRight size={15} aria-hidden />
+                      </button>
+                    ) : null}
                     {onScheduleExecution ? (
                       <button
                         ref={!onStartNewSession && !onReviewCode && !canDelegate ? firstOptionRef : undefined}
@@ -374,6 +400,43 @@ export function PlanApprovalPanel({
                         <span>{t("approval.plan.scheduleExecution")}</span>
                       </button>
                     ) : null}
+                  </div>
+                ) : executeMenuView === "multi_agents" && onConfigureMultiAgents ? (
+                  <div className="plan-approval-menu-agents">
+                    <button
+                      ref={backRef}
+                      type="button"
+                      className="plan-approval-menu-back"
+                      onClick={() => setExecuteMenuView("options")}
+                    >
+                      <ArrowLeft size={16} aria-hidden />
+                      Multi-Agents
+                    </button>
+                    <MultiAgentsChoices
+                      configs={multiAgentsConfigs}
+                      loadError={multiAgentsLoadError}
+                      agents={agents}
+                      disabled={executeMenuDisabled || Boolean(multiAgentsLoadError)}
+                      onConfigure={() => {
+                        closeExecuteMenu();
+                        onConfigureMultiAgents();
+                      }}
+                      onSelect={(id) => {
+                        closeExecuteMenu();
+                        onApproveMultiAgents?.(id, additionalMessage);
+                      }}
+                    />
+                    <label className="plan-approval-delegation-message-label" htmlFor={textareaId}>
+                      补充要求
+                    </label>
+                    <textarea
+                      id={textareaId}
+                      className="plan-approval-delegation-message"
+                      value={additionalMessage ?? ""}
+                      onChange={(event) => onAdditionalMessageChange?.(event.target.value)}
+                      rows={2}
+                      disabled={executeMenuDisabled}
+                    />
                   </div>
                 ) : (
                   <div className="plan-approval-menu-agents">

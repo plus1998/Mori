@@ -26,6 +26,9 @@ import {
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import type { ThreadSummary } from "../shared/ipc";
+import type { MultiAgentsSnapshot } from "../shared/multi-agents";
+import { MULTI_AGENTS_STATUS_LABELS } from "../shared/multi-agents";
+import { groupSidebarThreads } from "./multi-agents-sidebar";
 import type { AppLocale } from "../shared/locale";
 import type { PlanExecutionStatus } from "../shared/plan-execution";
 import { ICON_SIZE, ICON_STROKE } from "./icon-metrics";
@@ -47,6 +50,7 @@ export interface ProjectTreeItem {
 }
 
 interface ProjectSidebarTreeProps {
+  multiAgentsSnapshot?: MultiAgentsSnapshot;
   projectTree: ProjectTreeItem[];
   currentProjectPath: string | undefined;
   activeThreadId: string | undefined;
@@ -128,6 +132,7 @@ export function ProjectSidebarTree(props: ProjectSidebarTreeProps) {
 const MemoizedProjectSidebarTree = memo(ProjectSidebarTreeView);
 
 function ProjectSidebarTreeView({
+  multiAgentsSnapshot,
   projectTree,
   currentProjectPath,
   activeThreadId,
@@ -156,6 +161,16 @@ function ProjectSidebarTreeView({
   pendingPlanThreadIds,
 }: ProjectSidebarTreeProps) {
   const { t, i18n } = useTranslation();
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set());
+  const expandedForSelection = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (!activeThreadId) return;
+    const group = multiAgentsSnapshot?.groups?.find(group => group.children.some(child => child.id === activeThreadId));
+    if (group && expandedForSelection.current !== activeThreadId) {
+      expandedForSelection.current = activeThreadId;
+      setExpandedGroups(current => current.has(group.source.id) ? current : new Set([...current, group.source.id]));
+    }
+  }, [activeThreadId, multiAgentsSnapshot?.groups]);
   const planSourceIdsKey = JSON.stringify(
     projectTree.flatMap((project) => project.collapsed ? [] : project.visibleThreads
       .filter((thread) => thread.status === "awaiting_plan" || pendingPlanThreadIds?.has(thread.id))
@@ -576,7 +591,9 @@ function ProjectSidebarTreeView({
         {!collapsed ? (
           projectThreads.length > 0 ? (
             <>
-              {visibleThreads.map((thread) => {
+              {groupSidebarThreads(visibleThreads, projectThreads, multiAgentsSnapshot?.groups ?? [], expandedGroups).map(({ thread, depth, childCount }) => {
+                const multiRun = multiAgentsSnapshot?.runs.find(run => run.sourceThreadId === thread.id);
+                const memberTask = multiAgentsSnapshot?.runs.flatMap(run => run.tasks).find(task => task.threadId === thread.id);
                 const execution = planExecutions[thread.id];
                 const displayStatus = sidebarThreadStatus(thread, execution?.status);
                 const isThreadBusy = displayStatus === "running" || displayStatus === "queued";
@@ -598,6 +615,7 @@ function ProjectSidebarTreeView({
                 const isThreadPinned = pinnedThreadIds.has(thread.id);
                 const rowClassName = [
                   "chat-item-row",
+                  depth ? "is-multi-agents-child" : "",
                   activeThreadId === thread.id ? "active" : "",
                   isThreadPinned ? "is-thread-pinned" : "",
                 ]
@@ -606,6 +624,7 @@ function ProjectSidebarTreeView({
 
                 return (
                   <div key={thread.id} className={rowClassName} data-thread-id={thread.id}>
+                    {childCount > 0 ? <button type="button" className="multi-agents-group-toggle" aria-label={`${expandedGroups.has(thread.id) ? "收起" : "展开"}执行会话`} aria-expanded={expandedGroups.has(thread.id)} onClick={() => setExpandedGroups(current => { const next = new Set(current); if (next.has(thread.id)) next.delete(thread.id); else next.add(thread.id); return next; })}><ChevronRight size={13} style={{ transform: expandedGroups.has(thread.id) ? "rotate(90deg)" : undefined }} /></button> : null}
                     <button
                       type="button"
                       className="chat-item nested"
@@ -623,6 +642,7 @@ function ProjectSidebarTreeView({
                     >
                       <span className="chat-item-title-row">
                         <OverflowFadeText className="chat-item-title">{thread.title}</OverflowFadeText>
+                        {childCount > 0 ? <span className="multi-agents-group-progress" title={multiRun ? MULTI_AGENTS_STATUS_LABELS[multiRun.status] : "关联的计划执行会话"}>{multiRun ? `${multiRun.tasks.filter(task => task.status === "succeeded").length}/${multiRun.tasks.length} · ${MULTI_AGENTS_STATUS_LABELS[multiRun.status]}${multiRun.tasks.some(task => task.error || task.status === "failed" || task.status === "blocked") ? " · 需处理" : ""}` : `${childCount} 个执行会话`}</span> : memberTask ? <span className="multi-agents-group-progress">{MULTI_AGENTS_STATUS_LABELS[memberTask.status]}</span> : null}
                         {draftThreadIds?.has(thread.id) ? (
                           <span className="chat-item-draft" title={t("projectTree.draftHint")}>
                             {t("projectTree.draft")}
