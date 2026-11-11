@@ -422,6 +422,36 @@ class AppLocalizationsEn extends AppLocalizations {
   String get commonLoading => 'Loading...';
 
   @override
+  String get filePreviewUnsupported => 'Preview not supported';
+
+  @override
+  String get filePreviewLoadFailed => 'Failed to load file';
+
+  @override
+  String get filePreviewResourceFailed => 'Failed to load linked resource';
+
+  @override
+  String get filePreviewTooLarge => 'File is too large to preview';
+
+  @override
+  String get filePreviewTextTooLarge => 'Text file is too large to preview';
+
+  @override
+  String get filePreviewEmpty => 'File is empty';
+
+  @override
+  String get filePreviewDecodeFailed => 'The file could not be decoded';
+
+  @override
+  String get filePreviewSource => 'Source';
+
+  @override
+  String get filePreviewRendered => 'Preview';
+
+  @override
+  String get filePreviewNoContext => 'This conversation has no file directory';
+
+  @override
   String get commonOnline => 'Online';
 
   @override
@@ -3623,4 +3653,176 @@ class AppLocalizationsEn extends AppLocalizations {
   String approvalPlanReferenceLabel(int version) {
     return 'Plan v$version';
   }
+
+  @override
+  String get conversationShare => 'Share conversation';
+
+  @override
+  String get conversationShareHint =>
+      'Publish a snapshot of messages and media copies. Anyone with the link can view it. Check the content before sharing.';
+
+  @override
+  String get conversationShareCreate => 'Create share link';
+
+  @override
+  String get conversationShareExpires => 'Expires';
+
+  @override
+  String get conversationShareCopy => 'Copy link';
+
+  @override
+  String get conversationSharePreview => 'Preview share';
+
+  @override
+  String get conversationFork => 'Fork conversation';
+
+  @override
+  String get conversationForkHint =>
+      'Create an independent conversation with this message’s text and images in its draft. The working directory is shared; files are not rolled back.';
+
+  @override
+  String get conversationOpen => 'Open conversation';
+
+  @override
+  String get conversationMissing =>
+      'Conversation was deleted or is unavailable';
+
+  @override
+  String get conversationMessageMissing =>
+      'The original message was deleted or is no longer in the conversation history';
+
+  @override
+  String get conversationMediaDelete => 'Delete media record';
+
+  @override
+  String get conversationMediaDeleteHint =>
+      'This media will be removed from the conversation artifacts.';
+
+  @override
+  String get conversationPlanLinks => 'Plan and execution conversations';
+
+  @override
+  String get conversationPlanSource => 'Source plan';
+
+  @override
+  String get conversationPlanExecution => 'Execution conversation';
+
+  @override
+  String get conversationTodoHistory => 'Transfer history';
+
+  @override
+  String get conversationOpenDraft => 'Open draft';
+
+  @override
+  String get conversationHistoryError => 'Could not load artifact history';
+
+  @override
+  String get conversationWechat => 'WeChat completion notification';
+
+  @override
+  String get conversationWechatHint =>
+      'Notify your linked WeChat when this conversation completes. Connect WeChat on the desktop and send Mori a message first.';
+
+  @override
+  String get usageTitle => 'Usage and costs';
+
+  @override
+  String get usageOverview => 'Usage overview';
+
+  @override
+  String get usageAccountHistory => 'Account usage history';
+
+  @override
+  String get usagePeriod5h => '5 hours';
+
+  @override
+  String get usagePeriodDay => 'Day';
+
+  @override
+  String get usagePeriodWeek => 'Week';
+
+  @override
+  String get usagePeriodMonth => 'Month';
+
+  @override
+  String get usagePeriodAll => 'All time';
+
+  @override
+  String get usageEstimatedCost => 'Estimated cost (USD)';
+
+  @override
+  String get usageUnpriced => 'Unpriced records';
+
+  @override
+  String get usageRecordingFailures => 'Recording failures';
+
+  @override
+  String get usageTotalTokens => 'Total tokens';
+
+  @override
+  String get usageRecords => 'Request records';
+
+  @override
+  String get usageInput => 'Input tokens';
+
+  @override
+  String get usageOutput => 'Output tokens';
+
+  @override
+  String get usageCacheRead => 'Cache reads';
+
+  @override
+  String get usageCacheWrite => 'Cache writes';
+
+  @override
+  String get usageReasoning => 'Reasoning tokens (included in output)';
+
+  @override
+  String get usageTrackingSince => 'Tracking since';
+
+  @override
+  String get usageTimeZone => 'Reporting time zone';
+
+  @override
+  String get usageEmpty => 'No usage recorded in this time range';
+
+  @override
+  String get usageOlder => 'Load older records';
+
+  @override
+  String get usagePrevious => 'Previous period';
+
+  @override
+  String get usageNext => 'Next period';
+
+  @override
+  String get usageAccount => 'Account or provider';
+
+  @override
+  String get usageAllProviders => 'All providers';
+
+  @override
+  String get usageAllModels => 'All models';
+
+  @override
+  String get usageChatgptLogin => 'ChatGPT Login';
+
+  @override
+  String get usageChatgptOauth => 'ChatGPT OAuth';
+
+  @override
+  String get usageCustomProvider => 'Custom provider';
+
+  @override
+  String get usageUnknownAccount => 'No accounts available';
+
+  @override
+  String get conversationSearchLoadingError => 'Could not load search data';
+
+  @override
+  String get schedulingInterrupted => 'Interrupted';
+
+  @override
+  String get conversationDraftMissing =>
+      'The original draft was sent, cleared, or deleted';
 }

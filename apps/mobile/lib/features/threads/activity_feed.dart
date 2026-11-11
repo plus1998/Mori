@@ -17,6 +17,7 @@ import '../../core/models/thread_models.dart';
 import '../../core/models/thread_runtime_config.dart';
 import '../../core/theme/eco_theme.dart';
 import '../../core/utils/activity_display.dart';
+import '../../core/utils/mobile_performance.dart';
 import '../../core/utils/approval_feedback.dart';
 import '../../core/utils/composer_references.dart';
 import '../../core/utils/feed_action_kind.dart';
@@ -413,35 +414,37 @@ List<ActivityFeedEntry> buildActivityFeed({
   bool? conversationLive,
   ProjectionActivityFeedCache? presentationCache,
 }) {
-  if (!isProjectionFeedReady(runProjection)) {
-    return const [];
-  }
-  final strings = l10n ?? lookupAppLocalizations(const Locale('zh'));
-  final projected = buildProjectionActivityFeed(
-    projection: runProjection!,
-    threadPrompt: threadPrompt,
-    threadId: threadId,
-    subagentSessions: subagentSessions,
-    l10n: strings,
-    thinkingDisplayMode: thinkingDisplayMode,
-    conversationLive: conversationLive,
-    cache: presentationCache,
-  );
-  final groupedActions = groupActions
-      ? groupActivityFeedActionEntries(projected, l10n: strings)
-      : projected;
-  final groupedThinking = groupConsecutiveThinkingEntries(groupedActions);
-  final liveEntries = resolveActivityFeedLiveSlot(
-    groupedThinking,
-    projection: runProjection,
-    isRunning:
-        conversationLive ??
-        !isThreadStoppedForMessageMeta(runProjection.status),
-    l10n: strings,
-  );
-  return groupTurns
-      ? groupProjectionActivityFeedTurns(liveEntries, runProjection)
-      : liveEntries;
+  return mobilePerformance.measure('feed.compute', () {
+    if (!isProjectionFeedReady(runProjection)) {
+      return const [];
+    }
+    final strings = l10n ?? lookupAppLocalizations(const Locale('zh'));
+    final projected = buildProjectionActivityFeed(
+      projection: runProjection!,
+      threadPrompt: threadPrompt,
+      threadId: threadId,
+      subagentSessions: subagentSessions,
+      l10n: strings,
+      thinkingDisplayMode: thinkingDisplayMode,
+      conversationLive: conversationLive,
+      cache: presentationCache,
+    );
+    final groupedActions = groupActions
+        ? groupActivityFeedActionEntries(projected, l10n: strings)
+        : projected;
+    final groupedThinking = groupConsecutiveThinkingEntries(groupedActions);
+    final liveEntries = resolveActivityFeedLiveSlot(
+      groupedThinking,
+      projection: runProjection,
+      isRunning:
+          conversationLive ??
+          !isThreadStoppedForMessageMeta(runProjection.status),
+      l10n: strings,
+    );
+    return groupTurns
+        ? groupProjectionActivityFeedTurns(liveEntries, runProjection)
+        : liveEntries;
+  });
 }
 
 /// Thinking, summary, writing and the trailing tool aggregate share one row.
@@ -1298,6 +1301,8 @@ class ActivityFeedList extends StatefulWidget {
   const ActivityFeedList({
     super.key,
     required this.entries,
+    this.targetMessageId,
+    this.historyPageToken,
     required this.scrollController,
     this.scrollCoordinator,
     this.themeSource,
@@ -1310,6 +1315,7 @@ class ActivityFeedList extends StatefulWidget {
     this.onOpenImageDisplayArtifact,
     this.onLoadUserMessageEdit,
     this.onRewriteUserMessage,
+    this.onForkUserMessage,
     this.onRetryFailedRequest,
     this.resolveFailedRequestAction,
     this.hasEarlier = false,
@@ -1327,6 +1333,8 @@ class ActivityFeedList extends StatefulWidget {
   });
 
   final List<ActivityFeedEntry> entries;
+  final String? targetMessageId;
+  final String? historyPageToken;
   final ScrollController scrollController;
   final ActivityFeedScrollCoordinator? scrollCoordinator;
   final SubagentThemeSource? themeSource;
@@ -1339,6 +1347,11 @@ class ActivityFeedList extends StatefulWidget {
   final ValueChanged<String>? onOpenImageDisplayArtifact;
   final ActivityFeedUserMessageEditLoader? onLoadUserMessageEdit;
   final ActivityFeedUserMessageRewriteHandler? onRewriteUserMessage;
+  final Future<void> Function(
+    ThreadActivityRewindTarget target,
+    String clientCommandId,
+  )?
+  onForkUserMessage;
   final ActivityFeedFailedRequestRetryHandler? onRetryFailedRequest;
   final ActivityFeedFailedRequestActionResolver? resolveFailedRequestAction;
   final bool hasEarlier;
@@ -1364,6 +1377,11 @@ class _ActivityFeedListState extends State<ActivityFeedList> {
   late ActivityFeedScrollCoordinator _coordinator;
   String _layoutSignature = '';
   bool _showScrollJump = false;
+  final _targetKey = GlobalKey();
+  bool _navigatingTarget = false;
+  String? _navigatedTarget;
+  int _targetGeneration = 0;
+  Object? _targetError;
   bool _loadingEarlier = false;
   bool _loadEarlierFailed = false;
   Timer? _silenceTimer;
@@ -1377,12 +1395,20 @@ class _ActivityFeedListState extends State<ActivityFeedList> {
         ActivityFeedScrollCoordinator(widget.scrollController);
     _layoutSignature = activityFeedLayoutSignature(widget.entries);
     _syncSilenceTimer();
+    _scheduleTargetNavigation();
     WidgetsBinding.instance.addPostFrameCallback((_) => _maybeLoadEarlier());
   }
 
   @override
   void didUpdateWidget(ActivityFeedList oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.targetMessageId != widget.targetMessageId) {
+      _targetGeneration++;
+      _navigatingTarget = false;
+      _navigatedTarget = null;
+      _targetError = null;
+    }
+    _scheduleTargetNavigation();
     if ((widget.running || oldWidget.running) &&
         (oldWidget.running != widget.running ||
             oldWidget.stopping != widget.stopping ||
@@ -1398,6 +1424,90 @@ class _ActivityFeedListState extends State<ActivityFeedList> {
     if (nextSignature != activityFeedLayoutSignature(oldWidget.entries) ||
         (!oldWidget.hasEarlier && widget.hasEarlier)) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _maybeLoadEarlier());
+    }
+  }
+
+  bool _isTarget(ActivityFeedEntry entry) =>
+      widget.targetMessageId != null &&
+      (entry.id == widget.targetMessageId ||
+          entry.rewindTarget?.userMessageId == widget.targetMessageId);
+
+  void _scheduleTargetNavigation() {
+    final id = widget.targetMessageId;
+    if (id == null ||
+        id.isEmpty ||
+        _navigatingTarget ||
+        _navigatedTarget == id) {
+      return;
+    }
+    _navigatingTarget = true;
+    final generation = ++_targetGeneration;
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _navigateTarget(id, generation),
+    );
+  }
+
+  Future<void> _navigationFrame() async {
+    WidgetsBinding.instance.scheduleFrame();
+    await WidgetsBinding.instance.endOfFrame;
+  }
+
+  Future<void> _navigateTarget(String id, int generation) async {
+    bool active() => mounted && generation == _targetGeneration;
+    if (!active()) return;
+    final missingMessage = context.l10n.conversationMessageMissing;
+    try {
+      _coordinator.userDetachedFromBottom = true;
+      while (active() && !widget.entries.any(_isTarget)) {
+        if (!widget.hasEarlier || widget.onLoadEarlier == null) {
+          throw StateError(missingMessage);
+        }
+        final before =
+            widget.historyPageToken ??
+            widget.entries.map((e) => e.id).join('|');
+        await widget.onLoadEarlier!();
+        await _navigationFrame();
+        if (!active()) return;
+        if (widget.hasEarlier &&
+            before ==
+                (widget.historyPageToken ??
+                    widget.entries.map((e) => e.id).join('|'))) {
+          throw StateError('Conversation history did not advance');
+        }
+      }
+      if (!active() || !widget.scrollController.hasClients) return;
+      widget.scrollController.jumpTo(0);
+      await _navigationFrame();
+      // Walk measured viewports so variable-height and virtualized rows can be
+      // located without guessed item heights or a second copy of the feed.
+      while (active() && _targetKey.currentContext == null) {
+        final position = widget.scrollController.position;
+        final next = (position.pixels + position.viewportDimension * .8).clamp(
+          0.0,
+          position.maxScrollExtent,
+        );
+        if ((next - position.pixels).abs() < .5) {
+          throw StateError(missingMessage);
+        }
+        widget.scrollController.jumpTo(next);
+        await _navigationFrame();
+      }
+      if (active() && _targetKey.currentContext != null) {
+        await Scrollable.ensureVisible(
+          _targetKey.currentContext!,
+          alignment: .5,
+        );
+        _coordinator.userDetachedFromBottom = true;
+      }
+    } catch (error) {
+      if (active()) setState(() => _targetError = error);
+    } finally {
+      if (active()) {
+        setState(() {
+          _navigatingTarget = false;
+          _navigatedTarget = id;
+        });
+      }
     }
   }
 
@@ -1429,7 +1539,7 @@ class _ActivityFeedListState extends State<ActivityFeedList> {
   }
 
   void _scheduleLayoutScroll() {
-    if (widget.shrinkWrap) return;
+    if (widget.shrinkWrap || _navigatingTarget) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _coordinator.scrollToEnd();
@@ -1450,7 +1560,9 @@ class _ActivityFeedListState extends State<ActivityFeedList> {
   }
 
   Future<void> _maybeLoadEarlier({bool userInitiated = false}) async {
-    if (!mounted || !widget.scrollController.hasClients) return;
+    if (!mounted || _navigatingTarget || !widget.scrollController.hasClients) {
+      return;
+    }
     if (_loadEarlierFailed && !userInitiated) return;
     if (userInitiated) {
       _loadEarlierFailed = false;
@@ -1484,6 +1596,7 @@ class _ActivityFeedListState extends State<ActivityFeedList> {
 
   @override
   Widget build(BuildContext context) {
+    mobilePerformance.count('feed.build');
     // A running turn can contain hundreds of process rows. Keeping those in
     // the turn's Column defeats ListView's laziness and lays out all of them
     // for every streamed update. Give each process row its own list slot.
@@ -1517,137 +1630,200 @@ class _ActivityFeedListState extends State<ActivityFeedList> {
         : null;
     final paceTargetId = resolveFeedPaceTargetId(widget.entries);
 
-    return _FeedStoppingScope(
-      stopping: widget.stopping,
-      child: Stack(
-        clipBehavior: Clip.hardEdge,
-        children: [
-          GestureDetector(
-            onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
-            behavior: HitTestBehavior.translucent,
-            child: NotificationListener<ScrollNotification>(
-              onNotification: (notification) {
-                _coordinator.onScrollNotification(notification);
-                _syncScrollJumpVisibility();
-                unawaited(
-                  _maybeLoadEarlier(
-                    userInitiated:
-                        notification is ScrollUpdateNotification &&
-                        notification.dragDetails != null,
-                  ),
-                );
-                return false;
-              },
-              child: ListView.builder(
-                controller: widget.scrollController,
-                reverse: true,
-                shrinkWrap: widget.shrinkWrap,
-                primary: widget.shrinkWrap ? false : null,
-                keyboardDismissBehavior:
-                    ScrollViewKeyboardDismissBehavior.onDrag,
-                padding:
-                    widget.padding ??
-                    const EdgeInsets.fromLTRB(
-                      threadSessionFeedHorizontalPadding,
-                      threadSessionComposerGap,
-                      threadSessionFeedHorizontalPadding,
-                      0,
+    return trackMobileRender(
+      'feed',
+      _FeedStoppingScope(
+        stopping: widget.stopping,
+        child: Stack(
+          clipBehavior: Clip.hardEdge,
+          children: [
+            GestureDetector(
+              onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
+              behavior: HitTestBehavior.translucent,
+              child: NotificationListener<ScrollNotification>(
+                onNotification: (notification) {
+                  _coordinator.onScrollNotification(notification);
+                  _syncScrollJumpVisibility();
+                  unawaited(
+                    _maybeLoadEarlier(
+                      userInitiated:
+                          notification is ScrollUpdateNotification &&
+                          notification.dragDetails != null,
                     ),
-                findChildIndexCallback: (key) => rowIndices[key],
-                itemCount: displayRows.length + (_loadingEarlier ? 1 : 0),
-                itemBuilder: (context, index) {
-                  if (index == displayRows.length) {
-                    return const SizedBox(
-                      height: 44,
-                      child: Center(
-                        child: SizedBox.square(
-                          dimension: activityFeedLoadingIndicatorSize,
-                          child: CircularProgressIndicator(strokeWidth: 2),
+                  );
+                  return false;
+                },
+                child: ListView.builder(
+                  controller: widget.scrollController,
+                  reverse: true,
+                  shrinkWrap: widget.shrinkWrap,
+                  primary: widget.shrinkWrap ? false : null,
+                  keyboardDismissBehavior:
+                      ScrollViewKeyboardDismissBehavior.onDrag,
+                  padding:
+                      widget.padding ??
+                      const EdgeInsets.fromLTRB(
+                        threadSessionFeedHorizontalPadding,
+                        threadSessionComposerGap,
+                        threadSessionFeedHorizontalPadding,
+                        0,
+                      ),
+                  findChildIndexCallback: (key) => rowIndices[key],
+                  itemCount: displayRows.length + (_loadingEarlier ? 1 : 0),
+                  itemBuilder: (context, index) {
+                    if (index == displayRows.length) {
+                      return const SizedBox(
+                        height: 44,
+                        child: Center(
+                          child: SizedBox.square(
+                            dimension: activityFeedLoadingIndicatorSize,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
                         ),
+                      );
+                    }
+                    final row = displayRows[index];
+                    final entry = row.entry;
+                    Widget tile = _ActivityFeedEntryTile(
+                      entry: entry,
+                      virtualizeRunningTurn: row.turnHeader,
+                      themeSource: widget.themeSource,
+                      onOpenAgentDetail: widget.onOpenAgentDetail,
+                      loadToolDetail: widget.loadToolDetail,
+                      loadToolDetailPage: widget.loadToolDetailPage,
+                      loadTurnDetail: widget.loadTurnDetail,
+                      loadImageView: widget.loadImageView,
+                      onOpenImageDisplayArtifact:
+                          widget.onOpenImageDisplayArtifact,
+                      onLoadUserMessageEdit: widget.onLoadUserMessageEdit,
+                      onRewriteUserMessage: widget.onRewriteUserMessage,
+                      onForkUserMessage: widget.running
+                          ? null
+                          : widget.onForkUserMessage,
+                      onRetryFailedRequest: widget.onRetryFailedRequest,
+                      resolveFailedRequestAction:
+                          widget.resolveFailedRequestAction,
+                      expandUserPrompts: widget.expandUserPrompts,
+                      thinkingDefaultExpanded: widget.thinkingDefaultExpanded,
+                      finalMetaEntryId: finalMetaId,
+                      paceTargetEntryId: paceTargetId,
+                      showMessageCopyAndTime: widget.showMessageCopyAndTime,
+                    );
+                    if (_isTarget(entry)) {
+                      tile = DecoratedBox(
+                        key: _targetKey,
+                        decoration: BoxDecoration(
+                          border: Border.all(
+                            color: ecoColors(context).accent,
+                            width: 2,
+                          ),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: tile,
+                      );
+                    }
+                    return KeyedSubtree(
+                      key: ValueKey(entry.id),
+                      child: PromptImageReadScope(
+                        loadOriginal: widget.loadPromptImage,
+                        child: row.finalOutput
+                            ? Padding(
+                                padding: const EdgeInsets.only(top: 9),
+                                child: Semantics(
+                                  label: context.l10n.activityFinalOutput,
+                                  child: tile,
+                                ),
+                              )
+                            : processStartIds.contains(entry.id)
+                            ? Padding(
+                                padding: const EdgeInsets.only(top: 7),
+                                child: tile,
+                              )
+                            : tile,
                       ),
                     );
-                  }
-                  final row = displayRows[index];
-                  final entry = row.entry;
-                  final tile = _ActivityFeedEntryTile(
-                    entry: entry,
-                    virtualizeRunningTurn: row.turnHeader,
-                    themeSource: widget.themeSource,
-                    onOpenAgentDetail: widget.onOpenAgentDetail,
-                    loadToolDetail: widget.loadToolDetail,
-                    loadToolDetailPage: widget.loadToolDetailPage,
-                    loadTurnDetail: widget.loadTurnDetail,
-                    loadImageView: widget.loadImageView,
-                    onOpenImageDisplayArtifact:
-                        widget.onOpenImageDisplayArtifact,
-                    onLoadUserMessageEdit: widget.onLoadUserMessageEdit,
-                    onRewriteUserMessage: widget.onRewriteUserMessage,
-                    onRetryFailedRequest: widget.onRetryFailedRequest,
-                    resolveFailedRequestAction:
-                        widget.resolveFailedRequestAction,
-                    expandUserPrompts: widget.expandUserPrompts,
-                    thinkingDefaultExpanded: widget.thinkingDefaultExpanded,
-                    finalMetaEntryId: finalMetaId,
-                    paceTargetEntryId: paceTargetId,
-                    showMessageCopyAndTime: widget.showMessageCopyAndTime,
-                  );
-                  return KeyedSubtree(
-                    key: ValueKey(entry.id),
-                    child: PromptImageReadScope(
-                      loadOriginal: widget.loadPromptImage,
-                      child: row.finalOutput
-                          ? Padding(
-                              padding: const EdgeInsets.only(top: 9),
-                              child: Semantics(
-                                label: context.l10n.activityFinalOutput,
-                                child: tile,
-                              ),
-                            )
-                          : processStartIds.contains(entry.id)
-                          ? Padding(
-                              padding: const EdgeInsets.only(top: 7),
-                              child: tile,
-                            )
-                          : tile,
-                    ),
-                  );
-                },
-              ),
-            ),
-          ),
-          if (widget.showScrollJumpButton && _showScrollJump)
-            Positioned(
-              left: 12,
-              bottom:
-                  _scrollToBottomButtonAlignedBottomGap +
-                  widget.scrollJumpBottomInset,
-              child: _ScrollToBottomButton(
-                onPressed: () {
-                  _coordinator.forceScrollToEnd();
-                  setState(() => _showScrollJump = false);
-                },
-              ),
-            ),
-          Positioned(
-            left: 12,
-            right: 12,
-            bottom: widget.scrollJumpBottomInset + 4,
-            child: IgnorePointer(
-              child: Center(
-                child: AnimatedSwitcher(
-                  duration: MediaQuery.disableAnimationsOf(context)
-                      ? Duration.zero
-                      : const Duration(milliseconds: 160),
-                  child: _silent
-                      ? const RunActivityIndicator(
-                          key: ValueKey('activity-run-indicator'),
-                        )
-                      : const SizedBox.shrink(),
+                  },
                 ),
               ),
             ),
-          ),
-        ],
+            if (_navigatingTarget || _targetError != null)
+              Positioned(
+                left: 12,
+                right: 12,
+                top:
+                    widget.padding?.resolve(Directionality.of(context)).top ??
+                    0,
+                child: Material(
+                  elevation: 2,
+                  borderRadius: BorderRadius.circular(12),
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: _targetError == null
+                        ? const LinearProgressIndicator()
+                        : Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  localizedAppError(
+                                    _targetError!,
+                                    context.l10n,
+                                  ),
+                                ),
+                              ),
+                              TextButton(
+                                onPressed: () {
+                                  setState(() {
+                                    _targetError = null;
+                                    _navigatedTarget = null;
+                                  });
+                                  _scheduleTargetNavigation();
+                                },
+                                child: Text(context.l10n.commonRetry),
+                              ),
+                              IconButton(
+                                onPressed: () =>
+                                    setState(() => _targetError = null),
+                                icon: const Icon(Icons.close),
+                              ),
+                            ],
+                          ),
+                  ),
+                ),
+              ),
+            if (widget.showScrollJumpButton && _showScrollJump)
+              Positioned(
+                left: 12,
+                bottom:
+                    _scrollToBottomButtonAlignedBottomGap +
+                    widget.scrollJumpBottomInset,
+                child: _ScrollToBottomButton(
+                  onPressed: () {
+                    _coordinator.forceScrollToEnd();
+                    setState(() => _showScrollJump = false);
+                  },
+                ),
+              ),
+            Positioned(
+              left: 12,
+              right: 12,
+              bottom: widget.scrollJumpBottomInset + 4,
+              child: IgnorePointer(
+                child: Center(
+                  child: AnimatedSwitcher(
+                    duration: MediaQuery.disableAnimationsOf(context)
+                        ? Duration.zero
+                        : const Duration(milliseconds: 160),
+                    child: _silent
+                        ? const RunActivityIndicator(
+                            key: ValueKey('activity-run-indicator'),
+                          )
+                        : const SizedBox.shrink(),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1757,6 +1933,7 @@ class _ActivityFeedEntryTile extends StatelessWidget {
     this.onOpenImageDisplayArtifact,
     this.onLoadUserMessageEdit,
     this.onRewriteUserMessage,
+    this.onForkUserMessage,
     this.onRetryFailedRequest,
     this.resolveFailedRequestAction,
     this.expandUserPrompts = false,
@@ -1778,6 +1955,11 @@ class _ActivityFeedEntryTile extends StatelessWidget {
   final ValueChanged<String>? onOpenImageDisplayArtifact;
   final ActivityFeedUserMessageEditLoader? onLoadUserMessageEdit;
   final ActivityFeedUserMessageRewriteHandler? onRewriteUserMessage;
+  final Future<void> Function(
+    ThreadActivityRewindTarget target,
+    String clientCommandId,
+  )?
+  onForkUserMessage;
   final ActivityFeedFailedRequestRetryHandler? onRetryFailedRequest;
   final ActivityFeedFailedRequestActionResolver? resolveFailedRequestAction;
   final bool expandUserPrompts;
@@ -1831,6 +2013,7 @@ class _ActivityFeedEntryTile extends StatelessWidget {
           historyRevision: entry.historyRevision,
           onLoadUserMessageEdit: onLoadUserMessageEdit,
           onRewriteUserMessage: onRewriteUserMessage,
+          onForkUserMessage: onForkUserMessage,
           initiallyExpanded: expandUserPrompts,
         );
       case ActivityFeedKind.clarificationAnswer:
@@ -2330,6 +2513,7 @@ class _UserPromptTile extends StatefulWidget {
     this.historyRevision = 0,
     this.onLoadUserMessageEdit,
     this.onRewriteUserMessage,
+    this.onForkUserMessage,
     this.initiallyExpanded = false,
   });
 
@@ -2339,6 +2523,11 @@ class _UserPromptTile extends StatefulWidget {
   final int historyRevision;
   final ActivityFeedUserMessageEditLoader? onLoadUserMessageEdit;
   final ActivityFeedUserMessageRewriteHandler? onRewriteUserMessage;
+  final Future<void> Function(
+    ThreadActivityRewindTarget target,
+    String clientCommandId,
+  )?
+  onForkUserMessage;
   final bool initiallyExpanded;
 
   @override
@@ -2362,6 +2551,8 @@ class _UserPromptTileState extends State<_UserPromptTile> {
   var _editRevision = 0;
   var _editRequest = 0;
 
+  bool _forkBusy = false;
+  String? _forkCommandId;
   bool get _canEdit =>
       widget.rewindTarget != null &&
       widget.onLoadUserMessageEdit != null &&
@@ -2388,6 +2579,7 @@ class _UserPromptTileState extends State<_UserPromptTile> {
         oldWidget.rewindTarget?.activityLineId !=
             widget.rewindTarget?.activityLineId) {
       _expanded = widget.initiallyExpanded;
+      _forkCommandId = null;
       _editRequest += 1;
       _editing = false;
       _editLoading = false;
@@ -2750,13 +2942,29 @@ class _UserPromptTileState extends State<_UserPromptTile> {
                 maxLines: _collapsedMaxLines,
                 textDirection: Directionality.of(context),
               );
+          final useMarkdown = RegExp(
+            r'[`*_<>\[\]~|]|(^|\n)\s*(#{1,6} |[-+] |[0-9]+[.)] |[-=]{3,}\s*($|\n))',
+            multiLine: true,
+          ).hasMatch(_displayText);
           final showCollapsed = canExpand && !_expanded;
+          Widget markdownBody() => SizedBox(
+            width: constraints.maxWidth,
+            child: EcoMarkdown(
+              text: _displayText,
+              composerReferences: true,
+              compact: true,
+              selectable: false,
+            ),
+          );
           final galleryWidth = (widget.attachments.length * 108.0).clamp(
             0.0,
             maxBubbleWidth - horizontalPadding,
           );
 
-          return IntrinsicWidth(
+          Widget wrapBody({required Widget child}) => useMarkdown
+              ? SizedBox(width: constraints.maxWidth, child: child)
+              : IntrinsicWidth(child: child);
+          return wrapBody(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               mainAxisSize: MainAxisSize.min,
@@ -2833,17 +3041,34 @@ class _UserPromptTileState extends State<_UserPromptTile> {
                               stops: [0, 0.45, 1],
                             ).createShader(bounds);
                           },
-                          child:
-                              referenceLayout?.build(
-                                maxLines: _collapsedMaxLines,
-                              ) ??
-                              Text(
-                                _displayText,
-                                maxLines: _collapsedMaxLines,
-                                overflow: TextOverflow.clip,
-                                style: textStyle,
-                              ),
+                          child: useMarkdown
+                              ? ClipRect(
+                                  child: ConstrainedBox(
+                                    constraints: BoxConstraints(
+                                      maxHeight:
+                                          (textStyle?.fontSize ?? 14) *
+                                          1.6 *
+                                          _collapsedMaxLines,
+                                    ),
+                                    child: SingleChildScrollView(
+                                      physics:
+                                          const NeverScrollableScrollPhysics(),
+                                      child: markdownBody(),
+                                    ),
+                                  ),
+                                )
+                              : referenceLayout?.build(
+                                      maxLines: _collapsedMaxLines,
+                                    ) ??
+                                    Text(
+                                      _displayText,
+                                      maxLines: _collapsedMaxLines,
+                                      overflow: TextOverflow.clip,
+                                      style: textStyle,
+                                    ),
                         )
+                      : useMarkdown
+                      ? markdownBody()
                       : referenceLayout?.build() ??
                             Text(_displayText, style: textStyle),
                 ),
@@ -2876,6 +3101,41 @@ class _UserPromptTileState extends State<_UserPromptTile> {
     );
   }
 
+  Future<void> _forkMessage() async {
+    if (_forkBusy) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(context.l10n.conversationFork),
+        content: Text(context.l10n.conversationForkHint),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(context.l10n.commonCancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(context.l10n.conversationFork),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || confirmed != true) return;
+    setState(() => _forkBusy = true);
+    try {
+      await widget.onForkUserMessage!(
+        widget.rewindTarget!,
+        _forkCommandId ??=
+            'mobile_fork_${DateTime.now().microsecondsSinceEpoch}',
+      );
+      _forkCommandId = null;
+    } catch (error) {
+      if (mounted) _showEditToast(localizedAppError(error, context.l10n));
+    } finally {
+      if (mounted) setState(() => _forkBusy = false);
+    }
+  }
+
   Future<void> _copyMessage() async {
     final text = _displayText.trim();
     if (text.isEmpty) return;
@@ -2902,7 +3162,11 @@ class _UserPromptTileState extends State<_UserPromptTile> {
           ),
           // 用户消息不随会话进行状态隐藏操作：编辑与复制始终可见（仅要求文本非空），
           // 只有 agent 侧输出才用 showMessageCopyAndTime 延迟挂载以避免 streaming 抖动。
-          if (!_editing && (_canEdit || widget.text.trim().isNotEmpty))
+          if (!_editing &&
+              (_canEdit ||
+                  widget.text.trim().isNotEmpty ||
+                  (widget.rewindTarget != null &&
+                      widget.onForkUserMessage != null)))
             Padding(
               // Keep space below copy/edit actions so the next agent turn does
               // not sit flush against the icon row (desktop uses ~20px block gap).
@@ -2911,6 +3175,22 @@ class _UserPromptTileState extends State<_UserPromptTile> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
+                  if (widget.rewindTarget != null &&
+                      widget.onForkUserMessage != null)
+                    IconButton(
+                      onPressed: _forkBusy ? null : _forkMessage,
+                      tooltip: context.l10n.conversationFork,
+                      style: activityFeedMessageActionStyle(context),
+                      icon: _forkBusy
+                          ? const SizedBox.square(
+                              dimension: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(
+                              Icons.fork_right,
+                              size: activityFeedMessageActionIconSize,
+                            ),
+                    ),
                   if (_canEdit)
                     IconButton(
                       onPressed: _beginEdit,
@@ -3165,7 +3445,41 @@ class _WaitingThinkingLine extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _ThinkingSummaryCarousel(label: label, writing: writing);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+      child: _ThinkingSummaryCarousel(label: label, writing: writing),
+    );
+  }
+}
+
+TextStyle _activitySummaryTextStyle(BuildContext context) {
+  return (activityFeedBodyStyle(
+            context,
+            color: ecoColors(context).textMuted,
+            height: 1.4,
+          ) ??
+          DefaultTextStyle.of(context).style)
+      .copyWith(fontWeight: FontWeight.w500);
+}
+
+// Thinking, writing and tool summaries occupy the same line box. In particular,
+// switching to a live status inside a tool group must not add another inset.
+class _ActivitySummaryRow extends StatelessWidget {
+  const _ActivitySummaryRow({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final style = _activitySummaryTextStyle(context);
+    final textHeight =
+        (MediaQuery.textScalerOf(context).scale(style.fontSize ?? 13) *
+                (style.height ?? 1.4))
+            .ceilToDouble();
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      child: SizedBox(height: textHeight < 18 ? 18 : textHeight, child: child),
+    );
   }
 }
 
@@ -3184,6 +3498,7 @@ class _ThinkingSummaryCarouselState extends State<_ThinkingSummaryCarousel> {
   Timer? _timer;
   var _activeIndex = 0;
   var _linesKey = '';
+  var _slideStage = false;
 
   List<String> get _lines => widget.writing
       ? [widget.label]
@@ -3198,6 +3513,10 @@ class _ThinkingSummaryCarouselState extends State<_ThinkingSummaryCarousel> {
   @override
   void didUpdateWidget(covariant _ThinkingSummaryCarousel oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.label != widget.label ||
+        oldWidget.writing != widget.writing) {
+      _slideStage = false;
+    }
     _syncTimer();
   }
 
@@ -3212,7 +3531,10 @@ class _ThinkingSummaryCarouselState extends State<_ThinkingSummaryCarousel> {
     if (lines.length > 1) {
       _timer = Timer.periodic(const Duration(milliseconds: 2600), (_) {
         if (!mounted) return;
-        setState(() => _activeIndex = (_activeIndex + 1) % lines.length);
+        setState(() {
+          _slideStage = true;
+          _activeIndex = (_activeIndex + 1) % lines.length;
+        });
       });
     }
   }
@@ -3229,13 +3551,11 @@ class _ThinkingSummaryCarouselState extends State<_ThinkingSummaryCarousel> {
     final activeText = lines.isEmpty
         ? context.l10n.activityThinking
         : lines[_activeIndex % lines.length];
-    final style = activityFeedBodyStyle(context, height: 1.4);
-    final lineHeight = (style?.fontSize ?? 13) * (style?.height ?? 1.4);
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 2),
+    final style = _activitySummaryTextStyle(context);
+    final strut = StrutStyle.fromTextStyle(style, forceStrutHeight: true);
+    return _ActivitySummaryRow(
       child: SizedBox(
         key: const ValueKey('activity-waiting-thinking'),
-        height: lineHeight,
         child: Row(
           children: [
             if (widget.writing) ...[
@@ -3261,6 +3581,11 @@ class _ThinkingSummaryCarouselState extends State<_ThinkingSummaryCarousel> {
                     children: [...previous, ?current],
                   ),
                   transitionBuilder: (child, animation) {
+                    // Only carousel advancement slides. A new live status
+                    // fades on the same baseline instead of arriving below it.
+                    if (!_slideStage) {
+                      return FadeTransition(opacity: animation, child: child);
+                    }
                     final isIncoming = child.key == ValueKey(activeText);
                     final offset = isIncoming
                         ? Tween<Offset>(
@@ -3280,6 +3605,7 @@ class _ThinkingSummaryCarouselState extends State<_ThinkingSummaryCarousel> {
                     text: activeText,
                     pauseDuration: _toolWaitShimmerPause,
                     style: style,
+                    strutStyle: strut,
                     baseColor: ecoColors(context).textMuted,
                     highlightColor: ecoColors(context).textSecondary,
                     maxLines: 1,
@@ -3593,7 +3919,7 @@ class _ActionGroupTileState extends State<_ActionGroupTile> {
                 child: Row(
                   children: [
                     Expanded(
-                      child: _WaitingThinkingLine(
+                      child: _ThinkingSummaryCarousel(
                         label: widget.entry.text,
                         writing:
                             widget.entry.kind == ActivityFeedKind.toolWriting,
@@ -4632,6 +4958,8 @@ class _ActionSummaryLine extends StatelessWidget {
   Widget build(BuildContext context) {
     final eco = ecoColors(context);
     final failed = lifecycle == ToolActionLifecycle.failed;
+    final style = _activitySummaryTextStyle(context);
+    final strut = StrutStyle.fromTextStyle(style, forceStrutHeight: true);
 
     final content = Row(
       children: [
@@ -4647,11 +4975,8 @@ class _ActionSummaryLine extends StatelessWidget {
                         pauseDuration: _toolWaitShimmerPause,
                         baseColor: eco.textMuted,
                         highlightColor: eco.textSecondary,
-                        style: activityFeedBodyStyle(
-                          context,
-                          color: eco.textMuted,
-                          height: 1.35,
-                        )?.copyWith(fontWeight: FontWeight.w500),
+                        style: style,
+                        strutStyle: strut,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       )
@@ -4659,11 +4984,8 @@ class _ActionSummaryLine extends StatelessWidget {
                         label,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: activityFeedBodyStyle(
-                          context,
-                          color: eco.textMuted,
-                          height: 1.35,
-                        )?.copyWith(fontWeight: FontWeight.w500),
+                        style: style,
+                        strutStyle: strut,
                       ),
               ),
               if (failed) ...[
@@ -4698,10 +5020,7 @@ class _ActionSummaryLine extends StatelessWidget {
     );
 
     if (onTap == null) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 3),
-        child: content,
-      );
+      return _ActivitySummaryRow(child: content);
     }
 
     return Material(
@@ -4709,10 +5028,7 @@ class _ActionSummaryLine extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(8),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 5),
-          child: content,
-        ),
+        child: _ActivitySummaryRow(child: content),
       ),
     );
   }

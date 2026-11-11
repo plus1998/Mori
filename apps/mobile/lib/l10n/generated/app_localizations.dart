@@ -764,6 +764,66 @@ abstract class AppLocalizations {
   /// **'Loading...'**
   String get commonLoading;
 
+  /// No description provided for @filePreviewUnsupported.
+  ///
+  /// In en, this message translates to:
+  /// **'Preview not supported'**
+  String get filePreviewUnsupported;
+
+  /// No description provided for @filePreviewLoadFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to load file'**
+  String get filePreviewLoadFailed;
+
+  /// No description provided for @filePreviewResourceFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to load linked resource'**
+  String get filePreviewResourceFailed;
+
+  /// No description provided for @filePreviewTooLarge.
+  ///
+  /// In en, this message translates to:
+  /// **'File is too large to preview'**
+  String get filePreviewTooLarge;
+
+  /// No description provided for @filePreviewTextTooLarge.
+  ///
+  /// In en, this message translates to:
+  /// **'Text file is too large to preview'**
+  String get filePreviewTextTooLarge;
+
+  /// No description provided for @filePreviewEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'File is empty'**
+  String get filePreviewEmpty;
+
+  /// No description provided for @filePreviewDecodeFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'The file could not be decoded'**
+  String get filePreviewDecodeFailed;
+
+  /// No description provided for @filePreviewSource.
+  ///
+  /// In en, this message translates to:
+  /// **'Source'**
+  String get filePreviewSource;
+
+  /// No description provided for @filePreviewRendered.
+  ///
+  /// In en, this message translates to:
+  /// **'Preview'**
+  String get filePreviewRendered;
+
+  /// No description provided for @filePreviewNoContext.
+  ///
+  /// In en, this message translates to:
+  /// **'This conversation has no file directory'**
+  String get filePreviewNoContext;
+
   /// No description provided for @commonOnline.
   ///
   /// In en, this message translates to:
@@ -6349,6 +6409,336 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Plan v{version}'**
   String approvalPlanReferenceLabel(int version);
+
+  /// No description provided for @conversationShare.
+  ///
+  /// In en, this message translates to:
+  /// **'Share conversation'**
+  String get conversationShare;
+
+  /// No description provided for @conversationShareHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Publish a snapshot of messages and media copies. Anyone with the link can view it. Check the content before sharing.'**
+  String get conversationShareHint;
+
+  /// No description provided for @conversationShareCreate.
+  ///
+  /// In en, this message translates to:
+  /// **'Create share link'**
+  String get conversationShareCreate;
+
+  /// No description provided for @conversationShareExpires.
+  ///
+  /// In en, this message translates to:
+  /// **'Expires'**
+  String get conversationShareExpires;
+
+  /// No description provided for @conversationShareCopy.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy link'**
+  String get conversationShareCopy;
+
+  /// No description provided for @conversationSharePreview.
+  ///
+  /// In en, this message translates to:
+  /// **'Preview share'**
+  String get conversationSharePreview;
+
+  /// No description provided for @conversationFork.
+  ///
+  /// In en, this message translates to:
+  /// **'Fork conversation'**
+  String get conversationFork;
+
+  /// No description provided for @conversationForkHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Create an independent conversation with this message’s text and images in its draft. The working directory is shared; files are not rolled back.'**
+  String get conversationForkHint;
+
+  /// No description provided for @conversationOpen.
+  ///
+  /// In en, this message translates to:
+  /// **'Open conversation'**
+  String get conversationOpen;
+
+  /// No description provided for @conversationMissing.
+  ///
+  /// In en, this message translates to:
+  /// **'Conversation was deleted or is unavailable'**
+  String get conversationMissing;
+
+  /// No description provided for @conversationMessageMissing.
+  ///
+  /// In en, this message translates to:
+  /// **'The original message was deleted or is no longer in the conversation history'**
+  String get conversationMessageMissing;
+
+  /// No description provided for @conversationMediaDelete.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete media record'**
+  String get conversationMediaDelete;
+
+  /// No description provided for @conversationMediaDeleteHint.
+  ///
+  /// In en, this message translates to:
+  /// **'This media will be removed from the conversation artifacts.'**
+  String get conversationMediaDeleteHint;
+
+  /// No description provided for @conversationPlanLinks.
+  ///
+  /// In en, this message translates to:
+  /// **'Plan and execution conversations'**
+  String get conversationPlanLinks;
+
+  /// No description provided for @conversationPlanSource.
+  ///
+  /// In en, this message translates to:
+  /// **'Source plan'**
+  String get conversationPlanSource;
+
+  /// No description provided for @conversationPlanExecution.
+  ///
+  /// In en, this message translates to:
+  /// **'Execution conversation'**
+  String get conversationPlanExecution;
+
+  /// No description provided for @conversationTodoHistory.
+  ///
+  /// In en, this message translates to:
+  /// **'Transfer history'**
+  String get conversationTodoHistory;
+
+  /// No description provided for @conversationOpenDraft.
+  ///
+  /// In en, this message translates to:
+  /// **'Open draft'**
+  String get conversationOpenDraft;
+
+  /// No description provided for @conversationHistoryError.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not load artifact history'**
+  String get conversationHistoryError;
+
+  /// No description provided for @conversationWechat.
+  ///
+  /// In en, this message translates to:
+  /// **'WeChat completion notification'**
+  String get conversationWechat;
+
+  /// No description provided for @conversationWechatHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Notify your linked WeChat when this conversation completes. Connect WeChat on the desktop and send Mori a message first.'**
+  String get conversationWechatHint;
+
+  /// No description provided for @usageTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Usage and costs'**
+  String get usageTitle;
+
+  /// No description provided for @usageOverview.
+  ///
+  /// In en, this message translates to:
+  /// **'Usage overview'**
+  String get usageOverview;
+
+  /// No description provided for @usageAccountHistory.
+  ///
+  /// In en, this message translates to:
+  /// **'Account usage history'**
+  String get usageAccountHistory;
+
+  /// No description provided for @usagePeriod5h.
+  ///
+  /// In en, this message translates to:
+  /// **'5 hours'**
+  String get usagePeriod5h;
+
+  /// No description provided for @usagePeriodDay.
+  ///
+  /// In en, this message translates to:
+  /// **'Day'**
+  String get usagePeriodDay;
+
+  /// No description provided for @usagePeriodWeek.
+  ///
+  /// In en, this message translates to:
+  /// **'Week'**
+  String get usagePeriodWeek;
+
+  /// No description provided for @usagePeriodMonth.
+  ///
+  /// In en, this message translates to:
+  /// **'Month'**
+  String get usagePeriodMonth;
+
+  /// No description provided for @usagePeriodAll.
+  ///
+  /// In en, this message translates to:
+  /// **'All time'**
+  String get usagePeriodAll;
+
+  /// No description provided for @usageEstimatedCost.
+  ///
+  /// In en, this message translates to:
+  /// **'Estimated cost (USD)'**
+  String get usageEstimatedCost;
+
+  /// No description provided for @usageUnpriced.
+  ///
+  /// In en, this message translates to:
+  /// **'Unpriced records'**
+  String get usageUnpriced;
+
+  /// No description provided for @usageRecordingFailures.
+  ///
+  /// In en, this message translates to:
+  /// **'Recording failures'**
+  String get usageRecordingFailures;
+
+  /// No description provided for @usageTotalTokens.
+  ///
+  /// In en, this message translates to:
+  /// **'Total tokens'**
+  String get usageTotalTokens;
+
+  /// No description provided for @usageRecords.
+  ///
+  /// In en, this message translates to:
+  /// **'Request records'**
+  String get usageRecords;
+
+  /// No description provided for @usageInput.
+  ///
+  /// In en, this message translates to:
+  /// **'Input tokens'**
+  String get usageInput;
+
+  /// No description provided for @usageOutput.
+  ///
+  /// In en, this message translates to:
+  /// **'Output tokens'**
+  String get usageOutput;
+
+  /// No description provided for @usageCacheRead.
+  ///
+  /// In en, this message translates to:
+  /// **'Cache reads'**
+  String get usageCacheRead;
+
+  /// No description provided for @usageCacheWrite.
+  ///
+  /// In en, this message translates to:
+  /// **'Cache writes'**
+  String get usageCacheWrite;
+
+  /// No description provided for @usageReasoning.
+  ///
+  /// In en, this message translates to:
+  /// **'Reasoning tokens (included in output)'**
+  String get usageReasoning;
+
+  /// No description provided for @usageTrackingSince.
+  ///
+  /// In en, this message translates to:
+  /// **'Tracking since'**
+  String get usageTrackingSince;
+
+  /// No description provided for @usageTimeZone.
+  ///
+  /// In en, this message translates to:
+  /// **'Reporting time zone'**
+  String get usageTimeZone;
+
+  /// No description provided for @usageEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No usage recorded in this time range'**
+  String get usageEmpty;
+
+  /// No description provided for @usageOlder.
+  ///
+  /// In en, this message translates to:
+  /// **'Load older records'**
+  String get usageOlder;
+
+  /// No description provided for @usagePrevious.
+  ///
+  /// In en, this message translates to:
+  /// **'Previous period'**
+  String get usagePrevious;
+
+  /// No description provided for @usageNext.
+  ///
+  /// In en, this message translates to:
+  /// **'Next period'**
+  String get usageNext;
+
+  /// No description provided for @usageAccount.
+  ///
+  /// In en, this message translates to:
+  /// **'Account or provider'**
+  String get usageAccount;
+
+  /// No description provided for @usageAllProviders.
+  ///
+  /// In en, this message translates to:
+  /// **'All providers'**
+  String get usageAllProviders;
+
+  /// No description provided for @usageAllModels.
+  ///
+  /// In en, this message translates to:
+  /// **'All models'**
+  String get usageAllModels;
+
+  /// No description provided for @usageChatgptLogin.
+  ///
+  /// In en, this message translates to:
+  /// **'ChatGPT Login'**
+  String get usageChatgptLogin;
+
+  /// No description provided for @usageChatgptOauth.
+  ///
+  /// In en, this message translates to:
+  /// **'ChatGPT OAuth'**
+  String get usageChatgptOauth;
+
+  /// No description provided for @usageCustomProvider.
+  ///
+  /// In en, this message translates to:
+  /// **'Custom provider'**
+  String get usageCustomProvider;
+
+  /// No description provided for @usageUnknownAccount.
+  ///
+  /// In en, this message translates to:
+  /// **'No accounts available'**
+  String get usageUnknownAccount;
+
+  /// No description provided for @conversationSearchLoadingError.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not load search data'**
+  String get conversationSearchLoadingError;
+
+  /// No description provided for @schedulingInterrupted.
+  ///
+  /// In en, this message translates to:
+  /// **'Interrupted'**
+  String get schedulingInterrupted;
+
+  /// No description provided for @conversationDraftMissing.
+  ///
+  /// In en, this message translates to:
+  /// **'The original draft was sent, cleared, or deleted'**
+  String get conversationDraftMissing;
 }
 
 class _AppLocalizationsDelegate

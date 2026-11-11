@@ -254,6 +254,11 @@ class SettingsScreen extends ConsumerWidget {
                               value: modelsValue,
                               onTap: () => context.push('/settings/models'),
                             ),
+                            const EcoGroupedDivider(),
+                            SettingsDisclosureRow(
+                              title: l10n.usageTitle,
+                              onTap: () => context.push('/settings/usage'),
+                            ),
                           ],
                         ),
                       ),

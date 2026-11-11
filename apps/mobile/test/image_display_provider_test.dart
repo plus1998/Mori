@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'package:eco_mobile/core/models/eco_types.dart';
+import 'package:eco_mobile/core/providers/app_providers.dart';
 import 'package:eco_mobile/core/models/conversation_v2_models.dart';
 import 'package:eco_mobile/core/models/image_display_models.dart';
 import 'package:eco_mobile/core/network/desktop_rpc.dart';
@@ -13,6 +16,57 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test(
+    'desktop media deletion refreshes only the matching conversation',
+    () async {
+      final events = StreamController<EcoEventEnvelope>();
+      addTearDown(events.close);
+      final rpc = _Rpc();
+      rpc.artifacts['thread'] = [_artifact('media', 'thread')];
+      final container = ProviderContainer(
+        overrides: [
+          desktopRpcProvider.overrideWithValue(rpc),
+          desktopBindReadyOverrideProvider.overrideWithValue(true),
+          ecoEventsProvider.overrideWith((ref) => events.stream),
+          conversationV2SessionProvider(
+            'thread',
+          ).overrideWith((_) => _Session('thread')),
+        ],
+      );
+      addTearDown(container.dispose);
+      final provider = threadImageDisplayArtifactsProvider('thread');
+      final subscription = container.listen(provider, (_, _) {});
+      addTearDown(subscription.close);
+      expect((await container.read(provider.future)).length, 1);
+      events.add(
+        const EcoEventEnvelope(
+          id: 'e1',
+          kind: 'thread.lifecycle',
+          source: 'desktop',
+          occurredAt: '',
+          threadId: 'other',
+          payload: {'type': 'thread.media_deleted'},
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(rpc.calls.length, 1);
+      rpc.artifacts['thread'] = [];
+      events.add(
+        const EcoEventEnvelope(
+          id: 'e2',
+          kind: 'thread.lifecycle',
+          source: 'desktop',
+          occurredAt: '',
+          threadId: 'thread',
+          payload: {'type': 'thread.media_deleted'},
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(await container.read(provider.future), isEmpty);
+      expect(rpc.calls.length, 2);
+    },
+  );
+
   test(
     'V2 display completion refreshes the shared list without legacy projection',
     () async {

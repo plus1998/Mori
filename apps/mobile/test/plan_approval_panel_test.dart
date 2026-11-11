@@ -25,6 +25,32 @@ void main() {
   );
 
   testWidgets(
+    'model control stays available in the approval dock before execution',
+    (tester) async {
+      var model = 'original';
+      String? executedWith;
+      await tester.pumpWidget(
+        _LocalizedTestApp(
+          child: PlanApprovalPanel(
+            plan: plan,
+            busy: false,
+            modelControl: TextButton(
+              onPressed: () => model = 'selected',
+              child: const Text('Select model'),
+            ),
+            onApprove: () async => executedWith = model,
+            onDismiss: _noop,
+          ),
+        ),
+      );
+      await tester.tap(find.text('Select model'));
+      await tester.tap(find.byKey(const Key('plan-approval-execute')));
+      await tester.pumpAndSettle();
+      expect(executedWith, 'selected');
+    },
+  );
+
+  testWidgets(
     'tap approves; long press exposes options and cancelling does not approve',
     (tester) async {
       var approvals = 0;

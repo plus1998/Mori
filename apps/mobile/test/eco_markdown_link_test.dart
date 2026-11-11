@@ -1,4 +1,6 @@
 import 'package:eco_mobile/core/widgets/eco_markdown.dart';
+import 'package:eco_mobile/core/widgets/markdown_link.dart';
+import 'package:eco_mobile/core/models/file_preview_models.dart';
 import 'package:eco_mobile/core/widgets/streaming_eco_markdown.dart';
 import 'package:eco_mobile/core/widgets/web_page_viewer.dart';
 import 'package:eco_mobile/l10n/generated/app_localizations.dart';
@@ -94,6 +96,28 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(WebPageViewer), findsNothing);
     expect(find.byType(SnackBar), findsOneWidget);
+  });
+
+  testWidgets('absolute file paths in prose open through the file link scope', (
+    tester,
+  ) async {
+    LocalFileLink? opened;
+    await tester.pumpWidget(
+      app(
+        FileLinkScope(
+          onOpenFile: (value) => opened = value,
+          child: const EcoMarkdown(text: '/repo/src/main.ts:12'),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(
+      find.textContaining('/repo/src/main.ts', findRichText: true),
+      findsOneWidget,
+    );
+    await tester.tap(find.textContaining('/repo/src/main.ts', findRichText: true));
+    expect(opened?.path, '/repo/src/main.ts');
+    expect(opened?.line, 12);
   });
 
   testWidgets('subresource failures keep the page; main frame errors display', (

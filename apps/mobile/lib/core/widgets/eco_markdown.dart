@@ -1,14 +1,19 @@
+import 'dart:convert';
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:markdown/markdown.dart' as md;
 
-import '../locale/app_localizations_ext.dart';
 import '../theme/eco_theme.dart';
 import '../utils/feed_text.dart';
+import '../utils/local_file_link.dart';
+import '../utils/composer_references.dart';
+import 'composer_reference_text.dart';
 import '../utils/markdown_repair.dart';
 import 'eco_markdown_table.dart';
 import 'feed_code_builder.dart';
-import 'web_page_viewer.dart';
+import 'markdown_link.dart';
 
 class EcoMarkdown extends StatefulWidget {
   const EcoMarkdown({
@@ -19,9 +24,11 @@ class EcoMarkdown extends StatefulWidget {
     this.selectable = true,
     this.fontSizeScale = 1,
     this.references,
+    this.composerReferences = false,
   });
 
   final String text;
+  final bool composerReferences;
   final bool compact;
   final bool muted;
   final bool selectable;
@@ -49,7 +56,8 @@ class _EcoMarkdownState extends State<EcoMarkdown> {
     super.didUpdateWidget(oldWidget);
     // Live feed updates and duration labels also rebuild settled messages.
     // Keep their repaired text, tables and Markdown subtree until an input changes.
-    if (oldWidget.text != widget.text ||
+    if (oldWidget.composerReferences != widget.composerReferences ||
+        oldWidget.text != widget.text ||
         oldWidget.compact != widget.compact ||
         oldWidget.muted != widget.muted ||
         oldWidget.selectable != widget.selectable ||
@@ -100,6 +108,7 @@ class _EcoMarkdownState extends State<EcoMarkdown> {
               padding: EdgeInsets.symmetric(vertical: widget.compact ? 10 : 14),
               child: EcoMarkdownTable(
                 table: table,
+                composerReferences: widget.composerReferences,
                 compact: widget.compact,
                 muted: widget.muted,
                 fontSizeScale: widget.fontSizeScale,
@@ -127,40 +136,42 @@ class _EcoMarkdownState extends State<EcoMarkdown> {
       height: compact ? 1.45 : 1.55,
       color: baseColor,
     );
+    // flutter_markdown constrains markers to listIndent. Measure their actual
+    // scaled font so accessibility text cannot wrap the period below a number.
+    final markerPainter = TextPainter(
+      text: TextSpan(text: '99.', style: base),
+      textDirection: Directionality.of(context),
+      textScaler: MediaQuery.textScalerOf(context),
+    )..layout();
+    final listIndent = math.max(20.0, markerPainter.width.ceilToDouble());
+    markerPainter.dispose();
 
     return MarkdownBody(
       // flutter_markdown reparses on data/style changes, but not syntaxes.
-      key: ValueKey((widget.references, segmentIndex)),
+      key: ValueKey((
+        widget.references,
+        widget.composerReferences,
+        segmentIndex,
+      )),
       data: data,
       selectable: widget.selectable,
       onTapLink: (text, href, title) {
-        final uri = Uri.tryParse(href?.trim() ?? '');
-        if (uri == null ||
-            !uri.hasAuthority ||
-            uri.host.isEmpty ||
-            (uri.scheme != 'http' && uri.scheme != 'https')) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(context.l10n.taskHtmlHostOpenFailed)),
-          );
-          return;
-        }
-        Navigator.of(context).push<void>(
-          MaterialPageRoute(
-            builder: (_) => WebPageViewer(
-              title: title.trim().isNotEmpty ? title : text,
-              url: uri.toString(),
-            ),
-          ),
-        );
+        openMarkdownLink(context, text, href, title);
       },
       shrinkWrap: true,
-      builders: {'code': FeedCodeBuilder()},
-      inlineSyntaxes: widget.references == null
-          ? null
-          : [
-              _SharedLinkSyntax(widget.references!),
-              _SharedImageSyntax(widget.references!),
-            ],
+      builders: {
+        'code': FeedCodeBuilder(),
+        if (widget.composerReferences)
+          'composer-ref': _ComposerReferenceBuilder(),
+      },
+      inlineSyntaxes: [
+        _LocalFileReferenceSyntax(),
+        if (widget.composerReferences) _ComposerReferenceSyntax(),
+        if (widget.references != null) ...[
+          _SharedLinkSyntax(widget.references!),
+          _SharedImageSyntax(widget.references!),
+        ],
+      ],
       styleSheet: MarkdownStyleSheet(
         p: base,
         h1: base?.copyWith(
@@ -226,7 +237,7 @@ class _EcoMarkdownState extends State<EcoMarkdown> {
         tablePadding: const EdgeInsets.only(bottom: 4),
         tableScrollbarThumbVisibility: true,
         blockSpacing: compact ? 8 : 12,
-        listIndent: 20,
+        listIndent: listIndent,
         horizontalRuleDecoration: BoxDecoration(
           border: Border(top: BorderSide(color: eco.borderSubtle)),
         ),
@@ -247,6 +258,29 @@ class _SharedLinkSyntax extends md.LinkSyntax {
   }
 }
 
+/// Matches absolute workspace paths emitted as plain Markdown text. Desktop
+/// turns these into file references before rendering; mobile must do the same
+/// so a path in prose is tappable instead of inert text.
+class _LocalFileReferenceSyntax extends md.InlineSyntax {
+  _LocalFileReferenceSyntax()
+    : super(
+        r'(?<![\w:/])(?:/[\w.\-+@~%]+(?:/[\w.\-+@~%]+)*|[A-Za-z]:[\\/][^\s`<>()\[\]]+)(?::\d+(?::\d+)?)?',
+      );
+
+  @override
+  bool onMatch(md.InlineParser parser, Match match) {
+    final raw = match.group(0)!;
+    final reference = parseLocalFileLink(raw);
+    if (reference == null) return false;
+    final href =
+        'eco-file:${Uri.encodeComponent(jsonEncode({'path': reference.path, 'line': ?reference.line, 'column': ?reference.column}))}';
+    final link = md.Element('a', [])..attributes['href'] = href;
+    link.children!.add(md.Text(raw));
+    parser.addNode(link);
+    return true;
+  }
+}
+
 class _SharedImageSyntax extends md.ImageSyntax {
   _SharedImageSyntax(this.references);
   final Map<String, md.LinkReference> references;
@@ -255,5 +289,40 @@ class _SharedImageSyntax extends md.ImageSyntax {
   bool onMatch(md.InlineParser parser, Match match) {
     parser.document.linkReferences.addAll(references);
     return super.onMatch(parser, match);
+  }
+}
+
+class _ComposerReferenceSyntax extends md.InlineSyntax {
+  _ComposerReferenceSyntax()
+    : super(
+        r'@(ssh|todo|plan|web|web_selection|conversation|integration|subagent|mcp)\{([^{}\s]+)\}',
+      );
+  @override
+  bool onMatch(md.InlineParser parser, Match match) {
+    final text = match.group(0)!;
+    if (!parseComposerPrompt(text).any((part) => part.isReference)) {
+      return false;
+    }
+    parser.addNode(md.Element.text('composer-ref', text));
+    return true;
+  }
+}
+
+class _ComposerReferenceBuilder extends MarkdownElementBuilder {
+  @override
+  Widget? visitElementAfterWithContext(
+    BuildContext context,
+    md.Element element,
+    TextStyle? preferredStyle,
+    TextStyle? parentStyle,
+  ) {
+    // Return Text.rich directly: flutter_markdown merges its TextSpans and
+    // WidgetSpans into the surrounding emphasis/link paragraph (flutter#144383).
+    return ComposerReferenceTextLayout(
+      context: context,
+      segments: parseComposerPrompt(element.textContent),
+      style: preferredStyle ?? parentStyle,
+      maxWidth: MediaQuery.sizeOf(context).width * .7,
+    ).build();
   }
 }

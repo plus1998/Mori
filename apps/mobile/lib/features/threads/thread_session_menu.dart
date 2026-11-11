@@ -16,6 +16,7 @@ import '../../core/widgets/adaptive_toolbar_icon.dart'
 import '../../l10n/generated/app_localizations.dart';
 import '../composer/commit_push_sheet.dart';
 import 'thread_menu_sheets.dart';
+import 'conversation_action_sheets.dart';
 import 'thread_providers.dart';
 import 'thread_session_menu_cards.dart';
 import 'image_display_provider.dart';
@@ -71,6 +72,24 @@ List<ThreadSessionMenuEntry> buildThreadSessionMenuEntries(
       gitStatus.hasUpstream;
 
   return [
+    ThreadSessionMenuEntry(
+      value: 'share',
+      icon: Icons.share_outlined,
+      label: l10n.conversationShare,
+      enabled: hasThread,
+    ),
+    ThreadSessionMenuEntry(
+      value: 'plan_links',
+      icon: Icons.account_tree_outlined,
+      label: l10n.conversationPlanLinks,
+      enabled: hasThread,
+    ),
+    ThreadSessionMenuEntry(
+      value: 'wechat',
+      icon: Icons.notifications_outlined,
+      label: l10n.conversationWechat,
+      enabled: hasThread,
+    ),
     ThreadSessionMenuEntry(
       value: 'scheduled_messages',
       icon: EcoIcons.schedule,
@@ -169,18 +188,25 @@ class ThreadSessionMenuButton extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final autoReadEnabled = ref.watch(activityFeedAutoReadProvider);
-    final cards = _hasThread
-        ? ref.watch(threadSessionMenuCardsProvider(threadId!)).valueOrNull
+    final cardsState = _hasThread
+        ? ref.watch(threadSessionMenuCardsProvider(threadId!))
         : null;
-    final imageDisplay = _hasThread
-        ? ref.watch(threadImageDisplayArtifactsProvider(threadId!)).valueOrNull
+    final cards = cardsState?.valueOrNull;
+    final imageState = _hasThread
+        ? ref.watch(threadImageDisplayArtifactsProvider(threadId!))
         : null;
+    final historyFailed =
+        (cardsState?.hasError ?? false) || (imageState?.hasError ?? false);
+    final imageDisplay = imageState?.valueOrNull;
     final visibility = ThreadSessionMenuVisibility(
       showProgress: cards?.showProgress ?? false,
-      showPlan: cards?.showPlan ?? false,
-      showImageDisplay: imageDisplay?.isNotEmpty ?? false,
-      showImageGeneration: cards?.showImageGeneration ?? false,
-      showHtmlHost: cards?.showHtmlHost ?? false,
+      showPlan: historyFailed || (cards?.showPlan ?? false),
+      showImageDisplay:
+          (imageState?.hasError ?? false) ||
+          (imageDisplay?.isNotEmpty ?? false),
+      showImageGeneration:
+          historyFailed || (cards?.showImageGeneration ?? false),
+      showHtmlHost: historyFailed || (cards?.showHtmlHost ?? false),
     );
     final entries = buildThreadSessionMenuEntries(
       context.l10n,
@@ -192,6 +218,12 @@ class ThreadSessionMenuButton extends ConsumerWidget {
       visibility: visibility,
     );
     final menuItems = [
+      if (historyFailed)
+        AdaptivePopupMenuItem<String>(
+          label: context.l10n.conversationHistoryError,
+          icon: adaptivePlatformIcon(Icons.error_outline),
+          value: 'history_retry',
+        ),
       for (final entry in entries)
         AdaptivePopupMenuItem<String>(
           label: entry.label,
@@ -263,10 +295,39 @@ Future<void> handleThreadSessionMenuAction({
   List<HtmlHostArtifact> htmlHostArtifacts = const [],
 }) async {
   final rpc = ref.read(desktopRpcProvider);
-  if (rpc == null) return;
+  if (rpc == null) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(context.l10n.conversationHistoryError)),
+    );
+    return;
+  }
 
   try {
     switch (value) {
+      case 'history_retry':
+        if (threadId == null) return;
+        final failure = ref
+            .read(threadSessionMenuCardsProvider(threadId))
+            .error;
+        if (failure != null) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(failure.toString())));
+        }
+        ref.invalidate(threadSessionMenuCardsProvider(threadId));
+        ref.invalidate(threadImageDisplayArtifactsProvider(threadId));
+        return;
+      case 'share':
+        if (threadId != null) await showConversationShare(context, threadId);
+        return;
+      case 'plan_links':
+        if (threadId != null) await showPlanExecutionLinks(context, threadId);
+        return;
+      case 'wechat':
+        if (threadId != null) {
+          await showWechatCompletionSettings(context, threadId);
+        }
+        return;
       case 'scheduled_messages':
         if (threadId == null || threadId.isEmpty) return;
         await showSchedulingScreen(context, threadId: threadId);
@@ -297,6 +358,10 @@ Future<void> handleThreadSessionMenuAction({
         );
       case 'image_display':
         if (threadId == null || threadId.isEmpty) return;
+        final mediaError = ref
+            .read(threadImageDisplayArtifactsProvider(threadId))
+            .error;
+        if (mediaError != null) throw mediaError;
         onRevealImageDisplay?.call();
       case 'image_generation':
         if (threadId == null || threadId.isEmpty) return;

@@ -15,6 +15,7 @@ class ShimmerText extends StatelessWidget {
     super.key,
     required this.text,
     this.style,
+    this.strutStyle,
     required this.baseColor,
     this.highlightColor,
     this.duration = const Duration(milliseconds: 1800),
@@ -25,6 +26,7 @@ class ShimmerText extends StatelessWidget {
 
   final String text;
   final TextStyle? style;
+  final StrutStyle? strutStyle;
   final Color baseColor;
   final Color? highlightColor;
   final Duration duration;
@@ -46,6 +48,7 @@ class ShimmerText extends StatelessWidget {
     final child = Text(
       text,
       style: resolvedStyle,
+      strutStyle: strutStyle,
       maxLines: maxLines,
       overflow: overflow ?? TextOverflow.clip,
     );

@@ -124,6 +124,24 @@ class ProjectTodoImage {
       PromptImageAttachment(id: id, mediaType: mediaType, data: original);
 }
 
+class ProjectTodoHandoff {
+  const ProjectTodoHandoff({
+    required this.contextKey,
+    required this.composedAt,
+    this.threadId,
+    this.messageId,
+  });
+  factory ProjectTodoHandoff.fromJson(Map<String, dynamic> json) =>
+      ProjectTodoHandoff(
+        contextKey: json['contextKey'] as String,
+        composedAt: json['composedAt'] as String,
+        threadId: json['threadId'] as String?,
+        messageId: json['messageId'] as String?,
+      );
+  final String contextKey, composedAt;
+  final String? threadId, messageId;
+}
+
 class ProjectTodo {
   const ProjectTodo({
     required this.id,
@@ -134,6 +152,8 @@ class ProjectTodo {
     required this.status,
     required this.createdAt,
     required this.updatedAt,
+    this.composedAt,
+    this.handoffs = const [],
   });
 
   factory ProjectTodo.fromJson(Map<String, dynamic> json) {
@@ -164,6 +184,14 @@ class ProjectTodo {
       status: status,
       createdAt: json['createdAt'] as String,
       updatedAt: json['updatedAt'] as String,
+      composedAt: json['composedAt'] as String?,
+      handoffs: (json['handoffs'] as List? ?? const [])
+          .map(
+            (h) => ProjectTodoHandoff.fromJson(
+              Map<String, dynamic>.from(h as Map),
+            ),
+          )
+          .toList(),
     );
   }
 
@@ -176,6 +204,8 @@ class ProjectTodo {
   bool get completed => status == ProjectTodoStatus.completed;
   final String createdAt;
   final String updatedAt;
+  final String? composedAt;
+  final List<ProjectTodoHandoff> handoffs;
 
   Map<String, dynamic> toSaveJson({bool? completed}) {
     final nextStatus = completed == null || completed == this.completed

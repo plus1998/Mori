@@ -49,6 +49,7 @@ class PlanApprovalPanel extends StatefulWidget {
     required this.onApprove,
     required this.onDismiss,
     this.failureMessage,
+    this.modelControl,
     this.onScheduleExecution,
     this.onApproveWithSubagent,
     this.onStartNewSession,
@@ -60,6 +61,7 @@ class PlanApprovalPanel extends StatefulWidget {
   final Future<void> Function() onApprove;
   final Future<void> Function() onDismiss;
   final String? failureMessage;
+  final Widget? modelControl;
   final Future<void> Function()? onScheduleExecution;
   final Future<void> Function(PlanExecutionTarget target)?
   onApproveWithSubagent;
@@ -257,6 +259,11 @@ class _PlanApprovalPanelState extends State<PlanApprovalPanel> {
                           child: SingleChildScrollView(
                             child: EcoMarkdown(text: widget.plan.plan),
                           ),
+                        ),
+                      if (widget.modelControl != null)
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: widget.modelControl!,
                         ),
                       const SizedBox(height: 10),
                       Row(

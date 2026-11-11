@@ -85,7 +85,7 @@ String formatOccupancyLabel(int pct, AppLocalizations l10n) {
 }
 
 int? resolvePlannerOccupancyPct(ThreadContextSnapshot? context) {
-  if (context == null) {
+  if (context == null || context.error != null) {
     return null;
   }
   for (final role in context.roles) {
@@ -214,9 +214,7 @@ List<FlatSubagentContextRow> buildFlatSubagentContextRows(
 
   final instances =
       [...context.instances]
-          .where(
-            (instance) => instance.role != 'main' && instance.occupied > 0,
-          )
+          .where((instance) => instance.role != 'main' && instance.occupied > 0)
           .toList()
         ..sort((left, right) => right.occupied.compareTo(left.occupied));
 

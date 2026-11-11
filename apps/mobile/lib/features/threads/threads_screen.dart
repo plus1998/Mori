@@ -12,6 +12,7 @@ import '../../core/widgets/adaptive_toolbar_icon.dart';
 import '../projects/project_list_widgets.dart';
 import '../projects/project_menu_sheets.dart';
 import '../projects/project_providers.dart';
+import '../scheduling/schedule_editor.dart';
 import 'thread_menu_sheets.dart';
 import 'thread_attention_sheet.dart';
 import 'thread_providers.dart';
@@ -253,9 +254,35 @@ class _ThreadsScreenState extends ConsumerState<ThreadsScreen> {
         context: context,
         threads: threads,
         projects: projects,
+        loadSchedules: () async {
+          final rpc = ref.read(desktopRpcProvider);
+          if (rpc == null) throw StateError('Desktop is not connected');
+          return (await rpc.listSchedules()).schedules;
+        },
+        loadProjectTerms: () async {
+          final rpc = ref.read(desktopRpcProvider);
+          if (rpc == null) throw StateError('Desktop is not connected');
+          final terms = <String, List<String>>{};
+          for (var start = 0; start < projects.length; start += 1000) {
+            terms.addAll(
+              await rpc.projectSearchTerms(
+                projects
+                    .skip(start)
+                    .take(1000)
+                    .map((p) => {'path': p.path, 'name': p.name})
+                    .toList(),
+              ),
+            );
+          }
+          return terms;
+        },
       );
       if (selection == null || !context.mounted) return;
 
+      if (selection.schedule != null) {
+        await showScheduleEditor(context, definition: selection.schedule!);
+        return;
+      }
       final thread = selection.thread;
       if (thread != null) {
         context.push('/threads/${thread.id}');

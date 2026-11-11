@@ -368,6 +368,36 @@ class AppLocalizationsZh extends AppLocalizations {
   String get commonLoading => '加载中…';
 
   @override
+  String get filePreviewUnsupported => '不支持预览';
+
+  @override
+  String get filePreviewLoadFailed => '文件加载失败';
+
+  @override
+  String get filePreviewResourceFailed => '关联资源加载失败';
+
+  @override
+  String get filePreviewTooLarge => '文件过大，暂不支持预览';
+
+  @override
+  String get filePreviewTextTooLarge => '文本文件过大，暂不支持预览';
+
+  @override
+  String get filePreviewEmpty => '文件为空';
+
+  @override
+  String get filePreviewDecodeFailed => '文件内容无法解码';
+
+  @override
+  String get filePreviewSource => '源码';
+
+  @override
+  String get filePreviewRendered => '预览';
+
+  @override
+  String get filePreviewNoContext => '当前会话没有可用的文件目录';
+
+  @override
   String get commonOnline => '在线';
 
   @override
@@ -3418,4 +3448,172 @@ class AppLocalizationsZh extends AppLocalizations {
   String approvalPlanReferenceLabel(int version) {
     return '计划 v$version';
   }
+
+  @override
+  String get conversationShare => '分享会话';
+
+  @override
+  String get conversationShareHint =>
+      '将当前消息和媒体副本发布为可通过链接访问的快照。持有链接的人都能查看，请确认内容适合分享。';
+
+  @override
+  String get conversationShareCreate => '生成分享链接';
+
+  @override
+  String get conversationShareExpires => '过期时间';
+
+  @override
+  String get conversationShareCopy => '复制链接';
+
+  @override
+  String get conversationSharePreview => '预览分享';
+
+  @override
+  String get conversationFork => '分叉会话';
+
+  @override
+  String get conversationForkHint =>
+      '从这条消息创建独立会话，并将此条消息的文字和图片放入新草稿。工作目录保持相同，文件不会回滚。';
+
+  @override
+  String get conversationOpen => '打开会话';
+
+  @override
+  String get conversationMissing => '会话已删除或不可用';
+
+  @override
+  String get conversationMessageMissing => '原消息已删除或不在当前历史中';
+
+  @override
+  String get conversationMediaDelete => '删除媒体记录';
+
+  @override
+  String get conversationMediaDeleteHint => '删除后，此媒体将从会话产物中移除。';
+
+  @override
+  String get conversationPlanLinks => '计划与执行会话';
+
+  @override
+  String get conversationPlanSource => '来源计划';
+
+  @override
+  String get conversationPlanExecution => '执行会话';
+
+  @override
+  String get conversationTodoHistory => '转入记录';
+
+  @override
+  String get conversationOpenDraft => '打开草稿';
+
+  @override
+  String get conversationHistoryError => '产物记录加载失败';
+
+  @override
+  String get conversationWechat => '微信完工通知';
+
+  @override
+  String get conversationWechatHint =>
+      '此会话完成时通过已绑定的微信通知。需要先在电脑端连接微信，并向 Mori 发过消息。';
+
+  @override
+  String get usageTitle => '用量与费用';
+
+  @override
+  String get usageOverview => '用量总览';
+
+  @override
+  String get usageAccountHistory => '账号历史用量';
+
+  @override
+  String get usagePeriod5h => '5 小时';
+
+  @override
+  String get usagePeriodDay => '日';
+
+  @override
+  String get usagePeriodWeek => '周';
+
+  @override
+  String get usagePeriodMonth => '月';
+
+  @override
+  String get usagePeriodAll => '全部';
+
+  @override
+  String get usageEstimatedCost => '估算费用（USD）';
+
+  @override
+  String get usageUnpriced => '未计价记录';
+
+  @override
+  String get usageRecordingFailures => '记录失败次数';
+
+  @override
+  String get usageTotalTokens => '总 Tokens';
+
+  @override
+  String get usageRecords => '请求记录';
+
+  @override
+  String get usageInput => '输入 Tokens';
+
+  @override
+  String get usageOutput => '输出 Tokens';
+
+  @override
+  String get usageCacheRead => '缓存读取';
+
+  @override
+  String get usageCacheWrite => '缓存写入';
+
+  @override
+  String get usageReasoning => '推理 Tokens（已含于输出）';
+
+  @override
+  String get usageTrackingSince => '开始记录于';
+
+  @override
+  String get usageTimeZone => '统计时区';
+
+  @override
+  String get usageEmpty => '此时间范围内没有用量记录';
+
+  @override
+  String get usageOlder => '加载更早记录';
+
+  @override
+  String get usagePrevious => '上一时段';
+
+  @override
+  String get usageNext => '下一时段';
+
+  @override
+  String get usageAccount => '账号或供应商';
+
+  @override
+  String get usageAllProviders => '所有供应商';
+
+  @override
+  String get usageAllModels => '所有模型';
+
+  @override
+  String get usageChatgptLogin => 'ChatGPT Login';
+
+  @override
+  String get usageChatgptOauth => 'ChatGPT OAuth';
+
+  @override
+  String get usageCustomProvider => '自定义供应商';
+
+  @override
+  String get usageUnknownAccount => '当前没有可用账号';
+
+  @override
+  String get conversationSearchLoadingError => '搜索数据加载失败';
+
+  @override
+  String get schedulingInterrupted => '已中断';
+
+  @override
+  String get conversationDraftMissing => '原草稿已发送、清空或删除';
 }

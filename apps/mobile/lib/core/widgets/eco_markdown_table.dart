@@ -4,6 +4,8 @@ import '../locale/app_localizations_ext.dart';
 import '../theme/eco_icons.dart';
 import '../theme/eco_theme.dart';
 import '../utils/markdown_repair.dart';
+import '../utils/composer_references.dart';
+import 'composer_reference_text.dart';
 import 'eco_action_sheet.dart';
 import 'eco_modal_sheet.dart';
 
@@ -55,12 +57,14 @@ class EcoMarkdownTable extends StatelessWidget {
     this.compact = false,
     this.muted = false,
     this.fontSizeScale = 1,
+    this.composerReferences = false,
   });
 
   final MarkdownTable table;
   final bool compact;
   final bool muted;
   final double fontSizeScale;
+  final bool composerReferences;
 
   Future<void> _openExpanded(BuildContext context) async {
     await showEcoModalBottomSheet<void>(
@@ -85,6 +89,7 @@ class EcoMarkdownTable extends StatelessWidget {
             height: screenHeight * sheetFraction,
             child: _TablePreviewSheet(
               table: table,
+              composerReferences: composerReferences,
               title: sheetContext.l10n.markdownTableExpand,
               closeLabel: sheetContext.l10n.commonClose,
               muted: muted,
@@ -122,6 +127,7 @@ class EcoMarkdownTable extends StatelessWidget {
               clipBehavior: Clip.antiAlias,
               child: _MarkdownTableView(
                 table: table,
+                composerReferences: composerReferences,
                 muted: muted,
                 fontSizeScale: fontSizeScale,
                 headerMaxLines: 2,
@@ -144,6 +150,7 @@ class _TablePreviewSheet extends StatelessWidget {
     required this.closeLabel,
     required this.muted,
     required this.fontSizeScale,
+    this.composerReferences = false,
   });
 
   final MarkdownTable table;
@@ -151,11 +158,13 @@ class _TablePreviewSheet extends StatelessWidget {
   final String closeLabel;
   final bool muted;
   final double fontSizeScale;
+  final bool composerReferences;
 
   Widget _buildTableCard(BuildContext context, {required double maxWidth}) {
     final eco = ecoColors(context);
     final tableView = _MarkdownTableView(
       table: table,
+      composerReferences: composerReferences,
       muted: muted,
       fontSizeScale: fontSizeScale,
       headerMaxLines: null,
@@ -257,6 +266,7 @@ class _MarkdownTableView extends StatefulWidget {
     required this.table,
     required this.muted,
     required this.fontSizeScale,
+    this.composerReferences = false,
     required this.headerMaxLines,
     required this.scrollable,
     required this.showScrollBar,
@@ -266,6 +276,7 @@ class _MarkdownTableView extends StatefulWidget {
   final MarkdownTable table;
   final bool muted;
   final double fontSizeScale;
+  final bool composerReferences;
   final int? headerMaxLines;
   final bool scrollable;
   final bool showScrollBar;
@@ -369,15 +380,24 @@ class _MarkdownTableViewState extends State<_MarkdownTableView> {
   }) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      child: Text(
-        text,
-        style: style,
-        maxLines: maxLines,
-        overflow: maxLines == null
-            ? TextOverflow.visible
-            : TextOverflow.ellipsis,
-        softWrap: true,
-      ),
+      child:
+          widget.composerReferences &&
+              parseComposerPrompt(text).any((part) => part.isReference)
+          ? ComposerReferenceTextLayout(
+              context: context,
+              segments: parseComposerPrompt(text),
+              style: style,
+              maxWidth: MediaQuery.sizeOf(context).width * .7,
+            ).build(maxLines: maxLines)
+          : Text(
+              text,
+              style: style,
+              maxLines: maxLines,
+              overflow: maxLines == null
+                  ? TextOverflow.visible
+                  : TextOverflow.ellipsis,
+              softWrap: true,
+            ),
     );
   }
 }

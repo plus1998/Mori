@@ -16,6 +16,7 @@ import '../../core/widgets/eco_modal_sheet.dart';
 import '../../core/widgets/ios26_native_search_field.dart';
 import '../projects/project_providers.dart';
 import '../threads/thread_providers.dart';
+import '../threads/conversation_action_sheets.dart';
 import '../threads/thread_session_route.dart';
 import 'todo_editor.dart';
 import 'todo_providers.dart';
@@ -246,6 +247,79 @@ class _ProjectTodosScreenState extends ConsumerState<ProjectTodosScreen>
       ),
     );
   });
+
+  Future<void> _history(ProjectTodo todo) async {
+    final handoff = await showEcoModalBottomSheet<ProjectTodoHandoff>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            ListTile(title: Text(context.l10n.conversationTodoHistory)),
+            for (final h in todo.handoffs)
+              ListTile(
+                leading: Icon(
+                  h.messageId == null
+                      ? Icons.edit_note
+                      : Icons.chat_bubble_outline,
+                ),
+                title: Text(
+                  h.messageId == null
+                      ? context.l10n.conversationOpenDraft
+                      : context.l10n.conversationOpen,
+                ),
+                subtitle: Text(
+                  '${DateTime.parse(h.composedAt).toLocal()}\n${h.threadId ?? h.contextKey}',
+                ),
+                onTap: () => Navigator.pop(context, h),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (handoff == null || !mounted) return;
+    await _run(() async {
+      final threadId =
+          handoff.threadId ??
+          (handoff.contextKey.startsWith('thread:')
+              ? handoff.contextKey.substring(7)
+              : null);
+      final rpc = ref.read(desktopRpcProvider);
+      if (rpc == null) throw StateError('Desktop is not connected');
+      final draft = handoff.messageId == null
+          ? await rpc.getComposerDraft(handoff.contextKey)
+          : null;
+      if (!mounted) return;
+      if (handoff.messageId == null && draft == null) {
+        throw StateError(context.l10n.conversationDraftMissing);
+      }
+      final extra = draft == null
+          ? null
+          : ThreadSessionRouteExtra(
+              prompt: draft.prompt,
+              attachments: draft.attachments,
+            );
+      if (threadId != null) {
+        await openExistingConversation(
+          context,
+          ref,
+          threadId,
+          messageId: handoff.messageId,
+          draft: extra,
+        );
+      } else if (handoff.contextKey.startsWith('landing:')) {
+        await openProjectPath(ref, handoff.contextKey.substring(8));
+        if (mounted) context.push('/threads/new', extra: extra);
+      } else {
+        throw StateError(
+          'Unsupported todo handoff context: ${handoff.contextKey}',
+        );
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -586,6 +660,20 @@ class _ProjectTodosScreenState extends ConsumerState<ProjectTodosScreen>
                         alignment: Alignment.centerLeft,
                         child: TodoStatusBadge(status: todo.status),
                       ),
+                      if (todo.composedAt != null)
+                        Text(
+                          '${context.l10n.conversationTodoHistory}: ${DateTime.parse(todo.composedAt!).toLocal()}',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      if (todo.handoffs.isNotEmpty)
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: TextButton.icon(
+                            onPressed: _busy ? null : () => _history(todo),
+                            icon: const Icon(Icons.history, size: 17),
+                            label: Text(context.l10n.conversationTodoHistory),
+                          ),
+                        ),
                       const SizedBox(height: 8),
                       Text(
                         todoProjectName(projects, todo.projectPath),

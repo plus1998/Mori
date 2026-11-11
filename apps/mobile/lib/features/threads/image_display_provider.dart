@@ -4,6 +4,7 @@ import '../../core/models/image_display_models.dart';
 import '../../core/models/image_view_models.dart';
 import '../../core/utils/activity_display.dart';
 import '../../core/providers/desktop_bind_ready.dart';
+import '../../core/providers/app_providers.dart';
 import 'thread_providers.dart';
 
 /// Shared by the session menu and gallery. V2 owns the change signal; the
@@ -23,6 +24,14 @@ final threadImageDisplayArtifactsProvider = FutureProvider.autoDispose
           ),
         ),
       );
+      ref.listen(ecoEventsProvider, (_, next) {
+        final event = next.valueOrNull;
+        if (event?.threadId == threadId &&
+            event?.payload is Map &&
+            event?.payload['type'] == 'thread.media_deleted') {
+          ref.invalidateSelf();
+        }
+      });
       final rpc = ref.watch(desktopRpcProvider);
       if (rpc == null || threadId.isEmpty) return const [];
       if (!await ensureDesktopBindReady(ref)) {

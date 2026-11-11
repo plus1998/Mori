@@ -868,6 +868,7 @@ class ThreadSummary {
     this.cancelling = false,
     this.titleGenerating = false,
     this.followUpQueuePaused = false,
+    this.wechatFollowEnabled = false,
   });
 
   factory ThreadSummary.fromJson(Map<String, dynamic> json) => ThreadSummary(
@@ -894,6 +895,7 @@ class ThreadSummary {
     cancelling: json['cancelling'] == true,
     titleGenerating: json['titleGenerating'] == true,
     followUpQueuePaused: json['followUpQueuePaused'] == true,
+    wechatFollowEnabled: json['wechatFollowEnabled'] == true,
   );
 
   ThreadSummary copyWith({
@@ -911,6 +913,7 @@ class ThreadSummary {
     bool? cancelling,
     bool? titleGenerating,
     bool? followUpQueuePaused,
+    bool? wechatFollowEnabled,
   }) {
     return ThreadSummary(
       id: id,
@@ -928,6 +931,7 @@ class ThreadSummary {
       cancelling: cancelling ?? this.cancelling,
       titleGenerating: titleGenerating ?? this.titleGenerating,
       followUpQueuePaused: followUpQueuePaused ?? this.followUpQueuePaused,
+      wechatFollowEnabled: wechatFollowEnabled ?? this.wechatFollowEnabled,
     );
   }
 
@@ -948,6 +952,7 @@ class ThreadSummary {
   /// Live-only: desktop is currently auto-generating this thread's title.
   final bool titleGenerating;
   final bool followUpQueuePaused;
+  final bool wechatFollowEnabled;
 }
 
 class ThreadListCursor {
@@ -1084,6 +1089,7 @@ ThreadSummary mergeThreadSummaryFromRemoteList({
     hostUiFeatures: listed.hostUiFeatures,
     cancelling: listed.cancelling,
     followUpQueuePaused: listed.followUpQueuePaused,
+    wechatFollowEnabled: listed.wechatFollowEnabled,
   );
 }
 

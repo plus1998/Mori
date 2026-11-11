@@ -27,6 +27,17 @@ const RPC_INVOKE = ["rpc:invoke"] as const;
 const APPROVAL_DECIDE = ["rpc:invoke", "approval:decide"] as const;
 
 export const REMOTE_COMMAND_DEFINITIONS = [
+  command("thread:read-file", "Read original file bytes for conversation preview", "read", RPC_INVOKE, [objectArg(["threadId", "filePath"])]),
+  command("conversation:share", "Publish a conversation snapshot", "execute", RPC_INVOKE, [objectArg(["threadId"])]),
+  command("thread:plan-executions", "Read linked plan execution conversations", "read", RPC_INVOKE, [stringArg()]),
+  command("thread:wechat-follow", "Change conversation WeChat completion notifications", "write_safe", RPC_INVOKE, [objectArg(["threadId", "enabled"])]),
+  command("account-usage:history", "Read account usage history", "read", RPC_INVOKE, [objectArg(["kind", "accountId", "period"])]),
+  command("usage:overview", "Read usage and cost overview", "read", RPC_INVOKE, [objectArg(["period"])]),
+  command("workspace:project-search-terms", "Read pinyin search terms for project names", "read", RPC_INVOKE, [objectArg(["projects"])]),
+  command("image-generation-artifacts:list", "List generated images for a conversation", "read", RPC_INVOKE, [objectArg(["threadId"])]),
+  command("image-generation-artifact:read", "Read a generated image", "read", RPC_INVOKE, [objectArg(["artifactId", "imageIndex"])]),
+  command("html-host-artifacts:list", "List published HTML artifacts for a conversation", "read", RPC_INVOKE, [objectArg(["threadId"])]),
+  command("image-display-artifact:delete", "Remove a displayed media artifact", "write_safe", RPC_INVOKE, [objectArg(["artifactId"])]),
   command("multi-agents:snapshot", "Read Multi-Agents configurations and runs", "read", RPC_INVOKE, []),
   command("multi-agents:save", "Save Multi-Agents configuration", "write_safe", RPC_INVOKE, [objectArg(["id", "name", "mode", "members", "agentKeys", "maxConcurrency"])]),
   command("multi-agents:delete", "Delete Multi-Agents configuration", "write_safe", RPC_INVOKE, [stringArg()]),

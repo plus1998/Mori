@@ -6,6 +6,10 @@ import 'eco_icons.dart';
 /// SF Symbol name for an [EcoIcons] glyph on iOS 26+ native widgets.
 String? ecoIconSfSymbol(IconData icon) {
   return switch (icon) {
+    Icons.share_outlined => 'square.and.arrow.up',
+    Icons.account_tree_outlined => 'arrow.triangle.branch',
+    Icons.notifications_outlined => 'bell',
+    Icons.error_outline => 'exclamationmark.circle',
     EcoIcons.sessions => 'bubble.left.and.bubble.right',
     EcoIcons.settings => 'gearshape',
     EcoIcons.desktop => 'display',

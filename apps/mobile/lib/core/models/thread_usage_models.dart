@@ -101,6 +101,7 @@ class ThreadContextInstanceSnapshot {
 
 class ThreadContextSnapshot {
   const ThreadContextSnapshot({
+    this.error,
     required this.occupied,
     required this.limit,
     required this.occupancyPct,
@@ -115,6 +116,7 @@ class ThreadContextSnapshot {
   factory ThreadContextSnapshot.fromJson(
     Map<String, dynamic> json,
   ) => ThreadContextSnapshot(
+    error: json['error'] as String?,
     occupied: (json['occupied'] as num?)?.toInt() ?? 0,
     limit: (json['limit'] as num?)?.toInt() ?? 0,
     occupancyPct: (json['occupancyPct'] as num?)?.toInt() ?? 0,
@@ -144,6 +146,7 @@ class ThreadContextSnapshot {
         .toList(),
   );
 
+  final String? error;
   final int occupied;
   final int limit;
   final int occupancyPct;

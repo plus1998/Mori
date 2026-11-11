@@ -29,6 +29,7 @@ import 'features/settings/settings_default_bash_review_page.dart';
 import 'features/settings/settings_language_page.dart';
 import 'features/settings/settings_max_output_page.dart';
 import 'features/settings/settings_models_page.dart';
+import 'features/settings/settings_usage_page.dart';
 import 'features/settings/settings_orchestration_page.dart';
 import 'features/settings/settings_screen.dart';
 import 'features/settings/settings_read_aloud_page.dart';
@@ -174,6 +175,8 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                         arguments: state.extra,
                         child: ThreadSessionScreen(
                           threadId: rawThreadId,
+                          initialMessageId:
+                              state.uri.queryParameters['messageId'],
                           initialDraft: state.extra is ThreadSessionRouteExtra
                               ? state.extra as ThreadSessionRouteExtra
                               : null,
@@ -199,6 +202,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                 path: '/settings',
                 builder: (context, state) => const SettingsScreen(),
                 routes: [
+                  GoRoute(
+                    path: 'usage',
+                    parentNavigatorKey: _rootNavigatorKey,
+                    builder: (context, state) => const SettingsUsagePage(),
+                  ),
                   GoRoute(
                     path: 'read-aloud',
                     parentNavigatorKey: _rootNavigatorKey,

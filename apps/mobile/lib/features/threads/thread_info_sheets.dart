@@ -250,6 +250,19 @@ class _ContextPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final planner = snapshot == null ? null : resolvePlannerContext(snapshot!);
+    if (snapshot?.error case final error?) {
+      return ListView(
+        padding: const EdgeInsets.all(24),
+        children: [
+          Icon(Icons.error_outline, color: ecoColors(context).danger),
+          const SizedBox(height: 12),
+          SelectableText(
+            error,
+            style: TextStyle(color: ecoColors(context).danger),
+          ),
+        ],
+      );
+    }
     return ListView(
       padding: const EdgeInsets.only(bottom: 8),
       children: [

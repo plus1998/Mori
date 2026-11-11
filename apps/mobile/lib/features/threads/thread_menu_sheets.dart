@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/locale/app_localizations_ext.dart';
+import '../../core/locale/app_error_localizations.dart';
 import '../../core/models/git_models.dart';
 import '../../core/models/html_host_models.dart';
 import '../../core/models/image_generation_models.dart';
@@ -15,6 +16,7 @@ import '../../core/theme/eco_icons.dart';
 import '../../core/theme/eco_theme.dart';
 import '../../core/widgets/eco_action_sheet.dart';
 import '../../core/widgets/eco_markdown.dart';
+import '../../core/widgets/image_memory_lightbox.dart';
 import '../../core/widgets/eco_modal_sheet.dart';
 import '../../core/widgets/web_page_viewer.dart';
 import '../../core/utils/package_script_run.dart';
@@ -247,7 +249,7 @@ class _ThreadPlanSheetState extends ConsumerState<_ThreadPlanSheet> {
 
   Future<ThreadPendingPlan?> _loadPlan() async {
     final rpc = ref.read(desktopRpcProvider);
-    if (rpc == null) return null;
+    if (rpc == null) throw StateError('Desktop is not connected');
     final pending = await rpc.getPendingPlan(widget.threadId);
     return pending ?? rpc.getApprovedPlan(widget.threadId);
   }
@@ -1468,72 +1470,31 @@ class _ImageGenerationArtifactsSheetState
 
   Future<List<ImageGenerationArtifact>> _load() async {
     final rpc = ref.read(desktopRpcProvider);
-    if (rpc == null) return const [];
+    if (rpc == null) throw StateError('Desktop is not connected');
     return rpc.listImageGenerationArtifacts(widget.threadId);
   }
 
   Future<void> _openArtifact(ImageGenerationArtifact artifact) async {
     if (artifact.images.isEmpty) return;
     final rpc = ref.read(desktopRpcProvider);
-    if (rpc == null) return;
-    showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) => const Center(
-        child: Card(
-          child: Padding(
-            padding: EdgeInsets.all(24),
-            child: CircularProgressIndicator(),
-          ),
-        ),
-      ),
-    );
-    try {
-      final read = await rpc.readImageGenerationArtifact(
-        artifactId: artifact.id,
-        imageIndex: 0,
+    if (rpc == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(context.l10n.conversationHistoryError)),
       );
-      if (!mounted) return;
-      Navigator.of(context, rootNavigator: true).pop();
-      await showDialog<void>(
-        context: context,
-        builder: (dialogContext) {
-          return Dialog.fullscreen(
-            child: Scaffold(
-              backgroundColor: Colors.black,
-              appBar: AppBar(
-                backgroundColor: Colors.black,
-                foregroundColor: Colors.white,
-                title: Text(
-                  artifact.displayTitle,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              body: Center(
-                child: InteractiveViewer(
-                  child: Image.memory(
-                    Uint8List.fromList(read.bytes),
-                    fit: BoxFit.contain,
-                    errorBuilder: (_, _, _) => const Icon(
-                      Icons.broken_image_outlined,
-                      color: Colors.white54,
-                      size: 48,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          );
-        },
-      );
-    } catch (error) {
-      if (!mounted) return;
-      Navigator.of(context, rootNavigator: true).pop();
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(error.toString())));
+      return;
     }
+    await showImageMemoryLightbox(
+      context,
+      images: List.generate(artifact.images.length, (_) => Uint8List(0)),
+      title: artifact.displayTitle,
+      loadImage: (index) async {
+        final read = await rpc.readImageGenerationArtifact(
+          artifactId: artifact.id,
+          imageIndex: index,
+        );
+        return Uint8List.fromList(read.bytes);
+      },
+    );
   }
 
   String _statusLabel(String status, AppLocalizations l10n) {
@@ -1561,7 +1522,25 @@ class _ImageGenerationArtifactsSheetState
                   return const Center(child: CircularProgressIndicator());
                 }
                 if (snapshot.hasError) {
-                  return Center(child: Text(snapshot.error.toString()));
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          SelectableText(
+                            localizedAppError(snapshot.error!, context.l10n),
+                          ),
+                          TextButton(
+                            onPressed: () => setState(() {
+                              _future = _load();
+                            }),
+                            child: Text(context.l10n.commonRetry),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
                 }
                 final artifacts = snapshot.data ?? const [];
                 if (artifacts.isEmpty) {
@@ -1641,7 +1620,7 @@ class _HtmlHostArtifactsSheetState
 
   Future<List<HtmlHostArtifact>> _load() async {
     final rpc = ref.read(desktopRpcProvider);
-    if (rpc == null) return const [];
+    if (rpc == null) throw StateError('Desktop is not connected');
     return rpc.listHtmlHostArtifacts(widget.threadId);
   }
 
@@ -1679,7 +1658,25 @@ class _HtmlHostArtifactsSheetState
                   return const Center(child: CircularProgressIndicator());
                 }
                 if (snapshot.hasError) {
-                  return Center(child: Text(snapshot.error.toString()));
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          SelectableText(
+                            localizedAppError(snapshot.error!, context.l10n),
+                          ),
+                          TextButton(
+                            onPressed: () => setState(() {
+                              _future = _load();
+                            }),
+                            child: Text(context.l10n.commonRetry),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
                 }
                 final artifacts = snapshot.data ?? const [];
                 if (artifacts.isEmpty) {

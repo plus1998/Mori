@@ -70,6 +70,25 @@ void main() {
     });
   });
 
+  test('history failures preserve the cursor and can be retried', () async {
+    remote.hasOlder = true;
+    remote.historyError = StateError('history unavailable');
+    await controller.start();
+    expect(controller.state.historyCursor, 'older-page');
+
+    await expectLater(controller.loadOlder(), throwsStateError);
+    expect(controller.state.error.toString(), contains('history unavailable'));
+    expect(controller.state.historyCursor, 'older-page');
+    expect(controller.state.hasOlder, isTrue);
+
+    remote.historyError = null;
+    await controller.loadOlder();
+    expect(remote.historyCursors, ['older-page', 'older-page']);
+    expect(controller.state.error, isNull);
+    expect(controller.state.hasOlder, isFalse);
+    expect(controller.state.historyCursor, isNull);
+  });
+
   test(
     'plan approval carries the explicit target through V2 and refreshes pending requests',
     () async {
@@ -286,6 +305,9 @@ class _Remote implements ConversationV2Remote {
   List<ConversationV2Detail> bootstrapDetails = [];
   int snapshotSeq = 0;
   int syncCalls = 0;
+  bool hasOlder = false;
+  Object? historyError;
+  final historyCursors = <String?>[];
   final effects = <Map<String, dynamic>>[];
   @override
   Future<ConversationV2Capabilities> capabilities() async =>
@@ -312,9 +334,31 @@ class _Remote implements ConversationV2Remote {
     runs: [],
     tools: [],
     details: bootstrapDetails,
-    olderCursor: null,
-    hasOlder: false,
+    olderCursor: hasOlder ? 'older-page' : null,
+    hasOlder: hasOlder,
   );
+
+  @override
+  Future<ConversationV2MessagePage> messagesPage(
+    String conversationId, {
+    String? beforeCursor,
+    int limit = 30,
+    int maxBytes = 512 * 1024,
+  }) async {
+    historyCursors.add(beforeCursor);
+    if (historyError != null) throw historyError!;
+    return ConversationV2MessagePage(
+      protocolVersion: 2,
+      storeEpoch: 'epoch',
+      conversationId: conversationId,
+      readSeq: snapshotSeq,
+      historyRevision: 0,
+      messages: const [],
+      nextCursor: null,
+      hasMore: false,
+    );
+  }
+
   @override
   Future<ConversationV2Head> head(String conversationId) async =>
       ConversationV2Head(

@@ -42,14 +42,6 @@ class ThreadSessionMenuCards {
   );
 }
 
-Future<T> _safeMenuCardsLoad<T>(Future<T> Function() load, T fallback) async {
-  try {
-    return await load();
-  } catch (_) {
-    return fallback;
-  }
-}
-
 /// Desktop workspace-cards parity signals for the session overflow menu.
 ///
 /// Rebuilds when pending plan / projection change, and when todo/plan live
@@ -88,17 +80,7 @@ final threadSessionMenuCardsProvider = FutureProvider.autoDispose
       );
 
       final rpc = ref.watch(desktopRpcProvider);
-      if (rpc == null) {
-        return ThreadSessionMenuCards(
-          showProgress: threadMenuShouldShowProgress(todos),
-          showPlan: false,
-          showImageDisplay: imageDisplay.isNotEmpty,
-          showImageGeneration: false,
-          showHtmlHost: fromProjectionHtml.isNotEmpty,
-          imageDisplayArtifacts: imageDisplay,
-          htmlHostArtifacts: fromProjectionHtml,
-        );
-      }
+      if (rpc == null) throw StateError('Desktop is not connected');
 
       final loaded = await _loadMenuCardsRemote(
         rpc: rpc,
@@ -117,18 +99,15 @@ Future<ThreadSessionMenuCards> _loadMenuCardsRemote({
   required List<ImageDisplayArtifact> imageDisplay,
   required List<HtmlHostArtifact> fromProjectionHtml,
 }) async {
-  final approvedPlan = await _safeMenuCardsLoad(
-    () => rpc.getApprovedPlan(threadId),
-    null,
-  );
-  final imageGeneration = await _safeMenuCardsLoad(
-    () => rpc.listImageGenerationArtifacts(threadId),
-    const <ImageGenerationArtifact>[],
-  );
-  final remoteHtml = await _safeMenuCardsLoad(
-    () => rpc.listHtmlHostArtifacts(threadId),
-    const <HtmlHostArtifact>[],
-  );
+  // Start independent reads together; failures remain visible to the menu.
+  final results = await Future.wait<Object?>([
+    rpc.getApprovedPlan(threadId),
+    rpc.listImageGenerationArtifacts(threadId),
+    rpc.listHtmlHostArtifacts(threadId),
+  ]);
+  final approvedPlan = results[0] as ThreadPendingPlan?;
+  final imageGeneration = results[1] as List<ImageGenerationArtifact>;
+  final remoteHtml = results[2] as List<HtmlHostArtifact>;
 
   final htmlHost = mergeHtmlHostArtifacts(
     fromProjection: fromProjectionHtml,

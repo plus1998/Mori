@@ -62,6 +62,7 @@ class ConversationV2SessionState {
     this.projectionExtras,
     this.syncState = ConversationV2SyncState.uninitialized,
     this.hasOlder = false,
+    this.historyCursor,
     this.historyRevision = 0,
     this.details = const [],
     this.pendingBash,
@@ -84,6 +85,7 @@ class ConversationV2SessionState {
   final ConversationV2ProjectionExtras? projectionExtras;
   final ConversationV2SyncState syncState;
   final bool hasOlder;
+  final String? historyCursor;
   final int historyRevision;
   final List<ConversationV2Detail> details;
   final BashApprovalRequest? pendingBash;
@@ -103,6 +105,7 @@ class ConversationV2SessionState {
     ConversationV2ProjectionExtras? projectionExtras,
     ConversationV2SyncState? syncState,
     bool? hasOlder,
+    String? historyCursor,
     int? historyRevision,
     List<ConversationV2Detail>? details,
     BashApprovalRequest? pendingBash,
@@ -125,6 +128,9 @@ class ConversationV2SessionState {
       projectionExtras: projectionExtras ?? this.projectionExtras,
       syncState: syncState ?? this.syncState,
       hasOlder: hasOlder ?? this.hasOlder,
+      historyCursor: hasOlder == false
+          ? null
+          : historyCursor ?? this.historyCursor,
       historyRevision: historyRevision ?? this.historyRevision,
       details: details ?? this.details,
       pendingBash: replacePendingInteractions
@@ -279,6 +285,7 @@ class ConversationV2SessionController
       await _reload();
     } catch (error) {
       state = state.copyWith(error: error);
+      rethrow;
     }
   }
 
@@ -523,6 +530,7 @@ class ConversationV2SessionController
         todos: snapshot.todos,
         syncState: syncState ?? _engine.state,
         hasOlder: snapshot.cacheState?.hasOlder ?? false,
+        historyCursor: snapshot.cacheState?.historyCursor,
         historyRevision: snapshot.cacheState?.historyRevision ?? 0,
         details: compactionDetails,
         clearError: syncState != ConversationV2SyncState.error,

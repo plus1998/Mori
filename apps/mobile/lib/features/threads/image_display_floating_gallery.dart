@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 
 import '../../core/locale/app_localizations_ext.dart';
+import '../../core/locale/app_error_localizations.dart';
 import '../../core/models/image_display_models.dart';
 import '../../core/models/image_view_models.dart';
 import '../../core/theme/eco_theme.dart';
@@ -30,6 +31,7 @@ class ImageDisplayFloatingGallery extends StatefulWidget {
     required this.artifacts,
     required this.loadBytes,
     this.controller,
+    this.onDeleteArtifact,
     this.bottomInset = 0,
   });
 
@@ -37,6 +39,7 @@ class ImageDisplayFloatingGallery extends StatefulWidget {
   final ImageDisplayBytesLoader loadBytes;
   final ImageDisplayFloatingGalleryController? controller;
   final double bottomInset;
+  final Future<void> Function(String artifactId)? onDeleteArtifact;
 
   @override
   State<ImageDisplayFloatingGallery> createState() =>
@@ -74,6 +77,7 @@ class _ThumbLoadState {
 class _ImageDisplayFloatingGalleryState
     extends State<ImageDisplayFloatingGallery>
     with SingleTickerProviderStateMixin {
+  final _deleting = <String>{};
   var _expanded = false;
   var _pulse = false;
   String? _highlightId;
@@ -200,6 +204,40 @@ class _ImageDisplayFloatingGalleryState
       ),
     );
     return state;
+  }
+
+  Future<void> _delete(ImageDisplayArtifact artifact) async {
+    if (_deleting.contains(artifact.id)) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(context.l10n.conversationMediaDelete),
+        content: Text(context.l10n.conversationMediaDeleteHint),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(context.l10n.commonCancel),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(context.l10n.commonDelete),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _deleting.add(artifact.id));
+    try {
+      await widget.onDeleteArtifact!(artifact.id);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(localizedAppError(error, context.l10n))),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _deleting.remove(artifact.id));
+    }
   }
 
   void _retry(String artifactId) {
@@ -414,13 +452,41 @@ class _ImageDisplayFloatingGalleryState
                   final artifact =
                       widget.artifacts[widget.artifacts.length - 1 - index];
                   final load = _loads[artifact.id] ?? _ThumbLoadState();
-                  return _ArtifactThumbRow(
+                  final thumb = _ArtifactThumbRow(
                     artifact: artifact,
                     highlighted: artifact.id == _highlightId,
                     data: load.data,
                     error: load.error,
                     progress: load.progress,
                     onTap: () => unawaited(_handleThumbTap(artifact)),
+                  );
+                  return Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      thumb,
+                      if (widget.onDeleteArtifact != null)
+                        Positioned(
+                          top: 0,
+                          right: 0,
+                          child: IconButton(
+                            tooltip: l10n.conversationMediaDelete,
+                            style: IconButton.styleFrom(
+                              backgroundColor: eco.bgElevated,
+                            ),
+                            onPressed: _deleting.contains(artifact.id)
+                                ? null
+                                : () => _delete(artifact),
+                            icon: _deleting.contains(artifact.id)
+                                ? const SizedBox.square(
+                                    dimension: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Icon(Icons.delete_outline, size: 18),
+                          ),
+                        ),
+                    ],
                   );
                 },
               ),

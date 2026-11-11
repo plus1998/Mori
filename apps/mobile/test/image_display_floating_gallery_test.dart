@@ -11,6 +11,43 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   testWidgets(
+    'deleting media requires confirmation and keeps the record on failure',
+    (tester) async {
+      final controller = ImageDisplayFloatingGalleryController();
+      addTearDown(controller.dispose);
+      var deletes = 0;
+      await tester.pumpWidget(
+        _app(
+          Stack(
+            children: [
+              ImageDisplayFloatingGallery(
+                artifacts: [_artifact],
+                controller: controller,
+                loadBytes: (_, {onProgress}) async => _image,
+                onDeleteArtifact: (id) async {
+                  expect(id, _artifact.id);
+                  deletes++;
+                  throw StateError('Delete failed');
+                },
+              ),
+            ],
+          ),
+        ),
+      );
+      controller.reveal();
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Delete media record'));
+      await tester.pumpAndSettle();
+      expect(deletes, 0);
+      await tester.tap(find.text('Delete').last);
+      await tester.pumpAndSettle();
+      expect(deletes, 1);
+      expect(find.textContaining('Delete failed'), findsOneWidget);
+      expect(find.text('Menu screenshot'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
     'video and audio are not downloaded when the media gallery expands',
     (tester) async {
       var reads = 0;
@@ -256,6 +293,7 @@ void main() {
 
 Widget _app(Widget child) => MaterialApp(
   theme: buildEcoLightTheme(),
+  locale: const Locale('en'),
   localizationsDelegates: const [
     AppLocalizations.delegate,
     GlobalMaterialLocalizations.delegate,

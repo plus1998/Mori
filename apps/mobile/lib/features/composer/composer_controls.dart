@@ -2459,13 +2459,21 @@ class ComposerRouteSummary extends ConsumerWidget {
               threadStatus: threadStatus,
               themeSource: themeSource,
             ),
-            tooltip: showCodexQuota
-                ? context.l10n.codexQuotaTitle
-                : [
-                    if (occupancyPct != null) '$occupancyPct%',
-                    if (showBilling) formatBillingPillCost(billing),
-                  ].join(' · '),
-            icon: showCodexQuota
+            tooltip:
+                contextSnapshot?.error ??
+                (showCodexQuota
+                    ? context.l10n.codexQuotaTitle
+                    : [
+                        if (occupancyPct != null) '$occupancyPct%',
+                        if (showBilling) formatBillingPillCost(billing),
+                      ].join(' · ')),
+            icon: contextSnapshot?.error != null
+                ? Icon(
+                    Icons.error_outline,
+                    color: ecoColors(context).danger,
+                    size: kComposerToolbarIconSize,
+                  )
+                : showCodexQuota
                 ? const ComposerQuotaBars()
                 : ComposerContextRing(
                     pct: occupancyPct ?? 0,

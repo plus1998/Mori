@@ -4,12 +4,15 @@ import 'dart:typed_data';
 import 'package:uuid/uuid.dart';
 
 import '../models/acp_models.dart';
+import '../models/conversation_actions.dart';
+import '../models/account_usage_models.dart';
 import '../models/composer_reference_models.dart';
 import '../models/codex_account_models.dart';
 import '../models/asr_models.dart';
 import '../models/tts_models.dart';
 import '../models/display_control_models.dart';
 import '../models/eco_types.dart';
+import '../models/file_preview_models.dart';
 import '../models/conversation_v2_models.dart';
 import '../models/git_models.dart';
 import '../models/html_host_models.dart';
@@ -41,6 +44,217 @@ class PromptImageUploadResult {
 }
 
 class DesktopRpc implements ReadAloudRemote {
+  Future<RemoteFileData> readThreadFile({
+    required String threadId,
+    required String filePath,
+    String? relativeTo,
+    bool Function()? isCancelled,
+    void Function(int received, int total)? onProgress,
+  }) async {
+    final bytes = BytesBuilder(copy: false);
+    var offset = 0;
+    int? total;
+    String? revision, resolvedPath, name;
+    do {
+      if (isCancelled?.call() == true) throw const FilePreviewCancelled();
+      final result = await _client.invoke<Map<String, dynamic>>(
+        desktopDeviceId,
+        'thread:read-file',
+        [
+          {
+            'threadId': threadId,
+            'filePath': resolvedPath ?? filePath,
+            'relativeTo': ?relativeTo,
+            'offset': offset,
+            'revision': ?revision,
+          },
+        ],
+        deadlineMs: 60000,
+      );
+      if (isCancelled?.call() == true) throw const FilePreviewCancelled();
+      final size = result['size'];
+      final next = result['nextOffset'];
+      final path = result['path'];
+      final fileName = result['name'];
+      final version = result['revision'];
+      if (size is! int ||
+          size < 0 ||
+          next is! int ||
+          result['offset'] != offset ||
+          path is! String ||
+          path.isEmpty ||
+          fileName is! String ||
+          fileName.isEmpty ||
+          version is! String ||
+          version.isEmpty ||
+          (total != null && total != size) ||
+          (revision != null && revision != version) ||
+          (resolvedPath != null && resolvedPath != path)) {
+        throw const FormatException('Invalid file preview response identity.');
+      }
+      if (result['unsupportedReason'] == 'too_large' &&
+          offset == 0 &&
+          size > filePreviewMaxBytes) {
+        return RemoteFileData(
+          path: path,
+          name: fileName,
+          bytes: Uint8List(0),
+          unsupportedReason: 'too_large',
+        );
+      }
+      final data = result['data'];
+      if (size > filePreviewMaxBytes ||
+          data is! String ||
+          result['unsupportedReason'] != null) {
+        throw const FormatException('Invalid file preview size or data.');
+      }
+      final chunk = base64Decode(data);
+      if (chunk.length > 64 * 1024 ||
+          next != offset + chunk.length ||
+          next > size ||
+          (chunk.isEmpty && offset < size)) {
+        throw const FormatException('Invalid file preview chunk bounds.');
+      }
+      bytes.add(chunk);
+      total = size;
+      offset = next;
+      revision = version;
+      resolvedPath = path;
+      name = fileName;
+      onProgress?.call(offset, size);
+    } while (offset < total);
+    return RemoteFileData(
+      path: resolvedPath,
+      name: name,
+      bytes: bytes.takeBytes(),
+    );
+  }
+
+  Future<ConversationShare> shareConversation(String threadId) async =>
+      ConversationShare.fromJson(
+        await _client.invoke<Map<String, dynamic>>(
+          desktopDeviceId,
+          'conversation:share',
+          [
+            {'threadId': threadId},
+          ],
+          deadlineMs: 240000,
+        ),
+      );
+
+  Future<void> deleteImageDisplayArtifact(String artifactId) async {
+    await _client.invoke<dynamic>(
+      desktopDeviceId,
+      'image-display-artifact:delete',
+      [
+        {'artifactId': artifactId},
+      ],
+    );
+  }
+
+  Future<List<PlanExecutionLink>> listPlanExecutions(String threadId) async =>
+      (await _client.invoke<List<dynamic>>(
+            desktopDeviceId,
+            'thread:plan-executions',
+            [threadId],
+          ))
+          .map(
+            (row) => PlanExecutionLink.fromJson(
+              Map<String, dynamic>.from(row as Map),
+            ),
+          )
+          .toList();
+
+  Future<ThreadSummary> setWechatFollow(String threadId, bool enabled) async =>
+      ThreadSummary.fromJson(
+        await _client.invoke<Map<String, dynamic>>(
+          desktopDeviceId,
+          'thread:wechat-follow',
+          [
+            {'threadId': threadId, 'enabled': enabled},
+          ],
+        ),
+      );
+
+  Future<ForkedConversation> forkThreadFromMessage({
+    required String principalId,
+    required String clientCommandId,
+    required String threadId,
+    required String activityLineId,
+    required int expectedHistoryRevision,
+  }) async => ForkedConversation.fromJson(
+    await _client.invoke<Map<String, dynamic>>(
+      desktopDeviceId,
+      'thread:fork-from-message',
+      [
+        {
+          'principalId': principalId,
+          'clientCommandId': clientCommandId,
+          'threadId': threadId,
+          'activityLineId': activityLineId,
+          'expectedHistoryRevision': expectedHistoryRevision,
+        },
+      ],
+      deadlineMs: 60000,
+    ),
+  );
+
+  Future<Map<String, List<String>>> projectSearchTerms(
+    List<Map<String, String>> projects,
+  ) async {
+    final rows = await _client.invoke<List<dynamic>>(
+      desktopDeviceId,
+      'workspace:project-search-terms',
+      [
+        {'projects': projects},
+      ],
+    );
+    return {
+      for (final row in rows)
+        row['path'] as String: List<String>.from(row['terms'] as List),
+    };
+  }
+
+  Future<UsageOverview> usageOverview({
+    required String period,
+    int? at,
+    String? providerKey,
+    String? modelId,
+  }) async => UsageOverview.fromJson(
+    await _client.invoke<Map<String, dynamic>>(
+      desktopDeviceId,
+      'usage:overview',
+      [
+        {
+          'period': period,
+          'at': ?at,
+          'providerKey': ?providerKey,
+          'modelId': ?modelId,
+        },
+      ],
+    ),
+  );
+
+  Future<AccountUsageHistory> accountUsageHistory({
+    required String kind,
+    required String accountId,
+    required String period,
+    int? before,
+  }) async => AccountUsageHistory.fromJson(
+    await _client.invoke<Map<String, dynamic>>(
+      desktopDeviceId,
+      'account-usage:history',
+      [
+        {
+          'kind': kind,
+          'accountId': accountId,
+          'period': period,
+          'before': ?before,
+        },
+      ],
+    ),
+  );
+
   Future<List<Map<String, dynamic>>> listChatGptOauthAccounts() async {
     final result = await _client.invoke<List<dynamic>>(
       desktopDeviceId,

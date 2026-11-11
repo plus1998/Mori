@@ -23,6 +23,7 @@ import '../../core/providers/thinking_display_provider.dart';
 import '../../core/storage/composer_model_preferences.dart';
 import '../../core/widgets/activity_feed_auto_read_listener.dart';
 import '../../core/widgets/composer_prompt_editing_controller.dart';
+import '../files/file_preview_page.dart';
 import '../../core/theme/eco_icons.dart';
 import '../../core/theme/eco_theme.dart';
 import '../../core/utils/conversation_v2_hash.dart';
@@ -39,6 +40,7 @@ import '../approvals/approval_sheets.dart';
 import '../approvals/bash_approval_panel.dart';
 import '../approvals/plan_approval_panel.dart';
 import '../composer/composer_dock_shell.dart';
+import '../composer/composer_controls.dart';
 import '../composer/composer_stack_card.dart';
 import '../composer/composer_runtime_config_provider.dart';
 import '../composer/follow_up_queue_bar.dart';
@@ -67,10 +69,12 @@ class ThreadSessionScreen extends ConsumerStatefulWidget {
     super.key,
     required this.threadId,
     this.initialDraft,
+    this.initialMessageId,
   });
 
   final String threadId;
   final ThreadSessionRouteExtra? initialDraft;
+  final String? initialMessageId;
 
   @override
   ConsumerState<ThreadSessionScreen> createState() =>
@@ -571,6 +575,19 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
                   controller: _imageDisplayGalleryController,
                   bottomInset: controlsBottomInset,
                   loadBytes: _loadImageDisplayArtifactBytes,
+                  onDeleteArtifact: (id) async {
+                    final rpc = ref.read(desktopRpcProvider);
+                    if (rpc == null) {
+                      throw StateError('Desktop is not connected');
+                    }
+                    try {
+                      await rpc.deleteImageDisplayArtifact(id);
+                    } finally {
+                      ref.invalidate(
+                        threadImageDisplayArtifactsProvider(widget.threadId),
+                      );
+                    }
+                  },
                 ),
           foreground: sessionContentBooting
               ? SessionContentBootLoading(
@@ -603,6 +620,7 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
                 )
               : _ThreadSessionFeedPane(
                   threadId: widget.threadId,
+                  targetMessageId: widget.initialMessageId,
                   scrollController: _scrollController,
                   scrollCoordinator: _scrollCoordinator,
                   isRunning: isRunning,
@@ -738,6 +756,36 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
                             key: ValueKey('plan-${pendingPlan.threadId}'),
                             plan: pendingPlan,
                             busy: _planActionBusy,
+                            modelControl: thread?.coreKind == 'acp'
+                                ? ComposerAcpModelControl(
+                                    runtimeConfig: runtimeConfig,
+                                    threadId: widget.threadId,
+                                    canEdit: !_planActionBusy,
+                                    coreKind: thread?.coreKind,
+                                    onChanged: (config) =>
+                                        ref
+                                                .read(
+                                                  runtimeConfigProvider
+                                                      .notifier,
+                                                )
+                                                .state =
+                                            config,
+                                  )
+                                : ComposerDirectMainModelControl(
+                                    runtimeConfig: runtimeConfig,
+                                    threadId: widget.threadId,
+                                    workspacePath: workspacePath,
+                                    coreKind: thread?.coreKind,
+                                    canEdit: !_planActionBusy,
+                                    onChanged: (config) =>
+                                        ref
+                                                .read(
+                                                  runtimeConfigProvider
+                                                      .notifier,
+                                                )
+                                                .state =
+                                            config,
+                                  ),
                             failureMessage: planFailureMessage,
                             delegationAgents:
                                 const [
@@ -1857,6 +1905,7 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
 class _ThreadSessionFeedPane extends ConsumerWidget {
   const _ThreadSessionFeedPane({
     required this.threadId,
+    this.targetMessageId,
     required this.scrollController,
     required this.scrollCoordinator,
     required this.isRunning,
@@ -1867,6 +1916,7 @@ class _ThreadSessionFeedPane extends ConsumerWidget {
   });
 
   final String threadId;
+  final String? targetMessageId;
   final ScrollController scrollController;
   final ActivityFeedScrollCoordinator scrollCoordinator;
   final bool isRunning;
@@ -1882,6 +1932,7 @@ class _ThreadSessionFeedPane extends ConsumerWidget {
       children: [
         _ActivityFeedView(
           threadId: threadId,
+          targetMessageId: targetMessageId,
           scrollController: scrollController,
           scrollCoordinator: scrollCoordinator,
           isRunning: isRunning,
@@ -1906,6 +1957,7 @@ class _ThreadFeedCaches {
 class _ActivityFeedView extends ConsumerWidget {
   const _ActivityFeedView({
     required this.threadId,
+    this.targetMessageId,
     required this.scrollController,
     required this.scrollCoordinator,
     required this.isRunning,
@@ -1916,6 +1968,7 @@ class _ActivityFeedView extends ConsumerWidget {
   });
 
   final String threadId;
+  final String? targetMessageId;
   final ScrollController scrollController;
   final ActivityFeedScrollCoordinator scrollCoordinator;
   final bool isRunning;
@@ -2019,6 +2072,7 @@ class _ActivityFeedView extends ConsumerWidget {
       entries: displayFeedEntries,
       child: ActivityFeedList(
         entries: displayFeedEntries,
+        targetMessageId: targetMessageId,
         scrollController: scrollController,
         scrollCoordinator: scrollCoordinator,
         themeSource: themeSource,
@@ -2054,6 +2108,39 @@ class _ActivityFeedView extends ConsumerWidget {
         loadPromptImage: (attachment) =>
             _loadPromptImageForThread(ref, threadId, attachment),
         onOpenImageDisplayArtifact: onOpenImageDisplayArtifact,
+        onForkUserMessage:
+            !isRunning &&
+                !stopping &&
+                const ['claude', 'codex', 'pi'].contains(threadCoreKind)
+            ? (target, clientCommandId) async {
+                final rpc = ref.read(desktopRpcProvider);
+                if (rpc == null) throw StateError('Desktop is not connected');
+                final principal = ref
+                    .read(credentialsProvider)
+                    .valueOrNull
+                    ?.userId;
+                if (principal == null || principal.isEmpty) {
+                  throw StateError('A signed-in principal is required');
+                }
+                final fork = await rpc.forkThreadFromMessage(
+                  principalId: principal,
+                  clientCommandId: clientCommandId,
+                  threadId: threadId,
+                  activityLineId: target.activityLineId,
+                  expectedHistoryRevision: conversationV2.historyRevision,
+                );
+                ref.read(threadListProvider.notifier).upsertThread(fork.thread);
+                if (context.mounted) {
+                  context.push(
+                    '/threads/${fork.thread.id}',
+                    extra: ThreadSessionRouteExtra(
+                      prompt: fork.prompt,
+                      attachments: fork.attachments,
+                    ),
+                  );
+                }
+              }
+            : null,
         onLoadUserMessageEdit: (activityLineId) async {
           final rpc = ref.read(desktopRpcProvider);
           if (rpc == null) {
@@ -2213,12 +2300,21 @@ class _ActivityFeedView extends ConsumerWidget {
               }
             : null,
         hasEarlier: conversationV2.hasOlder,
+        historyPageToken: conversationV2.historyCursor,
+        onLoadEarlierError: (error) =>
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text(localizedAppError(error, context.l10n))),
+            ),
         onLoadEarlier: () => ref
             .read(conversationV2SessionProvider(threadId).notifier)
             .loadOlder(),
       ),
     );
-    return BatchedStreamUpdates(child: feed);
+    return ConversationFileLinks(
+      threadId: threadId,
+      rpc: ref.watch(desktopRpcProvider),
+      child: BatchedStreamUpdates(child: feed),
+    );
   }
 }
 
