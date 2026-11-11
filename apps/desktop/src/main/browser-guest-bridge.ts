@@ -49,7 +49,10 @@ export function installBrowserGuestBridge(mainWindow: BrowserWindow, host: Brows
     if (windowBrowserId) return;
     const browserId = host.consumePendingGuestAttach(guestWebContents.id, guestWebContents.session);
     if (browserId) {
-      host.registerGuestWebContents(browserId, guestWebContents);
+      // The event source is the embedder that owns this guest. Keep that identity
+      // through registration because temporary OAuth windows may coexist with the
+      // main window and must not be selected as its replacement.
+      host.registerGuestWebContents(browserId, guestWebContents, mainWindow.webContents);
     }
   };
 

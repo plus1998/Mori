@@ -32,3 +32,42 @@ test("expired Web credentials renew from the browser once for concurrent callers
   expect(account.webAuth).toBeUndefined();
   expect(account.webAuthError).toBe("Web session expired");
 });
+
+test("an existing browser Web session is discovered before falling back to Codex", async () => {
+  let account: OpenAIAccountDetails = { id: "existing", name: "Existing", proxyMode: "direct", createdAt: "", updatedAt: "", authJson: null };
+  let reads = 0;
+  let codexRefreshes = 0;
+  const owner = new ChatGptWebAccountCredentials({
+    run: (_, action) => action(),
+    getAccount: async () => account,
+    readSession: async () => {
+      reads++;
+      return { accessToken: "browser-token", accountId: "web-account", expiresAt: Date.now() + 3600_000 };
+    },
+    saveSession: async (_, auth, error) => {
+      account = { ...account, ...(auth ? { webAuth: auth } : {}), ...(error ? { webAuthError: error } : {}) };
+    },
+    ensureCodex: async () => { codexRefreshes++; },
+  });
+
+  const result = await owner.forImages("existing");
+  expect(reads).toBe(1);
+  expect(codexRefreshes).toBe(0);
+  expect(JSON.parse(result.authJson!).tokens).toEqual({ access_token: "browser-token", account_id: "web-account" });
+  expect(account.webAuth?.accountId).toBe("web-account");
+});
+
+test("a missing browser Web session keeps a Codex-only account on Codex credentials", async () => {
+  const account: OpenAIAccountDetails = { id: "codex", name: "Codex", proxyMode: "direct", createdAt: "", updatedAt: "", authJson: '{"tokens":{"access_token":"codex-token"}}' };
+  let codexRefreshes = 0;
+  const owner = new ChatGptWebAccountCredentials({
+    run: (_, action) => action(),
+    getAccount: async () => account,
+    readSession: async () => { throw new ChatGptWebSessionError("未登录", true, true); },
+    saveSession: async () => { throw new Error("should not persist missing session"); },
+    ensureCodex: async () => { codexRefreshes++; },
+  });
+  const result = await owner.forImages("codex");
+  expect(codexRefreshes).toBe(1);
+  expect(result.authJson).toBe(account.authJson);
+});

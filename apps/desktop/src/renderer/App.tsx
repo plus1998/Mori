@@ -2650,6 +2650,7 @@ function App() {
 
     const refreshSyncedSettingsFromMain = () => {
       void Promise.all([
+        eco.listThreads(),
         eco.getModelSettings(),
         eco.getMcpSettings(),
         eco.getWorkflowSettings(),
@@ -2657,7 +2658,8 @@ function App() {
         eco.getImageGenerationSettings?.() ?? Promise.resolve(undefined),
         eco.listAsrProfiles(),
       ])
-        .then(([modelSettings, mcp, workflow, proxyBridge, imageGeneration, asrSnapshot]) => {
+        .then(([threads, modelSettings, mcp, workflow, proxyBridge, imageGeneration, asrSnapshot]) => {
+          setThreads(threads);
           setSettings(modelSettings);
           setMcpSettings(mcp);
           setWorkflowSettings(workflow);

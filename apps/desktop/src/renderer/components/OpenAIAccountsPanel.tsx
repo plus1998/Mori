@@ -1,7 +1,6 @@
 import { codexQuotaPeriod } from "../codex-quota-reminder";
 import { AccountWakeBatchesPanel } from "./AccountWakeBatchesPanel";
 import { canUseOpenAIAccountCredentials, canUseOpenAIAccountWebCredentials } from "../../shared/openai-account";
-import { useImageQuotaResetRefresh } from "../useImageQuotaResetRefresh";
 import { QuotaRefreshedAt } from "../QuotaRefreshedAt";
 import { useOpenAIAccountsData, type OpenAIAccountsData } from "../useOpenAIAccountsData";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -36,7 +35,6 @@ import type { TFunction } from "i18next";
 import type {
   OpenAIAccount,
   OpenAIAccountDetails,
-  OpenAIAccountImageQuota,
   OpenAIAccountProxyMode,
   OpenAIAccountQuota,
   OpenAIAccountQuotaWindow,
@@ -241,27 +239,6 @@ export function OpenAIAccountProxyFields({
   );
 }
 
-export function OpenAIAccountImageQuotaSummary({ account, loading, showRefreshedAt = true }: { account: OpenAIAccount; loading: boolean; showRefreshedAt?: boolean }) {
-  const { t, i18n } = useTranslation();
-  const locale = (i18n.resolvedLanguage ?? i18n.language) as AppLocale;
-  const quota: OpenAIAccountImageQuota | undefined = account.imageQuota;
-  const resetAt = quota?.status === "available" && quota.resetAt ? Date.parse(quota.resetAt) : undefined;
-  return <div className="codex-quota-summary codex-image-quota-summary" aria-busy={loading}>
-    {loading ? <Loader2 size={13} className="mcp-spin" aria-label={t("settings.openaiAccounts.imageQuotaLoadingAria")} /> : null}
-    <span className="codex-quota-window-heading" title={t("settings.openaiAccounts.imageQuotaTooltip")}>
-      <b>{t("settings.openaiAccounts.imageQuotaLabel")}</b>
-      {quota?.status === "available" ? (
-        <em className={quota.remaining === 0 ? "is-limited" : "is-ok"}>{t("settings.openaiAccounts.imageQuotaRemaining", { total: quota.remaining })}</em>
-      ) : <span className={quota?.status === "error" ? "is-error" : undefined} title={quota?.error}>
-        {quota?.status === "error" ? t("settings.openaiAccounts.imageQuotaFailed") : t("settings.openaiAccounts.imageQuotaIdle")}
-      </span>}
-    </span>
-    {resetAt !== undefined && Number.isFinite(resetAt) ? <span className="codex-quota-window-reset" title={t("settings.openaiAccounts.imageQuotaRestoresAt", { time: formatAppDateTime(locale, new Date(resetAt)) })}>{formatQuotaResetTime(resetAt, t)}</span> : null}
-    {quota && showRefreshedAt ? <QuotaRefreshedAt fetchedAt={quota.fetchedAt} /> : null}
-    {quota?.status === "error" ? <span className="codex-image-quota-error is-error" role="alert">{quota.error}</span> : null}
-  </div>;
-}
-
 export function OpenAIAccountProfileFields({
   email,
   password,
@@ -348,7 +325,6 @@ function OpenAIAccountsContent({ onError, data }: {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "ready" | "missing">("all");
   const [busy, setBusy] = useState(false);
-  const [loginChoiceId, setLoginChoiceId] = useState<string | null>(null);
   const [loggingInId, setLoggingInId] = useState<string | null>(null);
   const [quotaErrors, setQuotaErrors] = useState<Record<string, { message: string; attemptedAt: number }>>({});
   const [quotaLoading, setQuotaLoading] = useState(false);
@@ -363,7 +339,6 @@ function OpenAIAccountsContent({ onError, data }: {
   const wakeDialogRef = useRef<HTMLDialogElement>(null);
   const [wakeModels, setWakeModels] = useState<CodexModelCatalogSnapshot["models"]>([]);
   const onCatalogSnapshot = useCallback((snapshot: CodexModelCatalogSnapshot) => setWakeModels(snapshot.models), []);
-  const [imageOperation, setImageOperation] = useState<{ accountId: string; kind: "toggle" | "quota" } | null>(null);
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [menuPos, setMenuPos] = useState<{ top: number; left: number }>({
     top: 0,
@@ -556,34 +531,6 @@ function OpenAIAccountsContent({ onError, data }: {
     }
   }
 
-  async function handleImageEnabled(accountId: string, enabled: boolean) {
-    if (!eco || imageOperation) return;
-    setImageOperation({ accountId, kind: "toggle" });
-    setOperationError("");
-    try {
-      await eco.openAIAccountsSetImageEnabled(accountId, enabled);
-      await refresh();
-    } catch (error) {
-      setOperationError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setImageOperation(null);
-    }
-  }
-
-  async function handleImageQuotaRefresh(accountId: string) {
-    if (!eco || imageOperation) return;
-    setImageOperation({ accountId, kind: "quota" });
-    setOperationError("");
-    try {
-      await eco.openAIAccountsQueryImageQuota(accountId);
-      await refresh();
-    } catch (error) {
-      setOperationError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setImageOperation(null);
-    }
-  }
-
   const refreshQuotas = useCallback(async () => {
     if (!eco || accounts.length === 0 || quotaLoading || quotaLoadingId !== null) return;
     setQuotaLoading(true);
@@ -624,8 +571,6 @@ function OpenAIAccountsContent({ onError, data }: {
     return orderedAccounts.filter((a) => (!query || a.name.toLowerCase().includes(query) || a.email?.toLowerCase().includes(query))
       && (statusFilter === "all" || (statusFilter === "ready" ? hasAnyLogin(a) : !hasAnyLogin(a))));
   }, [orderedAccounts, searchQuery, statusFilter]);
-
-  useImageQuotaResetRefresh(orderedAccounts, eco, refresh, onError);
 
   const handleCreate = useCallback(async (saveOnly = false) => {
     const name = modalName.trim();
@@ -668,7 +613,12 @@ function OpenAIAccountsContent({ onError, data }: {
           const authResult = await eco.openAIAccountsSetAuthJson(account.id, modalAuthJson.trim());
           if (!authResult.success) throw new Error(authResult.message);
         } else if (!saveOnly && modalMode === "login") {
-          setLoginChoiceId(account.id);
+          setLoggingInId(account.id);
+          const result = await eco.openAIAccountsStartLogin(account.id);
+          if (!result.success) {
+            setLoggingInId(null);
+            onError(result.message);
+          }
         } else if (!saveOnly && modalMode === "external") {
           setExternalLoginId(account.id);
         }
@@ -723,13 +673,12 @@ function OpenAIAccountsContent({ onError, data }: {
   );
 
   const handleLogin = useCallback(
-    async (accountId: string, mode?: "web") => {
+    async (accountId: string) => {
       if (!eco) return;
-      setLoginChoiceId(null);
       setLoggingInId(accountId);
       setOperationError("");
       try {
-        const result = await eco.openAIAccountsStartLogin(accountId, mode);
+        const result = await eco.openAIAccountsStartLogin(accountId);
         if (!result.success) {
           onError(result.message);
           setLoggingInId(null);
@@ -1005,7 +954,6 @@ function OpenAIAccountsContent({ onError, data }: {
             const email = account.email || accountQuota?.email;
             const isQuotaLoading = (quotaLoading && canUseOpenAIAccountCredentials(account)) || quotaLoadingId === account.id;
             const showTextQuota = Boolean(accountQuota || canUseOpenAIAccountCredentials(account) || isQuotaLoading || quotaErrors[account.id]);
-            const showImageQuota = Boolean(account.imageGenerationEnabled || account.imageQuota);
             return (
               <article
                 key={account.id}
@@ -1047,13 +995,6 @@ function OpenAIAccountsContent({ onError, data }: {
                           : t("settings.openaiAccounts.notLoggedIn"))}
                     </span>
                   </div>
-                  <span className={`codex-status-badge is-${statusTone}`}>
-                    <i />
-                    {status}
-                  </span>
-                  <span className={`codex-status-badge is-${account.webAuthState === "refreshable" ? "warning" : canUseOpenAIAccountWebCredentials(account) ? "ready" : "danger"}`} title={account.webAuthError}>
-                    {t(account.webAuthState === "refreshable" ? "settings.openaiAccounts.webRefreshable" : canUseOpenAIAccountWebCredentials(account) ? "settings.openaiAccounts.webLoggedIn" : "settings.openaiAccounts.webNotLoggedIn")}
-                  </span>
                   <div className="codex-account-actions">
                     <button
                       type="button"
@@ -1084,17 +1025,6 @@ function OpenAIAccountsContent({ onError, data }: {
                       <GripVertical size={15} />
                     </button>
 
-                    {!canUseOpenAIAccountCredentials(account) ? (
-                      <button
-                        type="button"
-                        className="codex-action-primary"
-                        disabled={busy || loggingInId !== null}
-                        onClick={() => setLoginChoiceId(account.id)}
-                      >
-                        {loggingInId === account.id ? <Loader2 size={14} className="mcp-spin" /> : <LogIn size={14} />}
-                        {loggingInId === account.id ? t("settings.openaiAccounts.loggingIn") : t("settings.openaiAccounts.login")}
-                      </button>
-                    ) : null}
                     <AccountUsageHistoryButton kind="chatgpt_login" accountId={account.id} name={account.name} />
                     <button
                       type="button"
@@ -1132,10 +1062,67 @@ function OpenAIAccountsContent({ onError, data }: {
                     </button>
                   </div>
                 </div>
-                {showTextQuota || showImageQuota ? (
-                  <div className={`codex-account-quotas ${showTextQuota && showImageQuota ? "has-image-quota" : ""}`}>
-                    {showTextQuota ? <OpenAIAccountQuotaSummary quota={accountQuota} isLoggedIn={canUseOpenAIAccountCredentials(account)} loading={isQuotaLoading} error={account.quotaRefresh?.error ?? quotaErrors[account.id]?.message} showRefreshedAt={true} /> : null}
-                    {showImageQuota ? <OpenAIAccountImageQuotaSummary account={account} loading={imageOperation?.accountId === account.id && imageOperation.kind === "quota"} showRefreshedAt={false} /> : null}
+                <div className="codex-account-auth-actions">
+                  <section className="codex-account-auth-card" aria-label={t("settings.openaiAccounts.webSectionTitle")}>
+                    <div className="codex-account-auth-heading">
+                      <span className="codex-account-auth-title"><Globe2 size={14} />{t("settings.openaiAccounts.webSectionTitle")}</span>
+                      <span className={`codex-status-badge is-${account.webAuthState === "refreshable" ? "warning" : canUseOpenAIAccountWebCredentials(account) ? "ready" : "danger"}`} title={account.webAuthError}>
+                        <i />
+                        {t(account.webAuthState === "refreshable" ? "settings.openaiAccounts.webRefreshable" : canUseOpenAIAccountWebCredentials(account) ? "settings.openaiAccounts.webLoggedIn" : "settings.openaiAccounts.webNotLoggedIn")}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      className="codex-action-secondary"
+                      disabled={busy}
+                      onClick={() => void handleOpenChatGPT(account.id)}
+                    >
+                      <Globe2 size={14} />
+                      {t("settings.openaiAccounts.openChatGPT")}
+                    </button>
+                  </section>
+                  <section className="codex-account-auth-card" aria-label={t("settings.openaiAccounts.codexSectionTitle")}>
+                    <div className="codex-account-auth-heading">
+                      <span className="codex-account-auth-title"><ShieldCheck size={14} />{t("settings.openaiAccounts.codexSectionTitle")}</span>
+                      <span className={`codex-status-badge is-${statusTone}`}>
+                        <i />
+                        {status}
+                      </span>
+                    </div>
+                    <div className="codex-account-auth-buttons">
+                      <button
+                        type="button"
+                        className="codex-action-primary codex-account-auth-button-wide"
+                        disabled={busy || loggingInId !== null}
+                        onClick={() => void handleLogin(account.id)}
+                      >
+                        {loggingInId === account.id ? <Loader2 size={14} className="mcp-spin" /> : <LogIn size={14} />}
+                        {loggingInId === account.id ? t("settings.openaiAccounts.loggingIn") : canUseOpenAIAccountCredentials(account) ? t("settings.openaiAccounts.reloginCodex") : t("settings.openaiAccounts.loginCodex")}
+                      </button>
+                      <button
+                        type="button"
+                        className="codex-action-secondary"
+                        disabled={busy || loggingInId !== null}
+                        onClick={() => setExternalLoginId(account.id)}
+                      >
+                        <Globe2 size={14} />
+                        {t("settings.openaiAccounts.externalLogin")}
+                      </button>
+                      <button
+                        type="button"
+                        className="codex-action-secondary"
+                        disabled={busy}
+                        onClick={() => void handleOpenAssistant(account.id)}
+                      >
+                        <KeyRound size={14} />
+                        {t("settings.openaiAccounts.openLoginAssistant")}
+                      </button>
+                    </div>
+                  </section>
+                </div>
+                {showTextQuota ? (
+                  <div className="codex-account-quotas">
+                    <OpenAIAccountQuotaSummary quota={accountQuota} isLoggedIn={canUseOpenAIAccountCredentials(account)} loading={isQuotaLoading} error={account.quotaRefresh?.error ?? quotaErrors[account.id]?.message} showRefreshedAt={true} />
                   </div>
                 ) : null}
                 <details className="codex-account-details">
@@ -1176,10 +1163,6 @@ function OpenAIAccountsContent({ onError, data }: {
                       <span>Codex</span>
                       <QuotaRefreshedAt fetchedAt={accountQuota.fetchedAt} />
                     </div> : null}
-                    {account.imageQuota ? <div className="codex-account-details-row">
-                      <span>{t("settings.openaiAccounts.imageQuotaLabel")}</span>
-                      <QuotaRefreshedAt fetchedAt={account.imageQuota.fetchedAt} />
-                    </div> : null}
                   </div>
                 </details>
                 {menuOpenId === account.id
@@ -1195,55 +1178,6 @@ function OpenAIAccountsContent({ onError, data }: {
                           left: menuPos.left,
                         }}
                       >
-                        <button
-                          type="button"
-                          role="menuitem"
-                          className="account-action-item"
-                          onClick={() => {
-                            setMenuOpenId(null);
-                            setLoginChoiceId(account.id);
-                          }}
-                          disabled={busy || loggingInId !== null}
-                        >
-                          <LogIn size={14} />
-                          {canUseOpenAIAccountCredentials(account)
-                            ? t("settings.openaiAccounts.relogin")
-                            : t("settings.openaiAccounts.login")}
-                        </button>
-                        <button
-                          type="button"
-                          role="menuitem"
-                          className="account-action-item"
-                          onClick={() => { setMenuOpenId(null); void handleOpenChatGPT(account.id); }}
-                          disabled={busy}
-                          title={t("settings.openaiAccounts.webProfileHint")}
-                        >
-                          <Globe2 size={14} />
-                          {t("settings.openaiAccounts.openChatGPT")}
-                        </button>
-                        <button
-                          type="button"
-                          role="menuitem"
-                          className="account-action-item"
-                          onClick={() => {
-                            setMenuOpenId(null);
-                            void handleOpenAssistant(account.id);
-                          }}
-                          disabled={busy}
-                        >
-                          <KeyRound size={14} />
-                          {t("settings.openaiAccounts.openLoginAssistant")}
-                        </button>
-                        <button
-                          type="button"
-                          role="menuitem"
-                          className="account-action-item"
-                          onClick={() => { setMenuOpenId(null); setExternalLoginId(account.id); }}
-                          disabled={busy || loggingInId !== null}
-                        >
-                          <Globe2 size={14} />
-                          {t("settings.openaiAccounts.externalLogin")}
-                        </button>
                         <button
                           type="button"
                           role="menuitem"
@@ -1301,32 +1235,6 @@ function OpenAIAccountsContent({ onError, data }: {
                         <button
                           type="button"
                           role="menuitem"
-                          className="account-action-item"
-                          disabled={busy || !(canUseOpenAIAccountCredentials(account) || canUseOpenAIAccountWebCredentials(account)) || imageOperation !== null}
-                          onClick={() => {
-                            setMenuOpenId(null);
-                            void handleImageQuotaRefresh(account.id);
-                          }}
-                        >
-                          <RefreshCw size={14} />
-                          {t("settings.openaiAccounts.refreshImageQuota")}
-                        </button>
-                        <label className="account-action-item codex-account-action-checkbox">
-                          <input
-                            type="checkbox"
-                            role="menuitemcheckbox"
-                            aria-label={t("settings.openaiAccounts.useForImageGeneration")}
-                            aria-checked={account.imageGenerationEnabled ?? false}
-                            checked={account.imageGenerationEnabled ?? false}
-                            disabled={busy || imageOperation !== null}
-                            onChange={(event) => void handleImageEnabled(account.id, event.target.checked)}
-                          />
-                          {t("settings.openaiAccounts.useForImageGeneration")}
-                        </label>
-
-                        <button
-                          type="button"
-                          role="menuitem"
                           className="account-action-item danger"
                           onClick={() => {
                             setMenuOpenId(null);
@@ -1347,20 +1255,6 @@ function OpenAIAccountsContent({ onError, data }: {
         </div>
       )}
 
-      {loginChoiceId ? <div className="settings-modal-backdrop" onClick={() => setLoginChoiceId(null)}>
-        <div className="settings-modal settings-modal-provider-editor" role="dialog" aria-modal="true" aria-labelledby="account-login-choice-title" onClick={event => event.stopPropagation()}>
-          <div className="settings-modal-header">
-            <h3 className="settings-modal-title" id="account-login-choice-title">{t("settings.openaiAccounts.chooseLogin")}</h3>
-            <button className="mcp-icon-button" aria-label={t("common.close")} onClick={() => setLoginChoiceId(null)}><X size={18} /></button>
-          </div>
-          <div className="settings-modal-body">
-            <p>{t("settings.openaiAccounts.webLoginHint")}</p>
-            <button className="mcp-add-button" onClick={() => void handleLogin(loginChoiceId, "web")}><Globe2 size={16} />{t("settings.openaiAccounts.loginWeb")}</button>
-            <p>{t("settings.openaiAccounts.codexLoginHint")}</p>
-            <button className="mcp-add-button" onClick={() => void handleLogin(loginChoiceId)}><ShieldCheck size={16} />{t("settings.openaiAccounts.loginCodex")}</button>
-          </div>
-        </div>
-      </div> : null}
       {externalLoginId ? <CodexExternalLoginDialog accountId={externalLoginId} onClose={() => setExternalLoginId(null)} /> : null}
 
       {/* Manual auth inline editor */}

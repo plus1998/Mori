@@ -632,7 +632,12 @@ export class BrowserHost {
     return undefined;
   }
 
-  registerGuestWebContents(browserId: string, guest: WebContents): BrowserViewState {
+  registerGuestWebContents(
+    browserId: string,
+    guest: WebContents,
+    /** The embedder supplied by the attach event, when available. */
+    expectedHostWebContents?: WebContents,
+  ): BrowserViewState {
     const found = this.findBrowser(browserId.trim());
     if (!found) {
       throw new Error(`Browser not found: ${browserId}`);
@@ -647,8 +652,10 @@ export class BrowserHost {
       throw new Error("账号浏览器使用了错误的会话，已阻止加载。");
     }
     if (this.deps.getBrowserWindow && guest.hostWebContents) {
-      const owner = browser.windowed ? this.deps.getBrowserWindow(browser.id) : this.deps.getMainWindow();
-      if (guest.hostWebContents !== owner?.webContents) throw new Error("浏览器页面所属窗口不匹配。");
+      const expectedOwner = browser.windowed
+        ? this.deps.getBrowserWindow(browser.id)?.webContents
+        : expectedHostWebContents ?? this.deps.getMainWindow()?.webContents;
+      if (guest.hostWebContents !== expectedOwner) throw new Error("浏览器页面所属窗口不匹配。");
     }
     this.pendingGuestByBrowserId.delete(browser.id);
     const isSameGuest = browser.registeredGuestWebContentsId === guest.id;
@@ -1406,12 +1413,16 @@ export class BrowserHost {
     return this.getState();
   }
 
-  registerGuestByWebContentsId(browserId: string, webContentsId: number): BrowserViewState {
+  registerGuestByWebContentsId(
+    browserId: string,
+    webContentsId: number,
+    expectedHostWebContents?: WebContents,
+  ): BrowserViewState {
     const wc = webContents.fromId(webContentsId);
     if (!wc || wc.isDestroyed()) {
       throw new Error(`Guest WebContents not found: ${webContentsId}`);
     }
-    return this.registerGuestWebContents(browserId, wc);
+    return this.registerGuestWebContents(browserId, wc, expectedHostWebContents);
   }
 
   async navigate(

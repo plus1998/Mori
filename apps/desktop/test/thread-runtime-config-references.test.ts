@@ -103,6 +103,46 @@ test("cleanup removes invalid overrides and stateless models without changing va
   expect(pruneThreadRuntimeConfigReferences(settings, saved, available)).toEqual(saved);
 });
 
+test("deleted session models fall back to the current global selections", () => {
+  const { settings, available, validModel } = fixture();
+  const staleModel = { providerId: "vendor", modelId: "deleted", candidateModelId: "deleted-candidate" };
+  const validStatelessModel = {
+    providerId: validModel.providerId,
+    modelId: validModel.modelId,
+    candidateModelId: validModel.candidateModelId,
+  };
+  const staleSelection = {
+    mainModel: staleModel,
+    mainPrompt: { mode: "builtin" as const },
+    subagents: { mode: "none" as const },
+  };
+  const config: ThreadRuntimeConfig = {
+    ...buildAcpThreadRuntimeConfig(),
+    ...materializeThreadOrchestrationSnapshot(settings, staleSelection),
+    mainAgentModelOverride: staleModel,
+    auxiliaryModel: staleModel,
+    approvalModel: staleModel,
+    visionModel: staleModel,
+  };
+  const defaults = {
+    defaultOrchestrationSelection: {
+      mainModel: validModel,
+      mainPrompt: { mode: "builtin" as const },
+      subagents: { mode: "none" as const },
+    },
+    defaultAuxiliaryModel: validStatelessModel,
+    defaultApprovalModel: validStatelessModel,
+    defaultVisionModel: validStatelessModel,
+  };
+  const repaired = pruneThreadRuntimeConfigReferences(settings, config, available, defaults);
+  expect(repaired.orchestrationSelection?.mainModel).toEqual(validModel);
+  expect(repaired.resolvedOrchestrationSnapshot?.mainAgent.modelRef).toEqual(validModel);
+  expect(repaired.mainAgentModelOverride).toBeUndefined();
+  expect(repaired.auxiliaryModel).toEqual(validStatelessModel);
+  expect(repaired.approvalModel).toEqual(validStatelessModel);
+  expect(repaired.visionModel).toEqual(validStatelessModel);
+});
+
 test("cleanup removes only invalid agents from a mixed roster", () => {
   const { settings, original, available, validModel } = fixture();
   const config = structuredClone(original);

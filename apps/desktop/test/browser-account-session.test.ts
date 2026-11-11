@@ -27,7 +27,7 @@ test("account webviews use the existing session even when Electron omits custom 
     expect(pending).toEqual(["tab-a"]);
     const guest = { id: 42, session: accountSession };
     contents.emit("did-attach-webview", {}, guest);
-    expect(registered).toEqual([["tab-a", guest]]);
+    expect(registered).toEqual([["tab-a", guest, contents]]);
   } finally { dispose(); }
   expect(contents.listenerCount("will-attach-webview")).toBe(0);
 });

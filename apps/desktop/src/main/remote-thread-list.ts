@@ -25,6 +25,7 @@ export function summarizeThreadForRemoteList(thread: ThreadSummary): ThreadSumma
     createdAt: thread.createdAt,
     updatedAt: thread.updatedAt,
     message: truncateField(message, REMOTE_THREAD_LIST_MESSAGE_MAX_CHARS),
+    ...(thread.wechatFollowEnabled ? { wechatFollowEnabled: true } : {}),
     ...(thread.cancelling ? { cancelling: true } : {}),
     ...(thread.coreKind ? { coreKind: thread.coreKind } : {}),
     ...(thread.acpAgentId ? { acpAgentId: thread.acpAgentId } : {}),

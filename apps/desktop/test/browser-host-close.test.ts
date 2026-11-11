@@ -117,6 +117,21 @@ test("failed browser-window creation leaves the original page alive", async () =
   } finally { await host.dispose(); }
 });
 
+test("main guest registration trusts the embedder supplied by the attach bridge", async () => {
+  const actualHost = {};
+  const host = createHost([], {
+    getMainWindow: () => ({ webContents: {} } as never),
+    getBrowserWindow: () => undefined,
+  });
+  try {
+    const opened = await host.openSharedSession({ threadId: "a", revealUi: false });
+    const browserId = opened.focusedBrowserId;
+    if (!browserId) throw new Error("Missing test browser");
+    const guest = Object.assign(createGuest(913), { hostWebContents: actualHost });
+    expect(() => host.registerGuestWebContents(browserId, guest as never, actualHost as never)).not.toThrow();
+  } finally { await host.dispose(); }
+});
+
 test("closing a page while its separate window is loading destroys the late window", async () => {
   let finishWindow: () => void = () => {};
   const closed: string[] = [];

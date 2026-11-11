@@ -10,6 +10,7 @@ import type {
   WorkspaceFileWriteRequest,
   WorkspaceFileWriteResult,
   WorkspacePathInfo,
+  FilePreviewChunk,
 } from "../shared/ipc";
 import { SPREADSHEET_PREVIEW_MAX_BYTES } from "../shared/spreadsheet-preview";
 import { WorkspaceFileStreams } from "./workspace-file-stream";
@@ -17,6 +18,8 @@ import { WorkspaceFileStreams } from "./workspace-file-stream";
 const MAX_TEXT_BYTES = 2 * 1024 * 1024;
 const TEXT_PROBE_BYTES = 4;
 const MEDIA_SIGNATURE_BYTES = 64;
+export const REMOTE_FILE_PREVIEW_MAX_BYTES = 32 * 1024 * 1024;
+export const REMOTE_FILE_PREVIEW_CHUNK_BYTES = 64 * 1024;
 
 const MEDIA_TYPES = new Map<string, { kind: "image" | "audio" | "video" | "pdf"; mimeType: string }>([
   [".png", { kind: "image", mimeType: "image/png" }],
@@ -307,6 +310,34 @@ async function openPreviewFile(requestedPath: string, realPath: string, expected
   } catch (error) {
     await handle.close();
     throw error;
+  }
+}
+
+/** Original bytes only: desktop stream URLs are not accessible from a phone. */
+export async function readFilePreviewChunk(request: {
+  filePath: string;
+  offset?: number;
+  revision?: string;
+}): Promise<FilePreviewChunk> {
+  const offset = request.offset ?? 0;
+  if (!Number.isSafeInteger(offset) || offset < 0) throw new Error("Invalid file offset.");
+  if (offset > 0 && !request.revision) throw new Error("A file revision is required to continue reading.");
+  const { requestedPath, realPath } = await resolvePreviewTarget(request.filePath);
+  const { handle, size, revision } = await openPreviewFile(requestedPath, realPath, request.revision);
+  try {
+    if (offset > size) throw new Error("Invalid file offset.");
+    const metadata = { path: requestedPath, name: path.basename(requestedPath), size, revision, offset };
+    if (size > REMOTE_FILE_PREVIEW_MAX_BYTES) {
+      return { ...metadata, nextOffset: offset, data: "", unsupportedReason: "too_large" };
+    }
+    const data = await readHandleBytes(handle, Math.min(size - offset, REMOTE_FILE_PREVIEW_CHUNK_BYTES), offset);
+    const after = await handle.stat();
+    if (`${after.dev}:${after.ino}:${after.size}:${after.mtimeMs}` !== revision) {
+      throw new Error("File changed while it was being read. Reopen it to load the current content.");
+    }
+    return { ...metadata, nextOffset: offset + data.length, data: data.toString("base64") };
+  } finally {
+    await handle.close();
   }
 }
 

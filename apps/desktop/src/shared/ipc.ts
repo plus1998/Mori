@@ -126,6 +126,7 @@ export const IPC_CHANNELS = {
   chatGptSubscriptionAccountsList: "chatgpt-subscription:accounts-list",
   chatGptSubscriptionAccountModelsList: "chatgpt-subscription:account-models-list",
   accountUsageHistory: "account-usage:history",
+  projectSearchTerms: "workspace:project-search-terms",
   usageOverview: "usage:overview",
   chatGptSubscriptionAccountCreate: "chatgpt-subscription:account-create",
   chatGptSubscriptionAccountDelete: "chatgpt-subscription:account-delete",
@@ -185,6 +186,7 @@ export const IPC_CHANNELS = {
   threadListInitial: "thread:list-initial",
   threadListMore: "thread:list-more",
   threadGet: "thread:get",
+  threadReadFile: "thread:read-file",
   threadWechatFollow: "thread:wechat-follow",
   projectTodoList: "project-todo:list",
   projectTodoQuery: "project-todo:query",
@@ -866,6 +868,25 @@ export interface WorkspaceFileReadRequest {
   /** UTF-8 byte boundary returned by the preceding chunk. */
   offset?: number;
   revision?: string;
+}
+
+export interface ThreadFileReadRequest {
+  threadId: string;
+  filePath: string;
+  relativeTo?: string;
+  offset?: number;
+  revision?: string;
+}
+
+export interface FilePreviewChunk {
+  path: string;
+  name: string;
+  size: number;
+  revision: string;
+  offset: number;
+  nextOffset: number;
+  data: string;
+  unsupportedReason?: "too_large";
 }
 
 export interface WorkspaceFileWriteRequest {

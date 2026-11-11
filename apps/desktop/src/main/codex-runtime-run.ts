@@ -104,6 +104,7 @@ import {
 import type { RequestAttemptResult } from "./request-retry";
 import { forwardCodexSessionTitle } from "./codex-session-title";
 import { buildDriverRoutesFromRuntime, type RuntimeConfigResolution } from "./thread-runtime-routes";
+import { appendUpstreamLogLine } from "./upstream-log";
 
 export type ThreadRuntimeProxyResult = RequestAttemptResult & Record<string, unknown>;
 
@@ -1027,11 +1028,21 @@ export function clearCodexModelCatalogCache(): void {
 }
 
 /** Queue a settings-driven refresh without interrupting active Codex turns. */
-export function scheduleCodexGlobalRuntimeRefresh(): void {
+export function scheduleCodexGlobalRuntimeRefresh(reason = "unspecified"): void {
   if (globalRuntimeRefreshShuttingDown) return;
+  const previousRevision = desiredGlobalRuntimeRevision;
   desiredGlobalRuntimeRevision += 1;
   refreshPending = true;
   globalRefreshError = undefined;
+  const callsite = new Error().stack
+    ?.split("\n")
+    .slice(2, 5)
+    .map((line) => line.trim())
+    .join(" <- ");
+  const message = `[eco-codex] runtime refresh requested reason=${reason} previousRevision=${previousRevision} nextRevision=${desiredGlobalRuntimeRevision} pending=${Boolean(globalRefreshPromise)}${callsite ? ` callsite=${callsite}` : ""}`;
+  if (deps?.onStderr) deps.onStderr(message);
+  else process.stderr.write(`${message}\n`);
+  appendUpstreamLogLine(`${message}\n`);
   if (globalRefreshPromise) {
     return;
   }

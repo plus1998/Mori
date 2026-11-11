@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   IMAGE_GENERATION_CODEX_IMAGE_MODELS,
@@ -14,6 +14,7 @@ import { SettingsSection } from "./components/SettingsPage";
 import { SettingsResourceList, SettingsResourceRow } from "./components/SettingsResourceList";
 import { SettingsGroup, SettingsRow } from "./components/SettingsRow";
 import { Switch } from "./components/Switch";
+import { useImageQuotaResetRefresh } from "./useImageQuotaResetRefresh";
 import gptImage25FlareIcon from "./assets/image-generation-models/gpt-image-2.5-flare.png";
 import gptImage25SunburstIcon from "./assets/image-generation-models/gpt-image-2.5-sunburst.png";
 import gptImage26FlareIcon from "./assets/image-generation-models/gpt-image-2.6-flare.png";
@@ -62,6 +63,10 @@ export function ImageGenerationLoginSettings({
   const web = profile.provider === "chatgpt_web";
   const poolKey = accounts.filter((account) => account.imageGenerationEnabled)
     .map((account) => `${account.id}:${account.authState}:${account.webAuthState}`).join(",");
+  const reloadAccounts = useCallback(async () => {
+    setReload((value) => value + 1);
+  }, []);
+  useImageQuotaResetRefresh(accounts, typeof window === "undefined" ? undefined : window.eco, reloadAccounts, onError);
 
   useEffect(() => {
     if (web && loading) return;

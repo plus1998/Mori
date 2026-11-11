@@ -16,6 +16,7 @@ import {
   resolveCodexProxyUrl,
   type SystemProxyResolver,
 } from "./codex-proxy";
+import { appendUpstreamLogLine } from "./upstream-log";
 
 export { type CodexProxyEnvironment, parseElectronProxyResolution, resolveCodexProxyUrl };
 
@@ -260,6 +261,10 @@ export class CodexRuntimeLifecycle {
 
     this.child = child;
     this.client = client;
+    const spawnMessage =
+      `[eco-codex] app-server spawned pid=${child.pid ?? "unknown"} scope=${this.options.accountId ? `account:${this.options.accountId}` : "global"} generation=${generation}`;
+    this.options.onStderr?.(spawnMessage);
+    appendUpstreamLogLine(`${spawnMessage}\n`);
     try {
       await Promise.race([
         client.initialize({ clientInfo: moriCodexClientInfo(), capabilities: { experimentalApi: true } }),
@@ -597,7 +602,15 @@ export async function ensureCodexAccountRuntimeLifecycle(
   if (!id) throw new Error("ChatGPT Login 会话没有绑定账号。");
   while (globalStopPromise) await globalStopPromise;
   const current = accountLifecycles.get(id);
-  if (current?.revision === revision) return current.lifecycle.start();
+  if (current?.revision === revision) {
+    return current.lifecycle.start();
+  }
+  if (current) {
+    const replacementMessage =
+      `[eco-codex] account runtime replacement requested account=${id} previousRevision=${current.revision} nextRevision=${revision}`;
+    process.stderr.write(`${replacementMessage}\n`);
+    appendUpstreamLogLine(`${replacementMessage}\n`);
+  }
   const lifecycle = new CodexRuntimeLifecycle({ ...options, accountId: id });
   accountLifecycles.set(id, { lifecycle, revision });
   try {

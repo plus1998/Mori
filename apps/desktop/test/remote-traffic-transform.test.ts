@@ -35,6 +35,11 @@ test("summarizeThreadForRemoteList keeps live cancelling overlay", () => {
   expect(summarizeThreadForRemoteList(thread).cancelling).toBeUndefined();
 });
 
+test("remote summaries retain per-conversation WeChat notifications", () => {
+  expect(summarizeThreadForRemoteList({ ...thread, wechatFollowEnabled: true }).wechatFollowEnabled).toBe(true);
+  expect(summarizeThreadForRemoteList(thread).wechatFollowEnabled).toBeUndefined();
+});
+
 test("summarizeThreadForRemoteList truncates prompt/message and drops heavy fields", () => {
   const summarized = summarizeThreadForRemoteList(thread);
   expect(summarized.prompt).toHaveLength(REMOTE_THREAD_LIST_PROMPT_MAX_CHARS);

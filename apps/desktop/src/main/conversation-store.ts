@@ -2451,7 +2451,21 @@ export class ConversationStore {
     }
   }
 
-  saveThreadRuntimeConfig(threadId: string, config: ThreadRuntimeConfig): void {
+  saveThreadRuntimeConfig(
+    threadId: string,
+    config: ThreadRuntimeConfig,
+    options: { touchUpdatedAt?: boolean } = {},
+  ): void {
+    if (options.touchUpdatedAt === false) {
+      this.db
+        .prepare(
+          `UPDATE threads
+           SET runtime_config_json = ?
+           WHERE id = ?`,
+        )
+        .run(serializeThreadRuntimeConfig(config), threadId);
+      return;
+    }
     this.db
       .prepare(
         `UPDATE threads

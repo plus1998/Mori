@@ -15,9 +15,18 @@ export class ChatGptWebAccountCredentials {
     return this.deps.run(id, async () => {
       const account = await this.deps.getAccount(id);
       if (!account.webAuth && !account.webAuthError) {
-        // Existing Codex-only accounts retain their established Web image route.
-        await this.deps.ensureCodex(id);
-        return this.deps.getAccount(id);
+        // Probe the account browser before falling back to Codex credentials. This
+        // picks up a ChatGPT session that was created outside this panel.
+        try {
+          const auth = await this.deps.readSession(id, account.email);
+          await this.deps.saveSession(id, auth);
+          return { ...await this.deps.getAccount(id), authJson: webAuthJson(auth) };
+        } catch (error) {
+          if (!(error instanceof ChatGptWebSessionError && error.waitingForLogin)) throw error;
+          // Existing Codex-only accounts retain their established image route.
+          await this.deps.ensureCodex(id);
+          return this.deps.getAccount(id);
+        }
       }
       if (account.webAuth && !account.webAuthError && account.webAuth.expiresAt > Date.now() + 60_000) {
         return { ...account, authJson: webAuthJson(account.webAuth) };

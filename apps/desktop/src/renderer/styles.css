@@ -6867,6 +6867,7 @@ button.sidebar-settings-meta {
 
 .workspace-image-display-row {
   display: flex;
+  position: relative;
   align-items: center;
   flex-wrap: wrap;
   min-width: 0;
@@ -6919,6 +6920,12 @@ button.sidebar-settings-meta {
 }
 
 .workspace-image-display-row .image-display-delete-button {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  z-index: 1;
+  transform: translateY(-50%);
+  background: color-mix(in srgb, var(--bg-elevated) 92%, transparent);
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.12s ease;
@@ -9926,7 +9933,7 @@ button.integrated-web-search-clear-key:disabled {
 .codex-account-drag-handle:disabled { cursor: default; }
 .codex-account-card-main {
   display: grid;
-  grid-template-columns: 36px minmax(0, 1fr) auto auto;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
   min-width: 0;
   align-items: center;
   gap: 12px;
@@ -10019,6 +10026,52 @@ button.integrated-web-search-clear-key:disabled {
   align-items: center;
   gap: 7px;
 }
+.codex-account-auth-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-subtle);
+}
+.codex-account-auth-card {
+  display: grid;
+  min-width: 0;
+  gap: 9px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg-main) 56%, transparent);
+}
+.codex-account-auth-heading {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.codex-account-auth-title {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+}
+.codex-account-auth-title svg { color: var(--text-muted); }
+.codex-account-auth-card .codex-action-primary,
+.codex-account-auth-card .codex-action-secondary {
+  width: 100%;
+}
+.codex-account-auth-buttons {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+.codex-account-auth-buttons .codex-account-auth-button-wide {
+  grid-column: 1 / -1;
+}
 .codex-action-primary,
 .codex-action-secondary {
   display: inline-flex;
@@ -10058,13 +10111,6 @@ button.integrated-web-search-clear-key:disabled {
   margin-top: 20px;
   font-size: 11px;
   line-height: 1.5;
-}
-.codex-account-quotas.has-image-quota {
-  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
-}
-.codex-account-quotas.has-image-quota .codex-image-quota-summary {
-  padding-left: 24px;
-  border-left: 1px solid var(--border-subtle);
 }
 .codex-account-wake-status {
   display: flex;
@@ -10246,47 +10292,9 @@ button.integrated-web-search-clear-key:disabled {
   font-weight: 500;
 }
 
-.codex-image-quota-summary {
-  display: flex;
-  width: 100%;
-  min-width: 0;
-  max-width: 100%;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 8px;
-  font-variant-numeric: tabular-nums;
-}
-.codex-image-quota-summary .codex-quota-window-heading {
-  width: 100%;
-}
-.codex-image-quota-summary > .codex-quota-window-reset {
-  margin-top: auto;
-}
-.codex-account-action-checkbox input {
-  flex: 0 0 auto;
-  width: 14px;
-  height: 14px;
-  margin: 0;
-  accent-color: var(--codex-blue);
-  cursor: inherit;
-}
-.codex-account-action-checkbox:has(input:disabled) {
-  background: transparent;
-  opacity: 0.4;
-  cursor: not-allowed;
-}
 .codex-quota-error {
   flex-basis: 100%;
   overflow-wrap: anywhere;
-}
-.codex-image-quota-error {
-  display: block;
-  width: 100%;
-  min-width: 0;
-  max-width: 100%;
-  white-space: normal;
-  overflow-wrap: anywhere;
-  word-break: break-word;
 }
 .codex-quota-summary em {
   font-style: normal;
@@ -10312,6 +10320,12 @@ button.integrated-web-search-clear-key:disabled {
   min-width: 0;
   white-space: normal;
   overflow-wrap: anywhere;
+}
+@media (max-width: 720px) {
+  .codex-account-card { padding-inline: 14px; }
+  .codex-account-card-main { grid-template-columns: 32px minmax(0, 1fr) auto; gap: 9px; }
+  .codex-account-avatar { width: 32px; height: 32px; }
+  .codex-account-auth-actions { grid-template-columns: 1fr; }
 }
 .codex-account-sync-error,
 .codex-account-sync-conflict {
@@ -10817,15 +10831,6 @@ button.integrated-web-search-clear-key:disabled {
     grid-column: 2;
     justify-self: start;
     padding-left: 0;
-  }
-  .codex-account-quotas.has-image-quota {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 16px;
-  }
-  .codex-account-quotas.has-image-quota .codex-image-quota-summary {
-    padding: 12px 0 0;
-    border-top: 1px solid var(--border-subtle);
-    border-left: 0;
   }
 }
 @container (max-width: 450px) {
@@ -38458,38 +38463,65 @@ body,
 
 .composer-main-model-picker-fast-track {
   position: relative;
-  width: 22px;
-  height: 12px;
+  width: 34px;
+  height: 18px;
   margin-left: 2px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--popover-muted, var(--composer-toolbar-icon)) 30%, transparent);
-  transition: background-color 0.15s;
+  overflow: hidden;
+  transition: background-color 0.15s, box-shadow 0.15s;
   pointer-events: none;
+}
+
+.composer-main-model-picker-fast-track::before {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg, transparent 20%, rgb(255 255 255 / 48%) 48%, transparent 76%);
+  content: "";
+  opacity: 0;
+  transform: translateX(-130%);
 }
 
 .composer-main-model-picker-fast-track::after {
   position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 8px;
-  height: 8px;
+  top: 3px;
+  left: 3px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
   background: white;
-  box-shadow: 0 1px 2px rgb(0 0 0 / 12%);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 18%);
   content: "";
   transition: transform 0.15s;
 }
 
 .composer-main-model-picker-fast:has(input:checked) .composer-main-model-picker-fast-track {
   background: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.composer-main-model-picker-fast:has(input:checked) > svg {
+  animation: composer-fast-zap-pulse 1.8s ease-in-out infinite;
+}
+
+.composer-main-model-picker-fast:has(input:checked) .composer-main-model-picker-fast-track::before {
+  opacity: 1;
+  animation: composer-fast-track-flow 1.35s linear infinite;
 }
 
 .composer-main-model-picker-fast:has(input:checked) .composer-main-model-picker-fast-track::after {
-  transform: translateX(10px);
+  transform: translateX(16px);
   background: white;
 }
 
+@keyframes composer-fast-track-flow {
+  from { transform: translateX(-130%); }
+  to { transform: translateX(130%); }
+}
+
 .composer-model-fast-badge {
+  position: relative;
+  overflow: hidden;
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
@@ -38503,6 +38535,41 @@ body,
   font-size: 10px;
   font-weight: 500;
   vertical-align: middle;
+}
+
+.composer-model-fast-badge::after {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg, transparent 18%, rgb(255 255 255 / 52%) 48%, transparent 78%);
+  content: "";
+  pointer-events: none;
+  transform: translateX(-130%);
+  animation: composer-fast-badge-flow 1.8s linear infinite;
+}
+
+.composer-model-fast-badge svg {
+  position: relative;
+  z-index: 1;
+  animation: composer-fast-zap-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes composer-fast-badge-flow {
+  from { transform: translateX(-130%); }
+  to { transform: translateX(130%); }
+}
+
+@keyframes composer-fast-zap-pulse {
+  0%, 100% { transform: scale(1); }
+  45% { transform: scale(1.12); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .composer-main-model-picker-fast:has(input:checked) .composer-main-model-picker-fast-track::before,
+  .composer-main-model-picker-fast:has(input:checked) > svg,
+  .composer-model-fast-badge::after,
+  .composer-model-fast-badge svg {
+    animation: none;
+  }
 }
 
 .codex-composer.is-icon-only .composer-model-fast-badge {

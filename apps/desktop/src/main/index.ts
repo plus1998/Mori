@@ -1201,6 +1201,7 @@ import {
   writeWorkspaceFile,
 } from "./workspace-file-browser";
 import { prepareWorkspaceGit } from "./workspace-git-setup";
+import { readThreadFilePreview } from "./thread-file-preview";
 import { WorkspaceGitStatusPublisher } from "./workspace-git-status-publisher";
 import { inspectWorkspace, resolveGitExecutable } from "./workspace-inspect";
 import { WorkspaceReviewService } from "./workspace-review-service";
@@ -4578,7 +4579,7 @@ function getCodexModelCatalogService(): CodexRemoteModelCatalogService {
   if (!codexModelCatalogService) {
     codexModelCatalogService = new CodexRemoteModelCatalogService({
       cachePath: resolveCodexModelCatalogCachePath(app.getPath("userData")),
-      onContextWindowsChanged: () => scheduleCodexGlobalRuntimeRefresh(),
+      onContextWindowsChanged: () => scheduleCodexGlobalRuntimeRefresh("codex_catalog_context_windows_changed"),
       // Chromium net stack honors OS system proxy (Clash / PAC / etc.); Node fetch does not.
       fetchImpl: net.fetch.bind(net) as typeof fetch,
     });
@@ -4770,6 +4771,67 @@ function ensureThreadRuntimeConfig(thread: ThreadSummary): ThreadSummary {
   return thread;
 }
 
+function threadModelReferenceIsAvailable(model: import("../shared/agent-orchestration").ModelRef): boolean {
+  const source = candidateModelRouteSource();
+  const provider = providerStore.listProviders().find((entry) => entry.id === model.providerId);
+  if (!source.isBuiltInCodexProvider(model.providerId) && (!provider || !provider.enabled)) {
+    return false;
+  }
+  if (
+    provider?.authMethod === "chatgpt_subscription" &&
+    model.accountId &&
+    chatgptSubscriptionService &&
+    !chatgptSubscriptionService.listAccounts().some((account) => account.accountId === model.accountId)
+  ) {
+    return false;
+  }
+  const candidateModelId = model.candidateModelId?.trim();
+  const catalogSelection =
+    (source.isBuiltInCodexProvider(model.providerId) && candidateModelId === codexCatalogCandidateId(model.modelId)) ||
+    (source.isChatGptSubscriptionProvider(model.providerId) && (
+      candidateModelId === chatGptCatalogCandidateId(model.modelId) ||
+      candidateModelId === `account:${encodeURIComponent(model.providerId)}:${encodeURIComponent(model.modelId)}`
+    ));
+  if (candidateModelId && !catalogSelection) {
+    const candidate = providerStore.listCandidateModels(model.providerId).find((entry) => entry.id === candidateModelId);
+    if (!candidate || candidate.modelId.trim() !== model.modelId.trim()) {
+      return false;
+    }
+  }
+  return isCandidateModelReferenceAvailable(model, source);
+}
+
+function repairThreadRuntimeConfigReferences(thread: ThreadSummary): ThreadSummary {
+  const config = thread.runtimeConfig;
+  if (!config || thread.status === "running" || thread.status === "queued") {
+    return thread;
+  }
+  const settings = getModelSettingsSnapshot();
+  const workflow = workflowSettingsStore.get();
+  const repaired = pruneThreadRuntimeConfigReferences(
+    settings,
+    config,
+    threadModelReferenceIsAvailable,
+    workflow,
+  );
+  if (JSON.stringify(normalizeThreadRuntimeConfig(config)) === JSON.stringify(repaired)) {
+    return thread;
+  }
+  conversationStore.saveThreadRuntimeConfig(thread.id, repaired, { touchUpdatedAt: false });
+  return { ...thread, runtimeConfig: repaired };
+}
+
+async function repairThreadRuntimeConfigReferencesForDisplay(thread: ThreadSummary): Promise<ThreadSummary> {
+  if (thread.runtimeConfig && !chatgptSubscriptionService && JSON.stringify(thread.runtimeConfig).includes('"providerId":"eco-coding-chatgpt"')) {
+    try {
+      await getChatGptSubscriptionService();
+    } catch {
+      // The provider's local account state is optional for non-OAuth routes.
+    }
+  }
+  return repairThreadRuntimeConfigReferences(thread);
+}
+
 function parseThreadRuntimeConfigInput(value: unknown): ThreadRuntimeConfig {
   if (!isThreadRuntimeConfig(value)) {
     throw new Error("Invalid thread runtime configuration.");
@@ -4799,9 +4861,16 @@ function resolveContinueThreadRuntimeConfig(
   incoming: ThreadRuntimeConfig,
   coreKind: string | undefined,
 ): ThreadRuntimeConfig {
-  const config = resolveThreadRuntimeConfigUpdate(settings, existing, incoming);
+  const fallbacks = workflowSettingsStore.get();
+  const cleaned = pruneThreadRuntimeConfigReferences(
+    settings,
+    incoming,
+    threadModelReferenceIsAvailable,
+    fallbacks,
+  );
+  const config = resolveThreadRuntimeConfigUpdate(settings, existing, cleaned);
   assertThreadCodexLoginSubagents(coreKind, settings, config);
-  return config;
+  return pruneThreadRuntimeConfigReferences(settings, config, threadModelReferenceIsAvailable, fallbacks);
 }
 
 function assertThreadCodexLoginSubagents(
@@ -4895,7 +4964,8 @@ function resolveRuntimeConfigForThreadId(
   optionsOverride?: { requireCompleteCodingRoutes?: boolean },
 ): RuntimeConfigResolution {
   const settings = getModelSettingsSnapshot();
-  const thread = conversationStore.getThread(threadId);
+  const storedThread = conversationStore.getThread(threadId);
+  const thread = storedThread ? repairThreadRuntimeConfigReferences(storedThread) : undefined;
   if (!thread) {
     throw new Error("Thread was not found.");
   }
@@ -5372,7 +5442,10 @@ async function approveThreadPlan(payload: unknown) {
       freezeContext: () => buildPlanResolutionFrozenContext(threadId),
       execute: async (frozenContext, checkpoint) => {
         assertPlanResolutionContextCurrent(threadId, frozenContext);
-        const approvalThread = conversationStore.getThread(threadId);
+        const storedApprovalThread = conversationStore.getThread(threadId);
+        const approvalThread = storedApprovalThread
+          ? await repairThreadRuntimeConfigReferencesForDisplay(storedApprovalThread)
+          : undefined;
         if (!approvalThread) {
           throw new Error("Thread was not found.");
         }
@@ -6588,6 +6661,19 @@ function registerIpcHandlers(): void {
     });
   });
 
+  registerDesktopCommand(IPC_CHANNELS.threadReadFile, async (payload: unknown) => {
+    const request = payload as import("../shared/ipc").ThreadFileReadRequest | null;
+    if (!request || typeof request.threadId !== "string" || !request.threadId.trim()) {
+      throw new Error("A conversation is required to read the file.");
+    }
+    const thread = conversationStore.getThread(request.threadId);
+    if (!thread) throw new Error("Conversation not found.");
+    return readThreadFilePreview(request, {
+      workspacePath: thread.workspacePath,
+      ...resolveWorktreeContextForThread(request.threadId),
+    });
+  });
+
   async function openFileWithAppWindows(bundleId: string, filePath: string): Promise<void> {
     // If bundleId is an executable name, find its path and run it directly
     if (bundleId.toLowerCase().endsWith(".exe")) {
@@ -7087,15 +7173,26 @@ function registerIpcHandlers(): void {
     IPC_CHANNELS.composerReferencesSearch,
     async (request: ComposerReferenceSearchRequest) => composerReferenceService.search(request),
   );
-  registerDesktopCommand(IPC_CHANNELS.threadList, async () =>
-    attachThreadListCancelling(conversationStore.listThreads().filter(thread => path.resolve(thread.workspacePath) !== path.join(app.getPath("userData"), "mori-assistant", "workspace"))),
-  );
+  registerDesktopCommand(IPC_CHANNELS.threadList, async () => {
+    const threads = await Promise.all(
+      conversationStore
+        .listThreads()
+        .filter(thread => path.resolve(thread.workspacePath) !== path.join(app.getPath("userData"), "mori-assistant", "workspace"))
+        .map((thread) => repairThreadRuntimeConfigReferencesForDisplay(thread)),
+    );
+    return attachThreadListCancelling(threads);
+  });
 
   registerDesktopCommand(IPC_CHANNELS.threadListInitial, async () => {
     const result = conversationStore.listInitialThreads(REMOTE_THREAD_LIST_INITIAL_LIMIT_PER_WORKSPACE);
+    const threads = await Promise.all(
+      result.threads
+        .filter(thread => path.resolve(thread.workspacePath) !== path.join(app.getPath("userData"), "mori-assistant", "workspace"))
+        .map((thread) => repairThreadRuntimeConfigReferencesForDisplay(thread)),
+    );
     return {
       ...result,
-      threads: attachThreadListCancelling(result.threads.filter(thread => path.resolve(thread.workspacePath) !== path.join(app.getPath("userData"), "mori-assistant", "workspace"))),
+      threads: attachThreadListCancelling(threads),
       pages: Object.fromEntries(Object.entries(result.pages).filter(([workspace]) => path.resolve(workspace) !== path.join(app.getPath("userData"), "mori-assistant", "workspace"))),
     };
   });
@@ -7123,7 +7220,8 @@ function registerIpcHandlers(): void {
       } satisfies ThreadListCursor,
       limit,
     );
-    return { ...page, threads: attachThreadListCancelling(page.threads) };
+    const threads = await Promise.all(page.threads.map((thread) => repairThreadRuntimeConfigReferencesForDisplay(thread)));
+    return { ...page, threads: attachThreadListCancelling(threads) };
   });
 
   registerDesktopCommand(IPC_CHANNELS.threadGet, async (threadId: unknown) => {
@@ -7135,7 +7233,8 @@ function registerIpcHandlers(): void {
     if (!thread) {
       return undefined;
     }
-    const enriched = attachThreadCancelling(ensureThreadRuntimeConfig(thread));
+    const repaired = await repairThreadRuntimeConfigReferencesForDisplay(thread);
+    const enriched = attachThreadCancelling(ensureThreadRuntimeConfig(repaired));
     if (titleGeneratingThreadIds.has(id)) {
       return { ...enriched, titleGenerating: true } satisfies ThreadSummary;
     }
@@ -7156,6 +7255,11 @@ function registerIpcHandlers(): void {
     if (request.enabled && thread.status === "completed" && moriAssistantHost) {
       void moriAssistantHost.service.taskChanged(thread.id).catch((error) => logEcoDiag("mori.wechat-follow.failed", { error: errorMessage(error) }));
     }
+    desktopEventCenter.publishThreadLiveEvent({
+      threadId: thread.id,
+      type: "thread.wechat_follow_updated",
+      message: request.enabled ? "enabled" : "disabled",
+    });
     return attachThreadCancelling(ensureThreadRuntimeConfig(thread));
   });
 
@@ -7645,13 +7749,11 @@ function registerIpcHandlers(): void {
           const threadId = request.threadId;
           const settings = getModelSettingsSnapshot();
           const busyThread = thread.status === "running" || thread.status === "queued";
-          const source = candidateModelRouteSource();
-          const isModelAvailable = (model: import("../shared/agent-orchestration").ModelRef) =>
-            (settings.providers.some(provider => provider.id === model.providerId) || source.isBuiltInCodexProvider(model.providerId))
-            && isCandidateModelReferenceAvailable(model, source);
+          const workflow = workflowSettingsStore.get();
+          const isModelAvailable = threadModelReferenceIsAvailable;
           const stored = ensureThreadRuntimeConfig(thread).runtimeConfig;
-          const clean = (config: ThreadRuntimeConfig) => busyThread || thread.coreKind === "acp"
-            ? config : pruneThreadRuntimeConfigReferences(settings, config, isModelAvailable);
+          const clean = (config: ThreadRuntimeConfig) => busyThread
+            ? config : pruneThreadRuntimeConfigReferences(settings, config, isModelAvailable, workflow);
           const incoming = clean(request.runtimeConfig);
           const existing = stored ? clean(stored) : undefined;
           let runtimeConfig = incoming;
@@ -7681,7 +7783,7 @@ function registerIpcHandlers(): void {
           } else {
             runtimeConfig = resolveThreadRuntimeConfigEdit(settings, existing, incoming, isModelAvailable, {
               refreshSnapshot: request.refreshOrchestrationSnapshot === true,
-            });
+            }, workflow);
           }
           if (thread.coreKind === "codex") {
             await assertCodexSkillsConfigReloadAllowed(
@@ -7978,6 +8080,18 @@ function registerIpcHandlers(): void {
   });
 
   registerDesktopCommand(IPC_CHANNELS.accountUsageHistory, (query: AccountUsageQuery) => accountUsageStore.history(query));
+  registerDesktopCommand(IPC_CHANNELS.projectSearchTerms, async (payload: unknown) => {
+    if (!isRecord(payload) || !Array.isArray(payload.projects) || payload.projects.length > 1000) {
+      throw new Error("Invalid project search terms request.");
+    }
+    const { buildProjectSearchTerms } = await import("../shared/project-pinyin");
+    return payload.projects.map((project: unknown) => {
+      if (!isRecord(project) || typeof project.path !== "string" || typeof project.name !== "string" || project.name.length > 1024) {
+        throw new Error("Invalid project search name.");
+      }
+      return { path: project.path, name: project.name, terms: buildProjectSearchTerms(project.name) };
+    });
+  });
   registerDesktopCommand(IPC_CHANNELS.usageOverview, (query: import("../shared/account-usage").UsageOverviewQuery) => accountUsageStore.overview(query));
 
   registerDesktopCommand(
@@ -8014,6 +8128,7 @@ function registerIpcHandlers(): void {
     async (payload: { accountId: string }) => {
       const service = await getChatGptSubscriptionService();
       await service.deleteAccount(payload.accountId);
+      emitSettingsUpdated();
       return { success: true };
     },
   );
@@ -8320,6 +8435,23 @@ function registerIpcHandlers(): void {
   });
   registerDesktopCommand(IPC_CHANNELS.openAIAccountsOpenChatGPT, async (payload: { accountId: string }) => {
     await accountBrowser.open(payload.accountId);
+    // Opening the Web page is also the lightweight Web-session discovery action.
+    // The browser may already contain a valid ChatGPT cookie from an earlier
+    // session, so do not force the user through the Web login flow again.
+    void (async () => {
+      try {
+        const svc = await getOpenAIAccountService();
+        const account = await svc.getAccountDetails(payload.accountId);
+        const auth = await accountBrowser.readWebSession(payload.accountId, account.email);
+        svc.saveWebAuth(payload.accountId, auth);
+      } catch (error) {
+        // A missing Web session is a normal state when the user only uses Codex.
+        // Keep the page open and let the user sign in there when needed.
+        if (!(error instanceof ChatGptWebSessionError && error.waitingForLogin)) {
+          logEcoDiag("openai-accounts.web-session-probe.failed", { error: errorMessage(error) });
+        }
+      }
+    })();
   });
   registerDesktopCommand(IPC_CHANNELS.openAIAccountsOpenAssistant, async (payload: { accountId: string }) => {
     await accountBrowser.run(payload.accountId, () => requireAccountAssistant().open(payload.accountId));
@@ -9190,7 +9322,7 @@ function registerIpcHandlers(): void {
 
     const saved = workflowSettingsStore.save(gated);
     if (saved.contextWindowLimitTokens !== previous.contextWindowLimitTokens) {
-      scheduleCodexGlobalRuntimeRefresh();
+      scheduleCodexGlobalRuntimeRefresh("workflow_context_window_changed");
     }
     if (
       saved.maxOutputLimitTokens !== previous.maxOutputLimitTokens ||
@@ -9480,6 +9612,11 @@ function registerIpcHandlers(): void {
       throw new Error("Invalid media display delete request.");
     }
     const artifact = await imageDisplayStore.deleteArtifact(payload.artifactId);
+    desktopEventCenter.publishThreadLiveEvent({
+      threadId: artifact.threadId,
+      type: "thread.media_deleted",
+      message: artifact.id,
+    });
     for (const window of BrowserWindow.getAllWindows()) {
       if (!window.isDestroyed()) {
         window.webContents.send(IPC_CHANNELS.imageDisplayArtifactDeleted, {
@@ -9768,18 +9905,26 @@ function registerIpcHandlers(): void {
     );
   });
 
-  registerDesktopCommand(IPC_CHANNELS.browserRegisterGuest, async (payload: unknown) => {
-    const request = payload as BrowserRegisterGuestRequest;
-    if (
-      !request ||
-      typeof request.browserId !== "string" ||
-      !request.browserId.trim() ||
-      typeof request.webContentsId !== "number" ||
-      !Number.isFinite(request.webContentsId)
-    ) {
-      throw new Error("Invalid browser guest registration payload.");
+  ipcMain.handle(IPC_CHANNELS.browserRegisterGuest, async (event, payload: unknown) => {
+    try {
+      const request = payload as BrowserRegisterGuestRequest;
+      if (
+        !request ||
+        typeof request.browserId !== "string" ||
+        !request.browserId.trim() ||
+        typeof request.webContentsId !== "number" ||
+        !Number.isFinite(request.webContentsId)
+      ) {
+        throw new Error("Invalid browser guest registration payload.");
+      }
+      return requireBrowserHost().registerGuestByWebContentsId(
+        request.browserId.trim(),
+        request.webContentsId,
+        BrowserWindow.fromWebContents(event.sender)?.webContents,
+      );
+    } catch (error) {
+      throw localizeExpectedIpcError(error);
     }
-    return requireBrowserHost().registerGuestByWebContentsId(request.browserId.trim(), request.webContentsId);
   });
 
   registerDesktopCommand(IPC_CHANNELS.browserNavigate, async (payload: unknown) => {
@@ -15221,7 +15366,10 @@ async function startPreparedThreadContinuation(
     input = nextInput;
   }
   healOrphanedThreadBeforeContinuation(input.threadId);
-  const thread = conversationStore.getThread(input.threadId);
+  const storedThread = conversationStore.getThread(input.threadId);
+  const thread = storedThread
+    ? await repairThreadRuntimeConfigReferencesForDisplay(storedThread)
+    : undefined;
   if (!thread) {
     throw new Error("Thread was not found.");
   }
@@ -22714,7 +22862,7 @@ function emitSettingsUpdated(): void {
     message: "Model provider settings saved.",
     settingsDigest: digest,
   });
-  scheduleCodexGlobalRuntimeRefresh();
+  scheduleCodexGlobalRuntimeRefresh("settings_updated");
 }
 
 const lastConnectionErrorEmitByThread = new Map<string, { at: number; message: string }>();
