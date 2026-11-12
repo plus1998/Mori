@@ -9,11 +9,13 @@ import {
   Pin,
   PinOff,
   RotateCcw,
+  Share2,
   Terminal,
   Trash2,
 } from "lucide-react";
 import {
   type DragEvent,
+  type CSSProperties,
   type FocusEvent,
   type MouseEvent as ReactMouseEvent,
   memo,
@@ -38,6 +40,7 @@ import { formatRelativeTime } from "./relative-time";
 import { OverflowFadeText } from "./OverflowFadeText";
 import { useSidebarPlanExecutions } from "./sidebar-plan-executions";
 import { startConversationReferenceDrag } from "./conversation-reference-drag";
+import { type ContextMenuBox, contextMenuBoxForPoint } from "./context-menu-layout";
 
 const PROJECT_DRAG_MIME = "application/x-eco-project-path";
 
@@ -60,6 +63,7 @@ interface ProjectSidebarTreeProps {
   draftThreadIds?: ReadonlySet<string>;
   onSwitchProject: (path: string) => void;
   onSelectThread: (thread: ThreadSummary) => void;
+  onShareThread?: (thread: ThreadSummary) => void;
   onToggleProjectCollapsed: (path: string) => void;
   onExpandProjectThreads: (path: string) => void;
   onReorderProjects: (draggedPath: string, targetPath: string, position: ProjectReorderPosition) => void;
@@ -104,6 +108,7 @@ export function ProjectSidebarTree(props: ProjectSidebarTreeProps) {
   const actions = useMemo(() => ({
     onSwitchProject: (path: string) => latest.current.onSwitchProject(path),
     onSelectThread: (thread: ThreadSummary) => latest.current.onSelectThread(thread),
+    onShareThread: (thread: ThreadSummary) => latest.current.onShareThread?.(thread),
     onToggleProjectCollapsed: (path: string) => latest.current.onToggleProjectCollapsed(path),
     onExpandProjectThreads: (path: string) => latest.current.onExpandProjectThreads(path),
     onReorderProjects: (from: string, to: string, position: ProjectReorderPosition) =>
@@ -142,6 +147,7 @@ function ProjectSidebarTreeView({
   draftThreadIds,
   onSwitchProject,
   onSelectThread,
+  onShareThread,
   onToggleProjectCollapsed,
   onExpandProjectThreads,
   onReorderProjects,
@@ -183,6 +189,11 @@ function ProjectSidebarTreeView({
   const [draggingPath, setDraggingPath] = useState<string>();
   const [dropTarget, setDropTarget] = useState<{ path: string; position: ProjectReorderPosition }>();
   const [openMenuPath, setOpenMenuPath] = useState<string>();
+  const [threadContextMenu, setThreadContextMenu] = useState<{
+    thread: ThreadSummary;
+    x: number;
+    y: number;
+  }>();
   const [renamingPath, setRenamingPath] = useState<string>();
   const [renameDraft, setRenameDraft] = useState("");
   const [threadTooltip, setThreadTooltip] = useState<{ thread: ThreadSummary; projectName: string; top: number; left: number }>();
@@ -240,6 +251,14 @@ function ProjectSidebarTreeView({
     setOpenMenuPath(undefined);
   }
 
+  function handleThreadContextMenu(event: ReactMouseEvent<HTMLElement>, thread: ThreadSummary) {
+    event.preventDefault();
+    event.stopPropagation();
+    hideThreadTooltip();
+    setOpenMenuPath(undefined);
+    setThreadContextMenu({ thread, x: event.clientX, y: event.clientY });
+  }
+
   function commitRenameProject() {
     const projectPath = renamingPath;
     if (!projectPath) {
@@ -270,19 +289,21 @@ function ProjectSidebarTreeView({
   }, [revealTarget, revealThreadVisible]);
 
   useEffect(() => {
-    if (!openMenuPath) {
+    if (!openMenuPath && !threadContextMenu) {
       return;
     }
     const closeOnOutsideClick = (event: MouseEvent) => {
       const target = event.target;
-      if (target instanceof Element && target.closest(".sidebar-menu-wrap")) {
+      if (target instanceof Element && target.closest(".sidebar-menu-wrap, .thread-context-menu")) {
         return;
       }
       setOpenMenuPath(undefined);
+      setThreadContextMenu(undefined);
     };
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         setOpenMenuPath(undefined);
+        setThreadContextMenu(undefined);
       }
     };
     document.addEventListener("mousedown", closeOnOutsideClick);
@@ -291,7 +312,20 @@ function ProjectSidebarTreeView({
       document.removeEventListener("mousedown", closeOnOutsideClick);
       document.removeEventListener("keydown", closeOnEscape);
     };
-  }, [openMenuPath]);
+  }, [openMenuPath, threadContextMenu]);
+
+  useEffect(() => {
+    if (!threadContextMenu) return;
+    const close = () => setThreadContextMenu(undefined);
+    window.addEventListener("resize", close);
+    window.addEventListener("blur", close);
+    window.addEventListener("scroll", close, true);
+    return () => {
+      window.removeEventListener("resize", close);
+      window.removeEventListener("blur", close);
+      window.removeEventListener("scroll", close, true);
+    };
+  }, [threadContextMenu]);
 
   function clearFileDropState() {
     dragCounterRef.current = 0;
@@ -413,7 +447,7 @@ function ProjectSidebarTreeView({
   if (fileDropActive) {
     treeClassNames.push("project-tree-drop-target");
   }
-  if (openMenuPath) {
+  if (openMenuPath || threadContextMenu) {
     treeClassNames.push("project-tree-menu-open");
   }
 
@@ -623,7 +657,12 @@ function ProjectSidebarTreeView({
                   .join(" ");
 
                 return (
-                  <div key={thread.id} className={rowClassName} data-thread-id={thread.id}>
+                  <div
+                    key={thread.id}
+                    className={rowClassName}
+                    data-thread-id={thread.id}
+                    onContextMenu={(event) => handleThreadContextMenu(event, thread)}
+                  >
                     {childCount > 0 ? <button type="button" className="multi-agents-group-toggle" aria-label={`${expandedGroups.has(thread.id) ? "收起" : "展开"}执行会话`} aria-expanded={expandedGroups.has(thread.id)} onClick={() => setExpandedGroups(current => { const next = new Set(current); if (next.has(thread.id)) next.delete(thread.id); else next.add(thread.id); return next; })}><ChevronRight size={13} style={{ transform: expandedGroups.has(thread.id) ? "rotate(90deg)" : undefined }} /></button> : null}
                     <button
                       type="button"
@@ -801,6 +840,33 @@ function ProjectSidebarTreeView({
         <p className="project-tree-empty-drop">{t("projectTree.dropFolder")}</p>
       ) : null}
       {renderProjectSection(t("nav.projects"), displayProjectTree)}
+      {threadContextMenu ? (
+        <ThreadContextMenu
+          thread={threadContextMenu.thread}
+          x={threadContextMenu.x}
+          y={threadContextMenu.y}
+          pinned={pinnedThreadIds.has(threadContextMenu.thread.id)}
+          busy={threadContextMenu.thread.status === "running" || threadContextMenu.thread.status === "queued"}
+          onShare={() => {
+            setThreadContextMenu(undefined);
+            onShareThread?.(threadContextMenu.thread);
+          }}
+          onTogglePin={() => {
+            const thread = threadContextMenu.thread;
+            setThreadContextMenu(undefined);
+            if (pinnedThreadIds.has(thread.id)) {
+              onUnpinThread(thread.id);
+            } else {
+              onPinThread(thread.id);
+            }
+          }}
+          onDelete={() => {
+            const thread = threadContextMenu.thread;
+            setThreadContextMenu(undefined);
+            onDeleteThread(thread);
+          }}
+        />
+      ) : null}
       {threadTooltip ? createPortal(
         <div id="sidebar-thread-tooltip" className="sidebar-thread-tooltip" role="tooltip" style={{ top: threadTooltip.top, left: threadTooltip.left }}>
           <div className="sidebar-thread-tooltip-heading">
@@ -822,6 +888,96 @@ function ProjectSidebarTreeView({
         document.body,
       ) : null}
     </div>
+  );
+}
+
+interface ThreadContextMenuProps {
+  thread: ThreadSummary;
+  x: number;
+  y: number;
+  pinned: boolean;
+  busy: boolean;
+  onShare: () => void;
+  onTogglePin: () => void;
+  onDelete: () => void;
+}
+
+function ThreadContextMenu({
+  thread,
+  x,
+  y,
+  pinned,
+  busy,
+  onShare,
+  onTogglePin,
+  onDelete,
+}: ThreadContextMenuProps) {
+  const { t } = useTranslation();
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [box, setBox] = useState<ContextMenuBox>();
+
+  useLayoutEffect(() => {
+    const menu = menuRef.current;
+    if (!menu) return;
+    setBox(
+      contextMenuBoxForPoint(
+        { x, y },
+        { height: menu.getBoundingClientRect().height },
+        { width: window.innerWidth, height: window.innerHeight },
+      ),
+    );
+  }, [x, y]);
+
+  useEffect(() => {
+    menuRef.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
+  }, []);
+
+  if (typeof document === "undefined") return null;
+  const style: CSSProperties = box
+    ? { position: box.position, top: box.top, left: box.left, width: box.width, zIndex: box.zIndex }
+    : { position: "fixed", top: y, left: x, visibility: "hidden" };
+
+  return createPortal(
+    <div
+      ref={menuRef}
+      className="thread-context-menu project-menu"
+      role="menu"
+      aria-label={t("projectTree.contextMenuLabel")}
+      style={style}
+      onKeyDown={(event) => {
+        if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+        event.preventDefault();
+        const buttons = Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? []);
+        const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
+        const next = event.key === "Home"
+          ? 0
+          : event.key === "End"
+            ? buttons.length - 1
+            : (index + (event.key === "ArrowDown" ? 1 : -1) + buttons.length) % buttons.length;
+        buttons[next]?.focus();
+      }}
+    >
+      <button type="button" className="project-menu-item" role="menuitem" onClick={onShare}>
+        <Share2 size={ICON_SIZE.md} strokeWidth={ICON_STROKE} aria-hidden />
+        <span>{t("share.title")}</span>
+      </button>
+      <button type="button" className="project-menu-item" role="menuitem" onClick={onTogglePin}>
+        {pinned ? <PinOff size={ICON_SIZE.md} strokeWidth={ICON_STROKE} aria-hidden /> : <Pin size={ICON_SIZE.md} strokeWidth={ICON_STROKE} aria-hidden />}
+        <span>{pinned ? t("projectTree.unpin") : t("projectTree.pin")}</span>
+      </button>
+      <button
+        type="button"
+        className="project-menu-item danger"
+        role="menuitem"
+        disabled={busy}
+        title={busy ? t("thread.stopFirst") : t("projectTree.deleteThreadNamed", { name: thread.title })}
+        onClick={onDelete}
+      >
+        <Trash2 size={ICON_SIZE.md} strokeWidth={ICON_STROKE} aria-hidden />
+        <span>{t("projectTree.deleteThread")}</span>
+      </button>
+    </div>,
+    document.body,
   );
 }
 

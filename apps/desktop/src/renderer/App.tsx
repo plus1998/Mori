@@ -123,7 +123,7 @@ import {
   resolveProjectName,
 } from "../shared/home-project";
 import type { HtmlHostArtifact } from "../shared/html-host";
-import { ConversationShareButton } from "./ConversationShareButton";
+import { ConversationShareDialog } from "./ConversationShareButton";
 import { imageDisplayTaskTabId, parseImageDisplayTaskTabId } from "../shared/image-display";
 import { imageGenerationTaskTabId, parseImageGenerationTaskTabId } from "../shared/image-generation";
 import type { IntegrationId } from "../shared/integrations";
@@ -1632,6 +1632,8 @@ function App() {
   const feedThreadIdRef = useRef<string | undefined>(undefined);
   const pendingFeedThreadSwitchFrameRef = useRef<number | undefined>(undefined);
   const [threads, setThreads] = useState<ThreadSummary[]>([]);
+  const [shareThreadId, setShareThreadId] = useState<string>();
+  const closeShareDialog = useCallback(() => setShareThreadId(undefined), []);
   const [titleGeneratingThreadIds, setTitleGeneratingThreadIds] = useState<Set<string>>(() => new Set());
   const [settings, setSettings] = useState<ModelSettingsSnapshot>(emptySettings);
   const [mcpSettings, setMcpSettings] = useState<McpSettingsSnapshot>(emptyMcpSettings);
@@ -13162,6 +13164,7 @@ function App() {
                 draftThreadIds={draftThreadIds}
                 onSwitchProject={switchProject}
                 onSelectThread={selectThread}
+                onShareThread={(thread) => setShareThreadId(thread.id)}
                 onToggleProjectCollapsed={toggleProjectCollapsed}
                 onExpandProjectThreads={expandProjectThreads}
                 onReorderProjects={reorderProjects}
@@ -13350,7 +13353,6 @@ function App() {
                         onError={showAppMessageError}
                       />
                       <h2 title={activeThread.title}>{activeThread.title}</h2>
-                      <ConversationShareButton key={`share:${activeThread.id}`} threadId={activeThread.id} />
                       <ThreadNotificationControls
                         key={activeThread.id}
                         threadId={activeThread.id}
@@ -14381,7 +14383,19 @@ function App() {
 
     </main>
   );
-  return <><AppRenderContent render={renderAppLayout} /><BrowserSelectionPreview /></>;
+  return (
+    <>
+      <AppRenderContent render={renderAppLayout} />
+      <BrowserSelectionPreview />
+      {shareThreadId ? (
+        <ConversationShareDialog
+          key={shareThreadId}
+          threadId={shareThreadId}
+          onClose={closeShareDialog}
+        />
+      ) : null}
+    </>
+  );
 }
 
 async function loadConversationV2RendererState(

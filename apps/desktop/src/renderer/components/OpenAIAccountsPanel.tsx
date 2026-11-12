@@ -340,12 +340,15 @@ function OpenAIAccountsContent({ onError, data }: {
   const [wakeModels, setWakeModels] = useState<CodexModelCatalogSnapshot["models"]>([]);
   const onCatalogSnapshot = useCallback((snapshot: CodexModelCatalogSnapshot) => setWakeModels(snapshot.models), []);
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+  const [statusMenu, setStatusMenu] = useState<{ accountId: string; kind: "web" | "codex" } | null>(null);
   const [menuPos, setMenuPos] = useState<{ top: number; left: number }>({
     top: 0,
     left: 0,
   });
   const menuRef = useRef<HTMLDivElement>(null);
   const menuTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const statusMenuRef = useRef<HTMLDivElement>(null);
+  const statusTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   // Modal state
   const [modalOpen, setModalOpen] = useState(false);
@@ -480,6 +483,33 @@ function OpenAIAccountsContent({ onError, data }: {
       document.removeEventListener("scroll", onScroll, true);
     };
   }, [menuOpenId]);
+
+  useEffect(() => {
+    if (!statusMenu) return;
+    const close = () => setStatusMenu(null);
+    const onPointerDown = (event: PointerEvent) => {
+      if (
+        !statusMenuRef.current?.contains(event.target as Node) &&
+        !statusTriggerRef.current?.contains(event.target as Node)
+      ) close();
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        close();
+        statusTriggerRef.current?.focus();
+      }
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    window.addEventListener("resize", close);
+    document.addEventListener("scroll", close, true);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("resize", close);
+      document.removeEventListener("scroll", close, true);
+    };
+  }, [statusMenu]);
 
   useLayoutEffect(() => {
     if (!menuOpenId || !menuRef.current) return;
@@ -995,130 +1025,159 @@ function OpenAIAccountsContent({ onError, data }: {
                           : t("settings.openaiAccounts.notLoggedIn"))}
                     </span>
                   </div>
-                  <div className="codex-account-actions">
-                    <button
-                      type="button"
-                      className="mcp-icon-button codex-account-drag-handle"
-                      draggable={!busy}
-                      disabled={busy}
-                      aria-label={t("settings.openaiAccounts.reorderAccount", { name: account.name })}
-                      title={t("settings.openaiAccounts.reorderHint")}
-                      aria-keyshortcuts="ArrowUp ArrowDown"
-                      onDragStart={(event) => {
-                        event.dataTransfer.effectAllowed = "move";
-                        event.dataTransfer.setData("text/plain", account.id);
-                        const card = event.currentTarget.closest("article");
-                        if (card) event.dataTransfer.setDragImage(card, 24, 24);
-                        setMenuOpenId(null);
-                        setDraggedAccountId(account.id);
-                      }}
-                      onDragEnd={clearAccountDrag}
-                      onKeyDown={(event) => {
-                        if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
-                        if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
-                        event.preventDefault();
-                        const previous = event.key === "ArrowUp";
-                        const target = filteredAccounts[accountIndex + (previous ? -1 : 1)];
-                        if (target) reorderAccount(account.id, target.id, previous ? "before" : "after");
-                      }}
-                    >
-                      <GripVertical size={15} />
-                    </button>
-
-                    <AccountUsageHistoryButton kind="chatgpt_login" accountId={account.id} name={account.name} />
-                    <button
-                      type="button"
-                      className="mcp-icon-button"
-                      aria-label={t("settings.openaiAccounts.moreActionsAria", { name: account.name })}
-                      aria-haspopup="menu"
-                      aria-expanded={menuOpenId === account.id}
-                      disabled={busy}
-                      onClick={(event) => {
-                        if (menuOpenId === account.id) {
-                          setMenuOpenId(null);
-                          return;
-                        }
-                        menuTriggerRef.current = event.currentTarget;
-                        const rect =
-                          event.currentTarget.getBoundingClientRect();
-                        const menuWidth = Math.min(
-                          CODEX_ACCOUNT_ACTION_MENU_WIDTH,
-                          window.innerWidth - MENU_VIEWPORT_MARGIN * 2,
-                        );
-                        setMenuPos({
-                          top: Math.max(MENU_VIEWPORT_MARGIN, rect.bottom + 4),
-                          left: Math.max(
-                            MENU_VIEWPORT_MARGIN,
-                            Math.min(
-                              rect.right - menuWidth,
-                              window.innerWidth - menuWidth - MENU_VIEWPORT_MARGIN,
-                            ),
-                          ),
-                        });
-                        setMenuOpenId(account.id);
-                      }}
-                    >
-                      <MoreHorizontal size={16} />
-                    </button>
-                  </div>
-                </div>
-                <div className="codex-account-auth-actions">
-                  <section className="codex-account-auth-card" aria-label={t("settings.openaiAccounts.webSectionTitle")}>
-                    <div className="codex-account-auth-heading">
-                      <span className="codex-account-auth-title"><Globe2 size={14} />{t("settings.openaiAccounts.webSectionTitle")}</span>
-                      <span className={`codex-status-badge is-${account.webAuthState === "refreshable" ? "warning" : canUseOpenAIAccountWebCredentials(account) ? "ready" : "danger"}`} title={account.webAuthError}>
-                        <i />
-                        {t(account.webAuthState === "refreshable" ? "settings.openaiAccounts.webRefreshable" : canUseOpenAIAccountWebCredentials(account) ? "settings.openaiAccounts.webLoggedIn" : "settings.openaiAccounts.webNotLoggedIn")}
-                      </span>
+                  <div className="codex-account-header-actions">
+                    <div className="codex-account-status-tags">
+                      <div className="codex-account-status-wrap">
+                        <button
+                          type="button"
+                          className={`codex-status-tag is-${account.webAuthState === "refreshable" ? "warning" : canUseOpenAIAccountWebCredentials(account) ? "ready" : "danger"}`}
+                          aria-haspopup="menu"
+                          aria-expanded={statusMenu?.accountId === account.id && statusMenu.kind === "web"}
+                          title={t("settings.openaiAccounts.webSectionTitle")}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            if (statusMenu?.accountId === account.id && statusMenu.kind === "web") {
+                              setStatusMenu(null);
+                              return;
+                            }
+                            setMenuOpenId(null);
+                            statusTriggerRef.current = event.currentTarget;
+                            setStatusMenu({ accountId: account.id, kind: "web" });
+                          }}
+                        >
+                          <i />
+                          <span>Web</span>
+                          <ChevronDown size={11} />
+                        </button>
+                        {statusMenu?.accountId === account.id && statusMenu.kind === "web" ? (
+                          <div ref={statusMenuRef} className="codex-account-status-popover" role="menu" aria-label={t("settings.openaiAccounts.webSectionTitle")}>
+                            <div className="codex-account-status-popover-header">
+                              <span>{t("settings.openaiAccounts.webSectionTitle")}</span>
+                              <strong className={`is-${account.webAuthState === "refreshable" ? "warning" : canUseOpenAIAccountWebCredentials(account) ? "ready" : "danger"}`}>
+                                <i />
+                                {t(account.webAuthState === "refreshable" ? "settings.openaiAccounts.webRefreshable" : canUseOpenAIAccountWebCredentials(account) ? "settings.openaiAccounts.webLoggedIn" : "settings.openaiAccounts.webNotLoggedIn")}
+                              </strong>
+                            </div>
+                            <button type="button" role="menuitem" className="codex-account-status-item" disabled={busy} onClick={() => { setStatusMenu(null); void handleOpenChatGPT(account.id); }}>
+                              <Globe2 size={14} />
+                              <span>{t("settings.openaiAccounts.openChatGPT")}</span>
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
+                      <div className="codex-account-status-wrap">
+                        <button
+                          type="button"
+                          className={`codex-status-tag is-${statusTone}`}
+                          aria-haspopup="menu"
+                          aria-expanded={statusMenu?.accountId === account.id && statusMenu.kind === "codex"}
+                          title={t("settings.openaiAccounts.codexSectionTitle")}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            if (statusMenu?.accountId === account.id && statusMenu.kind === "codex") {
+                              setStatusMenu(null);
+                              return;
+                            }
+                            setMenuOpenId(null);
+                            statusTriggerRef.current = event.currentTarget;
+                            setStatusMenu({ accountId: account.id, kind: "codex" });
+                          }}
+                        >
+                          <i />
+                          <span>Codex</span>
+                          <ChevronDown size={11} />
+                        </button>
+                        {statusMenu?.accountId === account.id && statusMenu.kind === "codex" ? (
+                          <div ref={statusMenuRef} className="codex-account-status-popover" role="menu" aria-label={t("settings.openaiAccounts.codexSectionTitle")}>
+                            <div className="codex-account-status-popover-header">
+                              <span>{t("settings.openaiAccounts.codexSectionTitle")}</span>
+                              <strong className={`is-${statusTone}`}><i />{status}</strong>
+                            </div>
+                            <button type="button" role="menuitem" className="codex-account-status-item is-primary" disabled={busy || loggingInId !== null} onClick={() => { setStatusMenu(null); void handleLogin(account.id); }}>
+                              {loggingInId === account.id ? <Loader2 size={14} className="mcp-spin" /> : <LogIn size={14} />}
+                              <span>{loggingInId === account.id ? t("settings.openaiAccounts.loggingIn") : canUseOpenAIAccountCredentials(account) ? t("settings.openaiAccounts.reloginCodex") : t("settings.openaiAccounts.loginCodex")}</span>
+                            </button>
+                            <button type="button" role="menuitem" className="codex-account-status-item" disabled={busy || loggingInId !== null} onClick={() => { setStatusMenu(null); setExternalLoginId(account.id); }}>
+                              <Globe2 size={14} />
+                              <span>{t("settings.openaiAccounts.externalLogin")}</span>
+                            </button>
+                            <button type="button" role="menuitem" className="codex-account-status-item" disabled={busy} onClick={() => { setStatusMenu(null); void handleOpenAssistant(account.id); }}>
+                              <KeyRound size={14} />
+                              <span>{t("settings.openaiAccounts.openLoginAssistant")}</span>
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
                     </div>
-                    <button
-                      type="button"
-                      className="codex-action-secondary"
-                      disabled={busy}
-                      onClick={() => void handleOpenChatGPT(account.id)}
-                    >
-                      <Globe2 size={14} />
-                      {t("settings.openaiAccounts.openChatGPT")}
-                    </button>
-                  </section>
-                  <section className="codex-account-auth-card" aria-label={t("settings.openaiAccounts.codexSectionTitle")}>
-                    <div className="codex-account-auth-heading">
-                      <span className="codex-account-auth-title"><ShieldCheck size={14} />{t("settings.openaiAccounts.codexSectionTitle")}</span>
-                      <span className={`codex-status-badge is-${statusTone}`}>
-                        <i />
-                        {status}
-                      </span>
-                    </div>
-                    <div className="codex-account-auth-buttons">
+                    <div className="codex-account-actions">
                       <button
                         type="button"
-                        className="codex-action-primary codex-account-auth-button-wide"
-                        disabled={busy || loggingInId !== null}
-                        onClick={() => void handleLogin(account.id)}
-                      >
-                        {loggingInId === account.id ? <Loader2 size={14} className="mcp-spin" /> : <LogIn size={14} />}
-                        {loggingInId === account.id ? t("settings.openaiAccounts.loggingIn") : canUseOpenAIAccountCredentials(account) ? t("settings.openaiAccounts.reloginCodex") : t("settings.openaiAccounts.loginCodex")}
-                      </button>
-                      <button
-                        type="button"
-                        className="codex-action-secondary"
-                        disabled={busy || loggingInId !== null}
-                        onClick={() => setExternalLoginId(account.id)}
-                      >
-                        <Globe2 size={14} />
-                        {t("settings.openaiAccounts.externalLogin")}
-                      </button>
-                      <button
-                        type="button"
-                        className="codex-action-secondary"
+                        className="mcp-icon-button codex-account-drag-handle"
+                        draggable={!busy}
                         disabled={busy}
-                        onClick={() => void handleOpenAssistant(account.id)}
+                        aria-label={t("settings.openaiAccounts.reorderAccount", { name: account.name })}
+                        title={t("settings.openaiAccounts.reorderHint")}
+                        aria-keyshortcuts="ArrowUp ArrowDown"
+                        onDragStart={(event) => {
+                          event.dataTransfer.effectAllowed = "move";
+                          event.dataTransfer.setData("text/plain", account.id);
+                          const card = event.currentTarget.closest("article");
+                          if (card) event.dataTransfer.setDragImage(card, 24, 24);
+                          setMenuOpenId(null);
+                          setStatusMenu(null);
+                          setDraggedAccountId(account.id);
+                        }}
+                        onDragEnd={clearAccountDrag}
+                        onKeyDown={(event) => {
+                          if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+                          if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+                          event.preventDefault();
+                          const previous = event.key === "ArrowUp";
+                          const target = filteredAccounts[accountIndex + (previous ? -1 : 1)];
+                          if (target) reorderAccount(account.id, target.id, previous ? "before" : "after");
+                        }}
                       >
-                        <KeyRound size={14} />
-                        {t("settings.openaiAccounts.openLoginAssistant")}
+                        <GripVertical size={15} />
+                      </button>
+
+                      <AccountUsageHistoryButton kind="chatgpt_login" accountId={account.id} name={account.name} />
+                      <button
+                        type="button"
+                        className="mcp-icon-button"
+                        aria-label={t("settings.openaiAccounts.moreActionsAria", { name: account.name })}
+                        aria-haspopup="menu"
+                        aria-expanded={menuOpenId === account.id}
+                        disabled={busy}
+                        onClick={(event) => {
+                          if (menuOpenId === account.id) {
+                            setMenuOpenId(null);
+                            return;
+                          }
+                          setStatusMenu(null);
+                          menuTriggerRef.current = event.currentTarget;
+                          const rect =
+                            event.currentTarget.getBoundingClientRect();
+                          const menuWidth = Math.min(
+                            CODEX_ACCOUNT_ACTION_MENU_WIDTH,
+                            window.innerWidth - MENU_VIEWPORT_MARGIN * 2,
+                          );
+                          setMenuPos({
+                            top: Math.max(MENU_VIEWPORT_MARGIN, rect.bottom + 4),
+                            left: Math.max(
+                              MENU_VIEWPORT_MARGIN,
+                              Math.min(
+                                rect.right - menuWidth,
+                                window.innerWidth - menuWidth - MENU_VIEWPORT_MARGIN,
+                              ),
+                            ),
+                          });
+                          setMenuOpenId(account.id);
+                        }}
+                      >
+                        <MoreHorizontal size={16} />
                       </button>
                     </div>
-                  </section>
+                  </div>
                 </div>
                 {showTextQuota ? (
                   <div className="codex-account-quotas">

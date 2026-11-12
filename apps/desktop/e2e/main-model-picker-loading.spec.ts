@@ -14,7 +14,13 @@ test("Login Fast remains selected across panel reopen and thinking-effort change
   const fast = page.getByRole("checkbox", { name: "Fast", exact: true });
   await expect(fast).toBeEnabled();
   await fast.check();
-  await expect(page.locator(".composer-model-fast-badge")).toHaveText("Fast");
+  const fastBadge = page.locator(".composer-model-fast-badge");
+  await expect(fastBadge).toBeVisible();
+  await expect(fastBadge).toHaveText("");
+  await expect(fastBadge.locator("svg")).toBeVisible();
+  await expect(fastBadge).toHaveAttribute("aria-label", "Fast");
+  await expect(fastBadge).toHaveCSS("animation-name", "none");
+  await expect(fastBadge.locator("svg")).toHaveCSS("animation-name", "none");
   const effort = page.getByRole("slider");
   await effort.focus();
   await effort.press("End");

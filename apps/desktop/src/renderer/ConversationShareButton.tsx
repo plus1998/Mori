@@ -1,30 +1,33 @@
 import { Copy, ExternalLink, Share2, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { type RefObject, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import type { ConversationShareResult } from "../shared/conversation-share";
 import { dispatchBrowserLinkOpen } from "./browser-link";
 import "./conversation-share.css";
 
-export function ConversationShareButton({ threadId }: { threadId: string }) {
+interface ConversationShareDialogProps {
+  threadId: string;
+  onClose: () => void;
+  returnFocusRef?: RefObject<HTMLElement | null>;
+}
+
+export function ConversationShareDialog({ threadId, onClose, returnFocusRef }: ConversationShareDialogProps) {
   const { t } = useTranslation();
-  const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<ConversationShareResult>();
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
-  const triggerRef = useRef<HTMLButtonElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLElement>(null);
   const pendingRef = useRef(false);
 
   useEffect(() => {
-    if (!open) return;
     closeRef.current?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.stopPropagation();
-        setOpen(false);
+        onClose();
       }
       if (event.key === "Tab") {
         const buttons = [
@@ -45,9 +48,9 @@ export function ConversationShareButton({ threadId }: { threadId: string }) {
     document.addEventListener("keydown", onKeyDown, true);
     return () => {
       document.removeEventListener("keydown", onKeyDown, true);
-      triggerRef.current?.focus();
+      returnFocusRef?.current?.focus();
     };
-  }, [open]);
+  }, [onClose, returnFocusRef]);
 
   async function publish() {
     if (!window.eco || pendingRef.current) return;
@@ -76,105 +79,128 @@ export function ConversationShareButton({ threadId }: { threadId: string }) {
     }
   }
 
+  return createPortal(
+    <div
+      className="settings-modal-backdrop conversation-share-backdrop"
+      role="presentation"
+      onPointerDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <section
+        ref={dialogRef}
+        className="settings-modal conversation-share-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="conversation-share-title"
+      >
+        <header className="settings-modal-header">
+          <h2 id="conversation-share-title" className="settings-modal-title">
+            {t("share.title")}
+          </h2>
+          <button
+            ref={closeRef}
+            type="button"
+            className="settings-modal-cancel"
+            aria-label={t("share.close")}
+            onClick={onClose}
+          >
+            <X size={16} />
+          </button>
+        </header>
+        <div className="settings-modal-body">
+          <p>{t("share.description")}</p>
+          <p className="conversation-share-hint">{t("share.visibility")}</p>
+          {busy ? <p role="status">{t("share.publishing")}</p> : null}
+          {result ? (
+            <div className="conversation-share-result">
+              <label htmlFor="conversation-share-url">{t("share.link")}</label>
+              <input
+                id="conversation-share-url"
+                readOnly
+                value={result.publicUrl}
+                onFocus={(event) => event.currentTarget.select()}
+              />
+              <p className="conversation-share-hint">
+                {t("share.expires", { date: new Date(result.expiresAt).toLocaleString() })}
+              </p>
+            </div>
+          ) : null}
+          {error ? (
+            <p className="conversation-share-error" role="alert">
+              {error}
+            </p>
+          ) : null}
+        </div>
+        <footer className="settings-modal-footer">
+          {result ? (
+            <>
+              <button type="button" className="settings-modal-cancel" onClick={() => void publish()}>
+                {t("share.createNew")}
+              </button>
+              <button
+                type="button"
+                className="settings-modal-cancel"
+                onClick={() => dispatchBrowserLinkOpen(result.publicUrl)}
+              >
+                <ExternalLink size={14} /> {t("share.preview")}
+              </button>
+              <button type="button" className="plan-button primary" onClick={() => void copy()}>
+                <Copy size={14} /> {t(copied ? "share.copied" : "share.copy")}
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              className="plan-button primary"
+              disabled={busy}
+              onClick={() => void publish()}
+            >
+              {t(busy ? "share.publishing" : "share.create")}
+            </button>
+          )}
+        </footer>
+      </section>
+    </div>,
+    document.body,
+  );
+}
+
+export function ConversationShareButton({
+  threadId,
+  showLabel = false,
+}: {
+  threadId: string;
+  showLabel?: boolean;
+}) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+
   return (
     <>
       <button
         ref={triggerRef}
         type="button"
-        className="conversation-share-trigger"
+        className={
+          showLabel
+            ? "conversation-share-trigger conversation-share-trigger-labeled"
+            : "conversation-share-trigger"
+        }
         title={t("share.title")}
         aria-label={t("share.title")}
         onClick={() => setOpen(true)}
       >
         <Share2 size={14} aria-hidden />
+        {showLabel ? <span>{t("share.title")}</span> : null}
       </button>
-      {open
-        ? createPortal(
-            <div
-              className="settings-modal-backdrop conversation-share-backdrop"
-              role="presentation"
-              onPointerDown={(event) => {
-                if (event.target === event.currentTarget) setOpen(false);
-              }}
-            >
-              <section
-                ref={dialogRef}
-                className="settings-modal conversation-share-modal"
-                role="dialog"
-                aria-modal="true"
-                aria-labelledby="conversation-share-title"
-              >
-                <header className="settings-modal-header">
-                  <h2 id="conversation-share-title" className="settings-modal-title">
-                    {t("share.title")}
-                  </h2>
-                  <button
-                    ref={closeRef}
-                    type="button"
-                    className="settings-modal-cancel"
-                    aria-label={t("share.close")}
-                    onClick={() => setOpen(false)}
-                  >
-                    <X size={16} />
-                  </button>
-                </header>
-                <div className="settings-modal-body">
-                  <p>{t("share.description")}</p>
-                  <p className="conversation-share-hint">{t("share.visibility")}</p>
-                  {busy ? <p role="status">{t("share.publishing")}</p> : null}
-                  {result ? (
-                    <div className="conversation-share-result">
-                      <label htmlFor="conversation-share-url">{t("share.link")}</label>
-                      <input
-                        id="conversation-share-url"
-                        readOnly
-                        value={result.publicUrl}
-                        onFocus={(event) => event.currentTarget.select()}
-                      />
-                      <p className="conversation-share-hint">
-                        {t("share.expires", { date: new Date(result.expiresAt).toLocaleString() })}
-                      </p>
-                    </div>
-                  ) : null}
-                  {error ? (
-                    <p className="conversation-share-error" role="alert">
-                      {error}
-                    </p>
-                  ) : null}
-                </div>
-                <footer className="settings-modal-footer">
-                  {result ? (
-                    <>
-                      <button type="button" className="settings-modal-cancel" onClick={() => void publish()}>
-                        {t("share.createNew")}
-                      </button>
-                      <button
-                        type="button"
-                        className="settings-modal-cancel"
-                        onClick={() => dispatchBrowserLinkOpen(result.publicUrl)}
-                      >
-                        <ExternalLink size={14} /> {t("share.preview")}
-                      </button>
-                      <button type="button" className="plan-button primary" onClick={() => void copy()}>
-                        <Copy size={14} /> {t(copied ? "share.copied" : "share.copy")}
-                      </button>
-                    </>
-                  ) : (
-                    <button
-                      type="button"
-                      className="plan-button primary"
-                      disabled={busy}
-                      onClick={() => void publish()}
-                    >
-                      {t(busy ? "share.publishing" : "share.create")}
-                    </button>
-                  )}
-                </footer>
-              </section>
-            </div>,
-            document.body,
-          )
-        : null}
+      {open ? (
+        <ConversationShareDialog
+          threadId={threadId}
+          onClose={() => setOpen(false)}
+          returnFocusRef={triggerRef}
+        />
+      ) : null}
     </>
   );
 }

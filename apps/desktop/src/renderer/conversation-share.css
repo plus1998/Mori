@@ -21,6 +21,16 @@
   outline: 2px solid var(--accent-text);
   outline-offset: 1px;
 }
+.conversation-share-trigger-labeled {
+  width: auto;
+  gap: 8px;
+  padding: 0 10px;
+  color: var(--text-secondary, #666);
+  font-size: 13px;
+}
+.conversation-share-trigger-labeled:hover {
+  color: var(--text-primary, #111);
+}
 .conversation-share-backdrop {
   z-index: 1000;
 }

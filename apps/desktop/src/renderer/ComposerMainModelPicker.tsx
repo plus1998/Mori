@@ -546,7 +546,7 @@ export function ComposerMainModelPicker({
           : purpose !== "main" ? `${providerName} · ` : "") : null}
         {supportsThinking ? <ComposerModelLabel modelId={model.modelId} thinkingEffort={model.thinkingEffort} size="medium" />
           : <span>{formatComposerModelName(model.modelId)}</span>}
-        {model.providerId === "openai" && model.serviceTier === "fast" ? <span className="composer-model-fast-badge" title="Fast"><Zap size={10} aria-hidden /><span className="composer-model-fast-label">Fast</span></span> : null}
+        {model.providerId === "openai" && model.serviceTier === "fast" ? <span className="composer-model-fast-badge" role="img" aria-label="Fast" title="Fast"><Zap size={14} strokeWidth={2.4} aria-hidden /></span> : null}
       </span> : <span className="composer-model-empty-label">{t("composer.route.selectModel")}</span>}
       <ChevronDown size={13} className="composer-model-picker-chevron" aria-hidden />
     </button>

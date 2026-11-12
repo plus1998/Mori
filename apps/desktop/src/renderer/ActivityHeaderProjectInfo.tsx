@@ -7,6 +7,7 @@ import {
   type ActivityHeaderProjectInfoPopoverBox,
   activityHeaderProjectInfoPopoverBoxForRect,
 } from "./activity-header-project-info-layout";
+import { ConversationShareButton } from "./ConversationShareButton";
 import { ICON_SIZE, ICON_STROKE } from "./icon-metrics";
 
 export interface ActivityHeaderProjectInfoPanelProps {
@@ -85,6 +86,9 @@ export function ActivityHeaderProjectInfoPanel({
           </div>
         ) : null}
       </dl>
+      <div className="activity-header-project-info-actions">
+        <ConversationShareButton threadId={threadId} showLabel />
+      </div>
     </div>
   );
 }
