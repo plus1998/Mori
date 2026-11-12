@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { CodexAppServerClient, type CodexAppServerServerRequestHandler } from "@eco/runtime/codex-app-server-client";
 import type { OpenAIAccountQuota, OpenAIAccountQuotaWindow } from "../shared/openai-account";
 import { moriCodexClientInfo } from "./codex-client-info";
-import type { CodexProxyEnvironment } from "./codex-proxy";
+import { buildCodexProxyArgs, type CodexProxyEnvironment } from "./codex-proxy";
 import { buildCodexAppServerEnv } from "./codex-runtime-lifecycle";
 
 export interface CodexQuotaClient {
@@ -132,7 +132,7 @@ export async function withIsolatedCodexAccountClient<T>(input: {
   delete env.OPENAI_API_KEY;
   delete env.CODEX_API_KEY;
   delete env.CODEX_ACCESS_TOKEN;
-  const child = spawn(input.executable, ["app-server", "--stdio", "-c", `cli_auth_credentials_store="${input.credentialsStore ?? "file"}"`], {
+  const child = spawn(input.executable, ["app-server", "--stdio", ...buildCodexProxyArgs(input.proxy), "-c", `cli_auth_credentials_store="${input.credentialsStore ?? "file"}"`], {
     env,
     ...(input.credentialsStore === "ephemeral" ? { cwd: input.codexHomeDir } : {}),
     stdio: ["pipe", "pipe", "pipe"],

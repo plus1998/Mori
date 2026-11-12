@@ -88,7 +88,7 @@ realAppServerTest(
         codexHomeDir,
       );
       expect(env.NO_PROXY).toContain("127.0.0.1");
-      lifecycle = new CodexRuntimeLifecycle({ ecoDataDir, codexExecutable });
+      lifecycle = new CodexRuntimeLifecycle({ ecoDataDir, codexExecutable, accountId: "loopback-test" });
       client = await lifecycle.start();
       expect(proxyLookups).toBe(1);
       const thread = await client.request<{ thread: { id: string } }>("thread/start", {

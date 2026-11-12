@@ -86,7 +86,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
     expect(env.http_proxy).toBeUndefined();
     expect(env.https_proxy).toBeUndefined();
     expect(env.all_proxy).toBeUndefined();
-    expect(env.NO_PROXY).toBe("127.0.0.1,localhost,::1");
+    expect(env.NO_PROXY).toBe("*");
   });
 
   test("proxy mode injects only the resolved proxy endpoint", () => {
@@ -101,8 +101,8 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
 
     expect(env.HTTP_PROXY).toBe("http://127.0.0.1:7890");
     expect(env.HTTPS_PROXY).toBe("http://127.0.0.1:7890");
-    expect(env.ALL_PROXY).toBeUndefined();
-    expect(env.NO_PROXY).toBe("internal.example.test,127.0.0.1,localhost,::1");
+    expect(env.ALL_PROXY).toBe("http://127.0.0.1:7890");
+    expect(env.NO_PROXY).toBe("127.0.0.1,localhost,::1");
   });
 
   test("preserves and deduplicates existing proxy bypass entries", () => {

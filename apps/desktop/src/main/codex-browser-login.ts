@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import http from "node:http";
 import { CodexAppServerClient } from "@eco/runtime/codex-app-server-client";
 import { moriCodexClientInfo } from "./codex-client-info";
+import { buildCodexProxyArgs, buildCodexProxyEnv, type CodexProxyEnvironment } from "./codex-proxy";
 
 export interface CodexBrowserLoginResult {
   success: boolean;
@@ -67,11 +68,13 @@ export async function startCodexBrowserLogin(input: {
   executable: string;
   codexHomeDir: string;
   env?: NodeJS.ProcessEnv;
+  proxy?: CodexProxyEnvironment;
   onAuthenticated: (signal: AbortSignal) => Promise<void>;
 }): Promise<CodexBrowserLogin> {
   await fs.mkdir(input.codexHomeDir, { recursive: true });
-  const child = spawn(input.executable, ["app-server", "--stdio", "-c", 'cli_auth_credentials_store="file"'], {
-    env: { ...process.env, ...input.env, CODEX_HOME: input.codexHomeDir },
+  const proxy = input.proxy ?? { mode: "inherit" };
+  const child = spawn(input.executable, ["app-server", "--stdio", ...buildCodexProxyArgs(proxy), "-c", 'cli_auth_credentials_store="file"'], {
+    env: { ...buildCodexProxyEnv({ ...process.env, ...input.env }, proxy), CODEX_HOME: input.codexHomeDir },
     stdio: ["pipe", "pipe", "pipe"],
   });
   // Drain stderr without printing OAuth URLs, tokens, or proxy credentials.

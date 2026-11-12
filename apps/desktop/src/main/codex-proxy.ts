@@ -11,6 +11,10 @@ const PROXY_ENV_KEYS = [
   "http_proxy",
   "https_proxy",
   "all_proxy",
+  "WS_PROXY",
+  "WSS_PROXY",
+  "ws_proxy",
+  "wss_proxy",
 ] as const;
 
 const CODEX_LOOPBACK_PROXY_BYPASS = ["127.0.0.1", "localhost", "::1"] as const;
@@ -54,11 +58,14 @@ export async function resolveCodexProxyUrl(
   return resolution === undefined ? undefined : parseElectronProxyResolution(resolution);
 }
 
-/**
- * Codex is a child process and does not read macOS SystemConfiguration.
- * Direct mode must also remove inherited proxy variables so it cannot fall
- * back to a proxy from the parent shell.
- */
+/** Keep Codex's own OS proxy selection/fallback from overriding Mori's resolved route. */
+export function buildCodexProxyArgs(proxy: CodexProxyEnvironment): string[] {
+  return proxy.mode === "inherit"
+    ? []
+    : ["-c", "features.respect_system_proxy=false", "-c", "features.system_proxy_fallback=false"];
+}
+
+/** Explicit routes must not inherit shell proxy endpoints or NO_PROXY bypasses. */
 export function buildCodexProxyEnv(
   source: NodeJS.ProcessEnv,
   proxy: CodexProxyEnvironment = { mode: "inherit" },
@@ -67,14 +74,16 @@ export function buildCodexProxyEnv(
   if (proxy.mode !== "inherit") {
     for (const key of PROXY_ENV_KEYS) delete env[key];
   }
-  const noProxy = mergeNoProxyEntries(source.NO_PROXY, source.no_proxy, CODEX_LOOPBACK_PROXY_BYPASS);
+  const noProxy =
+    proxy.mode === "inherit"
+      ? mergeNoProxyEntries(source.NO_PROXY, source.no_proxy, CODEX_LOOPBACK_PROXY_BYPASS)
+      : proxy.mode === "direct"
+        ? "*"
+        : CODEX_LOOPBACK_PROXY_BYPASS.join(",");
   env.NO_PROXY = noProxy;
   env.no_proxy = noProxy;
   if (proxy.mode === "proxy") {
-    env.HTTPS_PROXY = proxy.url;
-    env.HTTP_PROXY = proxy.url;
-    env.https_proxy = proxy.url;
-    env.http_proxy = proxy.url;
+    for (const key of PROXY_ENV_KEYS) env[key] = proxy.url;
   }
   return env;
 }

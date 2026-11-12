@@ -10,6 +10,7 @@ import {
 import type { OpenAIAccountProxyConfig } from "../shared/openai-account";
 import { moriCodexClientInfo } from "./codex-client-info";
 import {
+  buildCodexProxyArgs,
   buildCodexProxyEnv,
   type CodexProxyEnvironment,
   parseElectronProxyResolution,
@@ -17,6 +18,7 @@ import {
   type SystemProxyResolver,
 } from "./codex-proxy";
 import { appendUpstreamLogLine } from "./upstream-log";
+import { startSocksToHttpBridge } from "./socks-http-bridge";
 
 export { type CodexProxyEnvironment, parseElectronProxyResolution, resolveCodexProxyUrl };
 
@@ -189,8 +191,7 @@ export class CodexRuntimeLifecycle {
         }
         const proxyEndpoint = `${parsed.protocol}//${parsed.hostname}${parsed.port ? `:${parsed.port}` : ""}`;
         if (parsed.protocol.startsWith("socks")) {
-          // Bridge SOCKS → local HTTP for Codex (Rust doesn't support SOCKS natively)
-          const { startSocksToHttpBridge } = await import("./openai-account-service");
+          // Codex's HTTP and WebSocket paths both consume an HTTP proxy URL.
           const bridge = await startSocksToHttpBridge(rawProxy);
           proxyHttp = `http://127.0.0.1:${bridge.port}`;
           this.socksBridge = { close: bridge.close };
@@ -201,7 +202,15 @@ export class CodexRuntimeLifecycle {
         proxyEnvironment = { mode: "direct" };
       }
     } catch (error) {
+      this.socksBridge?.close();
+      this.socksBridge = undefined;
       throw new Error("Configured OpenAI account proxy could not be initialized.", { cause: error });
+    }
+
+    if (generation !== this.generation) {
+      this.socksBridge?.close();
+      this.socksBridge = undefined;
+      throw new Error("Codex app-server start was cancelled before process spawn.");
     }
 
     const env = buildCodexAppServerEnv(process.env, codexHomeDir, proxyEnvironment);
@@ -212,10 +221,17 @@ export class CodexRuntimeLifecycle {
       delete env.OPENAI_API_KEY;
       delete env.CODEX_API_KEY;
     }
-    const child = spawn(executable, ["app-server", "--stdio", ...(externalAuthProvider ? ["-c", 'cli_auth_credentials_store="ephemeral"'] : [])], {
-      env,
-      stdio: ["pipe", "pipe", "pipe"],
-    });
+    let child: ChildProcessWithoutNullStreams;
+    try {
+      child = spawn(executable, ["app-server", "--stdio", ...buildCodexProxyArgs(proxyEnvironment), ...(externalAuthProvider ? ["-c", 'cli_auth_credentials_store="ephemeral"'] : [])], {
+        env,
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+    } catch (error) {
+      this.socksBridge?.close();
+      this.socksBridge = undefined;
+      throw error;
+    }
 
     child.stderr.setEncoding("utf8");
     child.stderr.on("data", (chunk: string) => {
@@ -256,6 +272,8 @@ export class CodexRuntimeLifecycle {
       if (this.child === child) {
         this.child = undefined;
         this.client = undefined;
+        this.socksBridge?.close();
+        this.socksBridge = undefined;
       }
     });
 
@@ -300,6 +318,8 @@ export class CodexRuntimeLifecycle {
       }
       if (this.child === child) {
         this.child = undefined;
+        this.socksBridge?.close();
+        this.socksBridge = undefined;
       }
       throw error;
     }

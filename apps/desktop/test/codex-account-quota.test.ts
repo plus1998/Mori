@@ -1,6 +1,8 @@
 let accountHome = "";
 import { afterEach, expect, spyOn, test } from "bun:test";
 import fs from "node:fs/promises";
+import http from "node:http";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -127,6 +129,41 @@ function auth(exp: number, refresh: string, stamp: string): string {
 }
 const expiredAuth = auth(1, "old-refresh", "2026-01-01T00:00:00Z");
 const freshAuth = auth(2_000_000_000, "new-refresh", "2026-10-22T00:00:00Z");
+
+test("bridge failures retain the original quota error and rotated credentials without caching success", async () => {
+  const root = await serviceRoot();
+  const server = net.createServer();
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as net.AddressInfo).port;
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+  const original = new Error("quota transport failed");
+  const rotated = auth(2_000_000_000, "rotated-again", "2026-11-12T00:00:00Z");
+  const service = new OpenAIAccountService(root, "unused", undefined, undefined, undefined, async (input) => {
+    if (input.proxy.mode !== "proxy") throw new Error("Expected isolated bridge route");
+    const proxy = new URL(input.proxy.url);
+    const status = await new Promise<number | undefined>((resolve, reject) => {
+      const request = http.request({ host: proxy.hostname, port: Number(proxy.port), method: "CONNECT", path: "example.test:443" });
+      request.on("connect", (response, socket) => { socket.destroy(); resolve(response.statusCode); });
+      request.on("error", reject);
+      request.end();
+    });
+    expect(status).toBe(502);
+    await fs.writeFile(path.join(input.codexHomeDir, "auth.json"), rotated);
+    throw original;
+  });
+  await service.initialize();
+  cleanups.push(() => service.dispose());
+  const account = await service.createAccount({ name: "Broken proxy", proxyMode: "manual", proxyUrl: `socks5://demo:secret@127.0.0.1:${port}` });
+  await service.setAuthJson(account.id, freshAuth);
+  const error = await service.queryQuota(account.id).catch((failure: unknown) => failure);
+  expect(error).toBeInstanceOf(Error);
+  expect((error as Error).cause).toBe(original);
+  expect((error as Error).message).toContain("quota transport failed");
+  expect((error as Error).message).toContain("tcp-connect，ECONNREFUSED");
+  expect((error as Error).message).not.toContain("secret");
+  expect(await service.getAuthJsonContent(account.id)).toBe(rotated);
+  expect((await service.listAccounts())[0]?.quota).toBeUndefined();
+});
 
 test("a final quota 401 reports an expired token while preserving the original error and retry", async () => {
   const root = await serviceRoot();

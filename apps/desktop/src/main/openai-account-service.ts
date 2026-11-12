@@ -1,10 +1,9 @@
 import { AccountWakeBatches } from "./account-wake-batches";
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
-import http from "node:http";
 import path from "node:path";
 import os from "node:os";
-import { SocksClient } from "socks";
+import { startSocksToHttpBridge, type SocksHttpBridge } from "./socks-http-bridge";
 import type { AccountUsageRecord } from "./account-usage-store";
 import type {
   OpenAIAccount as OpenAIAccountShared,
@@ -30,7 +29,6 @@ import { wakeCodexAccount } from "./codex-account-wake";
 import { isCodexReauthenticationRequired } from "./codex-reauthentication";
 import { queryReadonlyAccountQuotas, readReadonlyQuota, ReadonlyQuotaError, redactAccountSummaryStrings } from "./readonly-account-quota";
 import {
-  buildCodexProxyEnv,
   resolveCodexProxyUrl,
   type CodexProxyEnvironment,
   type SystemProxyResolver,
@@ -131,80 +129,7 @@ export function readAuthAccountId(content: string): string | undefined {
   }
 }
 
-/**
- * Start a local HTTP CONNECT proxy that tunnels through SOCKS5 (with auth).
- * Returns { port, close } for the local server.
- */
-export function startSocksToHttpBridge(proxyUrl: string): Promise<{ port: number; close: () => void }> {
-  return new Promise((resolve, reject) => {
-    const parsed = new URL(proxyUrl);
-    const socksHost = parsed.hostname;
-    const socksPort = Number(parsed.port) || 1080;
-    const username = parsed.username ? decodeURIComponent(parsed.username) : undefined;
-    const password = parsed.password ? decodeURIComponent(parsed.password) : undefined;
-
-    const server = http.createServer();
-
-    server.on("connect", (req, clientSocket, head) => {
-      const requestTarget = req.url;
-      if (!requestTarget) {
-        clientSocket.write("HTTP/1.1 400 Bad Request\r\n\r\n");
-        clientSocket.destroy();
-        return;
-      }
-      console.log(`[socks-bridge] CONNECT request: ${requestTarget}`);
-      const [targetHost, targetPort] = requestTarget.split(":");
-      if (!targetHost) {
-        clientSocket.write("HTTP/1.1 400 Bad Request\r\n\r\n");
-        clientSocket.destroy();
-        return;
-      }
-      const port = targetPort ? parseInt(targetPort, 10) : 443;
-
-      SocksClient.createConnection({
-        proxy: {
-          ipaddress: socksHost,
-          port: socksPort,
-          type: 5,
-          ...(username ? { userId: username } : {}),
-          ...(password ? { password } : {}),
-        },
-        destination: {
-          host: targetHost,
-          port,
-        },
-        command: "connect",
-      })
-        .then(({ socket }) => {
-          console.log(`[socks-bridge] Tunnel established to ${targetHost}:${port}`);
-          clientSocket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
-          if (head.length > 0) socket.write(head);
-          socket.pipe(clientSocket);
-          clientSocket.pipe(socket);
-          socket.on("error", (e) => console.error(`[socks-bridge] socket error:`, e.message));
-          clientSocket.on("error", (e) => console.error(`[socks-bridge] client error:`, e.message));
-        })
-        .catch((err) => {
-          console.error(`[socks-bridge] SOCKS connect failed:`, err.message);
-          clientSocket.write("HTTP/1.1 502 Bad Gateway\r\n\r\n");
-          clientSocket.destroy();
-        });
-    });
-
-    server.listen(0, "127.0.0.1", () => {
-      const addr = server.address();
-      const port = typeof addr === "object" && addr ? addr.port : 0;
-      resolve({
-        port,
-        close: () => {
-          server.close();
-        },
-      });
-    });
-
-    server.on("error", reject);
-  });
-}
+export { startSocksToHttpBridge } from "./socks-http-bridge";
 
 export class OpenAIAccountService {
   private readonly accountsDir: string;
@@ -576,7 +501,7 @@ export class OpenAIAccountService {
       const login = await startCodexBrowserLogin({
         executable: codexExecutable,
         codexHomeDir,
-        env: buildCodexProxyEnv(process.env, proxyEnvironment),
+        proxy: proxyEnvironment,
         onAuthenticated: async (signal) => {
           let saveError: unknown;
           for (let attempt = 0; attempt < 5; attempt += 1) {
@@ -915,7 +840,7 @@ export class OpenAIAccountService {
       const executable = this.codexExecutableProvider();
       if (!executable) throw new Error("Codex CLI 未找到，无法访问账号。");
       const codexHomeDir = await fs.mkdtemp(path.join(this.accountsDir, `quota-${accountId}-`));
-      let bridge: { close: () => void } | undefined;
+      let bridge: SocksHttpBridge | undefined;
       let preserveCredentials = false;
       try {
         await fs.writeFile(path.join(codexHomeDir, "auth.json"), account.authJson, { mode: 0o600 });
@@ -933,6 +858,10 @@ export class OpenAIAccountService {
             executable, codexHomeDir,
             proxy: proxyUrl ? { mode: "proxy", url: proxyUrl } : { mode: "direct" },
           }, (client) => operation(client, refreshToken, chatgptAccountId));
+        } catch (error) {
+          const failure = bridge?.getLastFailure();
+          if (!failure) throw error;
+          throw new Error(`${error instanceof Error ? error.message : String(error)}；最近一次代理桥接失败：${failure.destination}，${failure.phase}，${failure.code}：${failure.message}`, { cause: error });
         } finally {
           const updatedAuth = await this.readFileOrNull(path.join(codexHomeDir, "auth.json"));
           if (updatedAuth !== null && updatedAuth !== account.authJson) {
