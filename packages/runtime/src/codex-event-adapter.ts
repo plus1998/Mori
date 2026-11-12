@@ -26,6 +26,7 @@ import {
 } from "./codex-context-snapshot.js";
 import type { CodexSpawnPayload, CodexSpawnPayloadMatchInput } from "./codex-spawn-role-queue.js";
 import type { CodexThreadAttribution } from "./codex-thread-attribution.js";
+import type { CodexRetryLogNotice } from "./codex-retry-log.js";
 import type {
   CodexTurnRouteIdentity,
   CodexTurnRouteRecord,
@@ -69,6 +70,7 @@ export type CodexThreadRunEventType =
   | "thinking.delta"
   | "thinking.final"
   | "thread.status"
+  | "diagnostic"
   | "api.error"
   | "tool.started"
   | "tool.completed"
@@ -285,6 +287,7 @@ const HANDLED_ITEM_TYPES = new Set([
 ]);
 
 const POC_HANDLERS: Record<string, NotificationHandler> = {
+  error: handleRetryNotice,
   "turn/started": handleTurnStarted,
   "turn/completed": handleTurnCompleted,
   "turn/plan/updated": handleTurnPlanUpdated,
@@ -338,6 +341,7 @@ export class CodexEventAdapter {
   private readonly nativeChildRoutes = new Map<string, CodexTurnRouteIdentity>();
   private readonly emittedImageViewPaths = new Set<string>();
   private readonly emittedImageDisplayArtifacts = new Set<string>();
+  private readonly firstRetrySources = new Map<string, "stderr" | "notification">();
 
   constructor(private readonly options: CodexEventAdapterOptions) {}
 
@@ -367,9 +371,54 @@ export class CodexEventAdapter {
     if (!handler || !isRecord(params)) {
       return;
     }
+    const threadId = readCodexThreadId(params);
+    const turnId = readCodexTurnId(params);
+    if (threadId && turnId && ["item/started", "turn/started", "turn/completed"].includes(method)) {
+      this.firstRetrySources.delete(`${threadId}:${turnId}`);
+    }
+    if (threadId && ["thread/closed", "thread/deleted"].includes(method)) {
+      for (const key of this.firstRetrySources.keys()) {
+        if (key.startsWith(`${threadId}:`)) this.firstRetrySources.delete(key);
+      }
+    }
+    if (method === "error" && this.isDuplicateFirstRetry(params, "notification")) return;
     const ctx = this.buildContext();
     handler(ctx, params);
     this.eventCounter = ctx.eventCounter;
+  }
+
+  /** Structured process logs expose the first retry that release WebSockets suppress. */
+  observeRetryLog(notice: CodexRetryLogNotice): void {
+    const params = {
+      threadId: notice.threadId,
+      turnId: notice.turnId,
+      willRetry: true,
+      retryDelayMs: notice.delayMs,
+      error: {
+        message: `Reconnecting... ${notice.attempt}/${notice.maxRetries}`,
+        additionalDetails: notice.error,
+      },
+    };
+    if (this.isDuplicateFirstRetry(params, "stderr")) return;
+    const ctx = this.buildContext();
+    handleRetryNotice(ctx, params, "stderr");
+    this.eventCounter = ctx.eventCounter;
+  }
+
+  private isDuplicateFirstRetry(params: Record<string, unknown>, source: "stderr" | "notification"): boolean {
+    if (params.willRetry !== true || !isRecord(params.error)) return false;
+    if (!/^Reconnecting\.{3}\s*1\/\d+$/u.test(String(params.error.message ?? ""))) return false;
+    const threadId = readCodexThreadId(params);
+    const turnId = readCodexTurnId(params);
+    if (!threadId || !turnId) return false;
+    const key = `${threadId}:${turnId}`;
+    const previous = this.firstRetrySources.get(key);
+    if (previous && previous !== source) {
+      this.firstRetrySources.delete(key);
+      return true;
+    }
+    this.firstRetrySources.set(key, source);
+    return false;
   }
 
   /** Replay events buffered while a child Codex thread lacked parent attribution. */
@@ -1249,6 +1298,60 @@ function buildUnprojectedItemPayload(item: Record<string, unknown>): string | un
   } catch {
     return undefined;
   }
+}
+
+/** Retriable errors are provider notices; only turn/completed settles a failed turn. */
+function handleRetryNotice(
+  ctx: AdapterContext,
+  params: Record<string, unknown>,
+  source: "stderr" | "notification" = "notification",
+): void {
+  if (params.willRetry !== true || !isRecord(params.error)) return;
+  const codexThreadId = readCodexThreadId(params);
+  if (!codexThreadId) return;
+  const error = params.error;
+  const upstreamMessage = readString(error, "message");
+  const details = readString(error, "additionalDetails");
+  if (!upstreamMessage && !details) return;
+  const progress = upstreamMessage?.match(/Reconnecting\.{3}\s*(\d+)\/(\d+)/iu);
+  const capacity =
+    error.codexErrorInfo === "serverOverloaded" ||
+    /selected model is at capacity/iu.test(details ?? upstreamMessage ?? "");
+  const reason = capacity ? "模型容量已满" : (details ?? upstreamMessage);
+  const progressLabel = progress ? `（${progress[1]}/${progress[2]}）` : "";
+  const delayMs =
+    typeof params.retryDelayMs === "number" &&
+    Number.isFinite(params.retryDelayMs) &&
+    params.retryDelayMs >= 0
+      ? params.retryDelayMs
+      : undefined;
+  const waitLabel = delayMs === undefined ? "" : `。约 ${Math.ceil(delayMs / 1000)} 秒后重试`;
+  emit(ctx, {
+    eventType: "diagnostic",
+    codexThreadId,
+    turnId: readCodexTurnId(params),
+    role: "system",
+    message: `Codex 正在自动重试${progressLabel}：${reason}${waitLabel}${capacity ? "。可继续等待或停止后切换模型。" : delayMs === undefined ? "" : "。"}`,
+    streamState: "none",
+    metadata: {
+      codexMethod: source === "stderr" ? "stderr" : "error",
+      ...(source === "stderr" ? { codexLogTarget: "codex_core::responses_retry" } : {}),
+      liveType: "sdk.notice",
+      activityOrigin: "sdk.informational",
+      level: "warning",
+      willRetry: true,
+      ...(progress
+        ? {
+            retry: {
+              attempt: Number(progress[1]),
+              maxRetries: Number(progress[2]),
+              ...(delayMs === undefined ? {} : { delayMs }),
+            },
+          }
+        : {}),
+      upstreamError: error,
+    },
+  });
 }
 
 function handleDeprecationNotice(ctx: AdapterContext, params: Record<string, unknown>): void {

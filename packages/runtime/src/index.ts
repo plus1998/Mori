@@ -375,6 +375,7 @@ export * from "./codex-app-server-driver.js";
 export * from "./codex-config-sync.js";
 export * from "./codex-context-snapshot.js";
 export * from "./codex-event-adapter.js";
+export * from "./codex-retry-log.js";
 export * from "./codex-external-agent-config.js";
 export * from "./codex-fork.js";
 export * from "./codex-gated-models.js";

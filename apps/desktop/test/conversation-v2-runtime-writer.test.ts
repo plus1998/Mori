@@ -3,6 +3,7 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { CodexEventAdapter } from "@eco/runtime";
 import type { ConversationEffect } from "@eco/shared";
 import { ConversationStore } from "../src/main/conversation-store";
 import { ConversationV2RuntimeWriter } from "../src/main/conversation-v2-runtime-writer";
@@ -129,6 +130,76 @@ test("native provider snapshots append only new text and old replays cannot over
     expect(db.prepare("SELECT name FROM sqlite_master WHERE name LIKE 'thread_%'").all()).toEqual([]);
     v2.rebuildReadModels("thread");
     expect(v2.bootstrap("thread").messages[0]?.body).toBe("hello 🌏");
+  } finally {
+    db.close();
+  }
+});
+
+test("Codex retry notifications become durable system notices without settling the active run", () => {
+  const { db, v2, writer } = setup();
+  try {
+    const adapter = new CodexEventAdapter({
+      resolveEcoThreadId: () => "thread",
+      recordThreadRunEvent: (event) => writer.append({ ...event, runAttemptId: "run" }),
+    });
+    adapter.dispatch("error", {
+      threadId: "codex-thread",
+      turnId: "codex-turn",
+      willRetry: true,
+      error: {
+        message: "Reconnecting... 2/5",
+        codexErrorInfo: "serverOverloaded",
+        additionalDetails: "Selected model is at capacity. Please try a different model.",
+      },
+    });
+    const notice = v2.bootstrap("thread").messages[0];
+    expect(notice).toMatchObject({
+      role: "system",
+      channel: "commentary",
+      status: "final",
+      providerRole: "request.retry_scheduled",
+    });
+    expect(notice?.body).toContain("（2/5）：模型容量已满");
+    expect(
+      db
+        .prepare(
+          "SELECT type FROM conversation_events_v2 WHERE type IN ('run.completed', 'run.failed', 'run.interrupted')",
+        )
+        .all(),
+    ).toHaveLength(0);
+    v2.rebuildReadModels("thread");
+    expect(v2.bootstrap("thread").messages[0]?.body).toBe(notice?.body);
+  } finally {
+    db.close();
+  }
+});
+
+test("a first retry visible only in process logs persists immediately and survives projection rebuild", () => {
+  const { db, v2, writer } = setup();
+  try {
+    const adapter = new CodexEventAdapter({
+      resolveEcoThreadId: () => "thread",
+      recordThreadRunEvent: (event) => writer.append({ ...event, runAttemptId: "run" }),
+    });
+    adapter.observeRetryLog({
+      threadId: "codex-thread",
+      turnId: "codex-turn",
+      attempt: 1,
+      maxRetries: 5,
+      delayMs: 314998.382375,
+      error: "Selected model is at capacity. Please try a different model.",
+    });
+    const notice = v2.bootstrap("thread").messages[0];
+    expect(notice).toMatchObject({
+      role: "system",
+      channel: "commentary",
+      status: "final",
+      providerRole: "request.retry_scheduled",
+    });
+    expect(notice?.body).toContain("（1/5）：模型容量已满。约 315 秒后重试");
+    expect(v2.bootstrap("thread").runs[0]?.status).toBe("running");
+    v2.rebuildReadModels("thread");
+    expect(v2.bootstrap("thread").messages[0]?.body).toBe(notice?.body);
   } finally {
     db.close();
   }

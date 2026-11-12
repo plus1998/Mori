@@ -734,6 +734,7 @@ function conversationV2MessageToTimelineItem(
   const threadFailureType =
     isNotice && isThreadFailureNoticeType(message.providerRole) ? message.providerRole : undefined;
   const isDiagnostic = message.role === "system" && message.channel === "commentary";
+  const isRetryNotice = isDiagnostic && message.providerRole === "request.retry_scheduled";
   return {
     id: `conversation-v2:${message.messageId}`,
     sequence: message.createdSeq,
@@ -741,21 +742,23 @@ function conversationV2MessageToTimelineItem(
       ? "thread.status"
       : isNotice
         ? "api.error"
-        : isDiagnostic
-          ? "diagnostic"
-          : isThinking
-            ? message.status === "streaming"
-              ? "thinking.delta"
-              : "thinking.final"
-            : message.status === "streaming"
-              ? "message.delta"
-              : "message.final",
+        : isRetryNotice
+          ? "request.retry_scheduled"
+          : isDiagnostic
+            ? "diagnostic"
+            : isThinking
+              ? message.status === "streaming"
+                ? "thinking.delta"
+                : "thinking.final"
+              : message.status === "streaming"
+                ? "message.delta"
+                : "message.final",
     scope: "main",
     // The Feed asks the row's role who wrote it (`role === "main"` marks a turn's
     // final output) and normalizing it to the channel role left V2 unable to answer.
     // The provider's own label is carried on the row; the channel role is the fallback
     // for rows written before it was recorded.
-    role: threadFailureType
+    role: threadFailureType || isRetryNotice
       ? "system"
       : normalizeAgentRole(message.providerRole?.trim() || (isThinking ? "thinking" : message.role)),
     ...(agentId ? { agentId } : {}),
@@ -775,6 +778,9 @@ function conversationV2MessageToTimelineItem(
       conversationV2Channel: message.channel,
       conversationV2Status: message.status,
       ...(message.origin ? { messageOrigin: message.origin } : {}),
+      ...(isRetryNotice
+        ? { liveType: "request.retry_scheduled", activityOrigin: "sdk.api_retry", willRetry: true }
+        : {}),
       ...(threadFailureType
         ? {
             liveType: threadFailureType,

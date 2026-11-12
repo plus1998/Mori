@@ -1863,6 +1863,7 @@ async function startSharedCodexRuntimeLifecycle(
       eventAdapter?.dispatch(method, params);
       approvalBridge?.handleNotification(method, params);
     },
+    onRetryNotice: (notice) => eventAdapter?.observeRetryLog(notice),
     onStderr: (chunk) => {
       runtimeDeps.onStderr?.(`[codex app-server] ${chunk}`);
     },

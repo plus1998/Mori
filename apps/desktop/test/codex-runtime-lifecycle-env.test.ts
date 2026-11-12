@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { CodexEventAdapter, type CodexThreadRunEventInput } from "@eco/runtime";
 import {
   buildCodexAppServerEnv,
   CodexRuntimeLifecycle,
@@ -12,6 +13,74 @@ import {
 } from "../src/main/codex-runtime-lifecycle";
 
 describe("Codex app-server environment", () => {
+  test("structured stderr exposes a hidden first retry through the runtime before any native error", async () => {
+    const ecoDataDir = await fs.mkdtemp(path.join(os.tmpdir(), "mori-first-retry-"));
+    const executable = path.join(ecoDataDir, "fake-codex");
+    const log = JSON.stringify({
+      target: "codex_core::responses_retry",
+      fields: {
+        message: "stream disconnected - retrying sampling request (1/5 in 314.998382375s)...",
+        retries: 1,
+        max_retries: 5,
+        turn_id: "turn-a",
+        sampling_error: "Selected model is at capacity. Please try a different model.",
+      },
+      spans: [{ name: "session_loop", thread_id: "codex-a" }],
+    });
+    await fs.writeFile(
+      executable,
+      `#!/usr/bin/env node
+const readline = require('node:readline');
+readline.createInterface({input:process.stdin}).on('line', line => {
+ const msg=JSON.parse(line);
+ if(msg.method==='initialized')return;
+ if(msg.method==='test/retry'){
+  process.stdout.write(JSON.stringify({method:'turn/started',params:{threadId:'codex-a',turn:{id:'turn-a'}}})+'\\n');
+  const log=${JSON.stringify(log)}+'\\n';
+  process.stderr.write(log.slice(0,40));
+  setTimeout(()=>{process.stderr.write(log.slice(40));process.stdout.write(JSON.stringify({id:msg.id,result:{}})+'\\n');},10);
+  return;
+ }
+ process.stdout.write(JSON.stringify({id:msg.id,result:{}})+'\\n');
+});`,
+      { mode: 0o755 },
+    );
+    const events: CodexThreadRunEventInput[] = [];
+    const adapter = new CodexEventAdapter({
+      resolveEcoThreadId: () => "mori-a",
+      recordThreadRunEvent: (event) => events.push(event),
+    });
+    const lifecycle = new CodexRuntimeLifecycle({
+      ecoDataDir,
+      codexExecutable: executable,
+      onRetryNotice: (notice) => adapter.observeRetryLog(notice),
+    });
+    try {
+      const client = await lifecycle.start();
+      await client.request("test/retry");
+      await Bun.sleep(20);
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        threadId: "mori-a",
+        eventType: "diagnostic",
+        metadata: { turnId: "turn-a", retry: { attempt: 1, delayMs: 314998.382375 } },
+      });
+      expect(events[0]?.message).toContain("约 315 秒后重试");
+    } finally {
+      await lifecycle.stop();
+      await fs.rm(ecoDataDir, { recursive: true, force: true });
+    }
+  });
+
+  test("retry logs use JSON and remain enabled alongside existing Rust log filters", () => {
+    const env = buildCodexAppServerEnv(
+      { RUST_LOG: "error,codex_core=info", LOG_FORMAT: "text" },
+      "/tmp/codex",
+    );
+    expect(env.LOG_FORMAT).toBe("json");
+    expect(env.RUST_LOG).toBe("error,codex_core=info,codex_core::responses_retry=warn");
+  });
+
   test("task runtime receives external access tokens and delegates refresh to the bound account", async () => {
     const ecoDataDir = await fs.mkdtemp(path.join(os.tmpdir(), "mori-runtime-auth-"));
     const executable = path.join(ecoDataDir, "fake-codex");

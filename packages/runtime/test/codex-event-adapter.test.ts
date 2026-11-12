@@ -46,6 +46,115 @@ test("dispatch maps turn/started to run.attempt.started", () => {
   expect(events[0]?.metadata?.turnId).toBe("turn_001");
 });
 
+test("Codex retries expose capacity and progress without failing or completing the turn", () => {
+  const events = collectEvents((record) => {
+    const adapter = new CodexEventAdapter({ resolveEcoThreadId, recordThreadRunEvent: record });
+    adapter.dispatch("error", {
+      threadId: CODEX_THREAD,
+      turnId: "turn_retry",
+      willRetry: true,
+      error: {
+        message: "Reconnecting... 2/5",
+        additionalDetails: "Selected model is at capacity. Please try a different model.",
+        codexErrorInfo: "serverOverloaded",
+      },
+    });
+    adapter.dispatch("item/agentMessage/delta", {
+      threadId: CODEX_THREAD,
+      turnId: "turn_retry",
+      itemId: "recovered",
+      delta: "恢复响应",
+    });
+  });
+  expect(events.map((event) => event.eventType)).toEqual(["diagnostic", "message.delta"]);
+  expect(events[0]).toMatchObject({
+    threadId: ECO_THREAD,
+    role: "system",
+    metadata: {
+      liveType: "sdk.notice",
+      willRetry: true,
+      turnId: "turn_retry",
+      retry: { attempt: 2, maxRetries: 5 },
+    },
+  });
+  expect(events[0]?.message).toContain("（2/5）：模型容量已满");
+  expect(events[1]?.message).toBe("恢复响应");
+});
+
+test("network waits do not invent retry counts and terminal errors wait for turn/completed", () => {
+  const events = collectEvents((record) => {
+    const adapter = new CodexEventAdapter({ resolveEcoThreadId, recordThreadRunEvent: record });
+    adapter.dispatch("error", {
+      threadId: CODEX_THREAD,
+      turnId: "turn_retry",
+      willRetry: true,
+      error: { message: "Reconnecting... waiting for network", additionalDetails: "Connection failed" },
+    });
+    adapter.dispatch("error", {
+      threadId: CODEX_THREAD,
+      turnId: "turn_retry",
+      willRetry: false,
+      error: { message: "Connection failed" },
+    });
+    adapter.dispatch("error", { willRetry: true, error: { message: "Reconnecting... 1/5" } });
+    adapter.dispatch("error", { threadId: CODEX_THREAD, willRetry: true, error: {} });
+  });
+  expect(events).toHaveLength(1);
+  expect(events[0]?.message).toBe("Codex 正在自动重试：Connection failed");
+  expect(events[0]?.metadata?.retry).toBeUndefined();
+});
+
+test("hidden first retries show their real wait and deduplicate native notifications in either order", () => {
+  for (const logFirst of [true, false]) {
+    const events: CodexThreadRunEventInput[] = [];
+    const adapter = new CodexEventAdapter({
+      resolveEcoThreadId,
+      recordThreadRunEvent: (event) => events.push(event),
+    });
+    const log = () =>
+      adapter.observeRetryLog({
+        threadId: CODEX_THREAD,
+        turnId: "turn_retry",
+        attempt: 1,
+        maxRetries: 5,
+        delayMs: 314998.382375,
+        error: "Selected model is at capacity. Please try a different model.",
+      });
+    const native = () =>
+      adapter.dispatch("error", {
+        threadId: CODEX_THREAD,
+        turnId: "turn_retry",
+        willRetry: true,
+        error: {
+          message: "Reconnecting... 1/5",
+          additionalDetails: "Selected model is at capacity. Please try a different model.",
+        },
+      });
+    if (logFirst) {
+      log();
+      native();
+    } else {
+      native();
+      log();
+    }
+    expect(events).toHaveLength(1);
+    expect(events[0]?.message).toContain("（1/5）：模型容量已满");
+    if (logFirst) {
+      expect(events[0]?.message).toContain("约 315 秒后重试");
+      expect(events[0]?.metadata?.codexMethod).toBe("stderr");
+      expect(events[0]?.metadata?.retry).toEqual({ attempt: 1, maxRetries: 5, delayMs: 314998.382375 });
+    }
+    adapter.dispatch("item/started", {
+      threadId: CODEX_THREAD,
+      turnId: "turn_retry",
+      item: { type: "reasoning", id: "recovered" },
+    });
+    log();
+    log();
+    expect(events.filter((event) => event.eventType === "diagnostic")).toHaveLength(3);
+  }
+});
+
 test("dispatch forwards authoritative turn plan snapshots and status changes", () => {
   const updates: CodexTurnPlanUpdatedInput[] = [];
   const adapter = new CodexEventAdapter({

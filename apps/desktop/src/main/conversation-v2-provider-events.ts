@@ -206,7 +206,14 @@ export function appendProviderEventToConversationV2(
     // from the request phase, not from this event.
     if (event.message.trim()) {
       const threadFailure = isThreadFailureNotice(event);
-      const noticeRole = threadFailure ? liveType : legacyProviderRole(event);
+      const retryNotice = liveType === "sdk.notice" && event.metadata?.willRetry === true;
+      // Preserve retry semantics through the durable message projection; ordinary
+      // informational diagnostics stay separate from an active provider wait.
+      const noticeRole = threadFailure
+        ? liveType
+        : retryNotice
+          ? "request.retry_scheduled"
+          : legacyProviderRole(event);
       emit(
         "message.created",
         "notice",

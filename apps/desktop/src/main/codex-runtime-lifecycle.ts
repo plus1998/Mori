@@ -4,6 +4,8 @@ import {
   CodexAppServerClient,
   type CodexAppServerClientOptions,
   type CodexAppServerNotificationHandler,
+  CodexRetryLogObserver,
+  type CodexRetryLogNotice,
   readCodexThreadStatus,
   resolveCodexHomeDir,
 } from "@eco/runtime";
@@ -29,6 +31,7 @@ export interface CodexRuntimeLifecycleOptions {
   codexExecutable?: string;
   clientOptions?: Omit<CodexAppServerClientOptions, "onNotification">;
   onNotification?: CodexAppServerNotificationHandler;
+  onRetryNotice?: (notice: CodexRetryLogNotice) => void;
   onAccountRateLimitsUpdated?: (accountId: string, chatgptAccountId: string, params: unknown) => void;
   onStderr?: (chunk: string) => void;
 }
@@ -233,9 +236,12 @@ export class CodexRuntimeLifecycle {
       throw error;
     }
 
+    const retryLogs = new CodexRetryLogObserver((notice) => this.options.onRetryNotice?.(notice));
     child.stderr.setEncoding("utf8");
     child.stderr.on("data", (chunk: string) => {
       this.options.onStderr?.(chunk);
+      if (generation !== this.generation || this.child !== child) return;
+      retryLogs.push(chunk);
     });
 
     let boundAuth: CodexExternalAuth | undefined;
@@ -260,6 +266,7 @@ export class CodexRuntimeLifecycle {
           this.options.onAccountRateLimitsUpdated?.(boundAuth.accountId, boundAuth.chatgptAccountId, params);
         }
         this.options.onNotification?.(method, params);
+        retryLogs.observeNotification(method, params);
       },
     };
     const client = CodexAppServerClient.attachToProcess(child, clientOptions);
@@ -338,6 +345,9 @@ export function buildCodexAppServerEnv(
   return {
     ...buildCodexProxyEnv(source, proxy),
     CODEX_HOME: codexHomeDir,
+    // Keep first-retry attribution and timing available even when JSON-RPC hides it.
+    LOG_FORMAT: "json",
+    RUST_LOG: [source.RUST_LOG?.trim(), "codex_core::responses_retry=warn"].filter(Boolean).join(","),
   };
 }
 
