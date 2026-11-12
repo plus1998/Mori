@@ -1,17 +1,88 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { ConversationHead } from "@eco/shared";
 import { repairActivityText } from "../shared/activity-text";
-import type { ThreadRunEvent, ThreadRunEventInput, ThreadRunProjectionRequestSpan } from "../shared/ipc";
+import type {
+  ThreadRunEvent,
+  ThreadRunEventInput,
+  ThreadRunProjectionRequestSpan,
+} from "../shared/ipc";
 import { withLegacyConversationV2MessageIdentity } from "./conversation-v2-legacy-adapter";
 import { buildThreadRunProjectionRequestSpans } from "./conversation-v2-runtime-projection";
 import type { AgentInstanceRecord } from "./usage-ledger";
 
 interface Entry {
   head: ConversationHead;
-  events: Map<string, { event: ThreadRunEvent; bytes: number }>;
-  bytes: number;
   state: string;
   spans: ThreadRunProjectionRequestSpan[];
+  /**
+   * A compact replay window for conversations whose complete event history is
+   * too large to retain. It contains the last two request windows only; older
+   * spans are frozen in `spans`.
+   */
+  tailEvents: ThreadRunEvent[];
+  tailRequestIds: Set<string>;
+  tailBytes: number;
+}
+
+const MAX_TAIL_BYTES = 2 * 1024 * 1024;
+const TAIL_REQUEST_WINDOWS = 2;
+
+function compactProjectionEvent(event: ThreadRunEvent): ThreadRunEvent {
+  // Request timing does not need streamed text. Keep only messages that are
+  // consumed as an error/tool-writing fallback, with a hard bound for safety.
+  const keepMessage =
+    event.eventType === "tool.writing" ||
+    event.eventType === "request.failed" ||
+    event.eventType === "api.error";
+  return {
+    ...event,
+    message: keepMessage ? event.message.slice(0, 8 * 1024) : "",
+  };
+}
+
+function buildTail(events: readonly ThreadRunEvent[]): {
+  events: ThreadRunEvent[];
+  requestIds: Set<string>;
+  bytes: number;
+} {
+  const starts: number[] = [];
+  for (let index = 0; index < events.length; index += 1) {
+    if (
+      events[index]?.eventType === "request.started" &&
+      events[index]?.requestId
+    )
+      starts.push(index);
+  }
+  const start =
+    starts[Math.max(0, starts.length - TAIL_REQUEST_WINDOWS)] ?? events.length;
+  const tail = events.slice(start).map(compactProjectionEvent);
+  const bytes = tail.reduce(
+    (total, event) => total + Buffer.byteLength(JSON.stringify(event)),
+    0,
+  );
+  return {
+    events: tail,
+    requestIds: new Set(
+      tail.flatMap((event) => (event.requestId ? [event.requestId] : [])),
+    ),
+    bytes,
+  };
+}
+
+function mergeTailSpans(
+  frozen: readonly ThreadRunProjectionRequestSpan[],
+  previousTailIds: ReadonlySet<string>,
+  tailSpans: readonly ThreadRunProjectionRequestSpan[],
+): ThreadRunProjectionRequestSpan[] {
+  const merged = new Map(
+    frozen
+      .filter((span) => !previousTailIds.has(span.requestId))
+      .map((span) => [span.requestId, span]),
+  );
+  for (const span of tailSpans) merged.set(span.requestId, span);
+  return [...merged.values()].sort((left, right) =>
+    left.startedAt.localeCompare(right.startedAt),
+  );
 }
 
 /** Bounded read cache. Durable V2 versions, never a timeout, define freshness. */
@@ -26,7 +97,9 @@ export class ConversationRequestSpanCache {
     threadStatus: string,
     agents: readonly AgentInstanceRecord[],
   ): ThreadRunProjectionRequestSpan[] {
-    const version = this.db.prepare("PRAGMA data_version").get() as { data_version: number };
+    const version = this.db.prepare("PRAGMA data_version").get() as {
+      data_version: number;
+    };
     // Another connection may rebuild materialized tables or replace history.
     if (this.dataVersion !== version.data_version) this.entries.clear();
     this.dataVersion = version.data_version;
@@ -45,10 +118,14 @@ export class ConversationRequestSpanCache {
     if (previous?.head.lastSeq === head.lastSeq && previous.state === state) {
       return structuredClone(previous.spans);
     }
-    let events = previous?.events ?? new Map<string, { event: ThreadRunEvent; bytes: number }>();
-    let bytes = previous?.bytes ?? 0;
-    if (!previous || previous.head.lastSeq !== head.lastSeq) {
-      const after = previous?.head.lastSeq;
+    const canIncrement = Boolean(
+      previous &&
+      previous.state === state &&
+      previous.head.lastSeq < head.lastSeq &&
+      previous.tailEvents.length > 0 &&
+      previous.tailBytes <= MAX_TAIL_BYTES,
+    );
+    const queryRows = (after: number | undefined) => {
       const changed =
         after === undefined
           ? ""
@@ -75,42 +152,147 @@ export class ConversationRequestSpanCache {
         WHERE p.conversation_id = ? AND p.visible = 1 ${changed}
         ORDER BY p.version_seq, p.input_id
       `);
-      const rows = (after === undefined ? query.all(id) : query.all(id, id, after, id, after)) as Array<{
+      return (
+        after === undefined
+          ? query.all(id)
+          : query.all(id, id, after, id, after)
+      ) as Array<{
         input_id: string;
         version_seq: number;
         source_json: string;
         message: string;
       }>;
-      // Publish only after all decoding and derivation succeeds.
-      events = new Map(events);
-      for (const row of rows) {
-        const source = JSON.parse(row.source_json) as ThreadRunEventInput;
-        const event = withLegacyConversationV2MessageIdentity({
+    };
+    let after = canIncrement ? previous!.head.lastSeq : undefined;
+    let rows = queryRows(after);
+    let decoded = rows.map((row) => {
+      const source = JSON.parse(row.source_json) as ThreadRunEventInput;
+      return {
+        input_id: row.input_id,
+        version_seq: row.version_seq,
+        source_json: row.source_json,
+        message: row.message,
+        event: withLegacyConversationV2MessageIdentity({
           ...source,
           id: row.input_id,
           threadId: id,
           sequence: row.version_seq,
           message: repairActivityText(row.message).text,
-        });
-        const size = Buffer.byteLength(row.source_json) + Buffer.byteLength(row.message);
-        bytes += size - (events.get(row.input_id)?.bytes ?? 0);
-        events.set(row.input_id, { event, bytes: size });
-      }
-    }
-    const ordered = [...events.values()]
-      .map((row) => row.event)
-      .sort((a, b) => a.sequence - b.sequence || Buffer.compare(Buffer.from(a.id), Buffer.from(b.id)));
-    const spans = buildThreadRunProjectionRequestSpans({
-      events: ordered,
-      threadStatus,
-      agents,
-      historyComplete: true,
+        }),
+      };
     });
+    // A row at or before the checkpoint means an old fact was revised. Rebuild
+    // from the complete history; only append-only changes use the tail path.
+    const appendOnly =
+      canIncrement && decoded.every((row) => row.version_seq > after!);
+    const previousTailRequestIds =
+      previous?.tailRequestIds ?? new Set<string>();
+    const touchesFrozenRequest =
+      canIncrement &&
+      decoded.some(
+        (row) =>
+          row.event.requestId &&
+          !previousTailRequestIds.has(row.event.requestId) &&
+          row.event.eventType !== "request.started",
+      );
+    if (!appendOnly || touchesFrozenRequest) {
+      after = undefined;
+      rows = queryRows(undefined);
+      decoded = rows.map((row) => {
+        const source = JSON.parse(row.source_json) as ThreadRunEventInput;
+        return {
+          input_id: row.input_id,
+          version_seq: row.version_seq,
+          source_json: row.source_json,
+          message: row.message,
+          event: withLegacyConversationV2MessageIdentity({
+            ...source,
+            id: row.input_id,
+            threadId: id,
+            sequence: row.version_seq,
+            message: repairActivityText(row.message).text,
+          }),
+        };
+      });
+    }
+    const fullEvents = decoded.map((row) => row.event);
+    const ordered =
+      after === undefined
+        ? fullEvents
+        : [...(previous?.tailEvents ?? []), ...fullEvents].sort(
+            (a, b) =>
+              a.sequence - b.sequence ||
+              Buffer.compare(Buffer.from(a.id), Buffer.from(b.id)),
+          );
+    let spans: ThreadRunProjectionRequestSpan[];
+    let tailEvents: ThreadRunEvent[];
+    let tailRequestIds: Set<string>;
+    let tailBytes: number;
+    if (after !== undefined) {
+      const accumulatedTail = ordered;
+      const accumulatedTailSpans = buildThreadRunProjectionRequestSpans({
+        events: accumulatedTail,
+        threadStatus,
+        agents,
+        historyComplete: true,
+      });
+      const tail = buildTail(accumulatedTail);
+      if (tail.bytes > MAX_TAIL_BYTES) {
+        const fullRows = queryRows(undefined);
+        const fullEvents = fullRows.map((row) => {
+          const source = JSON.parse(row.source_json) as ThreadRunEventInput;
+          return withLegacyConversationV2MessageIdentity({
+            ...source,
+            id: row.input_id,
+            threadId: id,
+            sequence: row.version_seq,
+            message: repairActivityText(row.message).text,
+          });
+        });
+        spans = buildThreadRunProjectionRequestSpans({
+          events: fullEvents,
+          threadStatus,
+          agents,
+          historyComplete: true,
+        });
+        const rebuiltTail = buildTail(fullEvents);
+        tailEvents = rebuiltTail.events;
+        tailRequestIds = rebuiltTail.requestIds;
+        tailBytes = rebuiltTail.bytes;
+      } else {
+        spans = mergeTailSpans(
+          previous!.spans,
+          previous!.tailRequestIds,
+          accumulatedTailSpans,
+        );
+        tailEvents = tail.events;
+        tailRequestIds = tail.requestIds;
+        tailBytes = tail.bytes;
+      }
+    } else {
+      spans = buildThreadRunProjectionRequestSpans({
+        events: ordered,
+        threadStatus,
+        agents,
+        historyComplete: true,
+      });
+      const tail = buildTail(ordered);
+      tailEvents = tail.events;
+      tailRequestIds = tail.requestIds;
+      tailBytes = tail.bytes;
+    }
     this.entries.delete(id);
-    // Transaction reads must not survive rollback. Large conversations remain
-    // correct without retaining their source envelopes in the process heap.
-    if (!this.db.isTransaction && bytes <= 4 * 1024 * 1024 && events.size <= 10_000) {
-      this.entries.set(id, { head, events, bytes, state, spans });
+    // Transaction reads must not survive rollback. Keep only request projection
+    // state and a bounded tail; never retain the complete source history.
+    if (!this.db.isTransaction) {
+      this.entries.set(id, {
+        head,
+        state,
+        spans,
+        tailEvents,
+        tailRequestIds,
+        tailBytes,
+      });
       if (this.entries.size > 4) {
         const oldest = this.entries.keys().next().value;
         if (oldest !== undefined) this.entries.delete(oldest);
