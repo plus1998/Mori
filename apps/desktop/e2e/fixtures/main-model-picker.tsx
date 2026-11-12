@@ -17,7 +17,8 @@ let lastSelection: ModelRef | undefined;
 const readOnly = new URLSearchParams(location.search).has("readOnly");
 const never = () => new Promise<never>(() => {});
 const catalog = (modelId: string): CodexModelCatalogSnapshot => ({
-  models: [{ modelId, displayName: modelId, hidden: false, origin: "remote", reasoningEfforts: ["low", "high"],
+  models: [{ modelId, displayName: modelId, hidden: false, origin: "remote", reasoningEfforts: new URLSearchParams(location.search).has("fullEfforts")
+    ? ["off", "low", "medium", "high", "xhigh", "max"] : ["low", "high"],
     supportsFast: !new URLSearchParams(location.search).has("noFast") }],
   status: { sourceUrl: "local-test", remoteCount: 1, manualCount: 0 },
 });

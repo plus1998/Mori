@@ -1,13 +1,15 @@
 import { ComposerHoverTooltip } from "./ComposerHoverTooltip";
 import { codexQuotaPeriod, codexQuotaResetAt } from "./codex-quota-reminder";
-import { Check, ChevronDown, CircleHelp, Search, Zap } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from "react";
+import { Check, ChevronDown, CircleHelp, Search } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import type { CandidateModelView, CommitModelOptionView, ModelRef, ThinkingEffort } from "../shared/ipc";
 import type { OpenAIAccountQuota } from "../shared/openai-account";
 import { resolveProviderBrandLogo } from "../shared/provider-brand-logo";
 import { ComposerAbovePanel } from "./ComposerAbovePanel";
-import { ComposerModelLabel, formatComposerModelName, formatComposerThinkingEffortLabel } from "./ComposerModelLabel";
+import { ComposerThinkingEffortControl } from "./ComposerThinkingEffortControl";
+import { FastModeIcon } from "./FastModeIcon";
+import { ComposerModelLabel, formatComposerModelName } from "./ComposerModelLabel";
 
 type Source = "login" | "oauth" | string;
 type PickerPurpose = "main" | "subagent" | "auxiliary" | "vision" | "approval";
@@ -45,68 +47,6 @@ export function thinkingEffortsForModel(entry: PickerModel | undefined,
     if (!capability || capability.resolvedSupportsReasoning === false) return [];
   }
   return THINKING_EFFORTS;
-}
-
-function ThinkingEffortSlider({ efforts, value, disabled = false, statusLabel, onCommit }: {
-  efforts: readonly ThinkingEffort[];
-  value: ThinkingEffort | undefined;
-  disabled?: boolean;
-  statusLabel?: string;
-  onCommit: (value: ThinkingEffort) => void;
-}) {
-  const { t } = useTranslation();
-  const [draftIndex, setDraftIndex] = useState<number | undefined>();
-  const draftIndexRef = useRef<number | undefined>(undefined);
-  const unsupportedValue = Boolean(value && !efforts.includes(value));
-  const selectedIndex = draftIndex ?? Math.max(0, efforts.indexOf(value ?? "low"));
-  const selectedEffort = efforts[selectedIndex];
-  const hasVisualSelection = !unsupportedValue || draftIndex !== undefined;
-  const progress = hasVisualSelection && efforts.length > 1
-    ? selectedIndex / (efforts.length - 1) * 100 : 0;
-  const commitIndex = (index: number) => {
-    draftIndexRef.current = undefined;
-    setDraftIndex(undefined);
-    const effort = efforts[index];
-    if (effort && effort !== value) onCommit(effort);
-  };
-  return <div className={`composer-main-model-picker-effort-slider${disabled ? " is-disabled" : ""}`}>
-    <div className="composer-main-model-picker-effort-value" aria-hidden>
-      {statusLabel ?? (unsupportedValue && draftIndex === undefined
-        ? t("composer.mainPicker.unsupportedThinkingEffort")
-        : selectedEffort ? formatComposerThinkingEffortLabel(selectedEffort)
-        : t("composer.mainPicker.noThinkingEfforts"))}
-    </div>
-    <div className="composer-main-model-picker-effort-track-wrap"
-      style={{ "--effort-progress": `${progress}%` } as CSSProperties}>
-      <div className="composer-main-model-picker-effort-track" aria-hidden>
-        <div className="composer-main-model-picker-effort-fill" />
-        <div className="composer-main-model-picker-effort-dots">
-          {efforts.map((effort, index) => <span key={effort}
-            className={hasVisualSelection && index <= selectedIndex ? "is-filled" : ""} />)}
-        </div>
-      </div>
-      <input type="range" className={hasVisualSelection ? "" : "is-unset"}
-        min={0} max={Math.max(0, efforts.length - 1)} step={1}
-        value={selectedIndex} disabled={disabled || efforts.length < 2}
-        aria-label={t("composer.mainPicker.thinkingEffort")}
-        aria-valuetext={statusLabel ?? (unsupportedValue && draftIndex === undefined
-          ? t("composer.mainPicker.unsupportedThinkingEffort")
-          : selectedEffort ? formatComposerThinkingEffortLabel(selectedEffort)
-          : t("composer.mainPicker.noThinkingEfforts"))}
-        onChange={(event) => {
-          const index = Number(event.currentTarget.value);
-          draftIndexRef.current = index;
-          setDraftIndex(index);
-        }}
-        onPointerUp={(event) => commitIndex(Number(event.currentTarget.value))}
-        onKeyUp={(event) => {
-          if (["ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown"].includes(event.key))
-            commitIndex(Number(event.currentTarget.value));
-        }}
-        onBlur={() => { if (draftIndexRef.current !== undefined) commitIndex(draftIndexRef.current); }}
-        onPointerCancel={() => { draftIndexRef.current = undefined; setDraftIndex(undefined); }} />
-    </div>
-  </div>;
 }
 
 export function associateOAuthModelEfforts(
@@ -544,9 +484,9 @@ export function ComposerMainModelPicker({
       {model ? <span className="composer-model-picker-selection">
         {!compactLabel ? (model.providerId === "eco-coding-chatgpt" ? `ChatGPT · ${selectedAccount?.name ?? (model.accountId && oauthAccountsLoaded ? t("composer.mainPicker.accountRemoved") : model.accountId ? t("composer.mainPicker.selectedAccount") : t("composer.route.selectAccount"))} · `
           : purpose !== "main" ? `${providerName} · ` : "") : null}
+        {model.providerId === "openai" && model.serviceTier === "fast" ? <span className="composer-model-fast-badge" role="img" aria-label="Fast" title="Fast"><FastModeIcon enabled width={14} height={14} /></span> : null}
         {supportsThinking ? <ComposerModelLabel modelId={model.modelId} thinkingEffort={model.thinkingEffort} size="medium" />
           : <span>{formatComposerModelName(model.modelId)}</span>}
-        {model.providerId === "openai" && model.serviceTier === "fast" ? <span className="composer-model-fast-badge" role="img" aria-label="Fast" title="Fast"><Zap size={14} strokeWidth={2.4} aria-hidden /></span> : null}
       </span> : <span className="composer-model-empty-label">{t("composer.route.selectModel")}</span>}
       <ChevronDown size={13} className="composer-model-picker-chevron" aria-hidden />
     </button>
@@ -675,27 +615,17 @@ export function ComposerMainModelPicker({
                 </div> : <p className="composer-main-model-picker-hint">{t("composer.mainPicker.noModels")}</p>}
           </div>
           {supportsThinking ? <div className="composer-main-model-picker-effort">
-            <div className="composer-main-model-picker-effort-heading">
-              <span className="composer-main-model-picker-section-label">
-                {t("composer.mainPicker.thinkingEffort")}
-              </span>
-              {source === "login" && activeModel && activeChoice ? <ComposerHoverTooltip
-                content={t(activeModel.supportsFast ? "composer.mainPicker.fastHint" : "composer.mainPicker.fastUnavailable")}>
-                <label className="composer-main-model-picker-fast">
-                  <input type="checkbox" aria-label="Fast" checked={activeChoice.serviceTier === "fast"}
-                    disabled={readOnly || (!activeModel.supportsFast && activeChoice.serviceTier !== "fast")}
-                    onChange={(event) => {
-                      const choice: ModelRef = { ...activeChoice, serviceTier: event.currentTarget.checked ? "fast" : "default" };
-                      setActiveChoice(choice);
-                      void saveChoice(choice);
-                    }} />
-                  <Zap size={12} aria-hidden />
-                  <span>Fast</span>
-                  <span className="composer-main-model-picker-fast-track" aria-hidden />
-                </label>
-              </ComposerHoverTooltip> : null}
-            </div>
-            <ThinkingEffortSlider key={`${source}:${accountId}:${activeModel?.candidateModelId ?? activeModel?.id ?? "none"}`}
+            <ComposerThinkingEffortControl key={`${source}:${accountId}:${activeModel?.candidateModelId ?? activeModel?.id ?? "none"}`}
+              fast={source === "login" && activeModel && activeChoice ? {
+                enabled: activeChoice.serviceTier === "fast",
+                disabled: readOnly || (!activeModel.supportsFast && activeChoice.serviceTier !== "fast"),
+                hint: t(activeModel.supportsFast ? "composer.mainPicker.fastHint" : "composer.mainPicker.fastUnavailable"),
+                onChange: enabled => {
+                  const choice: ModelRef = { ...activeChoice, serviceTier: enabled ? "fast" : "default" };
+                  setActiveChoice(choice);
+                  void saveChoice(choice);
+                },
+              } : undefined}
               efforts={sliderEfforts} value={activeChoice?.thinkingEffort ?? preferredEffort}
               disabled={readOnly || sliderDisabled}
               {...(capabilitiesLoading ? { statusLabel: t("composer.mainPicker.loading") }

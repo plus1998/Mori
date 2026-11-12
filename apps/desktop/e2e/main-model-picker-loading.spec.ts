@@ -11,9 +11,9 @@ test("Login Fast remains selected across panel reopen and thinking-effort change
   await page.goto(fixtureUrl());
   const trigger = page.locator(".composer-model-trigger");
   await trigger.click();
-  const fast = page.getByRole("checkbox", { name: "Fast", exact: true });
+  const fast = page.getByRole("button", { name: "Fast", exact: true });
   await expect(fast).toBeEnabled();
-  await fast.check();
+  await fast.click();
   const fastBadge = page.locator(".composer-model-fast-badge");
   await expect(fastBadge).toBeVisible();
   await expect(fastBadge).toHaveText("");
@@ -24,11 +24,11 @@ test("Login Fast remains selected across panel reopen and thinking-effort change
   const effort = page.getByRole("slider");
   await effort.focus();
   await effort.press("End");
-  await expect(fast).toBeChecked();
+  await expect(fast).toHaveAttribute("aria-pressed", "true");
   await trigger.click();
   await trigger.click();
-  await expect(fast).toBeChecked();
-  await fast.uncheck();
+  await expect(fast).toHaveAttribute("aria-pressed", "true");
+  await fast.click();
   await expect(page.locator(".composer-model-fast-badge")).toHaveCount(0);
 });
 
@@ -36,7 +36,7 @@ for (const query of ["?readOnly", "?noFast"]) {
   test(`Login Fast is disabled for ${query}`, async ({ page }) => {
     await page.goto(fixtureUrl(query));
     await page.locator(".composer-model-trigger").click();
-    await expect(page.getByRole("checkbox", { name: "Fast", exact: true })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Fast", exact: true })).toBeDisabled();
     await expect(page.locator(".composer-model-fast-badge")).toHaveCount(0);
   });
 }
@@ -44,8 +44,8 @@ for (const query of ["?readOnly", "?noFast"]) {
 test("Login Fast is hidden for OAuth and custom providers and is cleared when switching providers", async ({ page }) => {
   await page.goto(fixtureUrl("?custom"));
   await page.locator(".composer-model-trigger").click();
-  const fast = page.getByRole("checkbox", { name: "Fast", exact: true });
-  await fast.check();
+  const fast = page.getByRole("button", { name: "Fast", exact: true });
+  await fast.click();
   await page.getByRole("button", { name: "ChatGPT OAuth", exact: true }).click();
   await expect(fast).toHaveCount(0);
   await page.getByRole("button", { name: "Custom provider", exact: true }).click();

@@ -1,0 +1,299 @@
+.composer-power-control {
+  --power-blue: #0285ff;
+  --power-purple: #924ff7;
+  --power-color: var(--power-blue);
+  padding: 0 10px 9px;
+  min-width: 0;
+}
+.composer-power-control[data-maximum="true"] {
+  --power-color: var(--power-purple);
+}
+.composer-power-heading {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) 32px;
+  align-items: center;
+  min-height: 36px;
+  margin-bottom: 4px;
+}
+.composer-power-value {
+  min-width: 0;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+.composer-power-control[data-maximum="true"] .composer-power-value {
+  color: var(--power-purple);
+}
+.composer-power-heading .composer-power-fast {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.composer-power-fast > span {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease;
+}
+.composer-power-fast svg {
+  width: 16px;
+  height: 16px;
+}
+.composer-power-fast[aria-pressed="true"] {
+  color: var(--power-color);
+}
+.composer-power-fast:hover:not(:disabled) > span {
+  background: var(--nav-hover);
+}
+.composer-power-fast:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 1px;
+}
+.composer-power-fast:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.composer-power-rail {
+  position: relative;
+  height: 32px;
+  min-width: 0;
+  touch-action: none;
+  user-select: none;
+}
+.composer-power-track {
+  position: absolute;
+  inset: 4px 0;
+  height: 24px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--text-primary) 10%, transparent);
+  box-shadow: inset 0 0 0 0.5px var(--border-subtle);
+}
+.composer-power-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  height: 100%;
+  width: 100%;
+  border-radius: 12px 0 0 12px;
+  background: var(--power-color);
+  transition: background-color 300ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.composer-power-ticks {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.composer-power-ticks > span {
+  position: absolute;
+  top: 50%;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--text-secondary) 50%, transparent);
+  transform: translate(-50%, -50%);
+  transition:
+    background-color 300ms cubic-bezier(0.23, 1, 0.32, 1),
+    opacity 200ms ease-in-out,
+    transform 120ms ease;
+}
+.composer-power-ticks > span[data-filled="true"] {
+  background: #ffffff4d;
+}
+.composer-power-control[data-maximum="true"][data-fast-mode="false"] .composer-power-ticks > span {
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(0.75);
+  transition-duration: 400ms;
+  transition-delay: 100ms;
+}
+.composer-power-control[data-fast-mode="true"] .composer-power-ticks > span[data-filled="true"] {
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(0.75) translateX(-85px);
+}
+.composer-power-control[data-fast-phase="entering"]:not([data-maximum="true"])
+  .composer-power-ticks
+  > span[data-filled="true"] {
+  animation:
+    power-fast-tick-scale 800ms cubic-bezier(0.23, 1, 0.32, 1) both,
+    power-fast-tick-travel 1150ms ease-in-out 50ms both,
+    power-fast-tick-fade 500ms ease-in-out 700ms both;
+}
+.composer-power-control[data-fast-phase="exiting"]:not([data-maximum="true"])
+  .composer-power-ticks
+  > span[data-filled="true"] {
+  animation:
+    power-fast-tick-return-scale 350ms ease-in-out both,
+    power-fast-tick-return-travel 350ms ease-out both,
+    power-fast-tick-return-fade 200ms ease-in-out both;
+}
+.composer-power-thumb-position {
+  position: absolute;
+  top: 50%;
+  width: 28px;
+  height: 28px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+.composer-power-thumb {
+  position: absolute;
+  inset: 0;
+  border: 0.5px solid var(--border-strong);
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 2px #0000001a;
+}
+.composer-power-rail[data-keyboard-focused="true"] .composer-power-thumb {
+  outline: 2px solid var(--accent);
+}
+.composer-power-rail[data-has-selection="false"] :is(.composer-power-thumb-position, .composer-power-fill) {
+  opacity: 0;
+}
+.composer-power-rail input[type="range"] {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  width: 100%;
+  height: 32px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  cursor: pointer;
+  touch-action: none;
+}
+.composer-power-rail[data-dragging="true"] input[type="range"] {
+  cursor: grabbing;
+}
+.composer-power-control[data-disabled="true"] .composer-power-rail {
+  opacity: 0.6;
+}
+.composer-power-rail input:disabled {
+  cursor: not-allowed;
+}
+.composer-power-particles {
+  position: absolute;
+  inset: 0 auto 0 0;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 250ms ease-in-out;
+}
+.composer-power-particles > span {
+  position: absolute;
+  right: -18px;
+  height: 1px;
+  border-radius: 999px;
+  background: #ffffffb3;
+  opacity: 0;
+  animation: power-fast-particle var(--particle-duration) linear var(--particle-delay) infinite;
+  animation-play-state: paused;
+}
+.composer-power-control[data-fast-mode="true"] .composer-power-particles {
+  opacity: 1;
+  transition-duration: 80ms;
+}
+.composer-power-control[data-fast-mode="true"] .composer-power-particles > span {
+  animation-play-state: running;
+}
+@keyframes power-fast-tick-scale {
+  from {
+    transform: translate(-50%, -50%) scale(1);
+  }
+  to {
+    transform: translate(-50%, -50%) scale(0.75);
+  }
+}
+@keyframes power-fast-tick-travel {
+  from {
+    translate: 0;
+  }
+  to {
+    translate: -85px;
+  }
+}
+@keyframes power-fast-tick-fade {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+@keyframes power-fast-tick-return-scale {
+  from {
+    transform: translate(-50%, -50%) scale(0.75);
+  }
+  to {
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+@keyframes power-fast-tick-return-travel {
+  from {
+    translate: 10px;
+  }
+  to {
+    translate: 0;
+  }
+}
+@keyframes power-fast-tick-return-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes power-fast-particle {
+  0% {
+    translate: 0;
+    opacity: 0;
+  }
+  15% {
+    opacity: 0.8;
+  }
+  80% {
+    opacity: 0.5;
+  }
+  100% {
+    translate: -320px;
+    opacity: 0;
+  }
+}
+.composer-power-control[data-reduced-motion="true"] .composer-power-particles {
+  display: none;
+}
+.composer-power-control[data-reduced-motion="true"][data-fast-mode] .composer-power-ticks > span {
+  animation: none;
+  transition: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .composer-power-control[data-fast-mode][data-fast-phase] .composer-power-ticks > span {
+    animation: none;
+    transition: none;
+  }
+  .composer-power-fast > span {
+    transition: none;
+  }
+  .composer-power-fill {
+    transition: none;
+  }
+  .composer-power-particles {
+    display: none;
+  }
+}
