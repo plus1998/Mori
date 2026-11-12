@@ -9778,6 +9778,61 @@ button.integrated-web-search-clear-key:disabled {
   align-items: center;
   gap: 8px;
 }
+.codex-account-actions-menu-wrap {
+  position: relative;
+}
+.codex-account-actions-trigger {
+  gap: 6px;
+}
+.codex-account-actions-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 12000;
+  display: flex;
+  width: min(220px, calc(100vw - 32px));
+  flex-direction: column;
+  gap: 2px;
+  padding: 5px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 11px;
+  background: var(--popover-bg, var(--bg-elevated));
+  box-shadow: var(--shadow-menu, 0 10px 30px rgb(0 0 0 / 18%));
+}
+.codex-account-actions-menu-item {
+  display: flex;
+  width: 100%;
+  min-height: 34px;
+  align-items: center;
+  gap: 9px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.codex-account-actions-menu-item:hover:not(:disabled),
+.codex-account-actions-menu-item:focus-visible {
+  background: var(--popover-hover, color-mix(in srgb, var(--text-primary) 7%, transparent));
+}
+.codex-account-actions-menu-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.codex-account-actions-menu-item:disabled {
+  color: var(--text-muted);
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.codex-account-actions-menu-item > svg {
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+}
 .codex-account-header-actions > button,
 .chatgpt-header-actions > button {
   display: inline-flex;

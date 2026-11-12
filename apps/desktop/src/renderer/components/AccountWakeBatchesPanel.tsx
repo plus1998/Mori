@@ -20,6 +20,9 @@ interface Props {
   modelBusy: boolean;
   modelError: string;
   onModelChange(model: string | null): Promise<void>;
+  hideTrigger?: boolean;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 const quickTimes = ["05:00", "06:00", "07:00", "13:00"];
 const itemLabel = {
@@ -34,7 +37,12 @@ const itemLabel = {
 export function AccountWakeBatchesPanel(props: Props) {
   const { t, i18n } = useTranslation();
   const api = window.eco;
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = props.open ?? internalOpen;
+  const setOpen = useCallback((next: boolean) => {
+    if (props.open === undefined) setInternalOpen(next);
+    props.onOpenChange?.(next);
+  }, [props.open, props.onOpenChange]);
   const [state, setState] = useState<AccountWakeBatchState>({ version: 1, batches: [] });
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState("");
@@ -203,21 +211,24 @@ export function AccountWakeBatchesPanel(props: Props) {
   const canRetry = active?.lastRun?.items.some(
     (i) => active.accountIds.includes(i.accountId) && ["failed", "unknown", "skipped"].includes(i.status),
   );
+  const openPanel = useCallback(() => {
+    setOpen(true);
+    setError("");
+  }, [setOpen]);
 
   return (
     <>
-      <button
-        ref={trigger}
-        type="button"
-        className="codex-action-secondary"
-        onClick={() => {
-          setOpen(true);
-          setError("");
-        }}
-      >
-        <Zap size={14} />
-        {t("wakeBatch.title")}
-      </button>
+      {props.hideTrigger ? null : (
+        <button
+          ref={trigger}
+          type="button"
+          className="codex-action-secondary"
+          onClick={openPanel}
+        >
+          <Zap size={14} />
+          {t("wakeBatch.title")}
+        </button>
+      )}
       {open
         ? createPortal(
             <dialog

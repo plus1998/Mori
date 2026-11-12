@@ -1686,6 +1686,7 @@ export const i18nCatalogs = {
       "settings.openaiAccounts.proxyModeManual": "手动代理",
       "settings.openaiAccounts.proxyModeManualHint": "只为此账号使用下面填写的代理地址。",
       "settings.openaiAccounts.proxyUrl": "代理地址",
+      "settings.openaiAccounts.moreActions": "更多操作",
       "settings.openaiAccounts.refreshQuota": "刷新额度",
       "settings.openaiAccounts.wake": "唤醒",
       "settings.openaiAccounts.wakeModel": "唤醒模型",
@@ -5583,6 +5584,7 @@ export const i18nCatalogs = {
       "settings.openaiAccounts.proxyModeManualHint":
         "Use the proxy address below only for this account.",
       "settings.openaiAccounts.proxyUrl": "Proxy address",
+      "settings.openaiAccounts.moreActions": "More actions",
       "settings.openaiAccounts.refreshQuota": "Refresh Quota",
       "settings.openaiAccounts.wake": "Wake up",
       "settings.openaiAccounts.wakeModel": "Wake-up model",

@@ -51,6 +51,7 @@ import {
   readOpenAIAccountOrder,
   sortOpenAIAccounts,
 } from "../openai-account-order";
+import "./openai-account-cards.css";
 
 type Translate = TFunction<"translation", undefined>;
 
@@ -335,12 +336,14 @@ function OpenAIAccountsContent({ onError, data }: {
   const [wakeModelReady, setWakeModelReady] = useState(false);
   const [wakeModelSaving, setWakeModelSaving] = useState(false);
   const [wakeModelError, setWakeModelError] = useState("");
+  const [wakePanelOpen, setWakePanelOpen] = useState(false);
   const [wakeDialogAccountId, setWakeDialogAccountId] = useState<string | null>(null);
   const wakeDialogRef = useRef<HTMLDialogElement>(null);
   const [wakeModels, setWakeModels] = useState<CodexModelCatalogSnapshot["models"]>([]);
   const onCatalogSnapshot = useCallback((snapshot: CodexModelCatalogSnapshot) => setWakeModels(snapshot.models), []);
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [statusMenu, setStatusMenu] = useState<{ accountId: string; kind: "web" | "codex" } | null>(null);
+  const [accountActionsOpen, setAccountActionsOpen] = useState(false);
   const [menuPos, setMenuPos] = useState<{ top: number; left: number }>({
     top: 0,
     left: 0,
@@ -349,6 +352,9 @@ function OpenAIAccountsContent({ onError, data }: {
   const menuTriggerRef = useRef<HTMLButtonElement | null>(null);
   const statusMenuRef = useRef<HTMLDivElement>(null);
   const statusTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const accountActionsRef = useRef<HTMLDivElement>(null);
+  const accountActionsTriggerRef = useRef<HTMLButtonElement>(null);
+  const accountActionsMenuRef = useRef<HTMLDivElement>(null);
 
   // Modal state
   const [modalOpen, setModalOpen] = useState(false);
@@ -510,6 +516,42 @@ function OpenAIAccountsContent({ onError, data }: {
       document.removeEventListener("scroll", close, true);
     };
   }, [statusMenu]);
+
+  useEffect(() => {
+    if (!accountActionsOpen) return;
+    const close = () => setAccountActionsOpen(false);
+    const onPointerDown = (event: PointerEvent) => {
+      if (!accountActionsRef.current?.contains(event.target as Node)) close();
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        close();
+        accountActionsTriggerRef.current?.focus();
+        return;
+      }
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        const items = Array.from(
+          accountActionsMenuRef.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? [],
+        );
+        const index = items.indexOf(document.activeElement as HTMLButtonElement);
+        items[(index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length]?.focus();
+        return;
+      }
+      if (event.key === "Tab") close();
+    };
+    accountActionsMenuRef.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    window.addEventListener("resize", close);
+    document.addEventListener("scroll", close, true);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("resize", close);
+      document.removeEventListener("scroll", close, true);
+    };
+  }, [accountActionsOpen]);
 
   useLayoutEffect(() => {
     if (!menuOpenId || !menuRef.current) return;
@@ -819,6 +861,70 @@ function OpenAIAccountsContent({ onError, data }: {
         </div>
         <div className="codex-account-header-actions">
           <AccountModelCatalogSection onSnapshot={onCatalogSnapshot} />
+          <div className="codex-account-actions-menu-wrap" ref={accountActionsRef}>
+            <button
+              ref={accountActionsTriggerRef}
+              type="button"
+              className="codex-action-secondary codex-account-actions-trigger"
+              aria-haspopup="menu"
+              aria-expanded={accountActionsOpen}
+              onClick={() => setAccountActionsOpen((open) => !open)}
+            >
+              <MoreHorizontal size={15} />
+              {t("settings.openaiAccounts.moreActions")}
+              <ChevronDown size={13} aria-hidden="true" />
+            </button>
+            {accountActionsOpen ? (
+              <div
+                ref={accountActionsMenuRef}
+                className="codex-account-actions-menu"
+                role="menu"
+                aria-label={t("settings.openaiAccounts.moreActions")}
+              >
+                <button
+                  type="button"
+                  className="codex-account-actions-menu-item"
+                  role="menuitem"
+                  onClick={() => {
+                    setAccountActionsOpen(false);
+                    setWakePanelOpen(true);
+                  }}
+                >
+                  <Zap size={14} />
+                  {t("wakeBatch.title")}
+                </button>
+                <button
+                  type="button"
+                  className="codex-account-actions-menu-item"
+                  role="menuitem"
+                  disabled={quotaLoading || quotaLoadingId !== null || !accounts.some((account) => canUseOpenAIAccountCredentials(account))}
+                  onClick={() => {
+                    setAccountActionsOpen(false);
+                    void refreshQuotas();
+                  }}
+                >
+                  <RefreshCw size={14} className={quotaLoading ? "mcp-spin" : undefined} />
+                  {quotaLoading
+                    ? t("settings.openaiAccounts.refreshing")
+                    : t("settings.openaiAccounts.refreshQuota")}
+                </button>
+                <button
+                  type="button"
+                  className="codex-account-actions-menu-item"
+                  role="menuitem"
+                  disabled={busy}
+                  onClick={() => {
+                    setAccountActionsOpen(false);
+                    setImportMessage("");
+                    setImportOpen(true);
+                  }}
+                >
+                  <FileUp size={14} />
+                  {t("settings.openaiAccounts.bulkImport")}
+                </button>
+              </div>
+            ) : null}
+          </div>
           <AccountWakeBatchesPanel
             accounts={accounts}
             model={wakeModel}
@@ -826,16 +932,10 @@ function OpenAIAccountsContent({ onError, data }: {
             modelBusy={wakeModelSaving || !wakeModelReady}
             modelError={wakeModelError}
             onModelChange={handleWakeModelChange}
+            hideTrigger
+            open={wakePanelOpen}
+            onOpenChange={setWakePanelOpen}
           />
-          <button
-            type="button"
-            className="codex-action-secondary"
-            disabled={busy}
-            onClick={() => { setImportMessage(""); setImportOpen(true); }}
-          >
-            <FileUp size={14} />
-            {t("settings.openaiAccounts.bulkImport")}
-          </button>
           <button
             type="button"
             className="settings-primary-button"
@@ -858,7 +958,6 @@ function OpenAIAccountsContent({ onError, data }: {
             {t("settings.openaiAccounts.addAccount")}
           </button>
         </div>
-        <p className="codex-accounts-description">{t("settings.openaiAccounts.description")}</p>
       </div>
 
       {loadError && snapshot !== undefined ? <div className="codex-account-sync-error" role="alert">
@@ -874,22 +973,6 @@ function OpenAIAccountsContent({ onError, data }: {
               <span className="codex-toolbar-divider">·</span>
               {t("settings.openaiAccounts.loggedInCount", { total: loggedInCount })}
             </span>
-            <div className="codex-toolbar-links">
-              <button
-                type="button"
-                className="chatgpt-inline-link"
-                onClick={() => void refreshQuotas()}
-                disabled={quotaLoading || quotaLoadingId !== null || !accounts.some((account) => canUseOpenAIAccountCredentials(account))}
-              >
-                <RefreshCw
-                  size={13}
-                  className={quotaLoading ? "mcp-spin" : undefined}
-                />
-                {quotaLoading
-                  ? t("settings.openaiAccounts.refreshing")
-                  : t("settings.openaiAccounts.refreshQuota")}
-              </button>
-            </div>
           </div>
 
           <div className="codex-account-controls">
@@ -1018,12 +1101,12 @@ function OpenAIAccountsContent({ onError, data }: {
                       <strong title={account.name}>{account.name}</strong>
                       {accountQuota?.planType ? <span className="codex-account-plan">{accountQuota.planType}</span> : null}
                     </div>
-                    <span title={email}>
+                    {!email || email.trim().toLocaleLowerCase() !== account.name.trim().toLocaleLowerCase() ? <span title={email}>
                       {email ||
                         (canUseOpenAIAccountCredentials(account)
                           ? t("settings.openaiAccounts.oauthLoggedIn")
                           : t("settings.openaiAccounts.notLoggedIn"))}
-                    </span>
+                    </span> : null}
                   </div>
                   <div className="codex-account-header-actions">
                     <div className="codex-account-status-tags">

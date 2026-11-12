@@ -3,6 +3,7 @@ import { ModelsSettingsPanel } from "../../src/renderer/ModelsSettingsPanel";
 import { i18n } from "../../src/renderer/i18n";
 import type { ModelSettingsSnapshot } from "../../src/shared/ipc";
 import type { OpenAIAccount } from "../../src/shared/openai-account";
+import "../../src/renderer/themes.css";
 import "../../src/renderer/styles.css";
 
 let reads = 0;

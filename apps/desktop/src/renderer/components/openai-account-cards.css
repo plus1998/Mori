@@ -1,0 +1,266 @@
+/* Login cards are list surfaces. Keep these overrides scoped: Cursor cards share
+   some older class names, and status menus must remain visible outside a card. */
+.codex-accounts-panel {
+  container-name: login-accounts;
+  container-type: inline-size;
+
+  & .codex-account-list {
+    gap: 12px;
+  }
+  & .codex-account-card {
+    padding: 0;
+    border: 1px solid var(--border-subtle);
+    border-radius: 16px;
+    background: var(--bg-main);
+    box-shadow: none;
+    transition: border-color 150ms ease;
+  }
+  & .codex-account-card:hover {
+    border-color: var(--border-strong);
+    box-shadow: none;
+  }
+  & .codex-account-card-main {
+    display: grid;
+    grid-template-columns: 32px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+    padding: 16px;
+  }
+  & .codex-account-avatar {
+    width: 32px;
+    height: 32px;
+    border: 0;
+    border-radius: 8px;
+    background: var(--nav-hover);
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 500;
+  }
+  & .codex-account-identity {
+    gap: 3px;
+  }
+  & .codex-account-identity-title {
+    gap: 8px;
+  }
+  & .codex-account-identity strong {
+    min-width: 0;
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 20px;
+  }
+  & .codex-account-identity > span {
+    color: var(--text-secondary);
+    font-family: var(--font-sans);
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 18px;
+  }
+  & .codex-account-plan {
+    padding: 0;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 400;
+  }
+  & .codex-account-card .codex-account-header-actions {
+    gap: 12px;
+    margin: 0;
+  }
+  & .codex-account-status-tags {
+    gap: 4px;
+  }
+  & .codex-status-tag {
+    height: 28px;
+    gap: 6px;
+    padding: 0 7px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 400;
+    transition:
+      background-color 150ms ease,
+      color 150ms ease;
+  }
+  & .codex-status-tag:is(.is-ready, .is-warning, .is-danger) {
+    border-color: transparent;
+    background: transparent;
+    color: var(--text-secondary);
+  }
+  & .codex-status-tag.is-ready > i {
+    background: var(--success);
+  }
+  & .codex-status-tag.is-warning > i {
+    background: var(--warning);
+  }
+  & .codex-status-tag.is-danger > i {
+    background: var(--danger);
+  }
+  & .codex-status-tag:hover,
+  & .codex-status-tag[aria-expanded="true"] {
+    background: var(--nav-hover);
+    color: var(--text-primary);
+    filter: none;
+  }
+  & .codex-status-tag:focus-visible {
+    outline: 2px solid var(--text-primary);
+    outline-offset: 1px;
+  }
+  & .codex-status-tag > svg {
+    width: 12px;
+    height: 12px;
+    stroke-width: 1.75;
+  }
+  & .codex-account-actions {
+    gap: 2px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+  & .codex-account-actions .mcp-icon-button {
+    width: 28px;
+    height: 28px;
+    min-height: 28px;
+    padding: 0;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-secondary);
+  }
+  & .codex-account-actions .mcp-icon-button:hover:not(:disabled) {
+    background: var(--nav-hover);
+    color: var(--text-primary);
+  }
+  & .codex-account-actions .mcp-icon-button svg {
+    width: 16px;
+    height: 16px;
+    stroke-width: 1.75;
+  }
+  & .codex-account-quotas {
+    gap: 0;
+    margin: 0 16px;
+    padding: 12px 0 14px;
+    border-top: 1px solid var(--border-subtle);
+  }
+  & .codex-quota-summary {
+    gap: 8px 24px;
+    font-size: 12px;
+    line-height: 18px;
+  }
+  & .codex-quota-window {
+    flex-basis: 180px;
+    gap: 6px;
+  }
+  & .codex-quota-window-heading em {
+    font-size: 12px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+  }
+  & .codex-quota-summary .is-ok {
+    color: var(--text-primary);
+  }
+  & .codex-quota-energy {
+    height: 4px;
+    border-radius: 999px;
+    background: var(--nav-hover);
+    mask-image: none;
+  }
+  & .codex-quota-energy > span {
+    border-radius: inherit;
+  }
+  & .codex-quota-window-reset,
+  & .codex-quota-note,
+  & .codex-quota-refreshed-at {
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 400;
+    line-height: 16px;
+    font-variant-numeric: tabular-nums;
+  }
+  & .codex-quota-refreshed-at {
+    flex-basis: 100%;
+    margin: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  & .codex-account-details {
+    margin: 0 16px;
+    padding: 0;
+    font-size: 12px;
+    line-height: 18px;
+  }
+  & .codex-account-details > summary {
+    min-height: 36px;
+    font-weight: 400;
+  }
+  & .codex-account-details > summary:focus-visible {
+    outline: 2px solid var(--text-primary);
+    outline-offset: -2px;
+    border-radius: 6px;
+  }
+  & .codex-account-details > summary > svg {
+    width: 14px;
+    height: 14px;
+    stroke-width: 1.75;
+  }
+  & .codex-account-details-content {
+    gap: 12px;
+    padding: 4px 0 16px;
+  }
+  & .codex-account-details-row {
+    min-width: 0;
+  }
+  & .codex-account-details-row > :first-child {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  & .codex-account-status-popover {
+    padding: 6px;
+    border-color: var(--border-subtle);
+    border-radius: 12px;
+    background: var(--popover-bg);
+    box-shadow: var(--shadow-menu);
+  }
+  & .codex-account-status-item {
+    min-height: 32px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 400;
+  }
+}
+
+@container login-accounts (max-width: 600px) {
+  .codex-account-card .codex-account-header-actions {
+    grid-column: 2 / -1;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .codex-accounts-panel .codex-account-status-popover {
+    right: auto;
+    left: 0;
+  }
+}
+@container login-accounts (max-width: 400px) {
+  .codex-account-card .codex-account-header-actions {
+    grid-column: 1 / -1;
+  }
+  .codex-accounts-panel .codex-account-card-main {
+    gap: 10px;
+    padding: 14px;
+  }
+  .codex-accounts-panel .codex-account-quotas,
+  .codex-accounts-panel .codex-account-details {
+    margin-inline: 14px;
+  }
+  .codex-accounts-panel .codex-quota-window {
+    flex-basis: 100%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .codex-accounts-panel .codex-account-card,
+  .codex-accounts-panel .codex-status-tag {
+    transition: none;
+  }
+}
