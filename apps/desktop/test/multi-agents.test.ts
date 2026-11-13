@@ -15,6 +15,7 @@ import {
 } from "../src/shared/multi-agents";
 import { parseThreadApprovePlanPayload } from "../src/shared/plan-approval";
 import { normalizeThreadRuntimeConfig } from "../src/shared/thread-runtime-config";
+import { composerReferenceToken } from "../src/shared/composer-references";
 
 const dirs: string[] = [],
   services: MultiAgentsService[] = [];
@@ -139,6 +140,7 @@ async function setup() {
   let notifyFails = false;
   const workspace = new MultiAgentsWorkspace();
   const host = {
+    nativeAgentKeys: () => ["coder"],
     latestAttempt: (id: string) => ({
       attemptId: `${id}:attempt`,
       status:
@@ -179,6 +181,7 @@ async function setup() {
   const service = new MultiAgentsService(new DatabaseSync(database), host);
   services.push(service);
   service.saveConfig(config());
+  threads.get("main")!.runtimeConfig = normalizeThreadRuntimeConfig({ sessionMode: "agent" });
   const plan = {
     referenceId: "plan-1",
     version: 1,
@@ -213,6 +216,72 @@ async function setup() {
     },
   };
 }
+
+test("Agent references start once without a plan and dispatch through isolated sessions to acceptance", async () => {
+  const { service, threads, started, finish, dir } = await setup();
+  await service.control("run-1", "stop");
+  const prompt = `实现新功能 ${composerReferenceToken(service.references()[0]!)}`;
+  const reference = service.resolveReference("main", "pair", prompt);
+  const args = { configId: reference.configId, requestId: reference.requestId };
+  await expect(service.tool("other", "multi_agents_start", args)).rejects.toThrow("明确 @ 引用");
+  const [first, second] = await Promise.all([
+    service.tool("main", "multi_agents_start", args), service.tool("main", "multi_agents_start", args),
+  ]) as any[];
+  expect(first.run.id).toBe(second.run.id);
+  expect(service.runs()).toHaveLength(2);
+  expect(first.run.plan).toBeUndefined();
+  expect(first.run.request).toContain("实现新功能");
+  expect(first.instructions).toContain("<user_request>");
+  expect(first.instructions).not.toContain("<approved_plan");
+  expect(first.run.request).not.toContain("@multi_agents{");
+  await service.tool("main", "multi_agents_submit_tasks", { tasks: [task("newfeature")] });
+  await service.tick();
+  expect(started).toHaveLength(1);
+  const childId = service.runs()[0]!.tasks[0]!.threadId!;
+  expect(threads.get(childId)!.workLocation?.worktree?.worktreePath).not.toBe(dir);
+  await finish("newfeature");
+  await service.tick();
+  await service.tool("main", "multi_agents_integrate", { taskId: "newfeature" });
+  expect(await fs.readFile(path.join(dir, "newfeature.txt"), "utf8")).toContain("newfeature result");
+  await service.tool("main", "multi_agents_accept", { review: "Checked actual isolated changes and integration." });
+  expect(service.runs()[0]!.status).toBe("completed");
+  await service.tool("main", "multi_agents_start", args);
+  expect(service.runs()).toHaveLength(2);
+});
+
+test("Agent references reject plan mode, stale configurations, missing native members and recursive starts", async () => {
+  const { service, threads, host } = await setup();
+  await service.control("run-1", "stop");
+  const ref = service.resolveReference("main", "pair", "implement feature");
+  const args = { configId: ref.configId, requestId: ref.requestId };
+  threads.get("main")!.runtimeConfig = normalizeThreadRuntimeConfig({ sessionMode: "plan" });
+  await expect(service.tool("main", "multi_agents_start", args)).rejects.toThrow("Agent 模式");
+  threads.get("main")!.runtimeConfig = normalizeThreadRuntimeConfig({ sessionMode: "agent" });
+  service.deleteConfig("pair");
+  await expect(service.tool("main", "multi_agents_start", args)).rejects.toThrow("配置已删除");
+  expect(() => service.resolveReference("main", "pair", "task")).toThrow("配置已删除");
+  service.saveConfig({ ...config(), mode: "subagents", agentKeys: ["coder", "reviewer"] });
+  await expect(service.tool("main", "multi_agents_start", args)).rejects.toThrow("reviewer");
+  host.nativeAgentKeys = () => ["coder", "reviewer"];
+  const native = await service.tool("main", "multi_agents_start", args) as any;
+  expect(native.run.config.mode).toBe("subagents");
+  expect(native.instructions).toContain("原生子代理工具");
+  expect(native.instructions).toContain("最多 2 个并行");
+  await service.control(native.run.id, "stop");
+  service.saveConfig(config());
+  const next = service.resolveReference("main", "pair", "another task");
+  await service.tool("main", "multi_agents_start", { configId: next.configId, requestId: next.requestId });
+  await service.tool("main", "multi_agents_submit_tasks", { tasks: [task("x")] });
+  await service.tick();
+  const childId = service.runs()[0]!.tasks[0]!.threadId!;
+  threads.get(childId)!.runtimeConfig = normalizeThreadRuntimeConfig({ sessionMode: "agent" });
+  const recursive = service.resolveReference(childId, "pair", "recursive task");
+  await expect(service.tool(childId, "multi_agents_start", {
+    configId: recursive.configId, requestId: recursive.requestId,
+  })).rejects.toThrow("不能递归");
+  service.disposeThread("main");
+  await expect(service.tool("main", "multi_agents_start", args)).rejects.toThrow("明确 @ 引用");
+});
 
 test("independent accounts, bounded concurrency, dependency snapshots, result wake-up and explicit acceptance", async () => {
   const { service, started, resumed, finish, dir, threads } = await setup();

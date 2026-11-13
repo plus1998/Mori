@@ -695,7 +695,9 @@ export function MultiAgentsRunPanel({
               <UsersRound size={17} aria-hidden />
               <span className="multi-agents-run-heading">
                 <strong>{run.config.name}</strong>
-                <small>{t("multiAgents.planVersion", { version: run.plan.version ?? 1 })}</small>
+                <small>{run.plan
+                  ? t("multiAgents.planVersion", { version: run.plan.version ?? 1 })
+                  : t("multiAgents.agentRequest")}</small>
               </span>
               <StatusBadge status={run.status} />
               <ChevronRight size={14} className="multi-agents-run-chevron" aria-hidden />

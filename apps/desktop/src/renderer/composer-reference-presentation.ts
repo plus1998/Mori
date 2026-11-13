@@ -41,6 +41,7 @@ const ICONS = {
 
 /** Shared SVG geometry keeps editor DOM chips and React menus visually identical. */
 export function composerReferenceIconNodes(reference: ComposerReference): readonly IconNode[] {
+  if (reference.kind === "multi_agents") return ICONS.subagent;
   if (reference.kind !== "integration") return ICONS[reference.kind];
   if (reference.id === "browser") return ICONS.web;
   if (reference.id === "imageGeneration") return ICONS.imageGeneration;

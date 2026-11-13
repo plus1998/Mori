@@ -16,6 +16,7 @@ import type { PlanReferenceSnapshot } from "../shared/plan-execution";
 import type { SshBookmarkPublic } from "../shared/ssh-bookmarks";
 import type { BrowserSelectionService } from "./browser-selection-service";
 import type { ProjectTodoAgentService } from "./project-todo-agent-service";
+import type { MultiAgentsService } from "./multi-agents-service";
 
 export interface ReferenceHistoryPage {
   messages: Array<{
@@ -33,6 +34,7 @@ export interface ReferenceHistoryPage {
   historyRevision: number;
 }
 export interface ComposerReferenceDeps {
+  multiAgents?: Pick<MultiAgentsService, "references" | "resolveReference" | "disposeThread">;
   todos: Pick<ProjectTodoAgentService, "references" | "resolveReference" | "invoke" | "disposeThread">;
   selections?: Pick<BrowserSelectionService, "read" | "validate" | "screenshot">;
   listThreads(
@@ -102,6 +104,10 @@ export class ComposerReferenceService {
           })),
       );
     if (!request.kind || request.kind === "plan") groups.push(this.deps.listPlans(query, limit + 1));
+    if (!request.kind || request.kind === "multi_agents") {
+      if (this.deps.multiAgents) groups.push(this.deps.multiAgents.references());
+      else if (request.kind === "multi_agents") throw new Error("Multi-Agents 引用服务尚未连接。");
+    }
     let hasMore = false;
     const items = groups.flatMap((group) => {
       const matches = group.filter((item) =>
@@ -113,6 +119,9 @@ export class ComposerReferenceService {
     return { items, hasMore };
   }
   async resolvePrompt(threadId: string, prompt: string): Promise<string> {
+    const multiReferences = composerReferences(prompt).filter(ref => ref.kind === "multi_agents");
+    if (new Set(multiReferences.map(ref => ref.id)).size > 1)
+      throw new Error("每条消息只能选择一个 Multi-Agents 配置，请删除多余引用。");
     const needsCapabilities = composerReferences(prompt).some((ref) =>
       ["integration", "subagent", "mcp"].includes(ref.kind),
     );
@@ -186,6 +195,9 @@ export class ComposerReferenceService {
           workspacePath: thread.workspacePath,
           tool: "mori_context.read_conversation",
         });
+      } else if (ref.kind === "multi_agents") {
+        if (!this.deps.multiAgents) throw new Error("Multi-Agents 引用服务尚未连接。");
+        details.push(this.deps.multiAgents.resolveReference(threadId, ref.id, prompt));
       } else {
         const capability = capabilities.find((item) => item.kind === ref.kind && item.id === ref.id);
         if (!capability)
@@ -331,6 +343,7 @@ export class ComposerReferenceService {
   }
   disposeThread(id: string) {
     this.deps.todos.disposeThread(id);
+    this.deps.multiAgents?.disposeThread(id);
     this.browserGrants.delete(id);
     this.selectionGrants.delete(id);
   }

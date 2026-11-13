@@ -30,8 +30,9 @@ function tool(
   };
 }
 export const contextReferenceTools = [
+  tool("multi_agents_start", "Start collaboration in Agent mode using the exact saved configuration explicitly @Multi-Agents-referenced by the user. Pass configId and requestId from the reference. No approved plan is required. Returns the fixed roster and dispatch/acceptance instructions. Repeated calls for the same request are idempotent; unavailable configurations or native members fail explicitly.", { configId: string, requestId: string }, ["configId", "requestId"], false),
   tool("multi_agents_status", "Read the current Multi-Agents run, fixed member roster, tasks, results and worktree integration status. Main conversation only.", {}, []),
-  tool("multi_agents_submit_tasks", "Dispatch the approved plan as structured tasks to configured independent member conversations. Host enforces member identity, concurrency, dependency DAG and isolated worktrees. End your turn after submission; the host delivers results as a follow-up.", {
+  tool("multi_agents_submit_tasks", "Dispatch the current Multi-Agents request or approved plan as structured tasks to configured independent member conversations. Host enforces member identity, concurrency, dependency DAG and isolated worktrees. End your turn after submission; the host delivers results as a follow-up.", {
     tasks: { type: "array", minItems: 1, maxItems: 64, items: { type: "object", additionalProperties: false, required: ["id", "memberId", "title", "instructions", "scope", "dependsOn", "acceptance"], properties: {
       id: string, memberId: string, title: string, instructions: string, acceptance: string,
       scope: { type: "array", items: string }, dependsOn: { type: "array", items: string },

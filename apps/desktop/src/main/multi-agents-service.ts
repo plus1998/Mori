@@ -9,6 +9,7 @@ import {
   validateMultiAgentsTasks,
 } from "../shared/multi-agents";
 import { isThreadRuntimeConfig } from "../shared/thread-runtime-config";
+import { COMPOSER_REFERENCE_PATTERN, parseComposerReference, type ComposerReference } from "../shared/composer-references";
 import { MultiAgentsWorkspace } from "./multi-agents-workspace";
 
 interface Host {
@@ -20,6 +21,7 @@ interface Host {
   cancel(threadId: string): Promise<void>;
   changed(threadId: string): void;
   validateMember(config: MultiAgentsConfig): void;
+  nativeAgentKeys(threadId: string): string[];
 }
 const activeStatuses = new Set(["planning", "running", "awaiting_review", "paused", "interrupted"]);
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
@@ -28,6 +30,7 @@ export class MultiAgentsService {
   private timer?: ReturnType<typeof setInterval>;
   private ticking = false;
   private readonly pending = new Map<string, Promise<unknown>>();
+  private readonly referenceGrants = new Map<string, Map<string, { configId: string; prompt: string }>>();
   private async exclusive<T>(id: string, task: () => Promise<T>): Promise<T> {
     const previous = this.pending.get(id) ?? Promise.resolve();
     const next = previous.catch(() => {}).then(task);
@@ -73,6 +76,61 @@ export class MultiAgentsService {
       .prepare("SELECT value_json FROM multi_agents_configs ORDER BY id")
       .all()
       .map((row) => JSON.parse(row.value_json as string));
+  }
+  references(): ComposerReference[] {
+    return this.configs().map(config => ({
+      kind: "multi_agents",
+      id: config.id,
+      label: config.name,
+      detail: `${config.mode === "sessions" ? "独立会话" : "原生子代理"} · ${
+        config.mode === "sessions" ? config.members.map(member => member.name).join(", ") : config.agentKeys.join(", ")
+      } · 并发 ${config.maxConcurrency}`,
+    }));
+  }
+  resolveReference(threadId: string, configId: string, prompt: string) {
+    const config = this.configs().find(value => value.id === configId);
+    if (!config) throw new Error("Multi-Agents 配置已删除，请重新选择。");
+    const grants = this.referenceGrants.get(threadId) ?? new Map<string, { configId: string; prompt: string }>();
+    const requestId = `multi_ref_${randomUUID()}`;
+    grants.set(requestId, { configId, prompt });
+    this.referenceGrants.set(threadId, grants);
+    return {
+      type: "multi_agents", configId, requestId, name: config.name, mode: config.mode,
+      maxConcurrency: config.maxConcurrency,
+      members: config.mode === "sessions"
+        ? config.members.map(({ id, name, responsibility, coreKind }) => ({ memberId: id, name, responsibility, harness: coreKind }))
+        : config.agentKeys,
+      tool: "mori_context.multi_agents_start",
+      instructions: "用户明确选择此配置协作完成本条消息的任务。在 Agent 模式调用启动工具（configId, requestId），按返回指引拆分、派发、整合和验收；不需要先进入计划模式。计划模式下先形成计划，等待用户批准后执行。",
+    };
+  }
+  disposeThread(threadId: string) {
+    this.referenceGrants.delete(threadId);
+  }
+  private async startReferenced(threadId: string, args: Record<string, unknown>) {
+    if (typeof args.configId !== "string" || typeof args.requestId !== "string")
+      throw new Error("需要引用中的 configId 和 requestId。");
+    const grant = this.referenceGrants.get(threadId)?.get(args.requestId);
+    if (!grant || grant.configId !== args.configId)
+      throw new Error("只能启动用户在当前会话明确 @ 引用的 Multi-Agents 配置。");
+    const thread = this.host.thread(threadId);
+    if (!thread) throw new Error("来源主会话已删除。");
+    if (thread.runtimeConfig?.sessionMode !== "agent" || thread.status === "awaiting_plan")
+      throw new Error("@Multi-Agents 启动需要 Agent 模式；计划模式请先批准计划。");
+    // Never forward executable composer tokens to members as new user selections.
+    const request = grant.prompt.replace(COMPOSER_REFERENCE_PATTERN, (_token, kind: string, encoded: string) =>
+      `[${kind}: ${parseComposerReference(kind, encoded)?.label ?? kind}]`,
+    );
+    const run = await this.exclusive(`prepare:${threadId}`, () => this.prepareRun(
+      args.requestId as string, threadId, grant.configId, undefined,
+      thread.workLocation?.worktree?.worktreePath ?? thread.workspacePath, "", request,
+    ));
+    return {
+      run,
+      instructions: activeStatuses.has(run.status)
+        ? this.prompt(threadId)
+        : "此请求已结束，请根据返回的状态说明结果；不要重复派发任务。",
+    };
   }
   runs(): MultiAgentsRun[] {
     return this.db
@@ -212,12 +270,14 @@ export class MultiAgentsService {
     id: string,
     sourceThreadId: string,
     configId: string,
-    plan: ThreadPendingPlan,
+    plan: ThreadPendingPlan | undefined,
     workspacePath: string,
     additionalMessage: string,
+    request?: string,
   ) {
     const existing = this.runs().find((run) => run.id === id);
     if (existing) return existing;
+    if (!plan && !request?.trim()) throw new Error("Multi-Agents 缺少用户任务或已批准计划。");
     if (this.runs().some((run) => run.sourceThreadId === sourceThreadId && activeStatuses.has(run.status)))
       throw new Error("当前主会话已有 Multi-Agents 执行，请先完成或停止。");
     if (
@@ -229,11 +289,19 @@ export class MultiAgentsService {
     const config = this.configs().find((value) => value.id === configId);
     if (!config) throw new Error("Multi-Agents 配置已删除，请重新选择。");
     this.host.validateMember(config);
+    if (config.mode === "subagents") {
+      const thread = this.host.thread(sourceThreadId);
+      if (!["claude", "codex", "pi"].includes(thread?.coreKind ?? ""))
+        throw new Error("当前主会话 Harness 不支持原生子代理，请选择独立会话配置。");
+      const keys = this.host.nativeAgentKeys(sourceThreadId);
+      for (const key of config.agentKeys)
+        if (!keys.includes(key)) throw new Error(`原生子代理「${key}」不在当前会话锁定的编排中。`);
+    }
     const run: MultiAgentsRun = {
       id,
       sourceThreadId,
       config: structuredClone(config),
-      plan: structuredClone(plan),
+      ...(plan ? { plan: structuredClone(plan) } : { request: request! }),
       workspacePath,
       additionalMessage,
       status: config.mode === "subagents" ? "running" : "planning",
@@ -245,6 +313,11 @@ export class MultiAgentsService {
     if (config.mode === "sessions") run.baselineCommit = await this.workspace.capture(workspacePath);
     this.save(run);
     return run;
+  }
+  private requestContext(run: MultiAgentsRun): string {
+    return run.plan
+      ? `<approved_plan version="${run.plan.version}" planId="${run.plan.referenceId}">\n${run.plan.plan}\n</approved_plan>`
+      : `<user_request>\n${run.request}\n</user_request>`;
   }
   prompt(threadId: string): string {
     const run = this.runs().find(
@@ -265,13 +338,14 @@ export class MultiAgentsService {
             bashReviewMode: runtimeConfig.bashReviewMode,
           }))
         : run.config.agentKeys;
-    return `\n<Multi-Agents runId="${run.id}">\n用户选择了 ${run.config.name}。你负责拆分、派发、整合和最终验收。成员之间不直接通信。可用成员：${JSON.stringify(members)}\n并发上限 ${run.config.maxConcurrency}。成员池不要求人人分配任务。补充要求：${run.additionalMessage}\n<approved_plan version="${run.plan.version}" planId="${run.plan.referenceId}">\n${run.plan.plan}\n</approved_plan>\n${
+    return `\n<Multi-Agents runId="${run.id}">\n用户选择了 ${run.config.name}。你负责拆分、派发、整合和最终验收。成员之间不直接通信。可用成员：${JSON.stringify(members)}\n并发上限 ${run.config.maxConcurrency}。成员池不要求人人分配任务。补充要求：${run.additionalMessage}\n${this.requestContext(run)}\n${
       run.config.mode === "sessions"
-        ? "先调用 mori_context.multi_agents_submit_tasks，提交结构化任务（id, memberId, title, instructions, scope, dependsOn, acceptance）。只能指定上述 memberId，账号和 Harness 由宿主固定。宿主为每个任务创建独立会话和工作树，包含计划获批时的未提交改动；同一任务返工复用原会话。任务已启动后结束本轮等待；宿主会在结果就绪时发送后续消息，不要轮询。通过 multi_agents_status 查看状态和成员结果，按依赖顺序调用 multi_agents_integrate 将结果合入你的工作目录，冲突时先解决再继续；multi_agents_retry 给同一个成员会话返工。所有任务完成后实际检查代码和测试，再调用 multi_agents_accept 提交验收证据。模型回合结束不代表完成。"
+        ? "先调用 mori_context.multi_agents_submit_tasks，提交结构化任务（id, memberId, title, instructions, scope, dependsOn, acceptance）。只能指定上述 memberId，账号和 Harness 由宿主固定。宿主为每个任务创建独立会话和工作树，包含协作启动时的未提交改动；同一任务返工复用原会话。任务已启动后结束本轮等待；宿主会在结果就绪时发送后续消息，不要轮询。通过 multi_agents_status 查看状态和成员结果，按依赖顺序调用 multi_agents_integrate 将结果合入你的工作目录，冲突时先解决再继续；multi_agents_retry 给同一个成员会话返工。所有任务完成后实际检查代码和测试，再调用 multi_agents_accept 提交验收证据。模型回合结束不代表完成。"
         : `使用当前 Harness 原生子代理工具，将任务拆给选中的 ${run.config.agentKeys.join(", ")}，最多 ${run.config.maxConcurrency} 个并行。每个子代理只收到自己的任务和相关上下文，等待真实结果后统一检查代码和测试，最后调用 mori_context.multi_agents_accept 提交验收证据。原生子代理的具体进度由 Harness 子代理面板展示。`
     }\n</Multi-Agents>`;
   }
   async tool(threadId: string, name: string, args: Record<string, unknown>) {
+    if (name === "multi_agents_start") return this.startReferenced(threadId, args);
     const related = this.forThread(threadId);
     if (name === "multi_agents_status" && related[0]?.sourceThreadId === threadId)
       return {
@@ -520,7 +594,7 @@ export class MultiAgentsService {
   }
   private taskPrompt(run: MultiAgentsRun, task: MultiAgentsTask) {
     const member = run.config.members.find((value) => value.id === task.memberId)!;
-    return `你是 Multi-Agents 成员 ${member.name}，职责：${member.responsibility}。仅执行主代理派发的任务，不向其他成员派发任务，不调用主代理的管理工具。\n<approved_plan>\n${run.plan.plan}\n</approved_plan>\n用户补充要求：${run.additionalMessage}\n任务 ${task.id}：${task.title}\n${task.instructions}\n范围：${JSON.stringify(task.scope)}\n验收标准：${task.acceptance}\n依赖结果：${JSON.stringify(run.tasks.filter((value) => task.dependsOn.includes(value.id)).map((value) => ({ taskId: value.id, result: value.result })))}\n在当前隔离工作树执行。不要切换或重置分支，不要操作其他成员或主会话的目录。完成后调用 mori_context.multi_agents_report，result 包含变更、测试证据和未解决事项，然后结束本轮。宿主会回收实际运行状态，主代理统一验收。`;
+    return `你是 Multi-Agents 成员 ${member.name}，职责：${member.responsibility}。仅执行主代理派发的任务，不向其他成员派发任务，不调用主代理的管理工具。\n${this.requestContext(run)}\n用户补充要求：${run.additionalMessage}\n任务 ${task.id}：${task.title}\n${task.instructions}\n范围：${JSON.stringify(task.scope)}\n验收标准：${task.acceptance}\n依赖结果：${JSON.stringify(run.tasks.filter((value) => task.dependsOn.includes(value.id)).map((value) => ({ taskId: value.id, result: value.result })))}\n在当前隔离工作树执行。不要切换或重置分支，不要操作其他成员或主会话的目录。完成后调用 mori_context.multi_agents_report，result 包含变更、测试证据和未解决事项，然后结束本轮。宿主会回收实际运行状态，主代理统一验收。`;
   }
   async tick(): Promise<void> {
     if (this.ticking) return;
@@ -665,7 +739,7 @@ export class MultiAgentsService {
                 try {
                   await this.host.start(
                     {
-                      workspacePath: run.plan.workspacePath,
+                      workspacePath: this.host.thread(run.sourceThreadId)!.workspacePath,
                       coreKind: member.coreKind,
                       runtimeConfig: member.runtimeConfig,
                       prompt: this.taskPrompt(run, task),

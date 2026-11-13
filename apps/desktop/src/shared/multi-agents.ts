@@ -58,7 +58,9 @@ export interface MultiAgentsRun {
   id: string;
   sourceThreadId: string;
   config: MultiAgentsConfig;
-  plan: ThreadPendingPlan;
+  plan?: ThreadPendingPlan;
+  /** Agent-mode request selected through an explicit @Multi-Agents reference. */
+  request?: string;
   additionalMessage: string;
   status: "planning" | "running" | "awaiting_review" | "completed" | "paused" | "cancelled" | "interrupted";
   tasks: MultiAgentsTask[];

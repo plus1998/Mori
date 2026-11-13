@@ -13,6 +13,16 @@ const reference = {
   label: "订单 @ work {预览}",
   detail: "https://example.com/?q=中文&x=1",
 };
+test("Multi-Agents references parse category aliases and survive draft/chip round-trips", () => {
+  const reference = { kind: "multi_agents" as const, id: "pair", label: "开发协作", detail: "独立会话 · 并发 2" };
+  const token = composerReferenceToken(reference);
+  expect(composerReferences(token)).toEqual([reference]);
+  expect(parsePromptSegments(token)).toEqual([{ type: "reference", reference }]);
+  for (const category of ["Multi-Agents", "multi-agents", "multi_agents", "多代理", "多智能体"]) {
+    const draft = `请用@${category}:开发`;
+    expect(parseMentionQuery(draft, draft.length)).toEqual({ start: 2, kind: "multi_agents", query: "开发" });
+  }
+});
 test("plan versions round-trip through drafts and atomic chips without a mode", () => {
   const reference = { kind: "plan" as const, id: "plan_thr_123_hash", label: "计划 v2", detail: "来源会话" };
   const token = composerReferenceToken(reference);

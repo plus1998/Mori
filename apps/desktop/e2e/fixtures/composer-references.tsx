@@ -7,12 +7,15 @@ import { useComposerReferences } from "../../src/renderer/use-composer-reference
 import { type ComposerReference, composerReferenceToken } from "../../src/shared/composer-references";
 
 const skills = new Map();
-const references: [ComposerReference, ComposerReference] = [
+const references: [ComposerReference, ComposerReference, ComposerReference] = [
   { kind: "web", id: "browser-1", label: "第一个网页", detail: "https://example.com/" },
   { kind: "web", id: "browser-2", label: "第二个网页", detail: "https://example.org/" },
+  { kind: "multi_agents", id: "team-1", label: "开发协作", detail: "独立会话 · 并发 2" },
 ];
 Object.defineProperty(window, "eco", {
-  value: { searchComposerReferences: async () => ({ items: references, hasMore: false }) },
+  value: { searchComposerReferences: async ({ kind }: { kind?: string }) => ({
+    items: references.filter(reference => !kind || reference.kind === kind), hasMore: false,
+  }) },
 });
 
 function ComposerReferencesFixture() {

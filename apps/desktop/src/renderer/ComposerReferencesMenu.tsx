@@ -6,7 +6,7 @@ import type { ComposerReference, ComposerReferenceKind } from "../shared/compose
 import { ComposerAbovePanel } from "./ComposerAbovePanel";
 
 const FILTER_KINDS: ComposerReferenceKind[] = [
-  "project", "todo", "plan", "conversation", "web", "ssh", "integration", "subagent", "mcp",
+  "project", "todo", "plan", "conversation", "web", "ssh", "integration", "subagent", "multi_agents", "mcp",
 ];
 
 export function ComposerReferencesMenu({

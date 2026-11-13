@@ -4117,6 +4117,11 @@ app
       getTarget: id => requireBrowserHost().getSelectionTarget(id),
     });
     composerReferenceService = new ComposerReferenceService({
+      multiAgents: {
+        references: () => multiAgentsService.references(),
+        resolveReference: (threadId, configId, prompt) => multiAgentsService.resolveReference(threadId, configId, prompt),
+        disposeThread: threadId => multiAgentsService.disposeThread(threadId),
+      },
       todos: new ProjectTodoAgentService({
         store: projectTodoStore,
         workspacePath: threadId => {
@@ -4143,6 +4148,12 @@ app
         requireBrowserHost().invokeReferencedBrowserTool(id, action, args, signal),
     });
     multiAgentsService = new MultiAgentsService(new todoSqlite.DatabaseSync(dbPath), {
+      nativeAgentKeys: threadId => {
+        const thread = conversationStore.getThread(threadId);
+        const config = thread && ensureThreadRuntimeConfig(thread).runtimeConfig;
+        const snapshot = config ? resolveThreadOrchestrationSnapshot(getModelSettingsSnapshot(), config) : undefined;
+        return listPlanDelegationAgents(snapshot).map(agent => agent.agentKey);
+      },
       thread: id => conversationStore.getThread(id),
       busy: id => activeRunRuntimeState.hasRun(id) || threadRunPreparations.has(id),
       latestAttempt: id => conversationStore.listRunAttempts(id).at(-1),

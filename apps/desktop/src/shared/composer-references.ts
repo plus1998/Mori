@@ -9,6 +9,7 @@ export const COMPOSER_REFERENCE_KINDS = [
   "conversation",
   "integration",
   "subagent",
+  "multi_agents",
   "mcp",
 ] as const;
 export type ComposerReferenceKind = (typeof COMPOSER_REFERENCE_KINDS)[number];
@@ -27,7 +28,7 @@ export interface ComposerReferenceSearchResult {
   items: ComposerReference[];
   hasMore: boolean;
 }
-export const COMPOSER_REFERENCE_PATTERN = /@(project|ssh|todo|plan|web|web_selection|conversation|integration|subagent|mcp)\{([^{}\s]+)\}/g;
+export const COMPOSER_REFERENCE_PATTERN = /@(project|ssh|todo|plan|web|web_selection|conversation|integration|subagent|multi_agents|mcp)\{([^{}\s]+)\}/g;
 export function composerReferenceToken(reference: ComposerReference): string {
   return `@${reference.kind}{${encodeURIComponent(JSON.stringify({ id: reference.id, label: reference.label.slice(0, 500), detail: reference.detail.slice(0, 2000) }))}}`;
 }
@@ -72,7 +73,7 @@ export function parseMentionQuery(
   if (!match) return null;
   const raw = match[1]!;
   const category =
-    /^(项目|project|SSH|待办|todo|计划|plan|网页|会话|集成|工具|子代理|MCP|web|conversation|chat|integration|subagent)[:：]?/i.exec(raw);
+    /^(Multi-Agents|multi_agents|多代理|多智能体|项目|project|SSH|待办|todo|计划|plan|网页|会话|集成|工具|子代理|MCP|web|conversation|chat|integration|subagent)[:：]?/i.exec(raw);
   const name = category?.[1]?.toLowerCase();
   const categories: Record<string, ComposerReferenceKind> = {
     项目: "project",
@@ -92,6 +93,10 @@ export function parseMentionQuery(
     integration: "integration",
     子代理: "subagent",
     subagent: "subagent",
+    "multi-agents": "multi_agents",
+    multi_agents: "multi_agents",
+    多代理: "multi_agents",
+    多智能体: "multi_agents",
     mcp: "mcp",
   };
   const kind = name ? categories[name] : undefined;
@@ -116,4 +121,5 @@ export const CONTEXT_REFERENCE_PROMPT = [
   "SSH references supply a connection address and port, never passwords or private-key content. Connect only when the user's task calls for it; report authentication failures honestly.",
   "Integration and MCP references identify enabled services by their exact server name. Search that server through the MCP hub, read the returned tool descriptions and input schemas, then call the matching tool. A reference does not enable a disabled service or reveal its credentials.",
   "Subagent references identify configured agents by agentKey. Use the runtime's delegation tool and the matching declared agent type for that key when the user's task calls for delegation. A reference does not change orchestration settings or bypass tool permissions.",
+  "Multi-Agents references explicitly select a saved collaboration configuration for the user's task in Agent mode. Discover mori_context.multi_agents_start and call it with the referenced configId and requestId, then follow its returned instructions to split, dispatch, integrate and verify the work. No plan approval is required in Agent mode. Use only the selected members and concurrency; native subagents must already be enabled in the current conversation. Report missing configurations or members instead of silently changing the selection. Plan mode remains read-only until approved.",
 ].join("\n");

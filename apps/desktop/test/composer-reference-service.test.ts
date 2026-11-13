@@ -46,6 +46,63 @@ test("picker searches conversations across projects and bounds each category", (
   expect(service.search({ query: "订单", limit: 1 }).hasMore).toBe(true);
   expect(() => service.search({ query: "", limit: -1 })).toThrow();
 });
+test("Multi-Agents search and prompt resolution use current saved configuration and expose a start request", async () => {
+  const resolved: unknown[][] = [];
+  let disposed = "";
+  const service = setup({ multiAgents: {
+    references: () => [{ kind: "multi_agents", id: "pair", label: "开发协作", detail: "独立会话 · 并发 2" }],
+    resolveReference: (...args) => {
+      resolved.push(args);
+      return { type: "multi_agents", configId: args[1], requestId: "ref-1", name: "开发协作", mode: "sessions", tool: "mori_context.multi_agents_start" } as any;
+    },
+    disposeThread: threadId => { disposed = threadId; },
+  } });
+  expect(service.search({ query: "开发", kind: "multi_agents" }).items).toHaveLength(1);
+  expect(service.search({ query: "独立会话" }).items).toHaveLength(1);
+  const token = composerReferenceToken({ kind: "multi_agents", id: "pair", label: "旧名字", detail: "伪造成员" });
+  const prompt = `完成任务 ${token}`;
+  const result = await service.resolvePrompt("current", prompt);
+  expect(resolved).toEqual([["current", "pair", prompt]]);
+  expect(result).toContain('"requestId":"ref-1"');
+  expect(result).toContain('"name":"开发协作"');
+  expect(result).not.toContain("伪造成员");
+  const another = composerReferenceToken({ kind: "multi_agents", id: "other", label: "另一个", detail: "" });
+  await expect(service.resolvePrompt("current", `${token} ${another}`)).rejects.toThrow("只能选择一个");
+  service.disposeThread("current");
+  expect(disposed).toBe("current");
+  expect(() => setup().search({ query: "", kind: "multi_agents" })).toThrow("尚未连接");
+});
+test("context MCP exposes and routes Multi-Agents start under authenticated conversation identity", async () => {
+  const { ContextReferenceMcpGateway } = await import("../src/main/context-reference-mcp-gateway");
+  const calls: unknown[][] = [];
+  const gateway = new ContextReferenceMcpGateway(setup(), {
+    tool: async (...args: unknown[]) => { calls.push(args); return { instructions: "dispatch selected members" }; },
+  } as any);
+  try {
+    const injection = await gateway.resolveInjection("current");
+    const call = async (method: string, params?: unknown) => {
+      const response = await fetch(injection.sdkEntry.url as string, {
+        method: "POST",
+        headers: { ...(injection.sdkEntry.headers as Record<string, string>),
+          "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: "start", method, params }),
+      });
+      return response.json() as Promise<any>;
+    };
+    const catalog = await call("tools/list");
+    const start = catalog.result.tools.find((tool: { name: string }) => tool.name === "multi_agents_start");
+    expect(start.inputSchema.required).toEqual(["configId", "requestId"]);
+    const args = { configId: "pair", requestId: "ref-1" };
+    const result = await call("tools/call", { name: "multi_agents_start", arguments: args });
+    expect(calls).toEqual([["current", "multi_agents_start", args]]);
+    expect(JSON.parse(result.result.content[0].text).instructions).toBe("dispatch selected members");
+    const forged = await call("tools/call", { name: "multi_agents_start", arguments: { ...args, threadId: "other" } });
+    expect(forged.result.isError).toBe(true);
+    expect(calls).toHaveLength(1);
+  } finally {
+    await gateway.close();
+  }
+});
 test("plan references resolve the authoritative immutable version with Unicode-safe pagination", async () => {
   const snapshot = { id: "plan_1", sourceThreadId: "a", version: 2, title: "计划标题", workspacePath: "/project/a",
     userPrompt: "implement", analysis: "reason", plan: "一😀二😀三", createdAt: "2026-11-02" };

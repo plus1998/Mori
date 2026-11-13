@@ -22,6 +22,20 @@ test.beforeEach(async ({ page }) => {
   await page.goto(new URL("/e2e/fixtures/composer-references.html", rendererUrl).href);
 });
 
+test("Multi-Agents mentions select a saved configuration and preserve it as a chip in draft and message", async ({ page }) => {
+  const editor = page.getByRole("textbox");
+  await editor.fill("@Multi-Agents");
+  await page.getByRole("option", { name: /开发协作/ }).click();
+  await expect(editor.locator('[data-reference-kind="multi_agents"]')).toHaveCount(1);
+  await expect(page.getByTestId("draft-value")).toHaveText(`${composerReferenceToken({
+    kind: "multi_agents", id: "team-1", label: "开发协作", detail: "独立会话 · 并发 2",
+  })} `);
+  await expect(page.getByTestId("message-preview")).toContainText("开发协作");
+  await expect(editor).not.toContainText("@multi_agents{");
+  await editor.pressSequentially("实现功能并验收");
+  await expect(page.getByTestId("draft-value")).toContainText("实现功能并验收");
+});
+
 test("consecutive web mentions render both chips and preserve their tokens in the draft", async ({
   page,
 }) => {
