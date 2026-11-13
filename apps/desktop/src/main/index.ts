@@ -256,8 +256,9 @@ import {
   type BrowserSetVisibleRequest,
   type BrowserViewState,
   ECO_AGENT_BROWSER_MCP_SERVER,
-  ECO_AGENT_BROWSER_SKILL_NAME,
+  MORI_AGENT_BROWSER_SKILL_NAME,
   extractUrlFromBrowserOpenToolPayload,
+  isBuiltinAgentBrowserSkillName,
   isEcoAgentBrowserOpenToolName,
   requiresBrowserOpenApproval,
   resolveToolNameFromActivityPayload,
@@ -813,11 +814,11 @@ import {
   toSpoolStageAttachments,
 } from "./discard-unstarted-composer-restore";
 import {
-  buildEcoAgentBrowserCodexSkillInfo,
-  ensureClaudeUserEcoAgentBrowserSkill,
-  removeClaudeUserEcoAgentBrowserSkill,
-  resolveEcoAgentBrowserSkillFileForCodex,
-} from "./eco-agent-browser-skill";
+  buildMoriAgentBrowserCodexSkillInfo,
+  ensureClaudeUserMoriAgentBrowserSkill,
+  removeClaudeUserMoriAgentBrowserSkill,
+  resolveMoriAgentBrowserSkillFileForCodex,
+} from "./mori-agent-browser-skill";
 import { type ApprovalHostEvidence, collectApprovalHostEvidence } from "./eco-approval-local-evidence";
 import {
   buildThreadApprovalEnvelope,
@@ -4285,11 +4286,15 @@ app
     desktopUpdateService.start();
     // Skill materials only when capability is ON (no CDP / no session inject at boot).
     if (browserSettingsStore.get().agentIntegrationEnabled) {
-      void ensureClaudeUserEcoAgentBrowserSkill().catch((error) => {
-        process.stderr.write(
-          `[eco-browser] skill ensure failed: ${error instanceof Error ? error.message : String(error)}\n`,
-        );
-      });
+      void ensureClaudeUserMoriAgentBrowserSkill()
+        .then((result) => {
+          if (!result.ok) throw new Error(result.reason);
+        })
+        .catch((error) => {
+          process.stderr.write(
+            `[eco-browser] skill ensure failed: ${error instanceof Error ? error.message : String(error)}\n`,
+          );
+        });
     }
     desktopInitializationComplete = true;
     void initialDesktopRendererReady.then(() => {
@@ -9806,12 +9811,12 @@ function registerIpcHandlers(): void {
     }
     const next = normalizeBrowserSettingsSnapshot(payload);
     if (next.agentIntegrationEnabled) {
-      const ensured = await ensureClaudeUserEcoAgentBrowserSkill();
+      const ensured = await ensureClaudeUserMoriAgentBrowserSkill();
       if (!ensured.ok) {
         throw new Error(`无法安装内置浏览器 skill：${ensured.reason}`);
       }
-      if (!resolveEcoAgentBrowserSkillFileForCodex()) {
-        throw new Error("未找到打包的 eco-agent-browser skill 文件。");
+      if (!resolveMoriAgentBrowserSkillFileForCodex()) {
+        throw new Error("未找到打包的 mori-agent-browser skill 文件。");
       }
       // Persist so isFeatureAvailable sees the capability flag, then check binary only.
       const saved = browserSettingsStore.save(next);
@@ -9825,7 +9830,7 @@ function registerIpcHandlers(): void {
       }
       return saved;
     }
-    await removeClaudeUserEcoAgentBrowserSkill();
+    await removeClaudeUserMoriAgentBrowserSkill();
     const saved = browserSettingsStore.save(next);
     return saved;
   });
@@ -13397,10 +13402,10 @@ async function startCodexThreadRun(
     });
     const sessionIntegratedWebSearchEnabled = codexWebSearchPlan.backend === "integrated";
     const ecoBrowserSkillFile = sessionEcoBrowserEnabled
-      ? resolveEcoAgentBrowserSkillFileForCodex()
+      ? resolveMoriAgentBrowserSkillFileForCodex()
       : undefined;
     if (sessionEcoBrowserEnabled && !ecoBrowserSkillFile) {
-      throw new Error("本会话已开启内置浏览器，但未找到打包的 eco-agent-browser skill 文件。");
+      throw new Error("本会话已开启内置浏览器，但未找到打包的 mori-agent-browser skill 文件。");
     }
     const outcome = await runThreadRequestOnce(
       input.thread.id,
@@ -13607,7 +13612,7 @@ async function startCodexThreadRun(
             }
             const withoutDup = base.filter(
               (entry) =>
-                path.basename(path.dirname(entry.path)) !== ECO_AGENT_BROWSER_SKILL_NAME &&
+                !isBuiltinAgentBrowserSkillName(path.basename(path.dirname(entry.path))) &&
                 entry.path !== ecoBrowserSkillFile,
             );
             return [...withoutDup, { path: ecoBrowserSkillFile, enabled: true }];
@@ -13829,14 +13834,14 @@ async function resolveCodexThreadSkills(
       (skill) =>
         (skill.layout === "agents" || skill.layout === "codex") &&
         !/[/\\]\.codex[/\\]skills[/\\]\.system[/\\]/.test(skill.skillFilePath) &&
-        skill.name !== ECO_AGENT_BROWSER_SKILL_NAME,
+        !isBuiltinAgentBrowserSkillName(skill.name),
     )
     .map((skill) => ({
       skill,
       enabled: settings?.[skill.settingsKey ?? skill.skillFilePath] ?? skill.source === "project",
     }));
   if (browserSettingsStore.get().agentIntegrationEnabled) {
-    const skillFile = resolveEcoAgentBrowserSkillFileForCodex();
+    const skillFile = resolveMoriAgentBrowserSkillFileForCodex();
     if (skillFile) {
       const thread = conversationStore.getThread(threadId);
       const sessionEnabled = integrationEnabled(
@@ -13844,7 +13849,7 @@ async function resolveCodexThreadSkills(
         "browser",
       );
       entries.push({
-        skill: buildEcoAgentBrowserCodexSkillInfo(skillFile),
+        skill: buildMoriAgentBrowserCodexSkillInfo(skillFile),
         enabled: sessionEnabled,
       });
     }
@@ -13941,9 +13946,9 @@ async function resolvePiSessionResourcesForThread(
 
   let browserSkillDirectory: string | undefined;
   if (browserInject.enabled) {
-    const skillFile = resolveEcoAgentBrowserSkillFileForCodex();
+    const skillFile = resolveMoriAgentBrowserSkillFileForCodex();
     if (!skillFile) {
-      throw new Error("本会话已开启内置浏览器，但未找到打包的 eco-agent-browser skill 文件。");
+      throw new Error("本会话已开启内置浏览器，但未找到打包的 mori-agent-browser skill 文件。");
     }
     browserSkillDirectory = path.dirname(skillFile);
   }
@@ -20037,7 +20042,7 @@ async function buildSdkSessionOptions(
   }
   let ecoBrowserSkillFilePath: string | undefined;
   if (browserInject.enabled) {
-    const ensured = await ensureClaudeUserEcoAgentBrowserSkill();
+    const ensured = await ensureClaudeUserMoriAgentBrowserSkill();
     if (!ensured.ok) {
       throw new Error(`本会话已开启内置浏览器，但 skill 不可用：${ensured.reason}`);
     }
@@ -20113,19 +20118,19 @@ async function buildSdkSessionOptions(
   const skillsEnabled = hydrated?.runtimeConfig?.skillsEnabled;
   const enabledProjectSkills = listSdkReadyProjectSkills(discovered.projectSkills).filter(
     (skill) =>
-      skill.name !== ECO_AGENT_BROWSER_SKILL_NAME &&
+      !isBuiltinAgentBrowserSkillName(skill.name) &&
       (skillsEnabled?.[skill.settingsKey ?? skill.skillFilePath] ?? true),
   );
   const enabledUserSkills = discovered.userSkills.filter(
     (skill) =>
-      skill.name !== ECO_AGENT_BROWSER_SKILL_NAME &&
+      !isBuiltinAgentBrowserSkillName(skill.name) &&
       skill.sdkReady &&
       (skillsEnabled?.[skill.settingsKey ?? skill.skillFilePath] ?? false),
   );
   const projectNames = enabledProjectSkills.map((skill) => skill.name);
   const enabledUserNames = [
     ...enabledUserSkills.map((skill) => skill.name),
-    ...(ecoBrowserSkillFilePath ? [ECO_AGENT_BROWSER_SKILL_NAME] : []),
+    ...(ecoBrowserSkillFilePath ? [MORI_AGENT_BROWSER_SKILL_NAME] : []),
   ];
   const implicitReadAllowRoots = resolveImplicitSkillReadRoots(os.homedir(), workspacePath, [
     ...enabledProjectSkills,
@@ -20133,7 +20138,7 @@ async function buildSdkSessionOptions(
     ...(ecoBrowserSkillFilePath
       ? [
           {
-            name: ECO_AGENT_BROWSER_SKILL_NAME,
+            name: MORI_AGENT_BROWSER_SKILL_NAME,
             description: "Mori built-in browser skill",
             source: "user" as const,
             directory: path.dirname(ecoBrowserSkillFilePath),

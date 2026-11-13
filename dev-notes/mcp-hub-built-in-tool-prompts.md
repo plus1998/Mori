@@ -2,7 +2,7 @@
 
 更新日期：2026-10-09。当前代码已采用轻量能力说明：每类能力提供名称、用途和服务搜索目标，公共 Hub 调用规则合并后只出现一次。调用方仍按会话设置选择要注入的能力。
 
-具体工具的名称、description、参数和局部使用规则通过搜索获取；浏览器长流程由随附的 eco-agent-browser Skill 提供。会话隔离、桌面共享、供应商参数差异和绘画失败后的配置决策仍在上下文中保留。
+具体工具的名称、description、参数和局部使用规则通过搜索获取；浏览器长流程由随附的 mori-agent-browser Skill 提供。会话隔离、桌面共享、供应商参数差异和绘画失败后的配置决策仍在上下文中保留。
 
 用户添加的外部 MCP 也已接入[能力目录注入](mcp-hub-external-tool-directory.md)：提供本会话启用的服务搜索名称、工具数量和实际 description 的简短能力示例；具体定义仍按需搜索。
 
@@ -15,7 +15,7 @@ Built-in browser (Eco): browse and interact with websites, read pages, fill form
 Eco MCP Hub: call `mcp__eco_mcp__search_tools` with a Hub target in `query`, read the returned descriptions and input schemas, then call `mcp__eco_mcp__call_tool` with the returned tool id in `name` and its input in `arguments`. Reuse discovered definitions within this turn. Use direct MCP tools only when explicitly listed. Eco manages connections, session routing and approvals; do not launch substitute MCP servers or CLIs. Report discovery or execution failures.
 Hub target: `eco_agent_browser`.
 Tabs are auth-bound to the current conversation thread; cookies, localStorage and IndexedDB are shared within this workspace. Eco binds the browser session automatically; do not pass a custom `session`.
-Use the bundled Skill `eco-agent-browser` for browser workflows. Discover capabilities through tool search; this server exposes tools only.
+Use the bundled Skill `mori-agent-browser` for browser workflows. Discover capabilities through tool search; this server exposes tools only.
 
 Built-in Computer Use (Eco): inspect and operate local applications and desktop interfaces through accessibility APIs.
 Hub target: `eco_computer_use`.

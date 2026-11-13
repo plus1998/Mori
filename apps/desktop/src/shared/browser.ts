@@ -7,7 +7,13 @@ export const ECO_AGENT_BROWSER_MCP_SERVER = "eco_agent_browser";
 export const ECO_AGENT_BROWSER_ALLOWED_TOOL = `mcp__${ECO_AGENT_BROWSER_MCP_SERVER}__*`;
 
 /** Claude / skill frontmatter name and disk folder under ~/.claude/skills. */
-export const ECO_AGENT_BROWSER_SKILL_NAME = "eco-agent-browser";
+export const MORI_AGENT_BROWSER_SKILL_NAME = "mori-agent-browser";
+export const LEGACY_ECO_AGENT_BROWSER_SKILL_NAME = "eco-agent-browser";
+
+/** Old managed installs must not be injected alongside the renamed built-in skill. */
+export function isBuiltinAgentBrowserSkillName(name: string): boolean {
+  return name === MORI_AGENT_BROWSER_SKILL_NAME || name === LEGACY_ECO_AGENT_BROWSER_SKILL_NAME;
+}
 
 /** Scope id when the user browses without an active Eco thread (not injectable to Agent). */
 export const ECO_BROWSER_PERSONAL_SCOPE_ID = "__personal__";
@@ -50,7 +56,7 @@ export function browserAgentSessionKey(threadId: string): string {
 
 /**
  * Short system append when this *thread* enabled eco_agent_browser MCP.
- * Detailed workflow lives in the bundled skill `eco-agent-browser`.
+ * Detailed workflow lives in the bundled skill `mori-agent-browser`.
  * Server name is always `eco_agent_browser`; isolation is auth-token + Eco gateway routing.
  */
 export function buildEcoAgentBrowserPromptAppend(_threadId?: string): string {
@@ -58,7 +64,7 @@ export function buildEcoAgentBrowserPromptAppend(_threadId?: string): string {
     "Built-in browser (Mori): browse and interact with websites, read pages, fill forms, extract data, capture screenshots and verify web UIs.",
     buildEcoMcpHubToolUsage({ server: ECO_AGENT_BROWSER_MCP_SERVER }),
     "Tabs are auth-bound to the conversation thread; cookies, localStorage and IndexedDB are shared within this workspace. Mori binds the browser session automatically; do not pass a custom `session`.",
-    `Use the bundled Skill \`${ECO_AGENT_BROWSER_SKILL_NAME}\` for browser workflows. Discover capabilities through tool search; this server exposes tools only.`,
+    `Use the bundled Skill \`${MORI_AGENT_BROWSER_SKILL_NAME}\` for browser workflows. Discover capabilities through tool search; this server exposes tools only.`,
   ].join("\n");
 }
 

@@ -1,5 +1,5 @@
 ---
-name: eco-agent-browser
+name: mori-agent-browser
 description: >
   Mori built-in browser via agent-browser MCP (mcp__eco_agent_browser__agent_browser_*). Use when browsing,
   clicking, filling forms, extracting page data, taking screenshots, or verifying local web UIs

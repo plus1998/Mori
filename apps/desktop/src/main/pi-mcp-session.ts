@@ -72,7 +72,7 @@ export function buildPiMcpSessionConfig(input: {
     sdkEntry?: Record<string, unknown>;
     promptAppend?: string;
   };
-  /** Absolute directory containing eco-agent-browser SKILL.md when browser is enabled. */
+  /** Absolute directory containing mori-agent-browser SKILL.md when browser is enabled. */
   browserSkillDirectory?: string;
 }): PiMcpSessionResolution {
   const assignedUserKeys = input.enabledMcpServerKeys

@@ -60,7 +60,7 @@ test("buildPiMcpSessionConfig merges browser and image integrations", () => {
       },
       promptAppend: "Use eco_image_generation when asked.",
     },
-    browserSkillDirectory: "/tmp/skills/eco-agent-browser",
+    browserSkillDirectory: "/tmp/skills/mori-agent-browser",
   });
   expect(Object.keys(result.mcpServers).sort()).toEqual([
     ECO_AGENT_BROWSER_MCP_SERVER,
@@ -73,7 +73,7 @@ test("buildPiMcpSessionConfig merges browser and image integrations", () => {
     "Use eco_computer_use for desktop control.",
     "Use eco_image_generation when asked.",
   ]);
-  expect(result.extraSkillDirectories).toEqual([path.resolve("/tmp/skills/eco-agent-browser")]);
+  expect(result.extraSkillDirectories).toEqual([path.resolve("/tmp/skills/mori-agent-browser")]);
 });
 
 test("buildPiMcpSessionConfig always merges imageViewInject even when Composer integrations are off", () => {
