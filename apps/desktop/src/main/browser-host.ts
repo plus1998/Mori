@@ -2094,15 +2094,15 @@ export class BrowserHost {
     return { available: true };
   }
 
-  getAgentPromptAppend(sessionEnabled: boolean, threadId?: string): string | undefined {
+  getAgentPromptAppend(sessionEnabled: boolean, threadId?: string, skillName?: string): string | undefined {
     if (!sessionEnabled || !this.deps.getSettings().get().agentIntegrationEnabled) {
       return undefined;
     }
     const tid = threadId?.trim();
-    if (!tid) {
+    if (!tid && !skillName) {
       return ECO_AGENT_BROWSER_PROMPT_APPEND;
     }
-    return buildEcoAgentBrowserPromptAppend(tid);
+    return buildEcoAgentBrowserPromptAppend(tid, skillName);
   }
 
   async resolveGlobalAgentBrowserMcpServer(): Promise<CodexMcpServerForConfigSync | undefined> {

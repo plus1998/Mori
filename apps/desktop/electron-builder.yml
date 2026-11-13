@@ -63,8 +63,8 @@ extraResources:
     to: open-computer-use
     filter:
       - "**/*"
-  - from: packaging/skills/
-    to: skills
+  - from: packaging/plugins/
+    to: plugins
     filter:
       - "**/*"
   # Legacy debug-only; agents use HTTP MCP. Keep for offline stdio probing.

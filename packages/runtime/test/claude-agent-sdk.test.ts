@@ -592,6 +592,65 @@ test("explicit empty skill selections stay empty instead of enabling CLI default
   expect(resolveAgentSkills("main", undefined, ["pdf"])).toEqual(["pdf"]);
 });
 
+test("Claude passes local plugins and qualified skills on fresh and resumed queries, then clears disabled plugins", async () => {
+  const captured: Record<string, unknown>[] = [];
+  const driver = new ClaudeAgentSdkDriver({
+    apiKey: "test-key",
+    baseUrl: "http://127.0.0.1:36037",
+    loadSdk: async () => ({
+      query: ({ options }) => {
+        captured.push(options);
+        return {
+          async *[Symbol.asyncIterator]() {
+            yield { type: "system", subtype: "init", session_id: "sess-plugin", uuid: "init-plugin" };
+            yield { type: "result", subtype: "success", session_id: "sess-plugin", uuid: "result-plugin" };
+          },
+          close: () => {},
+        };
+      },
+    }),
+  });
+  const plugins = [{ type: "local" as const, path: "/tmp/mori/plugins/mori" }];
+  const qualifiedName = "mori:mori-agent-browser";
+  for (const mode of ["fresh", "resume", "disabled"] as const) {
+    const skills = mode === "disabled" ? ["project-review"] : ["project-review", qualifiedName];
+    for await (const _event of driver.runAsk({
+      threadId: `thr_plugin_${mode}`,
+      prompt: "Inspect the browser",
+      workspacePath: "/tmp/workspace",
+      worktreePath: "/tmp/worktree",
+      routes,
+      signal: new AbortController().signal,
+      ...(mode !== "fresh" ? { resume: { resumeSessionId: "sess-plugin" } } : {}),
+      sdkSession: {
+        settingSources: ["project"],
+        plugins: mode === "disabled" ? [] : plugins,
+        skills,
+        agentSkills: { main: skills, explore: skills, researcher: skills },
+      },
+      agentRegistry: universalAgentRegistry,
+    })) {
+      // Drain the query to verify the actual SDK boundary.
+    }
+  }
+  expect(captured).toHaveLength(3);
+  for (const options of captured.slice(0, 2)) {
+    expect(options.plugins).toEqual(plugins);
+    expect(options.settingSources).toEqual(["project"]);
+    expect(options.skills).toEqual(["project-review", qualifiedName]);
+    const agents = options.agents as Record<string, Record<string, unknown>>;
+    expect(agents.eco_researcher?.skills).toContain(qualifiedName);
+    expect(agents.eco_explore?.skills).toContain(qualifiedName);
+  }
+  expect(captured[0]?.resume).toBeUndefined();
+  expect(captured[1]?.resume).toBe("sess-plugin");
+  expect(captured[2]?.resume).toBe("sess-plugin");
+  expect(captured[2]?.plugins).toEqual([]);
+  expect(captured[2]?.skills).toEqual(["project-review"]);
+  const disabledAgents = captured[2]?.agents as Record<string, Record<string, unknown>>;
+  expect(disabledAgents.eco_researcher?.skills).not.toContain(qualifiedName);
+});
+
 test("removes Plan Mode submission tools from SDK auto-approved tools", () => {
   expect(
     stripProtectedPlanModeAutoApprovedTools([

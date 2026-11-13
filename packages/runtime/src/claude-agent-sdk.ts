@@ -1266,6 +1266,7 @@ export class ClaudeAgentSdkDriver implements AgentRuntimeDriver {
       includePartialMessages: true,
       forwardSubagentText: true,
       settingSources: session.settingSources,
+      ...(input.sdkSession?.plugins !== undefined ? { plugins: input.sdkSession.plugins } : {}),
       ...(session.skills !== undefined ? { skills: session.skills } : {}),
       permissionMode: phase.permissionMode,
       ...(phase.permissionMode === "bypassPermissions" ? { allowDangerouslySkipPermissions: true } : {}),

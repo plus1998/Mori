@@ -20,9 +20,11 @@ export type EcoSettingSource = "user" | "project" | "local";
 export interface EcoSdkSessionOptions {
   /** Loads CLAUDE.md, rules, skills, hooks, and project .mcp.json */
   settingSources?: EcoSettingSource[];
-  /** Main session (Planner) skill directories to preload */
+  /** Local plugins loaded for this query, including resumed sessions. */
+  plugins?: Array<{ type: "local"; path: string }>;
+  /** Main session (Planner) skill names, including plugin-qualified names. */
   skills?: string[];
-  /** Per-agent skill directories for subagent definitions. Keys may be built-in roles, orchestration agentKeys, or SDK eco_* keys. */
+  /** Per-agent skill names for subagent definitions. Keys may be built-in roles, orchestration agentKeys, or SDK eco_* keys. */
   agentSkills?: Partial<Record<RuntimeAgentRole, string[]>>;
   /** File read roots for project skills and explicitly referenced user skills in this SDK run. */
   implicitReadAllowRoots?: string[];

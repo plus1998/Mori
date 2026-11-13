@@ -4,6 +4,8 @@
 
 具体工具的名称、description、参数和局部使用规则通过搜索获取；浏览器长流程由随附的 mori-agent-browser Skill 提供。会话隔离、桌面共享、供应商参数差异和绘画失败后的配置决策仍在上下文中保留。
 
+2026-11-13：浏览器技能随 `packaging/plugins/mori/` 本地插件打包。Claude 仅在会话启用浏览器时通过 SDK `plugins` 加载，技能白名单、子代理配置和提示词使用 `mori:mori-agent-browser`；不会为此加载用户级设置或向 `~/.claude/skills` 安装副本。Codex 和 Pi 直接读取插件目录中的同一份 `skills/mori-agent-browser/SKILL.md`，名称保持 `mori-agent-browser`。历史用户目录副本仅在带应用管理标记时清理。
+
 用户添加的外部 MCP 也已接入[能力目录注入](mcp-hub-external-tool-directory.md)：提供本会话启用的服务搜索名称、工具数量和实际 description 的简短能力示例；具体定义仍按需搜索。
 
 ## 运行时实际生成的示例
