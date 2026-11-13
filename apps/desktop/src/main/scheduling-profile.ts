@@ -4,6 +4,8 @@ import type { ScheduleExecutionProfile } from "../shared/scheduling";
 import type { ModelRef } from "../shared/agent-orchestration";
 import { pruneThreadRuntimeSubagentReferences } from "../shared/thread-runtime-config-references";
 import { normalizeThreadRuntimeConfig, resolveThreadOrchestrationSnapshot, type ThreadRuntimeConfig } from "../shared/thread-runtime-config";
+import { schedulingMainModelIssue } from "../shared/scheduling-model";
+import { translateCatalog } from "../shared/i18n-catalogs";
 
 export function freezeSchedulingProfile(
   profile: ScheduleExecutionProfile,
@@ -32,6 +34,8 @@ export function freezeSchedulingProfile(
   const routes = resolveRoutes(config);
   const main = routes.find(route => route.role === "main");
   if (!main) throw new Error("任务缺少主模型。");
+  const issue = schedulingMainModelIssue(profile.coreKind, main);
+  if (issue) throw new Error(translateCatalog("zh-CN", issue));
   const pinModel = (route: RuntimeRoleRouteConfig) => {
     const { candidateModelId: _candidate, role: _role, ...modelRef } = route;
     return modelRef;

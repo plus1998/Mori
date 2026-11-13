@@ -2,7 +2,7 @@ import { ArrowLeft, ChevronDown, Clock3, ExternalLink, Folder, History, Pause, P
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { CoreKind } from "@eco/runtime/core-runtime";
-import type { CandidateModelView, CursorModelOption, ModelSettingsSnapshot, WorkflowSettingsSnapshot } from "../shared/ipc";
+import type { CursorModelOption, ModelRef, ModelSettingsSnapshot, WorkflowSettingsSnapshot } from "../shared/ipc";
 import { replaceSchedulingMainModel } from "./scheduling-task-profile";
 import { buildAcpThreadRuntimeConfig, buildThreadRuntimeConfigFromDefaults, resolveThreadOrchestrationSnapshot } from "../shared/thread-runtime-config";
 import type { ScheduleDefinition, ScheduleExecutionProfile, ScheduleTrigger, SchedulingSnapshot } from "../shared/scheduling";
@@ -12,7 +12,8 @@ import { ScheduleDurationField } from "./ScheduleDurationField";
 import { SchedulingProjectField, projectDisplayName, type SchedulingProjectOption } from "./SchedulingProjectField";
 import { ModelCascadeSelect, type ModelCascadeOption, type ModelCascadeSelection } from "./ModelCascadeSelect";
 import { mapAcpModelOptions, resolveAcpVendorNames } from "./model-cascade-options";
-import { resolveProviderAccentColor } from "../shared/commit-model-options";
+import { ComposerMainModelPicker } from "./ComposerMainModelPicker";
+import { schedulingMainModelIssue } from "../shared/scheduling-model";
 import { formatIpcInvokeError } from "./AppMessage";
 import { messageDurationFromSeconds } from "./scheduled-message-form";
 import { scheduleCronLabel } from "./schedule-cron-label";
@@ -57,11 +58,11 @@ export function SchedulingPanel(props: Props) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState<string[]>([]);
-  const [candidates, setCandidates] = useState<CandidateModelView[]>([]);
   const [cursorModels, setCursorModels] = useState<CursorModelOption[]>([]);
-  const [modelsLoading, setModelsLoading] = useState(true);
+  const [modelsLoading, setModelsLoading] = useState(false);
   const [modelError, setModelError] = useState("");
   const dialogRef = useRef<HTMLDivElement>(null);
+  const modelFieldRef = useRef<HTMLDivElement>(null);
   const initialFocus = useRef<HTMLButtonElement>(null);
   const formatTime = (at: string) => new Date(at).toLocaleString(i18n.language);
   const updateForm = (update: Partial<Form>) => { setForm(current => current ? { ...current, ...update } : current); setPreview([]); setError(""); };
@@ -72,18 +73,10 @@ export function SchedulingPanel(props: Props) {
     return () => { previous?.focus(); };
   }, []);
   useEffect(() => {
-    let cancelled = false;
-    const providers = props.settings.providers.filter(item => item.enabled);
-    setModelsLoading(true);
-    void Promise.all(providers.map(item => api.listCandidateModels(item.id))).then(rows => {
-      if (!cancelled) { setCandidates(rows.flat()); setModelError(""); setModelsLoading(false); }
-    }).catch(error => { if (!cancelled) { setModelError(String(error)); setModelsLoading(false); } });
-    return () => { cancelled = true; };
-  }, [props.settings.providers]);
-  useEffect(() => {
     if (form?.profile?.coreKind !== "acp") return;
     let cancelled = false;
-    void api.listCursorModels().then(rows => { if (!cancelled) setCursorModels(rows); }).catch(error => { if (!cancelled) setModelError(String(error)); });
+    setModelsLoading(true);
+    void api.listCursorModels().then(rows => { if (!cancelled) setCursorModels(rows); }).catch(error => { if (!cancelled) setModelError(String(error)); }).finally(() => { if (!cancelled) setModelsLoading(false); });
     return () => { cancelled = true; };
   }, [form?.profile?.coreKind]);
 
@@ -129,6 +122,8 @@ export function SchedulingPanel(props: Props) {
       const common = { name: form.name, prompt: form.prompt, trigger, maxLatenessSeconds: scheduleCatchUpSeconds(form) };
       let saved: ScheduleDefinition;
       if (!form.profile) throw new Error(t("scheduling.configRequired"));
+      const issue = schedulingMainModelIssue(form.profile.coreKind, mainModel);
+      if (issue) throw new Error(t(issue));
       if (form.id) saved = await api.updateSchedule({ id: form.id, expectedRevision: form.revision!, enabled: form.enabled, ...common,
         workspacePath: form.workspacePath, executionProfile: form.profile,
       });
@@ -147,40 +142,27 @@ export function SchedulingPanel(props: Props) {
         : buildThreadRuntimeConfigFromDefaults({ settings: props.settings, workflowDefaults: { ...props.workflow, sessionMode: "agent" } }) } });
     } catch (caught) { setError(formatIpcInvokeError(caught, t("scheduling.configRequired"))); }
   };
-  const mainModel = useMemo(() => {
+  const mainModel = useMemo<ModelRef | undefined>(() => {
     if (!form?.profile || form.profile.coreKind === "acp") return undefined;
     try {
       const config = form.profile.runtimeConfig;
       const model = resolveThreadOrchestrationSnapshot(props.settings, config)?.mainAgent.modelRef;
-      return config.mainAgentModelOverride?.providerId === model?.providerId ? { ...model, ...config.mainAgentModelOverride } : model;
+      return model && config.mainAgentModelOverride?.providerId === model.providerId ? { ...model, ...config.mainAgentModelOverride } : model;
     } catch { return undefined; }
   }, [form?.profile, props.settings]);
-  const chooseModel = (selection: ModelCascadeSelection | undefined) => {
-    if (!form?.profile || !selection) return;
-    if (form.profile.coreKind === "acp") {
-      updateForm({ profile: { ...form.profile, runtimeConfig: { ...form.profile.runtimeConfig, cursorModelId: selection.key ?? selection.modelId } } });
-      return;
-    }
-    const candidate = candidates.find(item => item.id === selection.key || (item.providerId === selection.providerId && item.modelId === selection.modelId));
-    if (!candidate) return;
-    try { updateForm({ profile: replaceSchedulingMainModel(form.profile, props.settings, candidate) }); }
-    catch (caught) { setError(formatIpcInvokeError(caught)); }
+  const chooseCursorModel = (selection: ModelCascadeSelection | undefined) => {
+    if (form?.profile?.coreKind !== "acp" || !selection) return;
+    updateForm({ profile: { ...form.profile, runtimeConfig: { ...form.profile.runtimeConfig, cursorModelId: selection.key ?? selection.modelId } } });
   };
-  const modelOptions = useMemo<ModelCascadeOption[]>(() => form?.profile?.coreKind === "acp"
-    ? mapAcpModelOptions(cursorModels, resolveAcpVendorNames(t))
-    : candidates.map(candidate => {
-        const provider = props.settings.providers.find(item => item.id === candidate.providerId);
-        const providerName = provider?.name ?? candidate.providerId;
-        return { key: candidate.id, providerId: candidate.providerId, providerName,
-          providerColor: resolveProviderAccentColor(providerName), modelId: candidate.modelId,
-          label: candidate.displayName ?? candidate.modelId,
-          ...(candidate.displayName ? { description: candidate.modelId } : {}) };
-      }), [form?.profile?.coreKind, cursorModels, candidates, props.settings.providers, t]);
-  const modelValue = !form?.profile ? undefined : form.profile.coreKind === "acp"
-    ? (form.profile.runtimeConfig.cursorModelId
-      ? { key: form.profile.runtimeConfig.cursorModelId, providerId: "", modelId: form.profile.runtimeConfig.cursorModelId }
-      : undefined)
-    : (mainModel?.modelId ? { providerId: mainModel.providerId ?? "", modelId: mainModel.modelId } : undefined);
+  const chooseMainModel = (model: ModelRef) => {
+    if (!form?.profile) return;
+    updateForm({ profile: replaceSchedulingMainModel(form.profile, props.settings, model) });
+  };
+  const modelOptions = useMemo<ModelCascadeOption[]>(() => mapAcpModelOptions(cursorModels, resolveAcpVendorNames(t)), [cursorModels, t]);
+  const modelValue = form?.profile?.runtimeConfig.cursorModelId
+    ? { key: form.profile.runtimeConfig.cursorModelId, providerId: "", modelId: form.profile.runtimeConfig.cursorModelId }
+    : undefined;
+  const mainModelIssue = form?.profile ? schedulingMainModelIssue(form.profile.coreKind, mainModel) : undefined;
   const selected = snapshot.schedules.find(item => item.kind !== "session_message" && item.id === selectedId);
   const items = snapshot.schedules.filter(item => item.kind !== "session_message");
   const history = snapshot.occurrences.filter(item => item.definition.kind !== "session_message" && (!selectedId || item.scheduleId === selectedId)).slice(0, 30);
@@ -194,6 +176,7 @@ export function SchedulingPanel(props: Props) {
   return <div className="scheduling-backdrop" onClick={props.onClose}>
     <div className={`scheduling-panel scheduling-manager${form ? " scheduling-editor" : ""}${!form && !items.length && !history.length ? " scheduling-manager-empty" : ""}`} ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="scheduling-title" onClick={event => event.stopPropagation()}
       onKeyDown={event => {
+        if (event.target instanceof Element && event.target.closest(".composer-main-model-picker, .model-cascade-panel")) return;
         if (event.key === "Escape") props.onClose();
         if (event.key !== "Tab") return;
         const nodes = dialogRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex="0"]');
@@ -246,10 +229,14 @@ export function SchedulingPanel(props: Props) {
                 </button>)}
               </div>
             </div>
-              <div className="scheduling-field scheduling-task-model-field">
+              <div ref={modelFieldRef} className="scheduling-field scheduling-task-model-field">
                 <span className="scheduling-field-label">{t("scheduling.model")}</span>
-                <ModelCascadeSelect options={modelOptions} value={modelValue} loading={modelsLoading} error={modelError}
-                  disabled={!form.profile} placeholder={t("scheduling.chooseModel")} hint={t("scheduling.model")} onChange={chooseModel}/>
+                {form.profile?.coreKind === "acp" ? <ModelCascadeSelect panelZIndex={1200} options={modelOptions} value={modelValue} loading={modelsLoading} error={modelError}
+                  disabled={!form.profile} placeholder={t("scheduling.chooseModel")} hint={t("scheduling.model")} onChange={chooseCursorModel}/>
+                  : <ComposerMainModelPicker key={form.profile?.coreKind ?? "unconfigured"} anchorRef={modelFieldRef}
+                    model={mainModel} coreKind={form.profile?.coreKind ?? ""} panelZIndex={1200}
+                    disabled={!form.profile} invalid={Boolean(mainModelIssue)} invalidLabel={mainModelIssue ? t(mainModelIssue) : undefined}
+                    onSelect={chooseMainModel}/>}
               </div>
             <label className="scheduling-permission-field">{t("scheduling.accessPermission")}
               <select disabled={!form.profile} value={normalizeBashReviewMode(form.profile?.runtimeConfig.bashReviewMode)} onChange={event => {
@@ -262,6 +249,7 @@ export function SchedulingPanel(props: Props) {
               </select>
               <span className="scheduling-hint">{t(bashReviewUi(normalizeBashReviewMode(form.profile?.runtimeConfig.bashReviewMode)).description)}</span>
             </label>
+            {mainModelIssue && <p className="scheduling-error" role="alert">{t(mainModelIssue)}</p>}
             {modelError && <p className="scheduling-error">{modelError}</p>}</>}
             <ScheduleDurationField label={t("scheduling.taskCatchUp")} value={form.catchUp} minSeconds={0} maxSeconds={86400} onChange={catchUp => updateForm({ catchUp })}/>
             <button type="button" className="scheduling-preview-button" onClick={() => void runAction(async () => setPreview(await api.previewSchedule(triggerFor(form))))}><Clock3 size={14}/>{t("scheduling.preview")}</button>

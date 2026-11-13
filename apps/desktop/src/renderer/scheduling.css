@@ -200,6 +200,8 @@
 .scheduling-editor .scheduling-task-advanced > .scheduling-field { padding: 14px 16px; gap: 12px; }
 .scheduling-editor .scheduling-task-advanced > .scheduling-task-model-field { display: grid; grid-template-columns: minmax(100px, 1fr) minmax(0, 1.8fr); align-items: center; padding-block: 6px; min-height: 50px; }
 .scheduling-editor .scheduling-task-model-field .model-cascade-trigger { border: 0; background: transparent; padding-inline: 4px; }
+.scheduling-editor .scheduling-task-model-field .composer-model-selector { min-width: 0; justify-self: end; }
+.scheduling-editor .scheduling-task-model-field .composer-model-trigger { max-width: 100%; }
 .scheduling-editor .scheduling-core-options { gap: 6px; }
 .scheduling-editor .scheduling-core-options button { flex: 1; padding: 8px; font-size: 11px; background: transparent; }
 .scheduling-editor .scheduling-core-options button[aria-pressed="true"] { border-color: var(--border-strong); background: var(--nav-hover); }

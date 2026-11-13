@@ -1,17 +1,21 @@
 import { expect, test } from "bun:test";
 import { buildResourcesFromRouteProfile } from "../src/shared/agent-orchestration";
-import type { CandidateModelView, ModelSettingsSnapshot } from "../src/shared/ipc";
+import type { CandidateModelView, ModelRef, ModelSettingsSnapshot } from "../src/shared/ipc";
 import { buildAcpThreadRuntimeConfig, materializeThreadOrchestrationSnapshot, resolveThreadOrchestrationSnapshot, runtimeRoleRoutesFromOrchestrationSnapshot } from "../src/shared/thread-runtime-config";
 import { freezeSchedulingProfile } from "../src/main/scheduling-profile";
 import { isCandidateModelReferenceAvailable, resolveCandidateModelRouteDefaults } from "../src/main/candidate-model-defaults";
 import { replaceSchedulingMainModel } from "../src/renderer/scheduling-task-profile";
 import { resolveThreadRuntimeConfig } from "../src/main/thread-runtime-routes";
+import { schedulingMainModelIssue } from "../src/shared/scheduling-model";
 
 const nextModel: CandidateModelView = {
   id: "new-candidate", providerId: "new-provider", modelId: "claude-haiku", displayName: "Haiku",
   apiCompat: "anthropic", baseUrl: "https://new.example", sortOrder: 0,
   createdAt: "2026-11-09T00:00:00Z", updatedAt: "2026-11-09T00:00:00Z",
 };
+
+const nextSelection: ModelRef = { providerId: nextModel.providerId, modelId: nextModel.modelId,
+  candidateModelId: nextModel.id, apiCompat: "anthropic" };
 
 function fixture() {
   const bundle = buildResourcesFromRouteProfile({
@@ -51,10 +55,46 @@ function fixture() {
   return { settings, resolveRoutes, isModelAvailable, saved, initial };
 }
 
+test("scheduled Login and OAuth selections retain their account and model preferences through freezing", () => {
+  for (const providerId of ["openai", "eco-coding-chatgpt"]) {
+    const { settings, saved } = fixture();
+    const model: ModelRef = { providerId, modelId: "gpt-6.1-sol", accountId: "selected-account",
+      thinkingEffort: "high", ...(providerId === "openai" ? { serviceTier: "fast" as const } : {}) };
+    const input = { ...saved, coreKind: "codex" as const };
+    const edited = replaceSchedulingMainModel(input, settings, model);
+    const frozen = freezeSchedulingProfile(edited, settings, config =>
+      runtimeRoleRoutesFromOrchestrationSnapshot(resolveThreadOrchestrationSnapshot(settings, config)!), () => true);
+    expect(frozen.runtimeConfig.orchestrationSelection?.mainModel).toEqual(model);
+    expect(frozen.runtimeConfig.resolvedOrchestrationSnapshot?.mainAgent.modelRef).toMatchObject(model);
+    expect(frozen.runtimeConfig.resolvedOrchestrationSnapshot?.agents).toEqual(saved.runtimeConfig.resolvedOrchestrationSnapshot?.agents);
+    model.accountId = "another-account";
+    expect(edited.runtimeConfig.orchestrationSelection?.mainModel?.accountId).toBe("selected-account");
+  }
+});
+
+test("scheduled tasks reject incompatible Login cores and missing Login or OAuth accounts", () => {
+  const { settings, saved } = fixture();
+  const freeze = (coreKind: "codex" | "claude" | "pi", model: ModelRef) => {
+    const edited = replaceSchedulingMainModel({ ...saved, coreKind }, settings, model);
+    return freezeSchedulingProfile(edited, settings, config =>
+      runtimeRoleRoutesFromOrchestrationSnapshot(resolveThreadOrchestrationSnapshot(settings, config)!), () => true);
+  };
+  for (const coreKind of ["pi", "claude"] as const) {
+    expect(() => freeze(coreKind, { providerId: "openai", modelId: "gpt", accountId: "account" })).toThrow("仅支持 Codex");
+  }
+  for (const providerId of ["openai", "eco-coding-chatgpt"]) {
+    expect(() => freeze("codex", { providerId, modelId: "gpt" })).toThrow("账号");
+    expect(() => freeze("codex", { providerId, modelId: "gpt", accountId: "  " })).toThrow("账号");
+  }
+  expect(schedulingMainModelIssue("pi", { providerId: "eco-coding-chatgpt", modelId: "gpt", accountId: "account" })).toBeUndefined();
+  expect(schedulingMainModelIssue("pi", undefined)).toBe("scheduling.configRequired");
+  expect(schedulingMainModelIssue("acp", undefined)).toBeUndefined();
+});
+
 test("changing a scheduled task main model preserves frozen subagents instead of reloading deleted candidates", () => {
   const { settings, resolveRoutes, isModelAvailable, saved } = fixture();
   const before = structuredClone(saved);
-  const edited = replaceSchedulingMainModel(saved, settings, nextModel);
+  const edited = replaceSchedulingMainModel(saved, settings, nextSelection);
   // This was the editor's old behavior: reload the global orchestration while
   // changing the main model, resurrecting the deleted subagent references.
   expect(() => resolveRoutes({ ...edited.runtimeConfig,
@@ -75,7 +115,7 @@ test("editing a saved task works after its global orchestration has been deleted
   settings.mainAgentConfigs = [];
   settings.subagentOrchestrations = [];
   saved.runtimeConfig.mainAgentModelOverride = { providerId: "old-provider", modelId: "override", candidateModelId: "deleted-candidate" };
-  const edited = replaceSchedulingMainModel(saved, settings, nextModel);
+  const edited = replaceSchedulingMainModel(saved, settings, nextSelection);
   expect(edited.runtimeConfig.mainAgentModelOverride).toBeUndefined();
   expect(edited.runtimeConfig.orchestrationSelection?.mainModel?.candidateModelId).toBe(nextModel.id);
   const frozen = freezeSchedulingProfile(edited, settings, resolveRoutes, isModelAvailable);
@@ -85,7 +125,7 @@ test("editing a saved task works after its global orchestration has been deleted
 
 test("deleted subagent candidates are automatically removed before resolving routes", () => {
   const { settings, resolveRoutes, isModelAvailable, initial } = fixture();
-  const edited = replaceSchedulingMainModel(initial, settings, nextModel);
+  const edited = replaceSchedulingMainModel(initial, settings, nextSelection);
   const frozen = freezeSchedulingProfile(edited, settings, resolveRoutes, isModelAvailable);
   expect(frozen.runtimeConfig.resolvedOrchestrationSnapshot?.agents).toEqual([]);
   expect(frozen.runtimeConfig.orchestrationSelection?.subagents).toEqual({ mode: "none" });
@@ -95,7 +135,7 @@ test("deleted subagent candidates are automatically removed before resolving rou
 test("saving a new main model automatically clears subagents whose provider was deleted", () => {
   const { settings, resolveRoutes, isModelAvailable, saved } = fixture();
   settings.providers = settings.providers.filter(provider => provider.id !== "old-provider");
-  const edited = replaceSchedulingMainModel(saved, settings, nextModel);
+  const edited = replaceSchedulingMainModel(saved, settings, nextSelection);
   const before = structuredClone(edited);
   const frozen = freezeSchedulingProfile(edited, settings, resolveRoutes, isModelAvailable);
   const providers = settings.providers.map(provider => ({ ...provider, apiKey: "test" }));
@@ -120,7 +160,7 @@ test("a mixed roster keeps valid frozen agents and the task's saved prompt and p
   saved.runtimeConfig.mcpServersEnabled = { saved: true };
   snapshot.agents[0]!.modelRef = { providerId: nextModel.providerId, modelId: "pinned-agent", baseUrl: "https://pinned.example", apiCompat: "anthropic" };
   settings.providers = settings.providers.filter(provider => provider.id !== "old-provider");
-  const edited = replaceSchedulingMainModel(saved, settings, nextModel);
+  const edited = replaceSchedulingMainModel(saved, settings, nextSelection);
   const before = structuredClone(edited);
   const frozen = freezeSchedulingProfile(edited, settings, resolveRoutes, isModelAvailable);
   const result = frozen.runtimeConfig.resolvedOrchestrationSnapshot!;
