@@ -1171,6 +1171,13 @@
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }
+.workspace-spreadsheet-preview > .workspace-file-browser__status {
+  position: static;
+  flex: 0 0 auto;
+  padding: 6px 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
 .workspace-spreadsheet-preview__tabs {
   display: flex;
   flex: 0 0 auto;

@@ -33,12 +33,16 @@ test("builds File and View commands and dispatches their typed command ids", () 
   });
   const fileMenu = submenuFor(template, "File");
   const viewMenu = submenuFor(template, "View");
+  expect(fileMenu.find((item) => item.id === "open-image-library")?.accelerator).toBe(
+    "CommandOrControl+Shift+G",
+  );
 
   expect(fileMenu.filter((item) => item.label).map((item) => item.label)).toEqual([
     "New Chat",
     "Open Folder...",
     "Mori",
     "Scheduled Tasks",
+    "Image Library",
     "Todos",
     "Search",
     "Settings",
@@ -62,6 +66,7 @@ test("builds File and View commands and dispatches their typed command ids", () 
     "open-folder",
     "open-mori",
     "open-scheduling",
+    "open-image-library",
     "open-todos",
     "open-search",
     "open-settings",
@@ -104,6 +109,7 @@ test("custom accelerators replace defaults, cleared roles stay unbound, aliases 
     ...defaultShortcutBindings("darwin"),
     "new-chat": ["Alt+N", "Control+Shift+N"],
     "open-todos": ["Alt+T"],
+    "open-image-library": ["Alt+G"],
   };
   const template = buildApplicationMenuTemplate(
     "Mori",
@@ -121,6 +127,7 @@ test("custom accelerators replace defaults, cleared roles stay unbound, aliases 
   (alias?.click as () => void)();
   expect(commands).toEqual(["new-chat"]);
   expect(file.find((item) => item.id === "open-todos")?.accelerator).toBe("Alt+T");
+  expect(file.find((item) => item.id === "open-image-library")?.accelerator).toBe("Alt+G");
 });
 
 test("native menu roles retain Electron defaults across platforms", () => {

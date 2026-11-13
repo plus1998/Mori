@@ -474,7 +474,7 @@ export const IPC_CHANNELS = {
 } as const;
 
 export const APP_MENU_COMMANDS = [
-  "open-mori", "open-scheduling", "open-todos", "open-search", "open-settings",
+  "open-mori", "open-scheduling", "open-image-library", "open-todos", "open-search", "open-settings",
   "new-chat", "open-folder", "check-for-updates", "toggle-sidebar", "toggle-bottom-panel",
   "toggle-work-panel", "toggle-review-panel", "toggle-file-tree", "toggle-browser",
 ] as const;

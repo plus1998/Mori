@@ -17,6 +17,7 @@ for (const platform of ["darwin", "win32", "linux"]) {
     const defaults = defaultShortcutBindings(platform);
     expect(() => validateShortcutBindings(defaults, platform)).not.toThrow();
     expect(defaults["open-scheduling"]).toHaveLength(1);
+    expect(defaults["open-image-library"]).toEqual(["CommandOrControl+Shift+G"]);
     expect(defaults["open-todos"]).toHaveLength(1);
     expect(defaults["toggle-prevent-auto-lock"]).toEqual(
       platform !== "linux" ? ["CommandOrControl+Shift+U"] : undefined,
@@ -33,6 +34,9 @@ for (const platform of ["darwin", "win32", "linux"]) {
       shiftKey: true,
     };
     expect(matchesShortcut(event, "open-scheduling", defaults, platform)).toBe(true);
+    expect(
+      matchesShortcut({ ...event, key: "G", code: "KeyG" }, "open-image-library", defaults, platform),
+    ).toBe(true);
     expect(matchesShortcut({ ...event, isComposing: true }, "open-scheduling", defaults, platform)).toBe(
       false,
     );

@@ -6826,6 +6826,10 @@ function App() {
         setSettingsOpen(false);
         setSchedulingOpen(true);
         return;
+      case "open-image-library":
+        setSettingsOpen(false);
+        setImageLibraryOpen(true);
+        return;
       case "open-todos":
         setSettingsOpen(false);
         openProjectTodos();
@@ -13146,6 +13150,7 @@ function App() {
               <button type="button" className="sidebar-action muted" onClick={() => setImageLibraryOpen(true)}>
                 <Images size={ICON_SIZE.md} strokeWidth={ICON_STROKE} />
                 {t("imageLibrary.title")}
+                {renderSidebarShortcut("open-image-library")}
               </button>
               <button type="button" className="sidebar-action muted" onClick={openProjectTodos}>
                 <ClipboardList size={ICON_SIZE.md} strokeWidth={ICON_STROKE} />

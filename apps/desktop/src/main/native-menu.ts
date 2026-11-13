@@ -55,6 +55,7 @@ export function buildApplicationMenuTemplate(
         commandItem("Open Folder...", "open-folder", dispatch, "CmdOrCtrl+O"),
         commandItem("Mori", "open-mori", dispatch),
         commandItem("Scheduled Tasks", "open-scheduling", dispatch),
+        commandItem("Image Library", "open-image-library", dispatch),
         commandItem("Todos", "open-todos", dispatch),
         commandItem("Search", "open-search", dispatch),
         commandItem("Settings", "open-settings", dispatch),

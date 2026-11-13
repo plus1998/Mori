@@ -28,6 +28,7 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
   shortcut("open-folder", "打开项目", "选择并打开项目文件夹", "app", "CommandOrControl+O"),
   shortcut("open-mori", "打开 Mori", "切换到 Mori 助手对话", "app"),
   shortcut("open-scheduling", "定时任务", "打开定时任务", "app", "CommandOrControl+Shift+J"),
+  shortcut("open-image-library", "图片库", "打开图片库", "app", "CommandOrControl+Shift+G"),
   shortcut("open-todos", "待办", "打开待办列表", "app", "CommandOrControl+Shift+T"),
   shortcut("open-search", "搜索", "搜索项目和对话", "app", "CommandOrControl+K"),
   shortcut("open-settings", "设置", "打开应用设置", "app", "CommandOrControl+,"),
