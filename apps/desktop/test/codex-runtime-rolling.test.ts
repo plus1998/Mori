@@ -9,17 +9,20 @@ import {
   getCodexRuntimeClients,
   getCodexRuntimeProcesses,
   getGlobalCodexRuntimeLifecycle,
-  invalidateCodexAccountRuntimeLifecycle,
   handoffCodexRuntimeThread,
+  invalidateCodexAccountRuntimeLifecycle,
+  reapIdleCodexRuntimes,
   reapRetiredCodexRuntimes,
   recordCodexRuntimeThreadOwner,
   replaceGlobalCodexRuntimeLifecycle,
   retainCodexRuntimeClient,
-  setCodexExternalAuthProvider,
   setCodexAccountProxyConfigGetter,
+  setCodexExternalAuthProvider,
   setCodexSystemProxyResolver,
+  stopCodexRuntimeProcess,
   stopGlobalCodexRuntimeLifecycle,
 } from "../src/main/codex-runtime-lifecycle";
+import { CODEX_APP_SERVER_IDLE_TIMEOUT_MS } from "../src/shared/ipc";
 
 let root: string | undefined;
 afterEach(async () => {
@@ -40,17 +43,28 @@ import { createInterface } from "node:readline";
 const threads = new Map();
 const background = new Set();
 let loggedInAccount = '';
+let statusDelay = 0;
 for await (const line of createInterface({ input: process.stdin })) {
   const req = JSON.parse(line);
   if (!('id' in req)) continue;
   const p = req.params ?? {};
   let result = {};
+  if (req.method === 'fixture/wait') {
+    setTimeout(() => process.stdout.write(JSON.stringify({ id: req.id, result: {} }) + '\\n'), 100);
+    continue;
+  }
+  if (req.method === 'thread/read' && statusDelay) {
+    process.stdout.write(JSON.stringify({ method: 'fixture/statusProbe', params: {} }) + '\\n');
+    setTimeout(() => process.stdout.write(JSON.stringify({ id: req.id, result: { thread: { status: { type: threads.get(p.threadId) ?? 'notLoaded' } } } }) + '\\n'), statusDelay);
+    continue;
+  }
   if (req.method === 'initialize') result = { userAgent: 'offline-fixture' };
   else if (req.method === 'account/login/start') { loggedInAccount = p.chatgptAccountId; result = { type: 'success' }; }
   else if (req.method === 'fixture/account') result = { accountId: loggedInAccount, pid: process.pid };
   else if (req.method === 'thread/loaded/list') result = { data: [...threads.keys()] };
   else if (req.method === 'thread/backgroundTerminals/list') result = { data: background.has(p.threadId) ? [{}] : [] };
   else if (req.method === 'fixture/background') { if (p.enabled) background.add(p.threadId); else background.delete(p.threadId); }
+  else if (req.method === 'fixture/statusDelay') statusDelay = p.ms;
   else if (req.method === 'fixture/set') { threads.set(p.threadId, p.status); result = { home: process.env.CODEX_HOME, pid: process.pid }; }
   else if (req.method === 'thread/read') result = { thread: { status: { type: threads.get(p.threadId) ?? 'notLoaded' } } };
   else if (req.method === 'thread/unsubscribe') {
@@ -265,4 +279,108 @@ test("retirement preserves an idle thread's running background terminal", async 
   await old.request("fixture/background", { threadId: "shell", enabled: false });
   await reapRetiredCodexRuntimes();
   expect(getCodexRuntimeClients()).toHaveLength(1);
+});
+
+test("idle recycling releases global and account processes and restarts the same account on demand", async () => {
+  const options = await fixture();
+  setCodexExternalAuthProvider(async (accountId) =>
+    accountId
+      ? {
+          accountId,
+          accessToken: "token",
+          chatgptAccountId: `chatgpt-${accountId}`,
+        }
+      : undefined,
+  );
+  const global = await ensureGlobalCodexRuntimeLifecycle(options);
+  const account = await ensureCodexAccountRuntimeLifecycle("a", options, 1);
+  const oldPid = getCodexRuntimeProcesses().find((item) => item.account?.id === "a")?.pid;
+  expect(oldPid).toBeNumber();
+  await reapIdleCodexRuntimes();
+  expect(getCodexRuntimeProcesses()).toHaveLength(2);
+  const idleAt = Math.max(global.lastActivityAt, account.lastActivityAt) + CODEX_APP_SERVER_IDLE_TIMEOUT_MS;
+  // Monitoring does not postpone reclamation.
+  await account.request("thread/loaded/list", {}, { trackActivity: false });
+  await reapIdleCodexRuntimes(idleAt);
+  expect(getCodexRuntimeProcesses()).toEqual([]);
+  const restarted = await ensureCodexAccountRuntimeLifecycle("a", options, 1);
+  expect(restarted).not.toBe(account);
+  expect(await restarted.request("fixture/account")).toMatchObject({ accountId: "chatgpt-a" });
+  expect(getCodexRuntimeProcesses()[0]?.pid).not.toBe(oldPid);
+  expect(await ensureGlobalCodexRuntimeLifecycle(options)).not.toBe(global);
+});
+
+test("manual exit rejects foreign PIDs and busy work, then removes ownership and permits restart", async () => {
+  const options = await fixture();
+  const client = await ensureGlobalCodexRuntimeLifecycle(options);
+  const pid = getCodexRuntimeProcesses()[0]?.pid;
+  if (pid === undefined) throw new Error("Missing test app-server");
+  await expect(stopCodexRuntimeProcess(process.pid)).rejects.toThrow("不属于 Mori");
+  await expect(stopCodexRuntimeProcess(-1)).rejects.toThrow("Invalid");
+  const release = retainCodexRuntimeClient(client);
+  expect(getCodexRuntimeProcesses()[0]?.busy).toBe(true);
+  await expect(stopCodexRuntimeProcess(pid)).rejects.toThrow("仍在使用中");
+  release();
+  await client.request("fixture/set", { threadId: "t", status: "active" });
+  recordCodexRuntimeThreadOwner("t", client);
+  await expect(stopCodexRuntimeProcess(pid)).rejects.toThrow("仍在使用中");
+  await client.request("fixture/set", { threadId: "t", status: "idle" });
+  await stopCodexRuntimeProcess(pid);
+  expect(getCodexRuntimeProcesses()).toEqual([]);
+  const next = await ensureGlobalCodexRuntimeLifecycle(options);
+  expect(getCodexRuntimeClientForThread("t")).toBe(next);
+});
+
+test("idle recycling protects reservations, active or unknown threads, terminals and pending RPCs", async () => {
+  const options = await fixture();
+  const client = await ensureGlobalCodexRuntimeLifecycle(options);
+  const reap = () => reapIdleCodexRuntimes(Date.now() + CODEX_APP_SERVER_IDLE_TIMEOUT_MS + 1000);
+  const release = retainCodexRuntimeClient(client);
+  await reap();
+  expect(getCodexRuntimeProcesses()).toHaveLength(1);
+  release();
+  for (const status of ["active", "unknown"]) {
+    await client.request("fixture/set", { threadId: "t", status });
+    await reap();
+    expect(getCodexRuntimeProcesses()).toHaveLength(1);
+  }
+  await client.request("fixture/set", { threadId: "t", status: "idle" });
+  await client.request("fixture/background", { threadId: "t", enabled: true });
+  await reap();
+  expect(getCodexRuntimeProcesses()).toHaveLength(1);
+  await client.request("fixture/background", { threadId: "t", enabled: false });
+  const pending = client.request("fixture/wait");
+  await reap();
+  expect(getCodexRuntimeProcesses()).toHaveLength(1);
+  await pending;
+  await reap();
+  expect(getCodexRuntimeProcesses()).toEqual([]);
+});
+
+test("new acquisition during a native idle probe prevents manual and automatic exit", async () => {
+  const options = await fixture();
+  const client = await ensureGlobalCodexRuntimeLifecycle(options);
+  await client.request("fixture/set", { threadId: "t", status: "idle" });
+  await client.request("fixture/statusDelay", { ms: 50 });
+  for (const manual of [false, true]) {
+    let started!: () => void;
+    const probed = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const remove = client.addNotificationHandler((method) => {
+      if (method === "fixture/statusProbe") started();
+    });
+    const pid = getCodexRuntimeProcesses()[0]?.pid;
+    if (pid === undefined) throw new Error("Missing test app-server");
+    const exiting = manual
+      ? stopCodexRuntimeProcess(pid).catch((error: unknown) => error)
+      : reapIdleCodexRuntimes(Date.now() + CODEX_APP_SERVER_IDLE_TIMEOUT_MS + 1000);
+    await probed;
+    const release = retainCodexRuntimeClient(client);
+    release();
+    const outcome = await exiting;
+    if (manual) expect(String(outcome)).toContain("仍在使用中");
+    expect(getCodexRuntimeProcesses()).toHaveLength(1);
+    remove();
+  }
 });

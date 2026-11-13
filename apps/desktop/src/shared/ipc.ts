@@ -105,6 +105,7 @@ export const IPC_CHANNELS = {
   codexBackgroundTerminalList: "codex-background-terminal:list",
   codexBackgroundTerminalTerminate: "codex-background-terminal:terminate",
   codexAppServerProcessList: "codex-app-server:process-list",
+  codexAppServerProcessStop: "codex-app-server:process-stop",
   claudeBackgroundTaskList: "claude-background-task:list",
   claudeBackgroundTaskStop: "claude-background-task:stop",
   piBashTaskList: "pi-bash-task:list",
@@ -1086,9 +1087,13 @@ export interface CodexBackgroundTerminalTerminateResult {
   terminated: boolean;
 }
 
+/** Release unused Codex processes after ten minutes. */
+export const CODEX_APP_SERVER_IDLE_TIMEOUT_MS = 10 * 60_000;
+
 /** A live Codex app-server child process owned by the desktop main process. */
 export interface CodexAppServerProcessView {
   pid: number;
+  busy: boolean;
   account: {
     id: string;
     status: "binding" | "bound";

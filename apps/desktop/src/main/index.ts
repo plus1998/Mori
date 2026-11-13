@@ -704,6 +704,7 @@ import {
   getGlobalCodexRuntimeLifecycle,
   invalidateCodexAccountRuntimeLifecycle,
   getCodexRuntimeProcesses,
+  stopCodexRuntimeProcess,
   getCodexRuntimeClientForThread,
   getCodexRuntimeClients,
   parseElectronProxyResolution,
@@ -7079,6 +7080,13 @@ function registerIpcHandlers(): void {
         },
       };
     });
+  });
+
+  registerDesktopCommand(IPC_CHANNELS.codexAppServerProcessStop, async (payload: unknown) => {
+    if (!payload || typeof payload !== "object" || !("pid" in payload) || typeof payload.pid !== "number") {
+      throw new Error("Invalid Codex app-server process stop request.");
+    }
+    await stopCodexRuntimeProcess(payload.pid);
   });
 
   registerDesktopCommand(IPC_CHANNELS.codexBackgroundTerminalTerminate, async (payload: unknown) => {

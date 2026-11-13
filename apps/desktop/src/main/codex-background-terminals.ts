@@ -2,7 +2,7 @@ import type { CodexBackgroundTerminal, CodexBackgroundTerminalTerminateResult } 
 
 interface CodexBackgroundTerminalClient {
   readonly isInitialized: boolean;
-  request<T = unknown>(method: string, params?: unknown): Promise<T>;
+  request<T = unknown>(method: string, params?: unknown, options?: { trackActivity?: boolean }): Promise<T>;
 }
 
 interface CursorPage<T> {
@@ -105,7 +105,7 @@ export class CodexBackgroundTerminalService {
       const page: unknown = await client.request<unknown>("thread/loaded/list", {
         limit: LOADED_THREAD_PAGE_SIZE,
         ...(cursor ? { cursor } : {}),
-      });
+      }, { trackActivity: false });
       const parsed: CursorPage<string> = parseCursorPage(page, (value) => {
         if (typeof value !== "string" || !value.trim()) {
           throw new Error("Codex app-server returned an invalid loaded thread id.");
@@ -133,7 +133,7 @@ export class CodexBackgroundTerminalService {
         threadId: codexThreadId,
         limit: BACKGROUND_TERMINAL_PAGE_SIZE,
         ...(cursor ? { cursor } : {}),
-      });
+      }, { trackActivity: false });
       const parsed: CursorPage<CodexBackgroundTerminalRow> = parseCursorPage(
         page,
         parseBackgroundTerminalRow,

@@ -4,13 +4,13 @@ import {
   CodexAppServerClient,
   type CodexAppServerClientOptions,
   type CodexAppServerNotificationHandler,
-  CodexRetryLogObserver,
   type CodexRetryLogNotice,
+  CodexRetryLogObserver,
   readCodexThreadStatus,
   resolveCodexHomeDir,
 } from "@eco/runtime";
+import { CODEX_APP_SERVER_IDLE_TIMEOUT_MS, type CodexAppServerProcessView } from "../shared/ipc";
 import type { OpenAIAccountProxyConfig } from "../shared/openai-account";
-import type { CodexAppServerProcessView } from "../shared/ipc";
 import { moriCodexClientInfo } from "./codex-client-info";
 import {
   buildCodexProxyArgs,
@@ -20,8 +20,8 @@ import {
   resolveCodexProxyUrl,
   type SystemProxyResolver,
 } from "./codex-proxy";
-import { appendUpstreamLogLine } from "./upstream-log";
 import { startSocksToHttpBridge } from "./socks-http-bridge";
+import { appendUpstreamLogLine } from "./upstream-log";
 
 export { type CodexProxyEnvironment, parseElectronProxyResolution, resolveCodexProxyUrl };
 
@@ -72,7 +72,7 @@ export class CodexRuntimeLifecycle {
   private stopPromise: Promise<void> | undefined;
   private generation = 0;
   private socksBridge: { close: () => void } | undefined;
-  private processDetails: Omit<CodexAppServerProcessView, "pid"> | undefined;
+  private processDetails: Omit<CodexAppServerProcessView, "pid" | "busy"> | undefined;
 
   constructor(private readonly options: CodexRuntimeLifecycleOptions) {}
 
@@ -88,6 +88,11 @@ export class CodexRuntimeLifecycle {
     return this.client;
   }
 
+  isBusy(): boolean {
+    return Boolean(this.startPromise || this.stopPromise || this.client?.hasPendingOperations ||
+      (this.client && clientReservations.has(this.client)));
+  }
+
   /** Return the OS PID while this lifecycle still owns a live child process. */
   getProcessId(): number | undefined {
     const child = this.child;
@@ -99,7 +104,7 @@ export class CodexRuntimeLifecycle {
     const pid = this.getProcessId();
     const details = this.processDetails;
     if (pid === undefined || !details) return undefined;
-    return { pid, account: details.account ? { ...details.account } : null, proxy: { ...details.proxy } };
+    return { pid, busy: this.isBusy(), account: details.account ? { ...details.account } : null, proxy: { ...details.proxy } };
   }
 
   async start(): Promise<CodexAppServerClient> {
@@ -111,6 +116,7 @@ export class CodexRuntimeLifecycle {
       return this.startPromise;
     }
     if (this.client) {
+      this.client.markActivity();
       return this.client;
     }
     if (this.child) {
@@ -123,7 +129,9 @@ export class CodexRuntimeLifecycle {
     const startPromise = this.spawnAndInitialize(this.generation);
     this.startPromise = startPromise;
     try {
-      return await startPromise;
+      const client = await startPromise;
+      scheduleIdleSweep();
+      return client;
     } finally {
       if (this.startPromise === startPromise) {
         this.startPromise = undefined;
@@ -420,6 +428,90 @@ const threadClients = new Map<string, CodexAppServerClient>();
 const clientReservations = new Map<CodexAppServerClient, number>();
 let retirementTimer: ReturnType<typeof setTimeout> | undefined;
 let retirementSweep: Promise<void> | undefined;
+let idleTimer: ReturnType<typeof setTimeout> | undefined;
+let idleSweep: Promise<void> | undefined;
+
+function managedLifecycles(): Set<CodexRuntimeLifecycle> {
+  return new Set([
+    ...(globalLifecycle ? [globalLifecycle] : []),
+    ...[...accountLifecycles.values()].map((entry) => entry.lifecycle),
+    ...retiringLifecycles,
+    ...startingReplacements,
+  ]);
+}
+
+function scheduleIdleSweep(): void {
+  if (
+    globalStopPromise ||
+    idleTimer ||
+    idleSweep ||
+    ![...managedLifecycles()].some((lifecycle) => lifecycle.getProcessId() !== undefined)
+  )
+    return;
+  idleTimer = setTimeout(() => {
+    idleTimer = undefined;
+    idleSweep = reapIdleCodexRuntimes().finally(() => {
+      idleSweep = undefined;
+      scheduleIdleSweep();
+    });
+  }, 30_000);
+  idleTimer.unref();
+}
+
+/** Probe native work without treating resource monitoring as user activity. */
+async function hasRuntimeWork(client: CodexAppServerClient): Promise<boolean> {
+  const monitor = {
+    request: <T>(method: string, params?: unknown) =>
+      client.request<T>(method, params, { trackActivity: false, timeoutMs: 5_000 }),
+  };
+  const ids = await listRuntimeThreadIds(monitor);
+  const statuses = await Promise.all(ids.map((id) => readCodexThreadStatus(monitor, id)));
+  if (statuses.some((status) => status === "active" || status === "unknown")) return true;
+  const terminals = await Promise.all(
+    ids.map((threadId) =>
+      monitor.request<{ data: unknown[] }>("thread/backgroundTerminals/list", { threadId, limit: 1 }),
+    ),
+  );
+  if (terminals.some((page) => !Array.isArray(page.data))) {
+    throw new Error("Cannot release Codex runtime: invalid background terminal list.");
+  }
+  return terminals.some((page) => page.data.length > 0);
+}
+
+async function releaseRuntime(lifecycle: CodexRuntimeLifecycle, idleBefore?: number): Promise<boolean> {
+  const client = lifecycle.getClient();
+  if (!client?.isInitialized || lifecycle.isBusy()) return false;
+  if (idleBefore !== undefined && client.lastActivityAt > idleBefore) return false;
+  const version = client.activityVersion;
+  if (await hasRuntimeWork(client)) return false;
+  // Acquisition, a new RPC or a native notification can race the status checks.
+  if (lifecycle.getClient() !== client || lifecycle.isBusy() || client.activityVersion !== version)
+    return false;
+  await lifecycle.stop();
+  retiringLifecycles.delete(lifecycle);
+  for (const [id, owner] of threadClients) if (owner === client) threadClients.delete(id);
+  return true;
+}
+
+export async function stopCodexRuntimeProcess(pid: number): Promise<void> {
+  if (!Number.isSafeInteger(pid) || pid <= 0) throw new Error("Invalid Codex app-server PID.");
+  const lifecycle = [...managedLifecycles()].find((item) => item.getProcessId() === pid);
+  if (!lifecycle) throw new Error("Codex app-server 进程已退出或不属于 Mori。");
+  if (!(await releaseRuntime(lifecycle))) {
+    throw new Error("该进程仍在使用中，请等待任务、请求或后台终端结束后再退出。");
+  }
+}
+
+export async function reapIdleCodexRuntimes(now = Date.now()): Promise<void> {
+  for (const lifecycle of managedLifecycles()) {
+    if (globalStopPromise) return;
+    try {
+      await releaseRuntime(lifecycle, now - CODEX_APP_SERVER_IDLE_TIMEOUT_MS);
+    } catch (error) {
+      process.stderr.write(`[eco-codex] idle runtime cleanup failed: ${String(error)}\n`);
+    }
+  }
+}
 
 export function getCodexRuntimeClients(): CodexAppServerClient[] {
   return [
@@ -505,6 +597,7 @@ export function recordCodexRuntimeThreadOwner(threadId: string, client: CodexApp
 
 /** Hold a generation across preparation, driver startup and its final event delivery. */
 export function retainCodexRuntimeClient(client: CodexAppServerClient): () => void {
+  client.markActivity();
   clientReservations.set(client, (clientReservations.get(client) ?? 0) + 1);
   let released = false;
   return () => {
@@ -513,7 +606,9 @@ export function retainCodexRuntimeClient(client: CodexAppServerClient): () => vo
     const count = (clientReservations.get(client) ?? 1) - 1;
     if (count > 0) clientReservations.set(client, count);
     else clientReservations.delete(client);
+    client.markActivity();
     scheduleRetirementSweep();
+    scheduleIdleSweep();
   };
 }
 
@@ -529,7 +624,7 @@ function scheduleRetirementSweep(): void {
   retirementTimer.unref();
 }
 
-async function listRuntimeThreadIds(client: CodexAppServerClient): Promise<string[]> {
+async function listRuntimeThreadIds(client: Pick<CodexAppServerClient, "request">): Promise<string[]> {
   const ids: string[] = [];
   const cursors = new Set<string>();
   let cursor: string | undefined;
@@ -628,12 +723,7 @@ export function getGlobalCodexRuntimeLifecycle(): CodexRuntimeLifecycle | undefi
 
 /** Snapshot all app-server child processes currently owned by the desktop. */
 export function getCodexRuntimeProcesses(): CodexAppServerProcessView[] {
-  const lifecycles = new Set<CodexRuntimeLifecycle>([
-    ...(globalLifecycle ? [globalLifecycle] : []),
-    ...[...accountLifecycles.values()].map((entry) => entry.lifecycle),
-    ...retiringLifecycles,
-    ...startingReplacements,
-  ]);
+  const lifecycles = managedLifecycles();
   const processes = new Map<number, CodexAppServerProcessView>();
   for (const lifecycle of lifecycles) {
     const view = lifecycle.getProcessView();
@@ -709,11 +799,14 @@ export async function stopGlobalCodexRuntimeLifecycle(): Promise<void> {
   runtimeEpoch += 1;
   if (retirementTimer) clearTimeout(retirementTimer);
   retirementTimer = undefined;
+  if (idleTimer) clearTimeout(idleTimer);
+  idleTimer = undefined;
   const lifecycles = [...new Set([globalLifecycle, ...[...accountLifecycles.values()].map((entry) => entry.lifecycle), ...retiringLifecycles, ...startingReplacements])];
   const stopPromise = (async () => {
     await Promise.all(lifecycles.map((lifecycle) => lifecycle?.stop?.()));
     await replacementTail;
     await retirementSweep;
+    await idleSweep;
     retiringLifecycles.clear();
     accountLifecycles.clear();
     threadClients.clear();

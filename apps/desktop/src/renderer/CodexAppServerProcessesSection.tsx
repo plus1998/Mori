@@ -1,7 +1,7 @@
-import { ChevronRight, Cpu, Loader2 } from "lucide-react";
+import { ChevronRight, Cpu, Loader2, Power } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { CodexAppServerProcessView } from "../shared/ipc";
+import { CODEX_APP_SERVER_IDLE_TIMEOUT_MS, type CodexAppServerProcessView } from "../shared/ipc";
 import { startResourcePanelPolling } from "./resource-panel-polling";
 
 export function CodexAppServerProcessesSection({
@@ -12,12 +12,16 @@ export function CodexAppServerProcessesSection({
   const { t } = useTranslation();
   const [processes, setProcesses] = useState<CodexAppServerProcessView[]>([]);
   const [error, setError] = useState("");
+  const [stopError, setStopError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [stopping, setStopping] = useState<number>();
+  const [epoch, setEpoch] = useState(0);
 
   useEffect(() => {
     onCountChange(processes.length);
   }, [onCountChange, processes.length]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: exiting a process invalidates the snapshot.
   useEffect(() => {
     let cancelled = false;
     let fetching = false;
@@ -43,7 +47,22 @@ export function CodexAppServerProcessesSection({
       cancelled = true;
       stopPolling();
     };
-  }, []);
+  }, [epoch]);
+
+  const stop = async (pid: number) => {
+    setStopping(pid);
+    setStopError("");
+    try {
+      if (!window.eco) throw new Error("Desktop API unavailable");
+      await window.eco.stopCodexAppServerProcess(pid);
+      setProcesses((current) => current.filter((process) => process.pid !== pid));
+      setEpoch((value) => value + 1);
+    } catch (reason) {
+      setStopError(String(reason));
+    } finally {
+      setStopping(undefined);
+    }
+  };
 
   return (
     <section className="running-resources-section running-resources-codex-section">
@@ -54,9 +73,17 @@ export function CodexAppServerProcessesSection({
           {t("app.running.codexAppServers")}
           <span className="running-resources-count">{processes.length}</span>
         </summary>
+        <p className="running-resources-empty">
+          {t("app.running.codexIdleReleaseHint", { minutes: CODEX_APP_SERVER_IDLE_TIMEOUT_MS / 60_000 })}
+        </p>
         {error ? (
           <p className="running-resources-error" role="alert">
             {t("app.running.loadFailed", { detail: error })}
+          </p>
+        ) : null}
+        {stopError ? (
+          <p className="running-resources-error" role="alert">
+            {stopError}
           </p>
         ) : null}
         {loading ? (
@@ -74,14 +101,16 @@ export function CodexAppServerProcessesSection({
             const accountLabel = account
               ? [account.name ?? account.id, account.email].filter(Boolean).join(" · ")
               : "";
-            const accountDisplay = account?.status === "binding"
-              ? `${t("app.running.codexAccountBinding")} · ${accountLabel}`
-              : accountLabel;
-            const proxyLabel = process.proxy.mode === "system"
-              ? t("app.running.codexProxySystem")
-              : t("app.running.codexProxyManual");
+            const accountDisplay =
+              account?.status === "binding"
+                ? `${t("app.running.codexAccountBinding")} · ${accountLabel}`
+                : accountLabel;
+            const proxyLabel =
+              process.proxy.mode === "system"
+                ? t("app.running.codexProxySystem")
+                : t("app.running.codexProxyManual");
             return (
-              <li key={process.pid} className="running-resources-row">
+              <li key={process.pid} className="running-resources-row" aria-busy={stopping === process.pid}>
                 <span className="running-resources-kind is-codex">
                   <Cpu size={17} aria-hidden />
                   <span className="running-resources-live-dot" />
@@ -93,26 +122,56 @@ export function CodexAppServerProcessesSection({
                       {t("app.running.codexAppServerPid", { pid: process.pid })}
                     </span>
                     <span className="running-resources-meta-divider" aria-hidden />
-                    <span className="running-resources-owner">{t("app.running.codexAppServerRunning")}</span>
+                    <span className="running-resources-owner">
+                      {t(
+                        process.busy ? "app.running.codexAppServerBusy" : "app.running.codexAppServerRunning",
+                      )}
+                    </span>
                   </span>
                   {account ? (
-                    <span className="running-resources-process-detail" title={`${accountDisplay}\n${account.id}`}>
+                    <span
+                      className="running-resources-process-detail"
+                      title={`${accountDisplay}\n${account.id}`}
+                    >
                       {t("app.running.codexProcessAccount", { account: accountDisplay })}
                     </span>
                   ) : null}
                   {process.proxy.endpoint ? (
                     <>
-                      <span className="running-resources-process-detail is-proxy" title={`${proxyLabel} · ${process.proxy.endpoint}`}>
+                      <span
+                        className="running-resources-process-detail is-proxy"
+                        title={`${proxyLabel} · ${process.proxy.endpoint}`}
+                      >
                         {t("app.running.codexProcessProxy", { proxy: proxyLabel })} · {process.proxy.endpoint}
                       </span>
                       {process.proxy.bridgeEndpoint ? (
-                        <span className="running-resources-process-detail is-proxy" title={process.proxy.bridgeEndpoint}>
+                        <span
+                          className="running-resources-process-detail is-proxy"
+                          title={process.proxy.bridgeEndpoint}
+                        >
                           {t("app.running.codexProxyBridge", { endpoint: process.proxy.bridgeEndpoint })}
                         </span>
                       ) : null}
                     </>
                   ) : null}
                 </div>
+                <button
+                  type="button"
+                  className="running-resources-icon-button running-resources-exit-button is-destructive"
+                  disabled={stopping !== undefined || process.busy}
+                  aria-label={t("app.running.stopCodexProcess", { pid: process.pid })}
+                  title={t(
+                    process.busy ? "app.running.codexProcessBusyHint" : "app.running.stopCodexProcessHint",
+                  )}
+                  onClick={() => void stop(process.pid)}
+                >
+                  {stopping === process.pid ? (
+                    <Loader2 size={14} className="is-spinning" aria-hidden />
+                  ) : (
+                    <Power size={14} aria-hidden />
+                  )}
+                  <span>{t("app.running.exitProcess")}</span>
+                </button>
               </li>
             );
           })}

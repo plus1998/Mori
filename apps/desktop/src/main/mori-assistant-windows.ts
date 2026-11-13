@@ -136,6 +136,10 @@ export class MoriAssistantWindows {
     });
     assistantWindows.add(window);
     if (mode === "ball") {
+      if (process.platform === "darwin") {
+        // skipTaskbar does not exclude the pet from the macOS Dock's window list.
+        window.excludedFromShownWindowsMenu = true;
+      }
       this.ball = window;
       this.petHitMap = undefined;
       this.petDragging = false;
@@ -321,7 +325,7 @@ export class MoriAssistantWindows {
       ball.removeListener("resize", boundsChanged);
       ball.removeListener("show", restart);
       ball.removeListener("hide", tick);
-      ball.webContents.removeListener("did-finish-load", loaded);
+      if (!ball.isDestroyed()) ball.webContents.removeListener("did-finish-load", loaded);
       powerMonitor.removeListener("suspend", suspend);
       powerMonitor.removeListener("resume", resume);
       powerMonitor.removeListener("lock-screen", lock);

@@ -6,6 +6,7 @@ import type { CodexMcpServerForConfigSync, EcoAgentRuntimeConfig } from "@eco/ru
 import {
   getCodexRuntimeClients,
   getGlobalCodexRuntimeLifecycle,
+  reapIdleCodexRuntimes,
   retainCodexRuntimeClient,
   stopGlobalCodexRuntimeLifecycle,
 } from "../src/main/codex-runtime-lifecycle";
@@ -18,6 +19,7 @@ import {
 } from "../src/main/codex-runtime-run";
 import type { CodexThreadMap } from "../src/main/codex-thread-map";
 import { resolveCodexThreadWebSearchPlan } from "../src/main/resolve-thread-web-search";
+import { CODEX_APP_SERVER_IDLE_TIMEOUT_MS } from "../src/shared/ipc";
 
 const realAppServerTest = process.env.ECO_CODEX_REAL_APP_SERVER_TEST === "1" ? test : test.skip;
 
@@ -340,6 +342,19 @@ realAppServerTest(
         threadId: started.thread.id,
       });
       expect(resumed.thread.id).toBe(started.thread.id);
+      // Reclaim the current process, then prepare and resume the persisted conversation.
+      for (let attempt = 0; attempt < 3 && getGlobalCodexRuntimeLifecycle()?.getClient(); attempt++) {
+        await Bun.sleep(50);
+        await reapIdleCodexRuntimes(Date.now() + CODEX_APP_SERVER_IDLE_TIMEOUT_MS + 1_000);
+      }
+      expect(getGlobalCodexRuntimeLifecycle()?.getClient()).toBeUndefined();
+      await prepareCodexRuntime();
+      const restarted = getGlobalCodexRuntimeLifecycle()?.getClient();
+      if (!restarted || restarted === current) throw new Error("Idle app-server did not restart");
+      const afterIdle = await restarted.request<{ thread: { id: string } }>("thread/resume", {
+        threadId: started.thread.id,
+      });
+      expect(afterIdle.thread.id).toBe(started.thread.id);
     } finally {
       releaseOld?.();
       await shutdownCodexGlobalRuntimeRefresh();

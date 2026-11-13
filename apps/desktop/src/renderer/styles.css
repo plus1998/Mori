@@ -42165,6 +42165,19 @@ body.is-resizing-browser-split::before {
   opacity: 0.5;
 }
 
+.running-resources-codex-section .running-resources-row {
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+}
+
+.running-resources-exit-button {
+  display: inline-flex;
+  width: auto;
+  gap: 5px;
+  padding: 0 8px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
 .running-resources-empty {
   display: flex;
   align-items: center;

@@ -27,6 +27,44 @@ afterEach(() => {
   // no-op: each test creates its own client/streams
 });
 
+test("resource monitoring does not reset idle activity but pending requests remain protected", async () => {
+  const { stdin, stdout } = createMockTransport();
+  const client = new CodexAppServerClient(stdin, stdout);
+  const version = client.activityVersion;
+  const monitored = client.request("thread/loaded/list", {}, { trackActivity: false });
+  expect(client.hasPendingOperations).toBe(true);
+  writeResponse(stdout, { id: 1, result: { data: [] } });
+  await monitored;
+  expect(client.hasPendingOperations).toBe(false);
+  expect(client.activityVersion).toBe(version);
+  const request = client.request("turn/start", {});
+  expect(client.activityVersion).toBeGreaterThan(version);
+  const started = client.activityVersion;
+  writeResponse(stdout, { id: 2, result: {} });
+  await request;
+  expect(client.activityVersion).toBeGreaterThan(started);
+  client.close();
+});
+
+test("an unanswered server approval keeps the client busy and activity resumes after answering", async () => {
+  const { stdin, stdout } = createMockTransport();
+  let answer!: (value: unknown) => void;
+  const client = new CodexAppServerClient(stdin, stdout, {
+    onServerRequest: () =>
+      new Promise((resolve) => {
+        answer = resolve;
+      }),
+  });
+  writeResponse(stdout, { id: "approval", method: "item/commandExecution/requestApproval", params: {} });
+  expect(client.hasPendingOperations).toBe(true);
+  const version = client.activityVersion;
+  answer({ decision: "accept" });
+  await Bun.sleep(0);
+  expect(client.hasPendingOperations).toBe(false);
+  expect(client.activityVersion).toBeGreaterThan(version);
+  client.close();
+});
+
 test("CodexAppServerClient completes initialize → initialized handshake", async () => {
   const { stdin, stdout } = createMockTransport();
   const client = new CodexAppServerClient(stdin, stdout);
@@ -191,7 +229,9 @@ test("CodexAppServerClient preserves upstream error data for quota retry policy"
     expect(error).toBeInstanceOf(CodexAppServerRequestError);
     expect((error as CodexAppServerRequestError).code).toBe(429);
     expect((error as CodexAppServerRequestError).data).toEqual({ retryAfter: 600 });
-  } finally { client.close(); }
+  } finally {
+    client.close();
+  }
 });
 
 test("CodexAppServerClient returns the explicit server-request handler result", async () => {

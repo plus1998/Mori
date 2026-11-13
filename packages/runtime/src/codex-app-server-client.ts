@@ -61,6 +61,8 @@ export interface CodexAppServerClientOptions {
 
 export interface CodexAppServerRequestOptions<T = unknown> {
   timeoutMs?: number;
+  /** Read-only resource monitoring must not keep an unused process alive. */
+  trackActivity?: boolean;
   /** Runs before later JSON-RPC lines from the same stdout chunk are dispatched. */
   onResult?: (result: T) => void;
 }
@@ -124,6 +126,9 @@ export class CodexAppServerClient {
   private nextId = 1;
   private initialized = false;
   private closed = false;
+  private activityAt = Date.now();
+  private activityRevision = 0;
+  private serverRequests = 0;
   private stdoutBuffer = "";
   private readonly pending = new Map<CodexJsonRpcId, PendingRequest>();
   private readonly notificationHandlers = new Set<CodexAppServerNotificationHandler>();
@@ -174,6 +179,21 @@ export class CodexAppServerClient {
     return this.initialized;
   }
 
+  get lastActivityAt(): number {
+    return this.activityAt;
+  }
+  get activityVersion(): number {
+    return this.activityRevision;
+  }
+  get hasPendingOperations(): boolean {
+    return this.pending.size > 0 || this.serverRequests > 0;
+  }
+
+  markActivity(): void {
+    this.activityAt = Date.now();
+    this.activityRevision += 1;
+  }
+
   async initialize(
     params: CodexAppServerInitializeParams = {
       clientInfo: {
@@ -200,6 +220,7 @@ export class CodexAppServerClient {
     params?: unknown,
     options: CodexAppServerRequestOptions<T> = {},
   ): Promise<T> {
+    if (options.trackActivity !== false) this.markActivity();
     const id = this.nextId++;
     const message: JsonRpcRequestMessage = {
       id,
@@ -232,11 +253,14 @@ export class CodexAppServerClient {
         this.pending.delete(id);
         reject(error instanceof Error ? error : new Error(String(error)));
       }
+    }).finally(() => {
+      if (options.trackActivity !== false) this.markActivity();
     });
     return unwrapJsonRpcResponse<T>(response, method);
   }
 
   async notify(method: string, params?: unknown): Promise<void> {
+    this.markActivity();
     const message: JsonRpcNotificationMessage = {
       method,
       ...(params === undefined ? {} : { params }),
@@ -316,6 +340,8 @@ export class CodexAppServerClient {
   }
 
   private async respondToServerRequest(request: JsonRpcRequestMessage): Promise<void> {
+    this.serverRequests += 1;
+    this.markActivity();
     try {
       if (!this.onServerRequest) {
         throw serverRequestMethodNotFound(request.method);
@@ -341,10 +367,14 @@ export class CodexAppServerClient {
           ...(rpcError.data === undefined ? {} : { data: rpcError.data }),
         },
       });
+    } finally {
+      this.serverRequests -= 1;
+      this.markActivity();
     }
   }
 
   private dispatchNotification(method: string, params: unknown): void {
+    if (/^(thread|turn|item)\//.test(method)) this.markActivity();
     for (const handler of this.notificationHandlers) {
       handler(method, params);
     }
@@ -368,7 +398,11 @@ function serverRequestMethodNotFound(method: string): CodexAppServerRequestError
 
 function unwrapJsonRpcResponse<T>(response: JsonRpcResponse, method: string): T {
   if (response.error) {
-    throw new CodexAppServerRequestError(response.error.code, `${method} failed: ${response.error.message}`, response.error.data);
+    throw new CodexAppServerRequestError(
+      response.error.code,
+      `${method} failed: ${response.error.message}`,
+      response.error.data,
+    );
   }
   return response.result as T;
 }

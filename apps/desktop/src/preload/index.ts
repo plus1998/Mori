@@ -646,6 +646,9 @@ const api = {
   listCodexAppServerProcesses(): Promise<CodexAppServerProcessView[]> {
     return ipcRenderer.invoke(IPC_CHANNELS.codexAppServerProcessList);
   },
+  stopCodexAppServerProcess(pid: number): Promise<void> {
+    return ipcRenderer.invoke(IPC_CHANNELS.codexAppServerProcessStop, { pid });
+  },
   terminateCodexBackgroundTerminal(
     request: CodexBackgroundTerminalTerminateRequest,
   ): Promise<CodexBackgroundTerminalTerminateResult> {
