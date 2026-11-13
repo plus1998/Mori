@@ -1,0 +1,110 @@
+.multi-agents-task-prompt-card {
+  width: min(520px, 100%);
+  min-width: 0;
+  box-sizing: border-box;
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
+.multi-agents-task-prompt-trigger {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 14px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+
+.multi-agents-task-prompt-trigger:hover {
+  background: color-mix(in srgb, var(--text-primary) 3%, transparent);
+}
+
+.multi-agents-task-prompt-trigger:focus-visible {
+  outline: 2px solid var(--accent-text, var(--accent));
+  outline-offset: -3px;
+  border-radius: 11px;
+}
+
+.multi-agents-task-prompt-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--accent-text, var(--accent));
+}
+
+.multi-agents-task-prompt-heading {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.multi-agents-task-prompt-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 8px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.multi-agents-task-prompt-member {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
+  color: var(--text-primary);
+}
+
+.multi-agents-task-prompt-title {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.multi-agents-task-prompt-hint {
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.multi-agents-task-prompt-chevron {
+  flex: 0 0 auto;
+  margin-top: 3px;
+  color: var(--text-secondary);
+}
+
+.multi-agents-task-prompt-chevron.is-expanded {
+  transform: rotate(180deg);
+}
+
+.multi-agents-task-prompt-details {
+  max-height: min(50vh, 360px);
+  padding: 12px 14px;
+  overflow-y: auto;
+  border-top: 1px solid var(--border-subtle);
+  scrollbar-width: thin;
+}
+
+.multi-agents-task-prompt-details pre {
+  margin: 0;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

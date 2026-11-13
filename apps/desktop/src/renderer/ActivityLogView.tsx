@@ -4,6 +4,8 @@ import { shortcutMatches } from "./keyboard-shortcuts";
 import { ShimmerText } from "./ShimmerText";
 import { parseApprovalFeedback } from "../shared/approval-feedback";
 import { ApprovalFeedbackCard } from "./ApprovalFeedbackCard";
+import { parseMultiAgentsTaskPrompt } from "../shared/multi-agents-task-prompt";
+import { MultiAgentsTaskPromptCard } from "./MultiAgentsTaskPromptCard";
 import {
   clarificationHistoryRows,
   readClarificationHistoryContent,
@@ -6365,6 +6367,7 @@ function UserPromptBlock({
 }) {
   const asyncQuestionReplies = useMemo(() => parseCodexAsyncQuestionReplyText(text), [text]);
   const approvalFeedback = useMemo(() => parseApprovalFeedback(text), [text]);
+  const multiAgentsTask = useMemo(() => parseMultiAgentsTaskPrompt(text), [text]);
   const copyText = approvalFeedback?.feedback ?? (asyncQuestionReplies ? formatCodexAsyncQuestionReplySummary(asyncQuestionReplies) : text);
   const bodyRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -6740,6 +6743,8 @@ function UserPromptBlock({
             </div>
           </div>
         </div>
+      ) : multiAgentsTask ? (
+        <MultiAgentsTaskPromptCard key={text} task={multiAgentsTask} prompt={text} />
       ) : (
         <div className={contentClassName}>
           <div className="run-log-user-prompt-bubble">
@@ -7802,7 +7807,13 @@ function RunLogAction({
 
   return (
     <div
-      className={["run-log-action", isTerminal ? "run-log-action--terminal" : ""].filter(Boolean).join(" ")}
+      className={[
+        "run-log-action",
+        isTerminal ? "run-log-action--terminal" : "",
+        webSearch ? "run-log-action--web-search-card" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
     >
       {roleLabel ? <span className="run-log-action-role">{roleLabel}</span> : null}
       <div className="run-log-action-main">
@@ -7821,9 +7832,7 @@ function RunLogAction({
         )}
         {webSearch && detailsExpanded ? (
           <div className="run-log-feed-surface run-log-web-search-detail run-log-action-card-detail">
-            <div className="run-log-feed-surface-body">
-              <RunLogWebSearchDetail display={webSearch} {...(lifecycle ? { lifecycle } : {})} />
-            </div>
+            <RunLogWebSearchDetail display={webSearch} {...(lifecycle ? { lifecycle } : {})} />
           </div>
         ) : null}
         {detailsExpanded ? details : null}
@@ -7870,64 +7879,74 @@ function RunLogWebSearchDetail({
       : lifecycle === "failed"
         ? i18n.t("activity.webSearch.failed")
         : undefined);
+  const queries = display.queries && display.queries.length > 1 ? display.queries : undefined;
+  const urlIsQuery = display.url === display.query;
+  const queryLabel =
+    display.kind === "fetch"
+      ? i18n.t("activity.webSearch.fetchKicker")
+      : display.actionKind === "openPage"
+        ? i18n.t("activity.webSearch.openPage")
+        : display.actionKind === "findInPage"
+          ? i18n.t("activity.webSearch.findInPage")
+          : i18n.t("activity.webSearch.queryLabel");
+  const urlContent = display.url ? (
+    isHttpishHref(display.url) ? (
+      <a
+        className="run-log-web-search-detail-value is-url"
+        href={display.url}
+        title={display.url}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          dispatchBrowserLinkOpen(display.url!);
+        }}
+      >
+        {display.url}
+      </a>
+    ) : (
+      <span className="run-log-web-search-detail-value is-url">{display.url}</span>
+    )
+  ) : null;
 
   return (
     <div className="run-log-web-search-detail-body">
-      <div className="run-log-web-search-detail-row">
-        <span className="run-log-web-search-detail-label">
-          {display.kind === "fetch"
-            ? i18n.t("activity.webSearch.fetchKicker")
-            : i18n.t("activity.webSearch.queryLabel")}
-        </span>
-        <span className="run-log-web-search-detail-value">{display.query}</span>
+      <div className="run-log-web-search-detail-header">
+        <div className="run-log-web-search-detail-heading">
+          <span className="run-log-web-search-detail-label">{queryLabel}</span>
+          {queries ? <span className="run-log-web-search-detail-count">{queries.length}</span> : null}
+        </div>
+        {status ? (
+          <span className={`run-log-web-search-detail-status${lifecycle ? ` is-${lifecycle}` : ""}`}>
+            <span className="run-log-web-search-detail-status-dot" aria-hidden />
+            {status}
+          </span>
+        ) : null}
       </div>
-      {status ? (
+      {queries ? (
+        <ol className="run-log-web-search-detail-queries">
+          {queries.map((entry, index) => (
+            <li key={`${index}-${entry}`}>{entry}</li>
+          ))}
+        </ol>
+      ) : (
+        <div className="run-log-web-search-detail-query">
+          {urlIsQuery ? urlContent : display.query}
+        </div>
+      )}
+      {display.pattern ? (
         <div className="run-log-web-search-detail-row">
-          <span className="run-log-web-search-detail-label">{i18n.t("activity.webSearch.statusLabel")}</span>
-          <span className="run-log-web-search-detail-value is-muted">{status}</span>
+          <span className="run-log-web-search-detail-label">{i18n.t("activity.webSearch.findInPage")}</span>
+          <span className="run-log-web-search-detail-value">{display.pattern}</span>
         </div>
       ) : null}
-      {display.actionLabel ? (
-        <div className="run-log-web-search-detail-row">
-          <span className="run-log-web-search-detail-label">{i18n.t("activity.webSearch.actionLabel")}</span>
-          <span className="run-log-web-search-detail-value is-muted">{display.actionLabel}</span>
-        </div>
-      ) : null}
-      {display.url ? (
+      {display.url && (!urlIsQuery || queries) ? (
         <div className="run-log-web-search-detail-row">
           <span className="run-log-web-search-detail-label">URL</span>
-          {isHttpishHref(display.url) ? (
-            <a
-              className="run-log-web-search-detail-value is-url"
-              href={display.url}
-              title={display.url}
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                dispatchBrowserLinkOpen(display.url!);
-              }}
-            >
-              {display.url}
-            </a>
-          ) : (
-            <span className="run-log-web-search-detail-value is-url" title={display.url}>
-              {display.url}
-            </span>
-          )}
-        </div>
-      ) : null}
-      {display.queries && display.queries.length > 1 ? (
-        <div className="run-log-web-search-detail-row">
-          <span className="run-log-web-search-detail-label">{i18n.t("activity.webSearch.queriesLabel")}</span>
-          <ul className="run-log-web-search-detail-queries">
-            {display.queries.map((entry) => (
-              <li key={entry}>{entry}</li>
-            ))}
-          </ul>
+          {urlContent}
         </div>
       ) : null}
       {display.provider ? (
-        <div className="run-log-web-search-detail-row">
+        <div className="run-log-web-search-detail-provider">
           <span className="run-log-web-search-detail-label">
             {i18n.t("activity.webSearch.providerLabel")}
           </span>
@@ -7971,7 +7990,9 @@ function RunLogWebSearchDetail({
           </ol>
         </div>
       ) : null}
-      {display.note ? <p className="run-log-web-search-detail-note">{display.note}</p> : null}
+      {display.note && lifecycle !== "running" ? (
+        <p className="run-log-web-search-detail-note">{display.note}</p>
+      ) : null}
     </div>
   );
 }
