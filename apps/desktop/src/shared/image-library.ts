@@ -1,4 +1,8 @@
-import type { ImageGenerationProvider, ImageGenerationToolInput } from "./image-generation";
+import type {
+  ImageGenerationAccount,
+  ImageGenerationProvider,
+  ImageGenerationToolInput,
+} from "./image-generation";
 
 export interface LibraryImage {
   id: string;
@@ -16,6 +20,8 @@ export interface LibraryImage {
   sourceDeleted?: boolean;
   prompt: string;
   provider: ImageGenerationProvider;
+  profileName?: string;
+  account?: ImageGenerationAccount;
   model: string;
   parameters: Omit<ImageGenerationToolInput, "prompt">;
   createdAt: string;

@@ -395,6 +395,7 @@ interface MessageRow {
   // put a message between two tools of the same turn.
   occurred_at?: string | null;
   started_at?: string | null;
+  retry_at?: string | null;
   provider_role?: string | null;
   history_activity_line_id?: string | null;
   history_user_message_id?: string | null;
@@ -705,6 +706,7 @@ export class ConversationV2Store {
         agent_instance_id TEXT,
         occurred_at TEXT,
         started_at TEXT,
+        retry_at TEXT,
         provider_role TEXT,
         history_activity_line_id TEXT,
         history_user_message_id TEXT,
@@ -1149,6 +1151,7 @@ export class ConversationV2Store {
           "agent_instance_id",
           "occurred_at",
           "started_at",
+          "retry_at",
           "provider_role",
           "history_activity_line_id",
           "history_user_message_id",
@@ -3263,7 +3266,7 @@ export class ConversationV2Store {
         `SELECT message_id, conversation_id, turn_id, run_id, role, channel,
                 created_seq, version_seq, content_version, body, attachments_json,
                 origin_json,
-                agent_id, agent_instance_id, occurred_at, started_at, provider_role,
+                agent_id, agent_instance_id, occurred_at, started_at, retry_at, provider_role,
                 history_activity_line_id, history_user_message_id,
                 status, is_deleted
          FROM conversation_messages_v2 WHERE conversation_id = ? AND message_id = ?`,
@@ -4707,6 +4710,10 @@ export class ConversationV2Store {
     const agentInstanceId =
       optionalText(record.agentInstanceId) ??
       optionalPayloadText(record.payload.agentInstanceId, "agentInstanceId");
+    const retryAt = optionalPayloadText(record.payload.retryAt, "retryAt");
+    if (retryAt !== undefined && !Number.isFinite(Date.parse(retryAt))) {
+      throw v2Invalid("message.retryAt must be a valid timestamp");
+    }
     // The provider's own label for this row (`main`, `coder`, ...). It is not a
     // rendering of `role`: `role` is the normalized channel role a client switches on,
     // while this is the fact the Feed uses to tell a turn's final output from any other
@@ -4725,6 +4732,7 @@ export class ConversationV2Store {
         existing.role !== role ||
         existing.channel !== channel ||
         existing.body !== body ||
+        (existing.retry_at ?? null) !== (retryAt ?? null) ||
         !sameJsonValue(parseJson(existing.attachments_json), attachments) ||
         !sameJsonValue(parseJson(existing.origin_json ?? null), origin) ||
         existing.status !== status ||
@@ -4746,9 +4754,9 @@ export class ConversationV2Store {
         `INSERT INTO conversation_messages_v2
          (message_id, conversation_id, turn_id, run_id, role, channel, created_seq,
           version_seq, content_version, body, attachments_json, origin_json, agent_id,
-          agent_instance_id, occurred_at, started_at, provider_role, history_activity_line_id,
+          agent_instance_id, occurred_at, started_at, retry_at, provider_role, history_activity_line_id,
           history_user_message_id, status, is_deleted)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
       )
       .run(
         messageId,
@@ -4766,6 +4774,7 @@ export class ConversationV2Store {
         agentInstanceId ?? null,
         record.occurredAt,
         startedAt ?? null,
+        retryAt ?? null,
         providerRole ?? null,
         historyTarget?.activityLineId ?? null,
         historyTarget?.userMessageId ?? null,
@@ -6951,6 +6960,7 @@ function rowToMessage(row: MessageRow): ConversationMessage {
   const versionSeq = rowPositiveInteger(row.version_seq, "message.version_seq");
   const occurredAt = rowOptionalText(row.occurred_at, "message.occurred_at");
   const startedAt = rowOptionalText(row.started_at, "message.started_at");
+  const retryAt = rowOptionalText(row.retry_at, "message.retry_at");
   const providerRole = rowOptionalText(row.provider_role, "message.provider_role");
   const historyActivityLineId = rowOptionalText(
     row.history_activity_line_id,
@@ -6986,6 +6996,7 @@ function rowToMessage(row: MessageRow): ConversationMessage {
     ...(agentInstanceId ? { agentInstanceId } : {}),
     ...(occurredAt ? { occurredAt } : {}),
     ...(startedAt ? { startedAt } : {}),
+    ...(retryAt ? { retryAt } : {}),
     ...(providerRole ? { providerRole } : {}),
     ...(historyActivityLineId
       ? {
@@ -7344,6 +7355,7 @@ function storedMessage(value: unknown, field: string): ConversationMessage {
   const agentInstanceId = storedEffectOptionalText(object.agentInstanceId, `${field}.agentInstanceId`);
   const occurredAt = storedEffectOptionalText(object.occurredAt, `${field}.occurredAt`);
   const startedAt = storedEffectOptionalText(object.startedAt, `${field}.startedAt`);
+  const retryAt = storedEffectOptionalText(object.retryAt, `${field}.retryAt`);
   const providerRole = storedEffectOptionalText(object.providerRole, `${field}.providerRole`);
   const historyTarget = storedHistoryTarget(object.historyTarget, `${field}.historyTarget`);
   const status = storedMessageStatus(object.status);
@@ -7367,6 +7379,7 @@ function storedMessage(value: unknown, field: string): ConversationMessage {
     ...(agentInstanceId ? { agentInstanceId } : {}),
     ...(occurredAt ? { occurredAt } : {}),
     ...(startedAt ? { startedAt } : {}),
+    ...(retryAt ? { retryAt } : {}),
     ...(providerRole ? { providerRole } : {}),
     ...(historyTarget ? { historyTarget } : {}),
     ...(object.attachments !== undefined

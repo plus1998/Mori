@@ -33,11 +33,11 @@ import {
   moriPetSize,
 } from "../shared/mori-assistant";
 import {
-  type MoriPetAnimation,
   type MoriPetAsset,
   type MoriPetHitMap,
   moriPetHitTest,
 } from "../shared/mori-pet";
+import { moriPetAction, moriPetActionState, type MoriPetReaction } from "../shared/mori-pet-actions";
 import {
   SettingsButton,
   SettingsInput,
@@ -628,6 +628,14 @@ export function MoriAssistantSettingsPanel({
               onSizeChange={(size) =>
                 patch("petSizes", { ...settings.petSizes, [settings.petKey || "builtin:mori"]: size })
               }
+              actions={settings.petActions[settings.petKey || "builtin:mori"] ?? {}}
+              onActionsChange={(actions) => {
+                const next = { ...settings.petActions };
+                const key = settings.petKey || "builtin:mori";
+                if (Object.keys(actions).length) next[key] = actions;
+                else delete next[key];
+                patch("petActions", next);
+              }}
             />
             <SettingsGroup>
               <SettingsRow
@@ -1685,8 +1693,8 @@ export function MoriAssistantSurface({ mode }: { mode: "ball" | "panel" | "notic
   const [petError, setPetError] = useState("");
   const [direction, setDirection] = useState<number | null>(null);
   const [petPaused, setPetPaused] = useState(false);
-  const [dragAnimation, setDragAnimation] = useState<MoriPetAnimation>();
-  const [reaction, setReaction] = useState<MoriPetAnimation>();
+  const [dragAnimation, setDragAnimation] = useState<"drag-right" | "drag-left">();
+  const [reaction, setReaction] = useState<MoriPetReaction>();
   const [greeting, setGreeting] = useState(false);
   const reactionTimers = useRef<Array<ReturnType<typeof setTimeout>>>([]);
   const greetingTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -1736,14 +1744,14 @@ export function MoriAssistantSurface({ mode }: { mode: "ball" | "panel" | "notic
       for (const timer of reactionTimers.current) clearTimeout(timer);
       reactionTimers.current = [];
       if (kind === "completion") {
-        setReaction("jumping");
-        reactionTimers.current.push(setTimeout(() => setReaction("review"), 1100));
+        setReaction("completion");
+        reactionTimers.current.push(setTimeout(() => setReaction("completion-review"), 1100));
         reactionTimers.current.push(setTimeout(() => setReaction(undefined), 5000));
       } else if (kind === "failed") {
-        setReaction("failed");
+        setReaction("task-failed");
         reactionTimers.current.push(setTimeout(() => setReaction(undefined), 4000));
       } else {
-        setReaction("waiting");
+        setReaction(kind);
         reactionTimers.current.push(setTimeout(() => setReaction(undefined), 12000));
       }
     });
@@ -1802,21 +1810,18 @@ export function MoriAssistantSurface({ mode }: { mode: "ball" | "panel" | "notic
         : snapshot?.status === "running" || snapshot?.hasRunningTasks
           ? "running"
           : "idle";
-  const animation: MoriPetAnimation =
-    dragAnimation ??
-    (greeting ? "waving" : undefined) ??
-    reaction ??
-    // A persistent task state must not suppress attention to the nearby pointer.
-    // Direct interactions and reactions above still finish before looking around.
-    (pet?.version === 2 && direction != null && status !== "error" && !petError
-      ? "idle"
-      : status === "running"
-        ? "running"
-        : status === "waiting"
-          ? "waiting"
-          : status === "error" || petError
-            ? "failed"
-            : "idle");
+  const actionState = moriPetActionState({
+    status: petError ? "error" : status,
+    version: pet?.version ?? 1,
+    direction,
+    drag: dragAnimation,
+    greeting,
+    reaction,
+  });
+  const action = moriPetAction(
+    actionState,
+    snapshot?.settings.petActions[snapshot.settings.petKey || "builtin:mori"] ?? {},
+  );
   const indicator = petError || status === "error" ? "error" : status === "waiting" ? "waiting" : undefined;
   const statusLabel =
     indicator === "error"
@@ -1890,7 +1895,7 @@ export function MoriAssistantSurface({ mode }: { mode: "ball" | "panel" | "notic
           drag.current.moved = true;
           drag.current.x = event.screenX;
           drag.current.y = event.screenY;
-          if (dx !== 0) setDragAnimation(dx > 0 ? "running-right" : "running-left");
+          if (dx !== 0) setDragAnimation(dx > 0 ? "drag-right" : "drag-left");
           void desktopApi().moriAssistantMoveBall(dx, dy);
         }
       }}
@@ -1928,8 +1933,8 @@ export function MoriAssistantSurface({ mode }: { mode: "ball" | "panel" | "notic
       {pet && !petError ? (
         <MoriPetSprite
           pet={pet}
-          animation={animation}
-          direction={direction}
+          animation={action === "look" ? "idle" : action}
+          direction={action === "look" ? direction : null}
           paused={petPaused}
           size={snapshot ? moriPetSize(snapshot.settings) : 64}
           onError={setPetError}

@@ -1,6 +1,7 @@
 import type { ConversationMessage } from "@eco/shared";
 import type { ComputerUseActionApprovalMode } from "./computer-use";
 import type { MoriAvatarSettings } from "./mori-avatar";
+import type { MoriPetActionOverrides } from "./mori-pet-actions";
 import type { ThreadSummary } from "./ipc";
 import type { OpenAIAccount } from "./openai-account";
 import type { ScheduleDefinition, ScheduleOccurrence } from "./scheduling";
@@ -26,6 +27,7 @@ export interface MoriAssistantSettings {
   floatingEnabled: boolean;
   petKey: string;
   petSizes: Record<string, number>;
+  petActions: Record<string, MoriPetActionOverrides>;
   backgroundEnabled: boolean;
   shortcut: string;
   wechatEnabled: boolean;
@@ -158,6 +160,7 @@ export const DEFAULT_MORI_ASSISTANT_SETTINGS: MoriAssistantSettings = {
   floatingEnabled: false,
   petKey: "",
   petSizes: {},
+  petActions: {},
   backgroundEnabled: false,
   shortcut: "CommandOrControl+Shift+M",
   wechatEnabled: false,

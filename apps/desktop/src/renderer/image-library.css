@@ -38,7 +38,7 @@
 .image-library-detail .image-library-actions { padding-left: 0; }
 .image-library-detail dl { display: grid; grid-template-columns: 100px minmax(0, 1fr); gap: 12px; font-size: 13px; }
 .image-library-detail dt { color: var(--text-secondary); }
-.image-library-detail dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.image-library-detail dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
 .image-library-detail dd button { margin-left: 10px; }
-.image-library-detail pre { white-space: pre-wrap; margin: 0; }
+.image-library-detail pre { white-space: pre-wrap; margin: 0; user-select: text; }
 @media (max-width: 700px) { .image-library-backdrop { padding: 8px; } .image-library-panel { height: 96vh; } .image-library-header, .image-library-filters, .image-library-actions, .image-library-tabs { padding-left: 14px; padding-right: 14px; } .image-library-grid { grid-template-columns: repeat(auto-fill, minmax(145px, 1fr)); } }

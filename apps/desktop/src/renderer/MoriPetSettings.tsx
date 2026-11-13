@@ -1,6 +1,6 @@
-import { SettingsButton, SettingsSelect } from "./components/SettingsControls";
-import { useTranslation } from "react-i18next";
+import { Play } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { MORI_PET_SIZE_MAX, MORI_PET_SIZE_MIN } from "../shared/mori-assistant";
 import {
   MORI_PET_ANIMATIONS,
@@ -8,31 +8,33 @@ import {
   type MoriPetAsset,
   type MoriPetList,
 } from "../shared/mori-pet";
+import {
+  DEFAULT_MORI_PET_ACTIONS,
+  type MoriPetAction,
+  type MoriPetActionOverrides,
+  type MoriPetActionState,
+  moriPetAction,
+} from "../shared/mori-pet-actions";
+import { ComposerFieldSelect } from "./ComposerFieldSelect";
+import { SettingsButton } from "./components/SettingsControls";
+import { SettingsGroup, SettingsRow } from "./components/SettingsRow";
 import { MoriPetSprite } from "./MoriPetSprite";
 import { DEFAULT_MORI_PET } from "./mori-default-pet";
-
-const labels: Record<MoriPetAnimation, string> = {
-  idle: "待机",
-  "running-right": "向右移动",
-  "running-left": "向左移动",
-  waving: "打招呼",
-  jumping: "跳跃",
-  failed: "失败",
-  waiting: "等待回应",
-  running: "工作中",
-  review: "检查",
-};
 
 export function MoriPetSettings({
   value,
   onChange,
   size,
   onSizeChange,
+  actions,
+  onActionsChange,
 }: {
   value: string;
   onChange(value: string): void;
   size: number;
   onSizeChange(size: number): void;
+  actions: MoriPetActionOverrides;
+  onActionsChange(actions: MoriPetActionOverrides): void;
 }) {
   const { t } = useTranslation();
   const [list, setList] = useState<MoriPetList>();
@@ -41,6 +43,12 @@ export function MoriPetSettings({
   const [direction, setDirection] = useState<number | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [previewState, setPreviewState] = useState<MoriPetActionState>();
+  const previewAction = (action: MoriPetAction, state: MoriPetActionState) => {
+    setAnimation(action === "look" ? "idle" : action);
+    setDirection(action === "look" ? 0 : null);
+    setPreviewState(state);
+  };
   const refresh = useCallback(async () => {
     if (!window.eco) throw new Error("桌面连接尚未就绪。");
     setList(await window.eco.moriPetsList());
@@ -89,11 +97,14 @@ export function MoriPetSettings({
     <div className="mori-pet-settings">
       <label>
         <span>{t("moriUi.moriPetSettings.appearance")}</span>
-        <SettingsSelect
+        <ComposerFieldSelect
+          aria-label={t("moriUi.moriPetSettings.appearance")}
           value={value}
-          onChange={(event) => {
-            onChange(event.target.value);
+          onChange={(value) => {
+            onChange(value);
             setDirection(null);
+            setAnimation("idle");
+            setPreviewState(undefined);
           }}
         >
           <option value="">{t("moriUi.moriPetSettings.default")}</option>
@@ -108,7 +119,7 @@ export function MoriPetSettings({
               {value}
             </option>
           ) : null}
-        </SettingsSelect>
+        </ComposerFieldSelect>
       </label>
       <div className="mori-pet-actions">
         <SettingsButton variant="secondary" type="button" disabled={busy} onClick={() => void importPet()}>
@@ -162,10 +173,10 @@ export function MoriPetSettings({
             <strong>{pet.name}</strong>
             <label>
               <span>{t("moriUi.moriPetSettings.preview")}</span>
-              <SettingsSelect
+              <ComposerFieldSelect
+                aria-label={t("moriUi.moriPetSettings.preview")}
                 value={direction === null ? animation : `look:${direction}`}
-                onChange={(event) => {
-                  const value = event.target.value;
+                onChange={(value) => {
                   if (value.startsWith("look:")) {
                     setAnimation("idle");
                     setDirection(Number(value.slice(5)));
@@ -173,11 +184,12 @@ export function MoriPetSettings({
                     setDirection(null);
                     setAnimation(value as MoriPetAnimation);
                   }
+                  setPreviewState(undefined);
                 }}
               >
                 {Object.keys(MORI_PET_ANIMATIONS).map((name) => (
                   <option key={name} value={name}>
-                    {labels[name as MoriPetAnimation]}
+                    {t(`moriUi.moriPetSettings.animation.${name}`)}
                   </option>
                 ))}
                 {pet.version === 2
@@ -187,11 +199,98 @@ export function MoriPetSettings({
                       </option>
                     ))
                   : null}
-              </SettingsSelect>
+              </ComposerFieldSelect>
             </label>
           </div>
         </div>
       ) : null}
+      <div className="mori-pet-action-settings">
+        <div className="mori-pet-action-heading">
+          <strong>{t("moriUi.moriPetSettings.stateActions")}</strong>
+          <SettingsButton
+            variant="secondary"
+            disabled={!Object.keys(actions).length}
+            onClick={() => {
+              onActionsChange({});
+              setAnimation("idle");
+              setDirection(null);
+              setPreviewState(undefined);
+            }}
+          >
+            {t("moriUi.moriPetSettings.resetActions")}
+          </SettingsButton>
+        </div>
+        <p className="mori-settings-hint">{t("moriUi.moriPetSettings.actionsHint")}</p>
+        <SettingsGroup>
+          {(Object.keys(DEFAULT_MORI_PET_ACTIONS) as MoriPetActionState[])
+            .filter((state) => state !== "looking" || pet?.version === 2)
+            .map((state) => (
+              <SettingsRow
+                key={state}
+                className={`mori-pet-action-row${previewState === state ? " is-previewing" : ""}`}
+                label={t(`moriUi.moriPetSettings.state.${state}`)}
+                description={t(`moriUi.moriPetSettings.stateHint.${state}`)}
+                stackControlOnNarrow
+                control={(controlProps) => (
+                  <div className="mori-pet-action-control">
+                    <ComposerFieldSelect
+                      {...controlProps}
+                      value={actions[state] ?? ""}
+                      onChange={(value) => {
+                        const action = value as MoriPetAction | "";
+                        const next = { ...actions };
+                        if (action) next[state] = action;
+                        else delete next[state];
+                        onActionsChange(next);
+                        previewAction(moriPetAction(state, next), state);
+                      }}
+                    >
+                      <option value="">
+                        {t("moriUi.moriPetSettings.defaultAction", {
+                          action: t(`moriUi.moriPetSettings.animation.${DEFAULT_MORI_PET_ACTIONS[state]}`),
+                        })}
+                      </option>
+                      {state === "looking" ? (
+                        <option value="look">{t("moriUi.moriPetSettings.animation.look")}</option>
+                      ) : null}
+                      {Object.keys(MORI_PET_ANIMATIONS).map((name) => (
+                        <option key={name} value={name}>
+                          {t(`moriUi.moriPetSettings.animation.${name}`)}
+                        </option>
+                      ))}
+                    </ComposerFieldSelect>
+                    <SettingsButton
+                      variant="ghost"
+                      className="mori-pet-action-preview-button"
+                      disabled={!pet}
+                      aria-pressed={previewState === state}
+                      aria-label={t("moriUi.moriPetSettings.previewState", {
+                        state: t(`moriUi.moriPetSettings.state.${state}`),
+                      })}
+                      title={t("moriUi.moriPetSettings.previewState", {
+                        state: t(`moriUi.moriPetSettings.state.${state}`),
+                      })}
+                      onClick={() => previewAction(moriPetAction(state, actions), state)}
+                    >
+                      <Play size={14} aria-hidden />
+                    </SettingsButton>
+                    <span className="mori-pet-action-thumbnail" aria-hidden="true">
+                      {pet && previewState === state ? (
+                        <MoriPetSprite
+                          pet={pet}
+                          animation={animation}
+                          direction={direction}
+                          size={36}
+                          onError={setError}
+                        />
+                      ) : null}
+                    </span>
+                  </div>
+                )}
+              />
+            ))}
+        </SettingsGroup>
+      </div>
     </div>
   );
 }

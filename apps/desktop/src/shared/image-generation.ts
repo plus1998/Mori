@@ -116,7 +116,15 @@ export interface ImageGenerationToolInput {
 
 export type ImageGenerationArtifactStatus = "running" | "completed" | "failed";
 
+/** Identity snapshot only; never include login credentials. */
+export interface ImageGenerationAccount {
+  id: string;
+  name: string;
+  email?: string;
+}
+
 export interface GeneratedImageFile {
+  account?: ImageGenerationAccount;
   /** Durable original owned by Mori. Paths below refer only to an independent working copy. */
   libraryImageId?: string;
   absolutePath: string;
@@ -134,6 +142,8 @@ export interface ImageGenerationArtifact {
   parameters: Omit<ImageGenerationToolInput, "prompt">;
   provider: ImageGenerationProvider;
   profileName: string;
+  /** Accounts actually selected for this request, including partially failed batches. */
+  accounts?: ImageGenerationAccount[];
   model: string;
   workspacePath: string;
   generationRoot: string;

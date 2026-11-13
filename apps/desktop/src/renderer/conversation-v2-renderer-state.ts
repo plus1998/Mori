@@ -1016,6 +1016,7 @@ function validateMessage(
     !MESSAGE_STATUSES.has(message.status) ||
     typeof message.body !== "string" ||
     (message.startedAt !== undefined && !Number.isFinite(Date.parse(message.startedAt))) ||
+    (message.retryAt !== undefined && !Number.isFinite(Date.parse(message.retryAt))) ||
     (message.origin !== undefined &&
       (message.role !== "user" || !isConversationMessageOrigin(message.origin))) ||
     (message.attachments !== undefined && !Array.isArray(message.attachments)) ||

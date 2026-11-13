@@ -148,7 +148,15 @@ test("upstream SSE failure is surfaced instead of returning an empty success", a
 });
 test("each image rotates enabled paid accounts and disabling an account takes effect", async () => {
   const h = harness();
-  expect(await h.service.generate({ prompt: "leaf", count: 4 }, [], codex())).toHaveLength(4);
+  h.items[0]!.email = "a@example.com";
+  const selected: unknown[] = [];
+  const images = await h.service.generate({ prompt: "leaf", count: 4 }, [], {
+    ...codex(), onAccountSelected: (identity) => selected.push(identity),
+  });
+  expect(images.map((image) => image.account)).toEqual(selected);
+  expect(images[0]?.account).toEqual({ id: "A", name: "A", email: "a@example.com" });
+  expect(images[1]?.account).toEqual({ id: "B", name: "B" });
+  expect(images).toHaveLength(4);
   expect(h.selected).toEqual(["A", "B", "A", "B"]);
   h.items[0]!.imageGenerationEnabled = false;
   await h.service.generate({ prompt: "leaf" }, [], codex());
@@ -264,6 +272,7 @@ test("a failed second image preserves the first payload for artifact storage", a
   } catch (error) {
     expect(error).toBeInstanceOf(CodexImageBatchError);
     expect((error as CodexImageBatchError).payloads).toHaveLength(1);
+    expect((error as CodexImageBatchError).payloads[0]?.account).toEqual({ id: "A", name: "A" });
     expect(error).toMatchObject({ code: "usage_limit_reached", providerStatus: 429 });
   }
 });

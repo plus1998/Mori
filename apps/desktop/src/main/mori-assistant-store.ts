@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { MORI_PET_ANIMATIONS } from "../shared/mori-pet";
 import {
   DEFAULT_MORI_ASSISTANT_SETTINGS,
   MORI_PET_SIZE_MAX,
@@ -9,6 +8,8 @@ import {
   type MoriAssistantSettings,
   type MoriAssistantState,
 } from "../shared/mori-assistant";
+import { MORI_PET_ANIMATIONS } from "../shared/mori-pet";
+import { DEFAULT_MORI_PET_ACTIONS } from "../shared/mori-pet-actions";
 
 export function parseAssistantSettings(value: unknown): MoriAssistantSettings {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("助手配置无效。");
@@ -58,6 +59,25 @@ export function parseAssistantSettings(value: unknown): MoriAssistantSettings {
       size > MORI_PET_SIZE_MAX
     )
       throw new Error("宠物大小设置无效。");
+  }
+  if (!result.petActions || typeof result.petActions !== "object" || Array.isArray(result.petActions))
+    throw new Error("宠物动作设置无效。");
+  for (const [key, actions] of Object.entries(result.petActions)) {
+    if (
+      (key !== "builtin:mori" && !/^(codex|codex-home|mori):[^/\\]+$/.test(key)) ||
+      !actions ||
+      typeof actions !== "object" ||
+      Array.isArray(actions)
+    )
+      throw new Error("宠物动作设置无效。");
+    for (const [state, action] of Object.entries(actions)) {
+      if (
+        !Object.hasOwn(DEFAULT_MORI_PET_ACTIONS, state) ||
+        typeof action !== "string" ||
+        !(Object.hasOwn(MORI_PET_ANIMATIONS, action) || (state === "looking" && action === "look"))
+      )
+        throw new Error("宠物动作设置无效。");
+    }
   }
   if (result.instructions.length > 20_000) throw new Error("助手指令不能超过 20000 个字符。");
   if (!["low", "medium", "high"].includes(result.reasoningEffort)) throw new Error("助手思考强度无效。");

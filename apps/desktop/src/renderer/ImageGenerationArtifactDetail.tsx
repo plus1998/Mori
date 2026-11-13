@@ -2,11 +2,13 @@ import { Download, FolderOpen } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ImageGenerationArtifact } from "../shared/image-generation";
-import { ImageLightbox } from "./image-lightbox";
 import { formatIpcInvokeError } from "./AppMessage";
-import { useImageLibraryRevision } from "./use-image-library-revision";
 import { SettingsButton } from "./components/SettingsControls";
+import { GenerationCopyButton } from "./GenerationCopyButton";
+import { ImageGenerationSourceLabel } from "./ImageGenerationSourceLabel";
 import { ICON_SIZE, ICON_STROKE } from "./icon-metrics";
+import { ImageLightbox } from "./image-lightbox";
+import { useImageLibraryRevision } from "./use-image-library-revision";
 import "./image-generation-artifact-detail.css";
 import {
   createImageObjectUrlFromBase64,
@@ -92,15 +94,30 @@ export function ImageGenerationArtifactDetail({ artifact }: { artifact: ImageGen
           {t(`task.image.status.${artifact.status}`)}
         </span>
         <span className="image-artifact-provider">
-          {artifact.profileName} · {artifact.model}
+          <ImageGenerationSourceLabel
+            provider={artifact.provider}
+            profileName={artifact.profileName}
+            accounts={artifact.accounts}
+          />
+          {artifact.model ? ` · ${artifact.model}` : null}
         </span>
       </header>
       <section>
-        <h3>{t("task.image.prompt")}</h3>
+        <div className="generation-metadata-heading">
+          <h3>{t("task.image.prompt")}</h3>
+          <GenerationCopyButton value={artifact.prompt} label={t("imageLibrary.copyPrompt")} />
+        </div>
         <p className="image-artifact-prompt">{artifact.prompt}</p>
       </section>
       <section>
-        <h3>{t("task.image.parameters")}</h3>
+        <div className="generation-metadata-heading">
+          <h3>{t("task.image.parameters")}</h3>
+          <GenerationCopyButton
+            value={JSON.stringify(artifact.parameters, null, 2)}
+            label={t("imageLibrary.copyParameters")}
+          />
+        </div>
+        {/* biome-ignore lint/a11y/noNoninteractiveTabindex: the JSON scroller must support keyboard scrolling. */}
         <pre tabIndex={0} role="region" aria-label={t("task.image.parameters")}>
           {JSON.stringify(artifact.parameters, null, 2)}
         </pre>
@@ -123,62 +140,71 @@ export function ImageGenerationArtifactDetail({ artifact }: { artifact: ImageGen
       ) : null}
       {images.length > 0 ? (
         <div className="image-artifact-gallery">
-          {images.map((source, index) => (
-            <figure key={artifact.images[index]?.relativePath ?? index}>
-              {source ? (
-                <button
-                  type="button"
-                  className="image-artifact-preview-button"
-                  onClick={() => setPreviewIndex(index)}
-                  aria-label={`${t("task.image.generated")} ${index + 1}`}
-                >
-                  <img src={source} alt={`${t("task.image.generated")} ${index + 1}`} />
-                </button>
-              ) : (
-                <p className="image-artifact-error" role="status">
-                  {imageErrors[index]}
-                </p>
-              )}
-              <figcaption className="image-artifact-caption">
-                <span className="image-artifact-filename" title={artifact.images[index]?.absolutePath}>
-                  {artifact.images[index]?.libraryImageId
-                    ? artifact.images[index]?.absolutePath.split(/[\\/]/).pop()
-                    : artifact.images[index]?.relativePath}
-                </span>
-                <div className="image-artifact-caption-actions">
-                  {artifact.images[index]?.libraryImageId && source ? (
+          {images.map((source, index) => {
+            const image = artifact.images[index];
+            return (
+              <figure key={artifact.images[index]?.relativePath ?? index}>
+                {source ? (
+                  <button
+                    type="button"
+                    className="image-artifact-preview-button"
+                    onClick={() => setPreviewIndex(index)}
+                    aria-label={`${t("task.image.generated")} ${index + 1}`}
+                  >
+                    <img src={source} alt={`${t("task.image.generated")} ${index + 1}`} />
+                  </button>
+                ) : (
+                  <p className="image-artifact-error" role="status">
+                    {imageErrors[index]}
+                  </p>
+                )}
+                <figcaption className="image-artifact-caption">
+                  <span className="image-artifact-filename" title={artifact.images[index]?.absolutePath}>
+                    {artifact.images[index]?.libraryImageId
+                      ? artifact.images[index]?.absolutePath.split(/[\\/]/).pop()
+                      : artifact.images[index]?.relativePath}
+                  </span>
+                  <div className="image-artifact-caption-actions">
+                    <GenerationCopyButton kind="image" value={source} />
+                    {artifact.images[index]?.libraryImageId && source ? (
+                      <SettingsButton
+                        type="button"
+                        onClick={() => {
+                          const id = artifact.images[index]?.libraryImageId;
+                          if (!id || !window.eco) return;
+                          void window.eco
+                            .exportImageLibraryImages([id])
+                            .then((result) => {
+                              if (result.errors.length)
+                                setRevealError(result.errors.map((error) => error.message).join("\n"));
+                            })
+                            .catch((error) => setRevealError(String(error)));
+                        }}
+                      >
+                        <Download size={ICON_SIZE.sm} strokeWidth={ICON_STROKE} aria-hidden />
+                        <span>{t("imageLibrary.export")}</span>
+                      </SettingsButton>
+                    ) : null}
                     <SettingsButton
                       type="button"
-                      onClick={() => {
-                        const id = artifact.images[index]?.libraryImageId;
-                        if (!id || !window.eco) return;
-                        void window.eco
-                          .exportImageLibraryImages([id])
-                          .then((result) => {
-                            if (result.errors.length)
-                              setRevealError(result.errors.map((error) => error.message).join("\n"));
-                          })
-                          .catch((error) => setRevealError(String(error)));
-                      }}
+                      disabled={!source}
+                      onClick={() => void handleRevealImage(index)}
+                      title={t("task.image.openLocation")}
+                      aria-label={t("task.image.openLocation")}
                     >
-                      <Download size={ICON_SIZE.sm} strokeWidth={ICON_STROKE} aria-hidden />
-                      <span>{t("imageLibrary.export")}</span>
+                      <FolderOpen size={ICON_SIZE.sm} strokeWidth={ICON_STROKE} aria-hidden />
+                      <span>{t("task.image.openLocation")}</span>
                     </SettingsButton>
-                  ) : null}
-                  <SettingsButton
-                    type="button"
-                    disabled={!source}
-                    onClick={() => void handleRevealImage(index)}
-                    title={t("task.image.openLocation")}
-                    aria-label={t("task.image.openLocation")}
-                  >
-                    <FolderOpen size={ICON_SIZE.sm} strokeWidth={ICON_STROKE} aria-hidden />
-                    <span>{t("task.image.openLocation")}</span>
-                  </SettingsButton>
-                </div>
-              </figcaption>
-            </figure>
-          ))}
+                  </div>
+                </figcaption>
+                {image?.account ? (
+                  <p className="image-artifact-image-source">
+                    <ImageGenerationSourceLabel provider={artifact.provider} accounts={[image.account]} />
+                  </p>
+                ) : null}
+              </figure>
+            );
+          })}
         </div>
       ) : null}
       {previewIndex !== undefined && images[previewIndex] ? (

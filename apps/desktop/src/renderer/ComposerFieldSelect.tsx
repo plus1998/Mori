@@ -25,6 +25,9 @@ interface ComposerFieldSelectProps {
   /** Rendered as the placeholder option when value is empty. */
   showPlaceholder?: boolean | undefined;
   title?: string | undefined;
+  "aria-label"?: string | undefined;
+  "aria-labelledby"?: string | undefined;
+  "aria-describedby"?: string | undefined;
   /** Highlight the trigger in red with a warning icon. */
   invalid?: boolean | undefined;
   invalidLabel?: string | undefined;
@@ -94,6 +97,9 @@ export function ComposerFieldSelect({
   placeholder,
   showPlaceholder,
   title,
+  "aria-label": ariaLabel,
+  "aria-labelledby": labelledBy,
+  "aria-describedby": describedBy,
   invalid,
   invalidLabel,
   searchable = false,
@@ -158,17 +164,14 @@ export function ComposerFieldSelect({
     });
   }, [options.length, searchable]);
 
-  const closePanel = useCallback(
-    (restoreFocus: boolean) => {
-      setOpen(false);
-      setQuery("");
-      setFocusMode("item");
-      if (restoreFocus) {
-        requestAnimationFrame(() => triggerRef.current?.focus());
-      }
-    },
-    [],
-  );
+  const closePanel = useCallback((restoreFocus: boolean) => {
+    setOpen(false);
+    setQuery("");
+    setFocusMode("item");
+    if (restoreFocus) {
+      requestAnimationFrame(() => triggerRef.current?.focus());
+    }
+  }, []);
 
   const openPanel = useCallback(() => {
     if (disabled || !hasOptions) {
@@ -312,7 +315,8 @@ export function ComposerFieldSelect({
         ref={panelRef}
         className="composer-codex-popover composer-field-select-menu"
         role="listbox"
-        aria-label={triggerLabel || undefined}
+        aria-label={ariaLabel ?? (triggerLabel || undefined)}
+        aria-labelledby={labelledBy}
         style={panelStyle}
       >
         {searchable ? (
@@ -401,7 +405,9 @@ export function ComposerFieldSelect({
           .filter(Boolean)
           .join(" ")}
         disabled={disabled}
-        aria-label={triggerLabel || undefined}
+        aria-label={ariaLabel ?? (triggerLabel || undefined)}
+        aria-labelledby={labelledBy}
+        aria-describedby={describedBy}
         aria-invalid={invalid || undefined}
         aria-haspopup="listbox"
         aria-expanded={open}

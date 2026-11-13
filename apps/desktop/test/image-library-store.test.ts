@@ -290,9 +290,11 @@ test("gateway persists each image and records archived partial results when the 
     resolveWorkspacePath: () => root,
     resolveGenerationRoot: () => root,
     onArtifactChanged: () => undefined,
-    generateCodex: async () => {
+    generateCodex: async (_input, _images, options) => {
+      options.onAccountSelected?.({ id: "first", name: "Original account", email: "first@example.com" });
+      options.onAccountSelected?.({ id: "second", name: "Failed account" });
       throw new CodexImageBatchError(new ImageGenerationError("limited", "quota"), [
-        { bytes: png, mimeType: "image/png" },
+        { bytes: png, mimeType: "image/png", account: { id: "first", name: "Original account", email: "first@example.com" } },
       ]);
     },
   });
@@ -303,6 +305,40 @@ test("gateway persists each image and records archived partial results when the 
   expect(result.artifact.status).toBe("failed");
   expect(result.artifact.images[0]?.libraryImageId).toBe(library.list().items[0]?.id);
   expect(generation.listArtifacts("thread-1")[0]?.images).toEqual(result.artifact.images);
+  generation.initialize();
+  library.initialize();
+  expect(generation.getArtifact(result.artifact.id).accounts).toEqual([
+    { id: "first", name: "Original account", email: "first@example.com" },
+    { id: "second", name: "Failed account" },
+  ]);
+  expect(library.list().items[0]).toMatchObject({
+    profileName: "Codex",
+    account: { id: "first", name: "Original account", email: "first@example.com" },
+  });
+  expect(result.artifact.images[0]?.account?.id).toBe("first");
+});
+
+test("API provider names survive profile renames and library schema upgrades", async () => {
+  const { db, store, save, libraryRoot, workRoot } = await fixture();
+  const generation = new ImageGenerationStore(db as never);
+  generation.initialize();
+  const profile = generation.saveProfile({ name: "My API at generation", provider: "openai", endpoint: "", model: "image" });
+  const config = { profileId: profile.id, profileName: profile.name, provider: "openai" as const,
+    endpoint: "", model: "image", chatModel: "", supportsImageToImage: true, apiKey: "" };
+  const meta = generation.createArtifact({ threadId: "thread", prompt: "leaf", parameters: {}, config,
+    workspacePath: "/project", generationRoot: "/project" });
+  const image = await save(0, meta);
+  generation.completeArtifact(meta.id, [image]);
+  generation.saveProfile({ ...profile, name: "Renamed API" });
+  expect(store.get(image.libraryImageId!).profileName).toBe("My API at generation");
+  // Simulate an existing library schema without provenance fields.
+  db.exec("ALTER TABLE image_library DROP COLUMN profile_name; ALTER TABLE image_library DROP COLUMN account_json");
+  const reopened = new ImageLibraryStore(db as never, libraryRoot, () => ({ width: 1, height: 1 }), workRoot);
+  reopened.initialize();
+  reopened.initialize();
+  expect(reopened.get(image.libraryImageId!).profileName).toBe("My API at generation");
+  expect(reopened.get(image.libraryImageId!).account).toBeUndefined();
+  expect(generation.getArtifact(meta.id).accounts).toEqual([]);
 });
 
 test("failed purge reports the file error and can be retried without losing the original", async () => {

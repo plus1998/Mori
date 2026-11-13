@@ -3643,7 +3643,11 @@ function buildProjectionItemDetailBlock(
         steps: step ? [step] : [],
       };
     }
-    return { kind: "phase", label: phaseLabel };
+    return {
+      kind: "phase",
+      label: phaseLabel,
+      ...(typeof item.metadata?.retryAt === "string" ? { retryAt: item.metadata.retryAt } : {}),
+    };
   }
   return undefined;
 }

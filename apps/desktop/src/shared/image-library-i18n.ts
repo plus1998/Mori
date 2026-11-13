@@ -1,6 +1,14 @@
 export const imageLibraryTranslations = {
   "zh-CN": {
     "imageLibrary.title": "图片库",
+    "imageLibrary.generationSource": "生成供应商 / 账号",
+    "imageLibrary.sourceUnrecorded": "供应商名称未记录",
+    "imageLibrary.accountUnrecorded": "生成账号未记录",
+    "imageLibrary.copyText": "复制",
+    "imageLibrary.copyPrompt": "复制提示词",
+    "imageLibrary.copyParameters": "复制参数",
+    "imageLibrary.copied": "已复制",
+    "imageLibrary.copyFailed": "复制失败，请重试",
     "imageLibrary.subtitle": "新生成的原图自动保存；移动工作副本或删除会话不会影响原图。",
     "imageLibrary.all": "全部图片",
     "imageLibrary.trash": "回收站",
@@ -62,6 +70,14 @@ export const imageLibraryTranslations = {
   },
   "en-US": {
     "imageLibrary.title": "Image library",
+    "imageLibrary.generationSource": "Generation provider / account",
+    "imageLibrary.sourceUnrecorded": "Provider name not recorded",
+    "imageLibrary.accountUnrecorded": "Generation account not recorded",
+    "imageLibrary.copyText": "Copy",
+    "imageLibrary.copyPrompt": "Copy prompt",
+    "imageLibrary.copyParameters": "Copy parameters",
+    "imageLibrary.copied": "Copied",
+    "imageLibrary.copyFailed": "Copy failed. Please try again.",
     "imageLibrary.subtitle":
       "New originals are saved automatically and survive working copy moves or conversation deletion.",
     "imageLibrary.all": "All images",

@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, setSystemTime, test } from "bun:test";
 import { DatabaseSync } from "node:sqlite";
 import { CodexEventAdapter } from "@eco/runtime";
 import { createElement } from "react";
@@ -6,7 +6,14 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { ConversationV2RuntimeWriter } from "../src/main/conversation-v2-runtime-writer";
 import { ConversationV2Store } from "../src/main/conversation-v2-store";
 import { ActivityLogView } from "../src/renderer/ActivityLogView";
-import { installConversationV2Bootstrap } from "../src/renderer/conversation-v2-renderer-state";
+import {
+  applyConversationV2Effects,
+  installConversationV2Bootstrap,
+} from "../src/renderer/conversation-v2-renderer-state";
+
+const START = new Date("2026-11-12T06:00:02Z");
+beforeEach(() => setSystemTime(START));
+afterEach(() => setSystemTime());
 
 function setup() {
   const db = new DatabaseSync(":memory:");
@@ -66,7 +73,9 @@ test("a hidden first retry renders its reason and wait time in the actual V2 Fee
     for (const rebuilt of [false, true]) {
       if (rebuilt) store.rebuildReadModels("retry-feed");
       const html = render();
-      expect(html).toContain("Codex 正在自动重试（1/5）：模型容量已满。约 315 秒后重试");
+      expect(html).toContain(
+        "Codex 正在自动重试（1/5）：Selected model is at capacity. Please try a different model.。约 315 秒后重试",
+      );
       expect(html).not.toContain("Provider informational diagnostic");
       expect(store.bootstrap("retry-feed").runs[0]?.status).toBe("running");
     }
@@ -90,7 +99,9 @@ test("the Feed updates to the native second retry and clears the waiting notice 
       },
     });
     const waiting = render();
-    expect(waiting).toContain("Codex 正在自动重试（2/5）：模型容量已满");
+    expect(waiting).toContain(
+      "Codex 正在自动重试（2/5）：Selected model is at capacity. Please try a different model.",
+    );
     expect(waiting).not.toContain("Codex 正在自动重试（1/5）");
     writer.append({
       id: "recovered-answer",
@@ -106,6 +117,33 @@ test("the Feed updates to the native second retry and clears the waiting notice 
     const recovered = render();
     expect(recovered).toContain("服务恢复，继续处理。");
     expect(recovered).not.toContain("Codex 正在自动重试");
+  } finally {
+    db.close();
+  }
+});
+
+test("retry deadlines survive stored effects and rebuild, and remounts show elapsed time", () => {
+  const { db, store, adapter, render } = setup();
+  try {
+    const initial = installConversationV2Bootstrap(store.bootstrap("retry-feed"));
+    firstRetry(adapter);
+    const synced = applyConversationV2Effects(
+      initial,
+      store.sync("retry-feed", store.getStoreEpoch(), 1).effects,
+    );
+    expect(
+      [...synced.messages.values()].some((message) => message.retryAt === "2026-11-12T06:05:16.999Z"),
+    ).toBe(true);
+    const notice = store.bootstrap("retry-feed").messages.find((message) => message.retryAt);
+    expect(notice?.retryAt).toBe("2026-11-12T06:05:16.999Z");
+    expect(render()).not.toContain("模型容量已满");
+    setSystemTime(new Date(START.getTime() + 100_000));
+    expect(render()).toContain("约 215 秒后重试");
+    store.rebuildReadModels("retry-feed");
+    expect(render()).toContain("约 215 秒后重试");
+    setSystemTime(new Date(START.getTime() + 315_000));
+    expect(render()).toContain("正在重试…");
+    expect(render()).not.toContain("秒后重试");
   } finally {
     db.close();
   }

@@ -1,5 +1,5 @@
 import { ChevronRight, ImagePlus, LoaderCircle, RefreshCw, Settings2, WandSparkles, X } from "lucide-react";
-import { type ReactNode, useCallback, useEffect, useId, useRef, useState } from "react";
+import { type ClipboardEvent, type ReactNode, useCallback, useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   type GenerationToolContext,
@@ -12,13 +12,23 @@ import type {
   ImageGenerationToolInput,
 } from "../shared/image-generation";
 import {
+  IMAGE_ASPECT_PRESETS,
+  IMAGE_RESOLUTION_PRESETS,
+  type ImageResolutionPreset,
+  imagePresetParameters,
+  isValidCustomImageSize,
+  supportsCustomImageDimensions,
+} from "../shared/image-generation-presets";
+import {
   defaultReadAloudVoice,
   type TtsArtifact,
   type TtsSettingsSnapshot,
   type TtsToolInput,
 } from "../shared/tts";
+import { COMPOSER_MAX_IMAGE_BYTES, readImageFileAsAttachment } from "./composer-attachments";
 import { ImageGenerationArtifactDetail } from "./ImageGenerationArtifactDetail";
 import { i18n } from "./i18n";
+import { revokeImageObjectUrl } from "./image-object-url";
 import { TtsArtifactPlayer } from "./TtsArtifactPlayer";
 import "./generation-tools.css";
 
@@ -167,7 +177,12 @@ export function ImageGenerationToolPanel({ context, active, onOpenSettings }: Pr
   const tool = useGenerationTool(imageApi, context, active);
   const profile = tool.settings?.profiles.find((item) => item.id === tool.settings?.activeProfileId);
   const [prompt, setPrompt] = useState("");
-  const [inputImages, setInputImages] = useState<string[]>([]);
+  const [inputImages, setInputImages] = useState<{ path: string; name: string; previewUrl?: string }[]>([]);
+  const [resolution, setResolution] = useState<ImageResolutionPreset | "">("");
+  const [moreRatios, setMoreRatios] = useState(false);
+  const referenceOperation = useRef(0);
+  const ownedReferences = useRef(new Map<string, string>());
+  const submission = useRef<Promise<void> | undefined>(undefined);
   const [size, setSize] = useState("");
   const [quality, setQuality] = useState<NonNullable<ImageGenerationToolInput["quality"]>>("auto");
   const [aspectRatio, setAspectRatio] = useState("");
@@ -175,12 +190,28 @@ export function ImageGenerationToolPanel({ context, active, onOpenSettings }: Pr
   const [pickError, setPickError] = useState<string>();
   const [picking, setPicking] = useState(false);
   const gemini = profile?.provider === "gemini";
+  const customDimensions =
+    !!profile &&
+    (gemini ||
+      profile.provider === "openai_compatible" ||
+      profile.provider === "chatgpt_web" ||
+      supportsCustomImageDimensions(profile.model));
+  const preset =
+    profile && resolution && aspectRatio
+      ? imagePresetParameters(profile.provider, aspectRatio, resolution)
+      : undefined;
+  const invalidPreset =
+    !!preset &&
+    (profile?.provider === "openai" || profile?.provider === "codex") &&
+    !isValidCustomImageSize(preset.size);
   const headerProfile = profile && {
     name: profile.name,
     model: profile.provider === "chatgpt_web" ? profile.chatModel : profile.model,
   };
   const id = useId();
-  const profileKey = profile ? `${profile.id}:${profile.provider}:${profile.supportsImageToImage}` : "";
+  const profileKey = profile
+    ? `${profile.id}:${profile.provider}:${profile.model}:${profile.supportsImageToImage}`
+    : "";
   // Provider-specific controls start at their documented defaults after a profile switch.
   useEffect(() => {
     if (!profileKey) return;
@@ -189,26 +220,112 @@ export function ImageGenerationToolPanel({ context, active, onOpenSettings }: Pr
     setAspectRatio("");
     setCount(1);
     setInputImages([]);
+    setResolution("");
+    setPickError(undefined);
+    setPicking(false);
+    const owned = ownedReferences.current;
+    return () => {
+      referenceOperation.current++;
+      const paths = [...owned.keys()];
+      for (const url of owned.values()) revokeImageObjectUrl(url);
+      owned.clear();
+      // A request already using these files must finish before its inputs are released.
+      void Promise.resolve(submission.current)
+        .then(() => desktopApi().releasePromptImages({ paths }))
+        .catch((error) => console.error("[generation] reference cleanup failed", error));
+    };
   }, [profileKey]);
-  const disabled =
-    tool.loading || tool.running || !tool.settings?.enabled || !profile || !context.workspacePath;
-  async function pickImages() {
+  // Focus refreshes keep the current form usable; disabling here would swallow the activating click.
+  const disabled = tool.running || !tool.settings?.enabled || !profile || !context.workspacePath;
+  async function addReferences(files?: File[]) {
+    if (disabled || picking || !profile?.supportsImageToImage) return;
+    const operation = ++referenceOperation.current;
+    const currentOperation = () => operation === referenceOperation.current;
+    const additions: typeof inputImages = [];
     setPickError(undefined);
     setPicking(true);
     try {
-      const paths = await desktopApi().pickImageGenerationInputs();
-      const next = [...new Set([...inputImages, ...paths])];
       const limit = gemini ? 3 : 16;
-      if (next.length > limit) throw new Error(t("generation.imageLimit", { count: limit }));
-      setInputImages(next);
+      if (files) {
+        if (inputImages.length + files.length > limit)
+          throw new Error(t("generation.imageLimit", { count: limit }));
+        for (const file of files) {
+          if (!["image/png", "image/jpeg", "image/webp"].includes(file.type))
+            throw new Error(t("generation.referenceFormat"));
+          if (file.size > COMPOSER_MAX_IMAGE_BYTES) throw new Error(t("generation.referenceSize"));
+        }
+        for (const file of files) {
+          const image = await readImageFileAsAttachment(file);
+          if (!image?.data) throw new Error(t("generation.referenceReadFailed"));
+          let path: string;
+          try {
+            const staged = await desktopApi().stagePromptImage({
+              contextKey: `landing:generation:${generationToolScopeId(context)}`,
+              imageId: image.id,
+              mediaType: image.mediaType,
+              data: image.data,
+            });
+            path = staged.path;
+          } catch (error) {
+            revokeImageObjectUrl(image.previewUrl);
+            throw error;
+          }
+          additions.push({ path, name: file.name, previewUrl: image.previewUrl });
+          if (!currentOperation()) break;
+        }
+      } else {
+        const paths = await desktopApi().pickImageGenerationInputs();
+        const unique = [...new Set(paths)].filter(
+          (path) => !inputImages.some((image) => image.path === path),
+        );
+        if (inputImages.length + unique.length > limit)
+          throw new Error(t("generation.imageLimit", { count: limit }));
+        additions.push(...unique.map((path) => ({ path, name: path.split(/[\\/]/).pop() || path })));
+      }
+      if (!currentOperation()) return;
+      for (const image of additions)
+        if (image.previewUrl) ownedReferences.current.set(image.path, image.previewUrl);
+      setInputImages((current) => [...current, ...additions]);
     } catch (caught) {
-      setPickError(caught instanceof Error ? caught.message : String(caught));
+      if (currentOperation()) setPickError(caught instanceof Error ? caught.message : String(caught));
     } finally {
-      setPicking(false);
+      // Discard incomplete batches and results arriving after a profile change/unmount.
+      const discarded = additions.filter(
+        (image) => image.previewUrl && !ownedReferences.current.has(image.path),
+      );
+      for (const image of discarded) revokeImageObjectUrl(image.previewUrl);
+      if (discarded.length)
+        void desktopApi()
+          .releasePromptImages({ paths: discarded.map((image) => image.path) })
+          .catch((error) => console.error("[generation] reference cleanup failed", error));
+      if (currentOperation()) setPicking(false);
     }
   }
+  function pasteImages(event: ClipboardEvent<HTMLElement>) {
+    if (!active || disabled || !profile?.supportsImageToImage) return;
+    const files = Array.from(event.clipboardData.files).filter((file) => file.type.startsWith("image/"));
+    if (!files.length) return;
+    event.preventDefault();
+    event.stopPropagation();
+    void addReferences(files);
+  }
+  function removeReference(path: string) {
+    const preview = ownedReferences.current.get(path);
+    if (preview) {
+      revokeImageObjectUrl(preview);
+      ownedReferences.current.delete(path);
+      void desktopApi()
+        .releasePromptImages({ paths: [path] })
+        .catch((error) => setPickError(error instanceof Error ? error.message : String(error)));
+    }
+    setInputImages((current) => current.filter((image) => image.path !== path));
+  }
   return (
-    <section className="generation-tool" aria-label={t("settings.imageGeneration.title")}>
+    <section
+      className="generation-tool"
+      aria-label={t("settings.imageGeneration.title")}
+      onPaste={pasteImages}
+    >
       <ToolHeader
         title={t("settings.imageGeneration.title")}
         profile={headerProfile}
@@ -225,13 +342,13 @@ export function ImageGenerationToolPanel({ context, active, onOpenSettings }: Pr
         className="generation-form"
         onSubmit={(event) => {
           event.preventDefault();
-          if (disabled || !prompt.trim() || picking) return;
-          void tool.submit({
+          if (disabled || !prompt.trim() || picking || invalidPreset) return;
+          submission.current = tool.submit({
             prompt,
-            ...(size ? { size } : {}),
+            ...(preset ?? (size ? { size } : {})),
             ...(gemini ? (aspectRatio ? { aspect_ratio: aspectRatio } : {}) : { quality }),
             count: gemini ? 1 : count,
-            ...(inputImages.length ? { input_images: inputImages } : {}),
+            ...(inputImages.length ? { input_images: inputImages.map((image) => image.path) } : {}),
           });
         }}
       >
@@ -246,37 +363,114 @@ export function ImageGenerationToolPanel({ context, active, onOpenSettings }: Pr
             onChange={(event) => setPrompt(event.target.value)}
             placeholder={t("generation.promptPlaceholder")}
           />
+          {customDimensions ? (
+            <div className="generation-presets">
+              <div className="generation-ratio-heading">
+                <span id={`${id}-ratio-label`} className="generation-field-label">
+                  {t("generation.aspectRatio")}
+                </span>
+                <button
+                  type="button"
+                  className="generation-ratio-default"
+                  aria-pressed={!aspectRatio}
+                  onClick={() => {
+                    setAspectRatio("");
+                    setResolution("");
+                    setSize("");
+                  }}
+                >
+                  {t("generation.providerDefault")}
+                </button>
+              </div>
+              <fieldset className="generation-ratios" aria-labelledby={`${id}-ratio-label`}>
+                {IMAGE_ASPECT_PRESETS.slice(0, moreRatios ? undefined : 5).map(({ ratio, label }) => (
+                  <button
+                    type="button"
+                    key={ratio}
+                    aria-pressed={aspectRatio === ratio}
+                    onClick={() => {
+                      setAspectRatio(ratio);
+                      if (!resolution) setResolution("1080P");
+                    }}
+                  >
+                    <span className="generation-ratio-icon" aria-hidden>
+                      <span
+                        style={{
+                          aspectRatio: ratio.replace(":", "/"),
+                          ...(Number(ratio.split(":")[0]) > Number(ratio.split(":")[1])
+                            ? { width: 25 }
+                            : { height: 25 }),
+                        }}
+                      />
+                    </span>
+                    <strong>{ratio}</strong>
+                    <small>{t(`generation.ratio.${label}`)}</small>
+                  </button>
+                ))}
+              </fieldset>
+              <button
+                type="button"
+                className="generation-more-ratios"
+                aria-expanded={moreRatios}
+                onClick={() => setMoreRatios((current) => !current)}
+              >
+                {t(moreRatios ? "generation.lessRatios" : "generation.moreRatios")}
+              </button>
+              <label htmlFor={`${id}-resolution`}>{t("generation.resolution")}</label>
+              <select
+                id={`${id}-resolution`}
+                value={resolution}
+                onChange={(event) => {
+                  const next = event.target.value as ImageResolutionPreset | "";
+                  setResolution(next);
+                  if (next && !aspectRatio) setAspectRatio("1:1");
+                  if (!next && !gemini) setAspectRatio("");
+                }}
+              >
+                <option value="">{t("generation.providerDefault")}</option>
+                {IMAGE_RESOLUTION_PRESETS.map((value) => (
+                  <option key={value}>{value}</option>
+                ))}
+              </select>
+              {preset ? (
+                <p className="generation-size-hint" aria-live="polite">
+                  {gemini
+                    ? t("generation.geminiSize", { size: preset.size, ratio: aspectRatio })
+                    : t("generation.actualSize", { size: preset.size.replace("x", " × ") })}
+                  {!gemini ? <small>{t("generation.resolutionHint")}</small> : null}
+                </p>
+              ) : null}
+              {invalidPreset ? (
+                <p className="generation-error" role="alert">
+                  {t("generation.unsupportedSize")}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
           <div className="generation-options">
-            <label htmlFor={`${id}-size`}>
-              {t("generation.size")}
-              {profile?.provider === "openai_compatible" || profile?.provider === "chatgpt_web" ? (
-                <input
-                  value={size}
-                  onChange={(event) => setSize(event.target.value)}
-                  placeholder="auto / 1024x1024"
-                />
-              ) : (
-                <select id={`${id}-size`} value={size} onChange={(event) => setSize(event.target.value)}>
-                  <option value="">{t("generation.providerDefault")}</option>
-                  {(gemini ? ["1K", "2K", "4K"] : ["auto", "1024x1024", "1536x1024", "1024x1536"]).map(
-                    (value) => (
-                      <option key={value}>{value}</option>
-                    ),
-                  )}
-                </select>
-              )}
-            </label>
-            {gemini ? (
-              <label>
-                {t("generation.aspectRatio")}
-                <select value={aspectRatio} onChange={(event) => setAspectRatio(event.target.value)}>
-                  <option value="">{t("generation.providerDefault")}</option>
-                  {["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"].map((value) => (
-                    <option key={value}>{value}</option>
-                  ))}
-                </select>
+            {!resolution ? (
+              <label htmlFor={`${id}-size`}>
+                {t("generation.size")}
+                {profile?.provider === "openai_compatible" || profile?.provider === "chatgpt_web" ? (
+                  <input
+                    id={`${id}-size`}
+                    value={size}
+                    onChange={(event) => setSize(event.target.value)}
+                    placeholder="auto / 1024x1024"
+                  />
+                ) : (
+                  <select id={`${id}-size`} value={size} onChange={(event) => setSize(event.target.value)}>
+                    <option value="">{t("generation.providerDefault")}</option>
+                    {(gemini ? ["1K", "2K", "4K"] : ["auto", "1024x1024", "1536x1024", "1024x1536"]).map(
+                      (value) => (
+                        <option key={value}>{value}</option>
+                      ),
+                    )}
+                  </select>
+                )}
               </label>
-            ) : (
+            ) : null}
+            {!gemini ? (
               <>
                 <label>
                   {t("generation.quality")}
@@ -300,7 +494,7 @@ export function ImageGenerationToolPanel({ context, active, onOpenSettings }: Pr
                   </select>
                 </label>
               </>
-            )}
+            ) : null}
           </div>
           {profile?.supportsImageToImage ? (
             <div className="generation-references">
@@ -308,18 +502,21 @@ export function ImageGenerationToolPanel({ context, active, onOpenSettings }: Pr
                 type="button"
                 className="settings-secondary-button"
                 disabled={picking}
-                onClick={() => void pickImages()}
+                onClick={() => void addReferences()}
               >
                 <ImagePlus size={14} aria-hidden />
                 {t("generation.references")}
               </button>
-              {inputImages.map((path) => (
+              <p className="generation-reference-hint">{t("generation.pasteHint")}</p>
+              {inputImages.map(({ path, name, previewUrl }) => (
                 <span className="generation-reference" key={path} title={path}>
-                  <span>{path.split(/[\\/]/).pop()}</span>
+                  {previewUrl ? <img src={previewUrl} alt={name} /> : null}
+                  <span>{name}</span>
                   <button
                     type="button"
-                    aria-label={t("generation.removeReference", { name: path.split(/[\\/]/).pop() })}
-                    onClick={() => setInputImages((current) => current.filter((item) => item !== path))}
+                    aria-label={t("generation.removeReference", { name })}
+                    disabled={picking}
+                    onClick={() => removeReference(path)}
                   >
                     <X size={12} aria-hidden />
                   </button>
@@ -336,7 +533,7 @@ export function ImageGenerationToolPanel({ context, active, onOpenSettings }: Pr
         <button
           className="settings-primary-button generation-submit"
           type="submit"
-          disabled={disabled || !prompt.trim() || picking}
+          disabled={disabled || !prompt.trim() || picking || invalidPreset}
         >
           {tool.running ? (
             <LoaderCircle size={15} className="generation-spinner" aria-hidden />

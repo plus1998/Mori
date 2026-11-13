@@ -8,6 +8,7 @@ import {
   defaultImageGenerationModel,
   defaultSupportsImageToImage,
   type GeneratedImageFile,
+  type ImageGenerationAccount,
   type ImageGenerationArtifact,
   type ImageGenerationArtifactStatus,
   type ImageGenerationProfileSaveInput,
@@ -17,8 +18,8 @@ import {
   type ImageGenerationSourceInput,
   type ImageGenerationToolInput,
   imageGenerationImageModelOptions,
-  isImageGenerationProvider,
   isImageGenerationLoginProvider,
+  isImageGenerationProvider,
   remapLegacyImageGenerationModel,
 } from "../shared/image-generation";
 
@@ -59,6 +60,7 @@ interface ArtifactRow {
   parameters_json: string;
   provider: string;
   profile_name: string;
+  accounts_json: string;
   model: string;
   workspace_path: string;
   generation_root: string;
@@ -150,6 +152,14 @@ export class ImageGenerationStore {
       )
       .run("应用退出时图片生成尚未完成，请重新生成。", new Date().toISOString());
     this.ensureProfileColumns();
+    const artifactColumns = this.db.prepare("PRAGMA table_info(image_generation_artifacts)").all() as {
+      name: string;
+    }[];
+    if (!artifactColumns.some((column) => column.name === "accounts_json")) {
+      this.db.exec(
+        "ALTER TABLE image_generation_artifacts ADD COLUMN accounts_json TEXT NOT NULL DEFAULT '[]'",
+      );
+    }
     this.ensureCodexProvider();
     this.migrateLoginProfiles();
     // These local navigation preferences do not change the synced active-profile contract.
@@ -485,6 +495,17 @@ export class ImageGenerationStore {
     return this.getArtifact(id);
   }
 
+  recordArtifactAccount(id: string, account: ImageGenerationAccount): ImageGenerationArtifact {
+    const artifact = this.getArtifact(id);
+    const accounts = artifact.accounts ?? [];
+    if (!accounts.some((item) => item.id === account.id)) {
+      this.db
+        .prepare("UPDATE image_generation_artifacts SET accounts_json = ?, updated_at = ? WHERE id = ?")
+        .run(JSON.stringify([...accounts, account]), new Date().toISOString(), id);
+    }
+    return this.getArtifact(id);
+  }
+
   completeArtifact(id: string, images: GeneratedImageFile[]): ImageGenerationArtifact {
     this.updateArtifact(id, "completed", images);
     return this.getArtifact(id);
@@ -801,6 +822,7 @@ function toArtifact(row: ArtifactRow): ImageGenerationArtifact {
     parameters: parseJsonObject(row.parameters_json, {}),
     provider,
     profileName: row.profile_name,
+    accounts: parseJsonArray<ImageGenerationAccount>(row.accounts_json),
     model: row.model,
     workspacePath: row.workspace_path,
     generationRoot: row.generation_root,

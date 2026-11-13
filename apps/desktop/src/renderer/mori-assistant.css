@@ -1064,6 +1064,62 @@ html[data-mori-surface="panel"] #root {
   gap: 4px;
   margin-top: 6px;
 }
+.mori-pet-action-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mori-pet-action-heading {
+  justify-content: space-between;
+}
+.mori-pet-settings .composer-field-select-trigger {
+  min-height: 36px;
+  padding: 7px 10px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-input);
+  font-size: 13px;
+  line-height: 20px;
+}
+.mori-pet-settings .composer-field-select-trigger-label {
+  font-weight: 430;
+}
+.mori-pet-action-row > .settings-ui-row-control {
+  width: 264px;
+  max-width: 55%;
+}
+.mori-pet-action-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 32px 36px;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  width: 100%;
+}
+.mori-pet-action-control .mori-pet-action-preview-button {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 8px;
+}
+.mori-pet-action-preview-button[aria-pressed="true"] {
+  background: var(--nav-hover);
+  color: var(--text-primary);
+}
+.mori-pet-action-thumbnail {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+}
+@container (max-width: 420px) {
+  .mori-pet-action-row > .settings-ui-row-control {
+    width: 100%;
+    max-width: 100%;
+  }
+}
+.mori-pet-action-settings > .mori-settings-hint {
+  margin: 8px 0 12px;
+}
 .mori-ball:active {
   cursor: grabbing;
 }

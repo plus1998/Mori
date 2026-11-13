@@ -18,6 +18,8 @@ import type {
   LibraryImage,
 } from "../shared/image-library";
 import { formatIpcInvokeError } from "./AppMessage";
+import { GenerationCopyButton } from "./GenerationCopyButton";
+import { ImageGenerationSourceLabel } from "./ImageGenerationSourceLabel";
 import { i18n } from "./i18n";
 import { createImageObjectUrlFromBase64, revokeImageObjectUrl } from "./image-object-url";
 import { useImageLibraryRevision } from "./use-image-library-revision";
@@ -74,7 +76,14 @@ function LibraryPreview({
       {error}
     </span>
   ) : src ? (
-    <img src={src} alt={name} loading="lazy" />
+    thumbnail ? (
+      <img src={src} alt={name} loading="lazy" />
+    ) : (
+      <div className="generation-image-preview">
+        <img src={src} alt={name} />
+        <GenerationCopyButton kind="image" value={src} />
+      </div>
+    )
   ) : (
     <Image className="image-library-placeholder" aria-hidden />
   );
@@ -398,8 +407,19 @@ export function ImageLibraryPanel({
                   {!detail.purgedAt && buttons([detail], !!detail.trashedAt)}
                 </div>
                 <dl>
-                  <dt>{t("imageLibrary.prompt")}</dt>
+                  <dt className="generation-metadata-heading">
+                    {t("imageLibrary.prompt")}
+                    <GenerationCopyButton value={detail.prompt} label={t("imageLibrary.copyPrompt")} />
+                  </dt>
                   <dd>{detail.prompt}</dd>
+                  <dt>{t("imageLibrary.generationSource")}</dt>
+                  <dd>
+                    <ImageGenerationSourceLabel
+                      provider={detail.provider}
+                      profileName={detail.profileName}
+                      accounts={detail.account ? [detail.account] : undefined}
+                    />
+                  </dd>
                   <dt>{t("imageLibrary.model")}</dt>
                   <dd>
                     {detail.provider} · {detail.model}
@@ -429,7 +449,13 @@ export function ImageLibraryPanel({
                       </button>
                     )}
                   </dd>
-                  <dt>{t("imageLibrary.parameters")}</dt>
+                  <dt className="generation-metadata-heading">
+                    {t("imageLibrary.parameters")}
+                    <GenerationCopyButton
+                      value={JSON.stringify(detail.parameters, null, 2)}
+                      label={t("imageLibrary.copyParameters")}
+                    />
+                  </dt>
                   <dd>
                     <pre>{JSON.stringify(detail.parameters, null, 2)}</pre>
                   </dd>

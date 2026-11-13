@@ -1314,10 +1314,7 @@ function handleRetryNotice(
   const details = readString(error, "additionalDetails");
   if (!upstreamMessage && !details) return;
   const progress = upstreamMessage?.match(/Reconnecting\.{3}\s*(\d+)\/(\d+)/iu);
-  const capacity =
-    error.codexErrorInfo === "serverOverloaded" ||
-    /selected model is at capacity/iu.test(details ?? upstreamMessage ?? "");
-  const reason = capacity ? "模型容量已满" : (details ?? upstreamMessage);
+  const reason = details ?? upstreamMessage;
   const progressLabel = progress ? `（${progress[1]}/${progress[2]}）` : "";
   const delayMs =
     typeof params.retryDelayMs === "number" &&
@@ -1325,13 +1322,12 @@ function handleRetryNotice(
     params.retryDelayMs >= 0
       ? params.retryDelayMs
       : undefined;
-  const waitLabel = delayMs === undefined ? "" : `。约 ${Math.ceil(delayMs / 1000)} 秒后重试`;
   emit(ctx, {
     eventType: "diagnostic",
     codexThreadId,
     turnId: readCodexTurnId(params),
     role: "system",
-    message: `Codex 正在自动重试${progressLabel}：${reason}${waitLabel}${capacity ? "。可继续等待或停止后切换模型。" : delayMs === undefined ? "" : "。"}`,
+    message: `Codex 正在自动重试${progressLabel}：${reason}`,
     streamState: "none",
     metadata: {
       codexMethod: source === "stderr" ? "stderr" : "error",
@@ -1349,6 +1345,9 @@ function handleRetryNotice(
             },
           }
         : {}),
+      ...(delayMs === undefined
+        ? {}
+        : { retryAt: new Date(Date.parse(ctx.observedAt) + delayMs).toISOString() }),
       upstreamError: error,
     },
   });

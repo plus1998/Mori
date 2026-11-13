@@ -77,7 +77,9 @@ test("Codex retries expose capacity and progress without failing or completing t
       retry: { attempt: 2, maxRetries: 5 },
     },
   });
-  expect(events[0]?.message).toContain("（2/5）：模型容量已满");
+  expect(events[0]?.message).toContain(
+    "（2/5）：Selected model is at capacity. Please try a different model.",
+  );
   expect(events[1]?.message).toBe("恢复响应");
 });
 
@@ -138,9 +140,16 @@ test("hidden first retries show their real wait and deduplicate native notificat
       log();
     }
     expect(events).toHaveLength(1);
-    expect(events[0]?.message).toContain("（1/5）：模型容量已满");
+    expect(events[0]?.message).toContain(
+      "（1/5）：Selected model is at capacity. Please try a different model.",
+    );
     if (logFirst) {
-      expect(events[0]?.message).toContain("约 315 秒后重试");
+      expect(events[0]?.message).not.toContain("秒后重试");
+      const event = events[0];
+      if (!event) throw new Error("Missing retry notice");
+      expect(event.metadata?.retryAt).toBe(
+        new Date(Date.parse(event.observedAt) + 314998.382375).toISOString(),
+      );
       expect(events[0]?.metadata?.codexMethod).toBe("stderr");
       expect(events[0]?.metadata?.retry).toEqual({ attempt: 1, maxRetries: 5, delayMs: 314998.382375 });
     }

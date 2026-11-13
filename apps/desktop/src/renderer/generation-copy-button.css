@@ -1,0 +1,31 @@
+.generation-copy-control {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.generation-copy-result {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.generation-metadata-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.image-artifact-detail .generation-metadata-heading h3 {
+  margin: 0;
+}
+
+.generation-image-preview {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  min-width: 0;
+}

@@ -49,6 +49,7 @@ export type ActivityDetailBlock =
   | {
       kind: "phase";
       label: string;
+      retryAt?: string;
       reconnecting?: boolean;
       reconnectFailed?: boolean;
       reconnectDetail?: string;

@@ -31,6 +31,8 @@ type Row = {
   thread_id: string;
   prompt: string;
   provider: LibraryImage["provider"];
+  profile_name: string | null;
+  account_json: string | null;
   model: string;
   parameters_json: string;
   created_at: string;
@@ -72,6 +74,20 @@ export class ImageLibraryStore {
     );
     CREATE INDEX IF NOT EXISTS image_library_created_idx ON image_library(created_at DESC, id DESC);
     CREATE INDEX IF NOT EXISTS image_library_source_idx ON image_library(workspace_path, thread_id);`);
+    const columns = this.db.prepare("PRAGMA table_info(image_library)").all() as { name: string }[];
+    for (const column of ["profile_name", "account_json"]) {
+      if (!columns.some((item) => item.name === column))
+        this.db.exec(`ALTER TABLE image_library ADD COLUMN ${column} TEXT`);
+    }
+    // Existing artifacts already contain the API profile snapshot. Login identities cannot be recovered.
+    const artifactColumns = this.db.prepare("PRAGMA table_info(image_generation_artifacts)").all() as {
+      name: string;
+    }[];
+    if (artifactColumns.some((column) => column.name === "profile_name")) {
+      this.db.exec(`UPDATE image_library SET profile_name = (
+        SELECT profile_name FROM image_generation_artifacts WHERE id = image_library.artifact_id
+      ) WHERE profile_name IS NULL`);
+    }
   }
 
   private serialize<T>(action: () => Promise<T>): Promise<T> {
@@ -114,6 +130,8 @@ export class ImageLibraryStore {
           : "conversation",
       prompt: row.prompt,
       provider: row.provider,
+      ...(row.profile_name ? { profileName: row.profile_name } : {}),
+      ...(row.account_json ? { account: JSON.parse(row.account_json) } : {}),
       model: row.model,
       parameters: JSON.parse(row.parameters_json),
       createdAt: row.created_at,
@@ -154,6 +172,8 @@ export class ImageLibraryStore {
           thread_id: artifact.threadId,
           prompt: artifact.prompt,
           provider: artifact.provider,
+          profile_name: artifact.profileName,
+          account_json: payload.account ? JSON.stringify(payload.account) : null,
           model: artifact.model,
           parameters_json: JSON.stringify(artifact.parameters),
           created_at: new Date().toISOString(),
@@ -165,7 +185,7 @@ export class ImageLibraryStore {
         try {
           this.db
             .prepare(`INSERT INTO image_library (id, artifact_id, image_index, file_name, mime_type, bytes, width, height,
-            workspace_path, thread_id, prompt, provider, model, parameters_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+            workspace_path, thread_id, prompt, provider, profile_name, account_json, model, parameters_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
             .run(
               row.id,
               row.artifact_id,
@@ -179,6 +199,8 @@ export class ImageLibraryStore {
               row.thread_id,
               row.prompt,
               row.provider,
+              row.profile_name,
+              row.account_json,
               row.model,
               row.parameters_json,
               row.created_at,
@@ -192,6 +214,7 @@ export class ImageLibraryStore {
       const original = this.resolveOriginal(row.id);
       const absolutePath = path.join(this.workDir, artifact.id, row.file_name);
       const image: GeneratedImageFile = {
+        ...(row.account_json ? { account: JSON.parse(row.account_json) } : {}),
         libraryImageId: row.id,
         absolutePath,
         relativePath: path.relative(artifact.generationRoot, absolutePath),

@@ -225,6 +225,9 @@ export function appendProviderEventToConversationV2(
           body: event.message,
           status: "final",
           ...(noticeRole ? { providerRole: noticeRole } : {}),
+          ...(retryNotice && typeof event.metadata?.retryAt === "string"
+            ? { retryAt: event.metadata.retryAt }
+            : {}),
         },
         { messageId: legacyNoticeMessageId(event) },
       );

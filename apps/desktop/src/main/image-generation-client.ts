@@ -3,12 +3,14 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import {
   type GeneratedImageFile,
+  type ImageGenerationAccount,
   IMAGE_GENERATION_REQUEST_TIMEOUT_MS,
   ImageGenerationError,
   type ImageGenerationProvider,
   type ImageGenerationToolInput,
 } from "../shared/image-generation";
 import type { ImageGenerationClientConfig } from "./image-generation-store";
+import { isValidCustomImageSize, supportsCustomImageDimensions } from "../shared/image-generation-presets";
 import { CodexImageBatchError } from "./codex-image-service";
 
 /** Login-route generation settings: the chat model drives the request, the image model drives the image tool. */
@@ -18,6 +20,7 @@ export interface CodexImageGenerationOptions {
   chatModel: string;
   /** Empty on the Web route, where the server chooses the image model. */
   imageModel: string;
+  onAccountSelected?: (account: ImageGenerationAccount) => void;
 }
 
 const MAX_IMAGE_BYTES = 64 * 1024 * 1024;
@@ -40,6 +43,7 @@ const GEMINI_ASPECT_RATIOS = new Set([
 ]);
 
 export interface ImagePayload {
+  account?: ImageGenerationAccount;
   bytes: Buffer;
   mimeType: string;
 }
@@ -60,6 +64,7 @@ export async function generateImagesToWorkspace(input: {
   threadDirectory: string;
   workspacePath: string;
   signal?: AbortSignal;
+  onAccountSelected?: (account: ImageGenerationAccount) => void;
   persistImage?: (payload: ImagePayload, imageIndex: number, fileName: string) => Promise<GeneratedImageFile>;
   generateCodex?: (
     input: ImageGenerationToolInput,
@@ -67,7 +72,8 @@ export async function generateImagesToWorkspace(input: {
     options: CodexImageGenerationOptions,
   ) => Promise<ImagePayload[]>;
 }): Promise<GeneratedImageFile[]> {
-  const args = normalizeToolInput(input.toolInput, input.config.provider, input.config.supportsImageToImage);
+  const args = normalizeToolInput(input.toolInput, input.config.provider, input.config.supportsImageToImage,
+    supportsCustomImageDimensions(input.config.model));
   const inputImages =
     args.input_images && args.input_images.length > 0
       ? await loadInputImages(args.input_images, input.workspacePath, input.config.provider)
@@ -82,6 +88,7 @@ export async function generateImagesToWorkspace(input: {
               route: input.config.provider,
               chatModel: input.config.chatModel,
               imageModel: input.config.model,
+              ...(input.onAccountSelected ? { onAccountSelected: input.onAccountSelected } : {}),
             })
           : (() => {
               throw new ImageGenerationError("codex_unavailable", "Codex 登录生图服务尚未初始化。");
@@ -123,15 +130,21 @@ export function normalizeImageGenerationToolInput(
   providerOrConfig: ImageGenerationClientConfig | ImageGenerationClientConfig["provider"],
 ): ImageGenerationToolInput {
   if (typeof providerOrConfig === "string") {
-    return normalizeToolInput(input, providerOrConfig, true);
+    return normalizeToolInput(input, providerOrConfig, true, false);
   }
-  return normalizeToolInput(input, providerOrConfig.provider, providerOrConfig.supportsImageToImage);
+  return normalizeToolInput(
+    input,
+    providerOrConfig.provider,
+    providerOrConfig.supportsImageToImage,
+    supportsCustomImageDimensions(providerOrConfig.model),
+  );
 }
 
 function normalizeToolInput(
   input: ImageGenerationToolInput,
   provider: ImageGenerationProvider,
   supportsImageToImage: boolean,
+  customDimensions = false,
 ): NormalizedToolInput {
   const prompt = typeof input.prompt === "string" ? input.prompt.trim() : "";
   if (!prompt) throw new ImageGenerationError("invalid_prompt", "prompt 不能为空。");
@@ -168,10 +181,17 @@ function normalizeToolInput(
       throw new ImageGenerationError("unsupported_parameter", "Gemini 渠道不支持 quality 参数。");
     }
   } else {
-    if (size && (provider === "openai" || provider === "codex") && !OPENAI_SIZES.has(size)) {
+    if (
+      size &&
+      (provider === "openai" || provider === "codex") &&
+      !OPENAI_SIZES.has(size) &&
+      !(customDimensions && isValidCustomImageSize(size))
+    ) {
       throw new ImageGenerationError(
         "unsupported_parameter",
-        "OpenAI size 仅支持 auto、1024x1024、1536x1024 或 1024x1536。",
+        customDimensions
+          ? "图片尺寸须为 16 的倍数，最长边不超过 3840，长宽比不超过 3:1，总像素在 655360 到 8294400 之间。"
+          : "当前模型 size 仅支持 auto、1024x1024、1536x1024 或 1024x1536。",
       );
     }
     if (aspectRatio) {
@@ -548,6 +568,7 @@ async function writeImages(
       await fs.writeFile(tempPath, payload.bytes, { flag: "wx" });
       await fs.rename(tempPath, absolutePath);
       written.push({
+        ...(payload.account ? { account: payload.account } : {}),
         absolutePath,
         relativePath: path.relative(input.generationRoot, absolutePath),
         mimeType: payload.mimeType,

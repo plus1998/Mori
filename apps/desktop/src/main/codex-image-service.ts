@@ -198,12 +198,14 @@ export class CodexImageService {
       for (let index = 0; index < (input.count ?? 1); index++) {
         requestSignal.throwIfAborted();
         const account = await this.nextAccount(route);
+        const identity = { id: account.id, name: account.name, ...(account.email ? { email: account.email } : {}) };
+        options.onAccountSelected?.(identity);
         const connection = await this.connect(account);
         try {
           const { token } = credentials(account);
           if (route === "chatgpt_web") {
-            result.push(
-              await generateChatGptWebImage(
+            result.push({
+              ...await generateChatGptWebImage(
                 connection,
                 headers(token, "/"),
                 input,
@@ -211,7 +213,8 @@ export class CodexImageService {
                 chatModel,
                 images,
               ),
-            );
+              account: identity,
+            });
             await this.queryQuota(account.id);
             continue;
           }
@@ -253,6 +256,7 @@ export class CodexImageService {
           });
           await requireOk(response);
           result.push({
+            account: identity,
             bytes: await readCodexImageResponse(response, requestSignal),
             mimeType: "image/png",
           });

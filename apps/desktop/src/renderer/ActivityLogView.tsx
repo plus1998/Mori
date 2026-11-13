@@ -1,3 +1,4 @@
+import { RetryCountdownLabel } from "./RetryCountdownLabel";
 import { projectionTimelineItemRenderSignature } from "./projection-timeline-signature";
 import { shortcutMatches } from "./keyboard-shortcuts";
 import { ShimmerText } from "./ShimmerText";
@@ -771,6 +772,7 @@ function conversationV2MessageToTimelineItem(
     at,
     metadata: {
       conversationV2MessageId: message.messageId,
+      ...(isRetryNotice && message.retryAt ? { retryAt: message.retryAt } : {}),
       ...(isThinking && message.startedAt ? { thinkingStartedAt: message.startedAt } : {}),
       conversationV2TurnId: message.turnId,
       conversationV2VersionSeq: message.versionSeq,
@@ -5120,6 +5122,7 @@ function ProjectionTimelineEntry({
     return wrapRunLogFeedEntry(
       <PhaseBlock
         label={block.label}
+        {...(block.retryAt && { retryAt: block.retryAt })}
         {...(block.compaction && { compaction: block.compaction })}
         {...(block.reconnecting && { reconnecting: block.reconnecting })}
         {...(block.reconnectFailed && {
@@ -5362,6 +5365,7 @@ function DetailBlock({
     return (
       <PhaseBlock
         label={block.label}
+        {...(block.retryAt && { retryAt: block.retryAt })}
         {...(block.compaction && { compaction: block.compaction })}
         {...(block.reconnecting && { reconnecting: block.reconnecting })}
         {...(block.reconnectFailed && {
@@ -5546,6 +5550,7 @@ function DetailBlock({
 
 function PhaseBlock({
   label,
+  retryAt,
   compaction,
   reconnecting,
   reconnectFailed,
@@ -5553,6 +5558,7 @@ function PhaseBlock({
   onRetry,
 }: {
   label: string;
+  retryAt?: string;
   compaction?: Extract<ActivityDetailBlock, { kind: "phase" }>["compaction"];
   reconnecting?: boolean;
   reconnectFailed?: boolean;
@@ -5616,7 +5622,11 @@ function PhaseBlock({
   if (onRetry) {
     return <FeedErrorCard message={label} actionLabel={i18n.t("common.retry")} onAction={onRetry} />;
   }
-  return <div className="run-log-phase">{label}</div>;
+  return (
+    <div className="run-log-phase">
+      {retryAt ? <RetryCountdownLabel label={label} retryAt={retryAt} /> : label}
+    </div>
+  );
 }
 
 function isContextCompactionPhaseLabel(label: string): boolean {

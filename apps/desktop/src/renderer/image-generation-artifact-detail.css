@@ -57,11 +57,13 @@
 }
 
 .image-artifact-prompt {
+  user-select: text;
   font-size: 14px;
   line-height: 1.65;
 }
 
 .image-artifact-detail pre {
+  user-select: text;
   box-sizing: border-box;
   width: 100%;
   max-width: 100%;
@@ -219,6 +221,18 @@
 
 .image-artifact-caption-actions .settings-ui-button {
   font-size: 12px;
+}
+
+.image-artifact-provider,
+.image-artifact-image-source {
+  user-select: text;
+}
+
+.image-artifact-image-source {
+  margin: 8px 0 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  overflow-wrap: anywhere;
 }
 
 @container image-artifact (max-width: 420px) {

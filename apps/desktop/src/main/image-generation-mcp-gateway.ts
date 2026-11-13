@@ -333,6 +333,10 @@ export class ImageGenerationMcpGateway {
         generationRoot,
         threadDirectory: threadDirectoryName(threadId),
         workspacePath,
+        onAccountSelected: (account) => {
+          const updated = this.deps.store.recordArtifactAccount(artifact.id, account);
+          this.deps.onArtifactChanged(updated);
+        },
         ...(library ? {
           persistImage: (payload: ImagePayload, index: number, name: string) =>
             library.saveGeneratedImage(artifact, payload, index, name),

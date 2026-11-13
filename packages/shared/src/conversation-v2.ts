@@ -239,6 +239,8 @@ export interface ConversationMessage {
    * between two tools of the same turn.
    */
   occurredAt?: string;
+  /** Provider retry deadline; clients derive remaining time from their current clock. */
+  retryAt?: string;
   /** First observed thinking start, retained when finalization updates occurredAt. */
   startedAt?: string;
   /**
