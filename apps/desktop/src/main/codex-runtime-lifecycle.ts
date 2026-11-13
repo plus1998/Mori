@@ -10,6 +10,7 @@ import {
   resolveCodexHomeDir,
 } from "@eco/runtime";
 import type { OpenAIAccountProxyConfig } from "../shared/openai-account";
+import type { CodexAppServerProcessView } from "../shared/ipc";
 import { moriCodexClientInfo } from "./codex-client-info";
 import {
   buildCodexProxyArgs,
@@ -71,6 +72,7 @@ export class CodexRuntimeLifecycle {
   private stopPromise: Promise<void> | undefined;
   private generation = 0;
   private socksBridge: { close: () => void } | undefined;
+  private processDetails: Omit<CodexAppServerProcessView, "pid"> | undefined;
 
   constructor(private readonly options: CodexRuntimeLifecycleOptions) {}
 
@@ -91,6 +93,13 @@ export class CodexRuntimeLifecycle {
     const child = this.child;
     if (!child || child.exitCode !== null || child.signalCode !== null) return undefined;
     return child.pid ?? undefined;
+  }
+
+  getProcessView(): CodexAppServerProcessView | undefined {
+    const pid = this.getProcessId();
+    const details = this.processDetails;
+    if (pid === undefined || !details) return undefined;
+    return { pid, account: details.account ? { ...details.account } : null, proxy: { ...details.proxy } };
   }
 
   async start(): Promise<CodexAppServerClient> {
@@ -181,11 +190,13 @@ export class CodexRuntimeLifecycle {
 
     // Resolve the explicit account proxy or the current OS proxy before spawning.
     let proxyEnvironment: CodexProxyEnvironment;
+    let proxy: CodexAppServerProcessView["proxy"];
     try {
       const proxyConfig = this.options.accountId
         ? (await accountProxyConfigGetter?.(this.options.accountId)) ?? { mode: "system" }
         : { mode: "system" as const };
       const rawProxy = await resolveCodexProxyUrl(proxyConfig, systemProxyResolver);
+      proxy = { mode: proxyConfig.mode };
       let proxyHttp = rawProxy;
       if (rawProxy) {
         const parsed = new URL(rawProxy);
@@ -193,10 +204,12 @@ export class CodexRuntimeLifecycle {
           throw new Error("Unsupported proxy protocol.");
         }
         const proxyEndpoint = `${parsed.protocol}//${parsed.hostname}${parsed.port ? `:${parsed.port}` : ""}`;
+        proxy.endpoint = proxyEndpoint;
         if (parsed.protocol.startsWith("socks")) {
           // Codex's HTTP and WebSocket paths both consume an HTTP proxy URL.
           const bridge = await startSocksToHttpBridge(rawProxy);
           proxyHttp = `http://127.0.0.1:${bridge.port}`;
+          proxy.bridgeEndpoint = proxyHttp;
           this.socksBridge = { close: bridge.close };
         }
         process.stderr.write(`[eco-codex] ${proxyConfig.mode} proxy configured endpoint=${proxyEndpoint}\n`);
@@ -286,6 +299,10 @@ export class CodexRuntimeLifecycle {
 
     this.child = child;
     this.client = client;
+    this.processDetails = {
+      account: authProvider && this.options.accountId ? { id: this.options.accountId, status: "binding" } : null,
+      proxy,
+    };
     const spawnMessage =
       `[eco-codex] app-server spawned pid=${child.pid ?? "unknown"} scope=${this.options.accountId ? `account:${this.options.accountId}` : "global"} generation=${generation}`;
     this.options.onStderr?.(spawnMessage);
@@ -300,11 +317,14 @@ export class CodexRuntimeLifecycle {
         if (this.options.accountId && boundAuth?.accountId !== this.options.accountId) {
           throw new Error(`ChatGPT Login 账号 ${this.options.accountId} 已不可用。`);
         }
-        if (boundAuth) await client.request("account/login/start", {
-          type: "chatgptAuthTokens", accessToken: boundAuth.accessToken,
-          chatgptAccountId: boundAuth.chatgptAccountId,
-          ...(boundAuth.chatgptPlanType ? { chatgptPlanType: boundAuth.chatgptPlanType } : {}),
-        });
+        if (boundAuth) {
+          await client.request("account/login/start", {
+            type: "chatgptAuthTokens", accessToken: boundAuth.accessToken,
+            chatgptAccountId: boundAuth.chatgptAccountId,
+            ...(boundAuth.chatgptPlanType ? { chatgptPlanType: boundAuth.chatgptPlanType } : {}),
+          });
+          this.processDetails.account = { id: boundAuth.accountId, status: "bound" };
+        }
       }
       if (generation !== this.generation) {
         throw new Error("Codex app-server start was cancelled during initialization.");
@@ -607,20 +627,19 @@ export function getGlobalCodexRuntimeLifecycle(): CodexRuntimeLifecycle | undefi
 }
 
 /** Snapshot all app-server child processes currently owned by the desktop. */
-export function getCodexRuntimeProcessIds(): number[] {
+export function getCodexRuntimeProcesses(): CodexAppServerProcessView[] {
   const lifecycles = new Set<CodexRuntimeLifecycle>([
     ...(globalLifecycle ? [globalLifecycle] : []),
     ...[...accountLifecycles.values()].map((entry) => entry.lifecycle),
     ...retiringLifecycles,
     ...startingReplacements,
   ]);
-  return [
-    ...new Set(
-      [...lifecycles]
-        .map((lifecycle) => lifecycle.getProcessId())
-        .filter((pid): pid is number => pid !== undefined),
-    ),
-  ].sort((left, right) => left - right);
+  const processes = new Map<number, CodexAppServerProcessView>();
+  for (const lifecycle of lifecycles) {
+    const view = lifecycle.getProcessView();
+    if (view) processes.set(view.pid, view);
+  }
+  return [...processes.values()].sort((left, right) => left.pid - right.pid);
 }
 
 export async function ensureCodexAccountRuntimeLifecycle(

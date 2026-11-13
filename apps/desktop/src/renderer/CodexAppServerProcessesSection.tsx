@@ -69,24 +69,53 @@ export function CodexAppServerProcessesSection({
           <p className="running-resources-empty">{t("app.running.noCodexAppServers")}</p>
         ) : null}
         <ul className="running-resources-list" aria-label={t("app.running.codexAppServers")}>
-          {processes.map((process) => (
-            <li key={process.pid} className="running-resources-row">
-              <span className="running-resources-kind is-codex">
-                <Cpu size={17} aria-hidden />
-                <span className="running-resources-live-dot" />
-              </span>
-              <div className="running-resources-item" title={`PID ${process.pid}`}>
-                <span className="running-resources-item-title">codex app-server</span>
-                <span className="running-resources-meta">
-                  <span className="running-resources-endpoint">
-                    {t("app.running.codexAppServerPid", { pid: process.pid })}
-                  </span>
-                  <span className="running-resources-meta-divider" aria-hidden />
-                  <span className="running-resources-owner">{t("app.running.codexAppServerRunning")}</span>
+          {processes.map((process) => {
+            const account = process.account;
+            const accountLabel = account
+              ? [account.name ?? account.id, account.email].filter(Boolean).join(" · ")
+              : "";
+            const accountDisplay = account?.status === "binding"
+              ? `${t("app.running.codexAccountBinding")} · ${accountLabel}`
+              : accountLabel;
+            const proxyLabel = process.proxy.mode === "system"
+              ? t("app.running.codexProxySystem")
+              : t("app.running.codexProxyManual");
+            return (
+              <li key={process.pid} className="running-resources-row">
+                <span className="running-resources-kind is-codex">
+                  <Cpu size={17} aria-hidden />
+                  <span className="running-resources-live-dot" />
                 </span>
-              </div>
-            </li>
-          ))}
+                <div className="running-resources-item" title={`PID ${process.pid}`}>
+                  <span className="running-resources-item-title">codex app-server</span>
+                  <span className="running-resources-meta">
+                    <span className="running-resources-endpoint">
+                      {t("app.running.codexAppServerPid", { pid: process.pid })}
+                    </span>
+                    <span className="running-resources-meta-divider" aria-hidden />
+                    <span className="running-resources-owner">{t("app.running.codexAppServerRunning")}</span>
+                  </span>
+                  {account ? (
+                    <span className="running-resources-process-detail" title={`${accountDisplay}\n${account.id}`}>
+                      {t("app.running.codexProcessAccount", { account: accountDisplay })}
+                    </span>
+                  ) : null}
+                  {process.proxy.endpoint ? (
+                    <>
+                      <span className="running-resources-process-detail is-proxy" title={`${proxyLabel} · ${process.proxy.endpoint}`}>
+                        {t("app.running.codexProcessProxy", { proxy: proxyLabel })} · {process.proxy.endpoint}
+                      </span>
+                      {process.proxy.bridgeEndpoint ? (
+                        <span className="running-resources-process-detail is-proxy" title={process.proxy.bridgeEndpoint}>
+                          {t("app.running.codexProxyBridge", { endpoint: process.proxy.bridgeEndpoint })}
+                        </span>
+                      ) : null}
+                    </>
+                  ) : null}
+                </div>
+              </li>
+            );
+          })}
         </ul>
       </details>
     </section>

@@ -114,6 +114,7 @@ export function ComposerMainModelPicker({
   panelZIndex,
   purpose = "main",
   compactLabel = false,
+  showTooltip = true,
   mainAccountId,
   onClear,
   onManageAccounts,
@@ -125,6 +126,7 @@ export function ComposerMainModelPicker({
   purpose?: PickerPurpose;
   /** Composer toolbar reserves its label for the model and thinking effort. */
   compactLabel?: boolean;
+  showTooltip?: boolean;
   mainAccountId?: string | undefined;
   onClear?: (() => void | Promise<void>) | undefined;
   onManageAccounts?: (() => void) | undefined;
@@ -493,7 +495,7 @@ export function ComposerMainModelPicker({
   );
 
   return <span className={`composer-model-selector${compactLabel ? " is-compact-label" : ""}`}>
-    {compactLabel ? <ComposerHoverTooltip content={hoverDetails} disabled={open || !model}>
+    {compactLabel ? <ComposerHoverTooltip content={hoverDetails} disabled={!showTooltip || open || !model}>
       {trigger}
     </ComposerHoverTooltip> : trigger}
     {open ? <ComposerAbovePanel anchorRef={anchorRef} triggerRef={triggerRef}

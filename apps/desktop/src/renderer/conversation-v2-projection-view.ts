@@ -1643,7 +1643,7 @@ export function buildProjectionDisplayTimelineItems(
     if (isDuplicateTaskNotificationSummaryEcho(displayItem, timeline)) {
       continue;
     }
-    const settled = settleTerminalStreamDisplayItem(displayItem, requestSpansById);
+    const settled = settleTerminalStreamDisplayItem(displayItem, requestSpansById, timeline);
     if (settled && !isEmptyTerminalThinkingItem(settled)) {
       displayItems.push(settled);
     }
@@ -1765,6 +1765,7 @@ function hasToolBoundaryBetween(
 const timelineLookups = new WeakMap<readonly ThreadRunProjectionTimelineItem[], TimelineLookup>();
 interface TimelineLookup {
   positions: Map<string, number>;
+  requestStartedById: Map<string, ThreadRunProjectionTimelineItem>;
   userCounts: Uint32Array;
   toolCounts: Uint32Array;
   thinkingBoundaryCounts: Uint32Array;
@@ -1779,6 +1780,7 @@ function timelineLookup(timeline: readonly ThreadRunProjectionTimelineItem[]): T
   if (cached) return cached;
   const lookup: TimelineLookup = {
     positions: new Map(),
+    requestStartedById: new Map(),
     userCounts: new Uint32Array(timeline.length + 1),
     toolCounts: new Uint32Array(timeline.length + 1),
     thinkingBoundaryCounts: new Uint32Array(timeline.length + 1),
@@ -1792,6 +1794,12 @@ function timelineLookup(timeline: readonly ThreadRunProjectionTimelineItem[]): T
   for (const [index, item] of timeline.entries()) {
     // Match findIndex semantics if a caller supplies repeated ids.
     if (!lookup.positions.has(item.id)) lookup.positions.set(item.id, index);
+    if (item.eventType === "request.started" && item.requestId?.trim()) {
+      const requestId = item.requestId.trim();
+      if (!lookup.requestStartedById.has(requestId)) {
+        lookup.requestStartedById.set(requestId, item);
+      }
+    }
     lookup.userBoundaryBefore[index] = userBoundary;
     lookup.turnBoundaryBefore[index] = turnBoundary;
     const user = isProjectionUserPromptItem(item);
@@ -2034,6 +2042,7 @@ function appendStreamScopeSuffix(
   item: ThreadRunProjectionTimelineItem,
   effectiveRequestId?: string,
   timeline: readonly ThreadRunProjectionTimelineItem[] = [],
+  forceMidTurnBoundary = false,
 ): string {
   const isStream =
     item.eventType === "thinking.delta" ||
@@ -2046,10 +2055,17 @@ function appendStreamScopeSuffix(
   let scoped = key;
   const requestId = effectiveRequestId?.trim() || item.requestId?.trim();
   if (requestId) {
-    // Request-scoped streams are already turn-isolated for PI/Claude; do not also
-    // stamp afterUser (keeps display keys stable when requestId is present).
     if (!scoped.includes(`:req:${requestId}`) && !scoped.includes(`:request:${requestId}`)) {
       scoped = `${scoped}:req:${requestId}`;
+    }
+    // A Codex turn/steer can continue the same provider request. In that case
+    // the request id alone is not a turn boundary: keep the pre-steer stream
+    // mounted separately from output after the inserted user prompt.
+    if (forceMidTurnBoundary) {
+      const afterUser = resolvePrecedingUserPromptSequence(item, timeline);
+      if (afterUser > 0) {
+        scoped = `${scoped}:afterUser:${afterUser}`;
+      }
     }
     return scoped;
   }
@@ -2088,6 +2104,30 @@ function resolvePrecedingUserPromptSequence(
     else high = mid;
   }
   return low > 0 ? prompts[low - 1]!.sequence : 0;
+}
+
+function hasMidTurnPromptBeforeStream(
+  item: ThreadRunProjectionTimelineItem,
+  timeline: readonly ThreadRunProjectionTimelineItem[],
+  requestStartedAt: string,
+): boolean {
+  const boundarySequence = resolvePrecedingUserPromptSequence(item, timeline);
+  if (boundarySequence <= 0) {
+    return false;
+  }
+  const boundary = timeline.find(
+    (candidate) => isProjectionUserPromptItem(candidate) && candidate.sequence === boundarySequence,
+  );
+  const requestId = item.requestId?.trim();
+  const requestStarted = requestId ? timelineLookup(timeline).requestStartedById.get(requestId) : undefined;
+  // A normal first prompt precedes request.started. A prompt accepted while the
+  // request is already running has a timestamp at or after that request's start.
+  return Boolean(
+    boundary &&
+      (requestStarted && compareTimelineItems(requestStarted, item) <= 0
+        ? compareTimelineItems(requestStarted, boundary) <= 0
+        : requestStartedAt.localeCompare(boundary.at) <= 0),
+  );
 }
 
 function hasUserPromptBetween(
@@ -2194,6 +2234,19 @@ function mergeStreamDisplayTimelineItem(
 ): ThreadRunProjectionTimelineItem {
   if (!current || compareTimelineItems(current, item) > 0) {
     return item;
+  }
+  // Empty terminal/placeholder rows are lifecycle updates, not a new display
+  // value. Preserve the accumulated text and keep a prior terminal state from
+  // being reopened as streaming.
+  if (!item.text.trim() && current.text.trim()) {
+    return {
+      ...item,
+      text: current.text,
+      eventType:
+        current.eventType === "message.final" || current.eventType === "thinking.final"
+          ? current.eventType
+          : item.eventType,
+    };
   }
   const isThinkingStream = item.eventType === "thinking.delta" || item.eventType === "thinking.final";
   if (!isThinkingStream) {
@@ -2345,6 +2398,7 @@ function shouldSuppressFilesystemToolPlaceholder(
 function settleTerminalStreamDisplayItem(
   item: ThreadRunProjectionTimelineItem,
   requestSpansById: ReadonlyMap<string, ThreadRunProjectionSnapshot["requestSpans"][number]>,
+  timeline: readonly ThreadRunProjectionTimelineItem[],
 ): ThreadRunProjectionTimelineItem | undefined {
   if (item.eventType !== "message.delta" && item.eventType !== "thinking.delta") {
     return item;
@@ -2353,13 +2407,22 @@ function settleTerminalStreamDisplayItem(
     return undefined;
   }
   const span = projectionRequestSpan(item, requestSpansById);
-  if (!span || isProjectionRequestActive(span)) {
+  if (!span || (isProjectionRequestActive(span) && !hasUserPromptAfterTimelineItem(timeline, item))) {
     return item;
   }
   return {
     ...item,
     eventType: item.eventType === "thinking.delta" ? "thinking.final" : "message.final",
   };
+}
+
+function hasUserPromptAfterTimelineItem(
+  timeline: readonly ThreadRunProjectionTimelineItem[],
+  item: ThreadRunProjectionTimelineItem,
+): boolean {
+  return timeline.some(
+    (candidate) => isProjectionUserPromptItem(candidate) && compareTimelineItems(item, candidate) < 0,
+  );
 }
 
 function withContextCompactionTimings(
@@ -2817,41 +2880,69 @@ function projectionStreamDisplayKey(
   const channel =
     item.eventType === "thinking.delta" || item.eventType === "thinking.final" ? "thinking" : "message";
   const requestId = resolveEffectiveStreamRequestId(item, timeline, requestSpansById);
+  const requestSpan = requestId ? requestSpansById?.get(requestId) : undefined;
+  const forceMidTurnBoundary = Boolean(
+    requestSpan && hasMidTurnPromptBeforeStream(item, timeline, requestSpan.startedAt),
+  );
   const streamKey = item.streamKey?.trim();
   const hasExplicitStreamBlockKey = Boolean(streamKey?.includes(":block:"));
   const hasExplicitLogicalItemKey = Boolean(
     streamKey && (item.metadata?.logicalEntityId === streamKey || item.metadata?.itemId === streamKey),
   );
   if (streamKey && (hasExplicitStreamBlockKey || hasExplicitLogicalItemKey)) {
-    return appendStreamScopeSuffix(`${channel}:sk:${streamKey}`, item, requestId, timeline);
+    return appendStreamScopeSuffix(
+      `${channel}:sk:${streamKey}`,
+      item,
+      requestId,
+      timeline,
+      forceMidTurnBoundary,
+    );
   }
   // Agent detail history often omits streamKeys between speech acts. Main-feed
   // owner/request collapse is for live planner streaming; without an explicit
   // stream identity, keep agent rows discrete (matches prior detail-only collapse).
   if (item.scope === "agent") {
     if (streamKey) {
-      return appendStreamScopeSuffix(`${channel}:sk:${streamKey}`, item, requestId, timeline);
+      return appendStreamScopeSuffix(
+        `${channel}:sk:${streamKey}`,
+        item,
+        requestId,
+        timeline,
+        forceMidTurnBoundary,
+      );
     }
     return undefined;
   }
   if (requestId && requestSpansById) {
     const span = requestSpansById.get(requestId);
     if (span && !isProjectionRequestActive(span)) {
-      return appendStreamScopeSuffix(`${channel}:request:${requestId}`, item, requestId, timeline);
+      return appendStreamScopeSuffix(
+        `${channel}:request:${requestId}`,
+        item,
+        requestId,
+        timeline,
+        forceMidTurnBoundary,
+      );
     }
   }
   if (streamKey) {
-    return appendStreamScopeSuffix(`${channel}:sk:${streamKey}`, item, requestId, timeline);
+    return appendStreamScopeSuffix(
+      `${channel}:sk:${streamKey}`,
+      item,
+      requestId,
+      timeline,
+      forceMidTurnBoundary,
+    );
   }
   const ownerKey = projectionOwnerKey(item);
   if (ownerKey) {
-    return appendStreamScopeSuffix(`${channel}:${ownerKey}`, item, requestId, timeline);
+    return appendStreamScopeSuffix(`${channel}:${ownerKey}`, item, requestId, timeline, forceMidTurnBoundary);
   }
   const requestKey = projectionRequestKey(item);
   if (requestKey) {
-    return appendStreamScopeSuffix(`${channel}:${requestKey}`, item, requestId, timeline);
+    return appendStreamScopeSuffix(`${channel}:${requestKey}`, item, requestId, timeline, forceMidTurnBoundary);
   }
-  return appendStreamScopeSuffix(`${channel}:${item.id}`, item, requestId, timeline);
+  return appendStreamScopeSuffix(`${channel}:${item.id}`, item, requestId, timeline, forceMidTurnBoundary);
 }
 
 const FEED_SORT_LANE_NORMAL = 0;

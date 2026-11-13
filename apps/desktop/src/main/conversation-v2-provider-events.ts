@@ -258,7 +258,10 @@ export function appendProviderEventToConversationV2(
     // arrives), which every reader renders as output that never finishes.
     // Empty bodies therefore never create or overwrite a message; they may only
     // close an existing one.
-    const hasBody = (runtime && isFinal) || body.trim().length > 0;
+    // An empty terminal row is a lifecycle signal for an existing stream. It
+    // must not create a blank message, or replace the accumulated body with an
+    // empty string; callers use the stream identity to finalize that message.
+    const hasBody = body.trim().length > 0 || (runtime && isFinal && Boolean(existing));
     if (!existing) {
       if (!hasBody) return emitted;
       emit(
@@ -277,7 +280,7 @@ export function appendProviderEventToConversationV2(
         },
         { messageId },
       );
-    } else if (hasBody && existing.body !== body) {
+    } else if (body.trim().length > 0 && existing.body !== body) {
       const appendOnly = runtime && body.startsWith(existing.body);
       emit(
         appendOnly ? "message.delta" : "message.replaced",

@@ -21,6 +21,7 @@ export function ComposerAbovePanel({
   onClose,
   autoFocus = true,
   width,
+  align = "start",
   fixedHeight,
   minHeight = 80,
   gap = 10,
@@ -35,6 +36,7 @@ export function ComposerAbovePanel({
   role?: "dialog" | "menu" | "listbox";
   autoFocus?: boolean;
   width?: number;
+  align?: "start" | "end";
   zIndex?: number | undefined;
   fixedHeight?: number;
   minHeight?: number;
@@ -51,7 +53,7 @@ export function ComposerAbovePanel({
       setStyle(
         composerFloatingStyleForAnchor(anchor, {
           width: width ?? anchor.getBoundingClientRect().width,
-          align: "start",
+          align,
           prefer: "above",
           minHeight,
           ...(fixedHeight !== undefined ? { fixedHeight } : {}),
@@ -68,7 +70,7 @@ export function ComposerAbovePanel({
       window.removeEventListener("resize", update);
       window.removeEventListener("scroll", update, true);
     };
-  }, [anchorRef, width, fixedHeight, minHeight, gap]);
+  }, [anchorRef, width, align, fixedHeight, minHeight, gap]);
   useEffect(() => {
     if (!autoFocus) return;
     const panel = panelRef.current;
@@ -84,10 +86,12 @@ export function ComposerAbovePanel({
     };
   }, [triggerRef, autoFocus]);
   useEffect(() => {
-    const isNestedMenu = (target: EventTarget | null) =>
-      target instanceof Element && target.closest(
-        ".composer-field-select-menu, .model-cascade-panel, .composer-main-model-picker",
+    const isNestedMenu = (target: EventTarget | null) => {
+      const menu = target instanceof Element && target.closest(
+        ".composer-field-select-menu, .model-cascade-panel, .composer-main-model-picker, .composer-bash-review-popover",
       );
+      return menu && menu !== panelRef.current;
+    };
     const pointer = (event: PointerEvent) => {
       const target = event.target as Node;
       if (panelRef.current?.contains(target) || triggerRef?.current?.contains(target) || isNestedMenu(target))

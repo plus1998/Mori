@@ -277,14 +277,25 @@ test("runtime prompts keep provisional rewind ids out of the immutable message t
   }
 });
 
-test("runtime final empty text replaces the draft instead of silently keeping it", () => {
+test("runtime final empty text settles the draft without clearing its body or stream identity", () => {
   const { db, v2, writer } = setup();
   try {
     writer.append(snapshot("discarded draft"));
     writer.append(snapshot("", true));
-    expect(v2.bootstrap("thread").messages[0]).toMatchObject({ body: "", status: "final" });
+    const message = v2.bootstrap("thread").messages[0];
+    expect(message).toMatchObject({ body: "discarded draft", status: "final" });
+    expect(
+      db
+        .prepare("SELECT message_id, message FROM conversation_provider_inputs_v2 WHERE conversation_id = ?")
+        .get("thread"),
+    ).toMatchObject({ message_id: message?.messageId, message: null });
+    expect(
+      db
+        .prepare("SELECT event_type, message FROM conversation_provider_events_v2 WHERE thread_id = ?")
+        .get("thread"),
+    ).toEqual({ event_type: "message.final", message: "discarded draft" });
     v2.rebuildReadModels("thread");
-    expect(v2.bootstrap("thread").messages[0]).toMatchObject({ body: "", status: "final" });
+    expect(v2.bootstrap("thread").messages[0]).toMatchObject({ body: "discarded draft", status: "final" });
   } finally {
     db.close();
   }

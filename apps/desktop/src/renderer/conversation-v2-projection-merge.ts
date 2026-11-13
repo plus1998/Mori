@@ -81,6 +81,12 @@ function preserveStreamTimelineText(
   incoming: ThreadRunProjectionTimelineItem,
   timeline: readonly ThreadRunProjectionTimelineItem[],
 ): string {
+  // A mid-turn prompt starts a new speech segment even when the provider
+  // reuses the same stream id. Do not let the longer pre-steer text win the
+  // cumulative-text merge and keep the old segment visible as if it were live.
+  if (hasUserPromptBetween(timeline, current, incoming)) {
+    return incoming.text;
+  }
   if (shouldResetThinkingStreamMergeForMerge(current, incoming, timeline)) {
     return incoming.text;
   }

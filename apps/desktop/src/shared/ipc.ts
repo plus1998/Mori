@@ -1089,6 +1089,18 @@ export interface CodexBackgroundTerminalTerminateResult {
 /** A live Codex app-server child process owned by the desktop main process. */
 export interface CodexAppServerProcessView {
   pid: number;
+  account: {
+    id: string;
+    status: "binding" | "bound";
+    name?: string;
+    email?: string;
+  } | null;
+  /** The route resolved at spawn time; endpoints never contain credentials. */
+  proxy: {
+    mode: "system" | "direct" | "manual";
+    endpoint?: string;
+    bridgeEndpoint?: string;
+  };
 }
 
 /** A live Bash execution owned by an agent runtime. */

@@ -13,6 +13,7 @@ export interface ComposerAcpModelTriggerProps {
   error?: string;
   onOpen?: () => void;
   onChange: (modelId: string | undefined) => void;
+  panelZIndex?: number | undefined;
 }
 
 /**
@@ -35,6 +36,7 @@ export function ComposerAcpModelTrigger({
   error,
   onOpen,
   onChange,
+  panelZIndex,
 }: ComposerAcpModelTriggerProps) {
   const { t } = useTranslation();
   const vendorNames = useMemo(() => resolveAcpVendorNames(t), [t]);
@@ -63,6 +65,7 @@ export function ComposerAcpModelTrigger({
         hint={t("settings.acpModel.defaultHint")}
         triggerClassName="composer-model-trigger composer-acp-model-trigger"
         fixedHeight={PANEL_FIXED_HEIGHT}
+        panelZIndex={panelZIndex}
         onOpen={onOpen}
         renderExtra={currentExtra}
         onChange={(selection) => onChange(selection?.key ?? undefined)}

@@ -3,6 +3,7 @@ import { type ConversationEventInput, stableHash } from "@eco/shared";
 import type { ThreadRunEvent, ThreadRunEventInput } from "../shared/thread-run-events";
 import {
   appendProviderEventToConversationV2,
+  conversationV2MessageIdForLegacyEvent,
   conversationV2ProviderMessageId,
 } from "./conversation-v2-provider-events";
 import type { ConversationAppendResult, ConversationV2Store } from "./conversation-v2-store";
@@ -104,7 +105,23 @@ export class ConversationV2RuntimeWriter {
         };
       }
     }
-    const receiptInput = conversationV2ProviderReceipt(source, "runtime-input");
+    // An empty terminal snapshot is allowed to close an existing stream, but it
+    // does not carry a message id of its own. Keep the input index attached to
+    // the already-created normalized message so the projection still reads its
+    // accumulated body after the provider sends that empty terminal row.
+    const providerMessageId = conversationV2ProviderMessageId(source);
+    const fallbackMessageId =
+      !providerMessageId && (source.eventType === "message.final" || source.eventType === "thinking.final")
+        ? conversationV2MessageIdForLegacyEvent(source)
+        : undefined;
+    const retainedMessageId =
+      providerMessageId ??
+      (fallbackMessageId && this.v2.getMessage(source.threadId, fallbackMessageId)
+        ? fallbackMessageId
+        : undefined);
+    const receiptInput = conversationV2ProviderReceipt(source, "runtime-input", {
+      ...(retainedMessageId ? { messageId: retainedMessageId } : {}),
+    });
     const sourceEventKey = receiptInput.sourceEventKey;
     if (!sourceEventKey) throw new Error("Runtime provider receipt has no source event key.");
     const existing = this.db
@@ -161,11 +178,14 @@ export class ConversationV2RuntimeWriter {
 export function conversationV2ProviderReceipt(
   source: ThreadRunEvent,
   prefix: string,
-  options: { includeMessageId?: boolean } = {},
+  options: { includeMessageId?: boolean; messageId?: string } = {},
 ): ConversationEventInput {
   const inputHash = stableHash(stripLegacyCompatibilityMarker(source));
   const sourceEventKey = `${prefix}:${source.threadId}:${source.id}:${inputHash}`;
-  const messageId = options.includeMessageId === false ? undefined : conversationV2ProviderMessageId(source);
+  const messageId =
+    options.includeMessageId === false
+      ? undefined
+      : options.messageId?.trim() || conversationV2ProviderMessageId(source);
   const { message, ...envelope } = source;
   const storedSource = messageId
     ? {

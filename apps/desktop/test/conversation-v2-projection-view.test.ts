@@ -3462,6 +3462,109 @@ test("buildThreadRunProjectionViewModel keeps final main agent text after empty 
   }
 });
 
+test("buildProjectionDisplayTimelineItems settles pre-steer output for a reused request stream", () => {
+  const requestId = "req_mid_turn";
+  const streamKey = "thr_view:main:block:message:0";
+  const timeline = [
+    item({
+      id: "request-start",
+      sequence: 1,
+      eventType: "request.started",
+      requestId,
+      at: "2026-01-01T00:00:01.000Z",
+    }),
+    item({
+      id: "before-steer",
+      sequence: 2,
+      eventType: "message.delta",
+      role: "main",
+      requestId,
+      streamKey,
+      text: "插话前已经输出的正文。",
+      at: "2026-01-01T00:00:02.000Z",
+    }),
+    item({
+      id: "mid-turn-prompt",
+      sequence: 3,
+      eventType: "thread.status",
+      role: "user",
+      text: "继续补充要求",
+      metadata: { liveType: "thread.user_prompt" },
+      at: "2026-01-01T00:00:03.000Z",
+    }),
+    item({
+      id: "after-steer",
+      sequence: 4,
+      eventType: "message.delta",
+      role: "main",
+      requestId,
+      streamKey,
+      text: "插话后继续输出。",
+      at: "2026-01-01T00:00:04.000Z",
+    }),
+  ];
+  const rows = buildProjectionDisplayTimelineItems(
+    timeline,
+    new Map([
+      [
+        requestId,
+        {
+          requestId,
+          status: "streaming",
+          startedAt: "2026-01-01T00:00:01.000Z",
+        },
+      ],
+    ]),
+  );
+
+  expect(rows.map((row) => row.id)).toEqual([
+    "request-start",
+    "before-steer",
+    "mid-turn-prompt",
+    "after-steer",
+  ]);
+  expect(rows.find((row) => row.id === "before-steer")).toMatchObject({
+    eventType: "message.final",
+    text: "插话前已经输出的正文。",
+  });
+  expect(rows.find((row) => row.id === "after-steer")).toMatchObject({
+    eventType: "message.delta",
+    text: "插话后继续输出。",
+  });
+});
+
+test("buildProjectionDisplayTimelineItems keeps message text when an empty final closes its stream", () => {
+  const streamKey = "thr_view:main:block:message:empty-final";
+  const rows = buildProjectionDisplayTimelineItems(
+    [
+      item({
+        id: "message-delta",
+        sequence: 1,
+        eventType: "message.delta",
+        role: "main",
+        streamKey,
+        text: "已输出的正文",
+      }),
+      item({
+        id: "message-empty-final",
+        sequence: 2,
+        eventType: "message.final",
+        role: "main",
+        streamKey,
+        text: "",
+      }),
+    ],
+    new Map(),
+  );
+
+  expect(rows).toHaveLength(1);
+  expect(rows[0]).toMatchObject({
+    id: "message-empty-final",
+    eventType: "message.final",
+    text: "已输出的正文",
+  });
+});
+
 test("buildThreadRunProjectionViewModel keeps separate SDK text blocks in one completed request", () => {
   const view = buildThreadRunProjectionViewModel(
     projection({

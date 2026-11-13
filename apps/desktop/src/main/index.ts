@@ -703,7 +703,7 @@ import {
 import {
   getGlobalCodexRuntimeLifecycle,
   invalidateCodexAccountRuntimeLifecycle,
-  getCodexRuntimeProcessIds,
+  getCodexRuntimeProcesses,
   getCodexRuntimeClientForThread,
   getCodexRuntimeClients,
   parseElectronProxyResolution,
@@ -7053,7 +7053,21 @@ function registerIpcHandlers(): void {
   });
 
   registerDesktopCommand(IPC_CHANNELS.codexAppServerProcessList, async () => {
-    return getCodexRuntimeProcessIds().map((pid) => ({ pid }));
+    const processes = getCodexRuntimeProcesses();
+    if (!processes.some((process) => process.account)) return processes;
+    const accounts = await (await getOpenAIAccountService()).listAccounts();
+    return processes.map((process) => {
+      if (!process.account) return process;
+      const account = accounts.find((account) => account.id === process.account?.id);
+      return {
+        ...process,
+        account: {
+          ...process.account,
+          ...(account?.name ? { name: account.name } : {}),
+          ...(account?.email ? { email: account.email } : {}),
+        },
+      };
+    });
   });
 
   registerDesktopCommand(IPC_CHANNELS.codexBackgroundTerminalTerminate, async (payload: unknown) => {

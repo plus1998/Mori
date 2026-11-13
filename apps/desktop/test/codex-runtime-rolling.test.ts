@@ -7,6 +7,7 @@ import {
   ensureGlobalCodexRuntimeLifecycle,
   getCodexRuntimeClientForThread,
   getCodexRuntimeClients,
+  getCodexRuntimeProcesses,
   getGlobalCodexRuntimeLifecycle,
   invalidateCodexAccountRuntimeLifecycle,
   handoffCodexRuntimeThread,
@@ -16,6 +17,7 @@ import {
   retainCodexRuntimeClient,
   setCodexExternalAuthProvider,
   setCodexAccountProxyConfigGetter,
+  setCodexSystemProxyResolver,
   stopGlobalCodexRuntimeLifecycle,
 } from "../src/main/codex-runtime-lifecycle";
 
@@ -23,6 +25,7 @@ let root: string | undefined;
 afterEach(async () => {
   setCodexExternalAuthProvider(undefined);
   setCodexAccountProxyConfigGetter(undefined);
+  setCodexSystemProxyResolver(undefined);
   await stopGlobalCodexRuntimeLifecycle();
   if (root) await fs.rm(root, { recursive: true, force: true });
 });
@@ -74,7 +77,11 @@ test("account-bound app-servers keep separate credentials and processes", async 
     credentials.push(accountId);
     return { accountId, accessToken: `token-${accountId}`, chatgptAccountId: `chatgpt-${accountId}` };
   });
-  setCodexAccountProxyConfigGetter(accountId => { proxies.push(accountId); return { mode: "direct" }; });
+  let proxyUrl = "http://user:secret@proxy.example.test:8080/private?token=hidden#fragment";
+  setCodexAccountProxyConfigGetter(accountId => {
+    proxies.push(accountId);
+    return accountId === "account-a" ? { mode: "manual", proxyUrl } : { mode: "direct" };
+  });
   const gateway = await ensureGlobalCodexRuntimeLifecycle(options);
   expect(await gateway.request("fixture/account", {})).toMatchObject({ accountId: "" });
   const first = await ensureCodexAccountRuntimeLifecycle("account-a", options, 1);
@@ -85,14 +92,65 @@ test("account-bound app-servers keep separate credentials and processes", async 
   expect(getCodexRuntimeClients()).toHaveLength(3);
   expect(credentials).toEqual(["account-a", "account-b"]);
   expect(proxies).toEqual(["account-a", "account-b"]);
+  const before = getCodexRuntimeProcesses();
+  expect(before).toHaveLength(3);
+  expect(before.find((process) => process.account?.id === "account-a")).toMatchObject({
+    account: { id: "account-a", status: "bound" },
+    proxy: { mode: "manual", endpoint: "http://proxy.example.test:8080" },
+  });
+  expect(before.find((process) => process.account?.id === "account-b")?.proxy).toEqual({ mode: "direct" });
+  expect(before.find((process) => !process.account)?.proxy).toEqual({ mode: "system" });
+  expect(JSON.stringify(before)).not.toMatch(/secret|private|hidden|token-account/);
   // Updating A's proxy only replaces A for new turns. B retains its process.
   await first.request("fixture/set", { threadId: "active-a", status: "active" });
   recordCodexRuntimeThreadOwner("active-a", first);
   invalidateCodexAccountRuntimeLifecycle("account-a");
+  proxyUrl = "socks5://user:secret@127.0.0.1:1080";
   const replacement = await ensureCodexAccountRuntimeLifecycle("account-a", options, 1);
   expect(replacement).not.toBe(first);
   expect(await ensureCodexAccountRuntimeLifecycle("account-b", options, 1)).toBe(second);
   expect(getCodexRuntimeClientForThread("active-a")).toBe(first);
+  const generations = getCodexRuntimeProcesses().filter((process) => process.account?.id === "account-a");
+  expect(generations).toHaveLength(2);
+  expect(generations.find((process) => process.proxy.endpoint === "http://proxy.example.test:8080")).toEqual(
+    before.find((process) => process.account?.id === "account-a"),
+  );
+  expect(generations.find((process) => process.proxy.endpoint === "socks5://127.0.0.1:1080")?.proxy.bridgeEndpoint)
+    .toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
+  await stopGlobalCodexRuntimeLifecycle();
+  expect(getCodexRuntimeProcesses()).toEqual([]);
+});
+
+test("process snapshots keep the resolved system route and report account binding progress", async () => {
+  const options = await fixture();
+  let resolution = "PROXY system.example.test:7890; DIRECT";
+  setCodexSystemProxyResolver(() => resolution);
+  await ensureGlobalCodexRuntimeLifecycle(options);
+  resolution = "DIRECT";
+  expect(getCodexRuntimeProcesses()[0]).toMatchObject({
+    account: null,
+    proxy: { mode: "system", endpoint: "http://system.example.test:7890" },
+  });
+  let finishAuth!: () => void;
+  let authStarted!: () => void;
+  const started = new Promise<void>((resolve) => { authStarted = resolve; });
+  const ready = new Promise<void>((resolve) => { finishAuth = resolve; });
+  setCodexExternalAuthProvider(async () => {
+    authStarted();
+    await ready;
+    return { accountId: "a", accessToken: "secret-token", chatgptAccountId: "chatgpt-a" };
+  });
+  const starting = ensureCodexAccountRuntimeLifecycle("a", options, 1);
+  try {
+    await started;
+    expect(getCodexRuntimeProcesses().find((process) => process.account?.id === "a")).toMatchObject({
+      account: { id: "a", status: "binding" }, proxy: { mode: "system" },
+    });
+  } finally {
+    finishAuth();
+    await starting;
+  }
+  expect(getCodexRuntimeProcesses().find((process) => process.account?.id === "a")?.account?.status).toBe("bound");
 });
 
 test("replacement shares home, keeps old active turns controllable, then reaps them", async () => {

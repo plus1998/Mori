@@ -326,6 +326,52 @@ test("mergeThreadRunProjectionUpdate resets thinking text across user prompt bou
   expect(thinking?.text).toBe("new");
 });
 
+test("mergeThreadRunProjectionUpdate resets message text across a reused mid-turn stream", () => {
+  const current = makeProjection({
+    sourceEventCount: 10,
+    timeline: [
+      {
+        id: "message_1",
+        sequence: 1,
+        scope: "main" as const,
+        eventType: "message.delta",
+        text: "插话前输出的一段很长正文",
+        role: "main" as const,
+        streamKey: "thr_1:message",
+        at: "2026-01-01T00:00:01.000Z",
+      },
+    ],
+  });
+  const incoming = makeProjection({
+    sourceEventCount: 12,
+    timeline: [
+      {
+        id: "prompt_2",
+        sequence: 2,
+        scope: "main" as const,
+        eventType: "thread.status",
+        text: "继续。",
+        role: "user" as const,
+        at: "2026-01-01T00:00:10.000Z",
+        metadata: { liveType: "thread.user_prompt" },
+      },
+      {
+        id: "message_1",
+        sequence: 3,
+        scope: "main" as const,
+        eventType: "message.delta",
+        text: "插话后新正文",
+        role: "main" as const,
+        streamKey: "thr_1:message",
+        at: "2026-01-01T00:00:11.000Z",
+      },
+    ],
+  });
+
+  const merged = mergeThreadRunProjectionUpdate(current, incoming);
+  expect(merged.timeline.find((item) => item.id === "message_1")?.text).toBe("插话后新正文");
+});
+
 test("mergeThreadRunProjectionUpdate appends subagent timeline without dropping existing entries", () => {
   const existingItem: ThreadRunProjectionTimelineItem = {
     id: "agent_evt_1",

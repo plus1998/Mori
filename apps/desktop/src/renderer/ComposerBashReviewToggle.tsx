@@ -1,4 +1,4 @@
-import { Check, Hand, Shield, ShieldAlert, Terminal } from "lucide-react";
+import { Check, ChevronRight, Hand, Shield, ShieldAlert, Terminal } from "lucide-react";
 import {
   type CSSProperties,
   type RefObject,
@@ -26,6 +26,7 @@ interface ComposerBashReviewToggleProps {
   canEdit: boolean;
   saving?: boolean | undefined;
   onToggle: (bashReviewMode: BashReviewMode) => void;
+  variant?: "toolbar" | "menu";
 }
 
 export function ComposerBashReviewToggle({
@@ -33,6 +34,7 @@ export function ComposerBashReviewToggle({
   canEdit,
   saving,
   onToggle,
+  variant = "toolbar",
 }: ComposerBashReviewToggleProps) {
   const { t } = useTranslation();
   const iconOnly = useComposerIconOnlyToolbar();
@@ -125,26 +127,27 @@ export function ComposerBashReviewToggle({
       <span className="composer-toolbar-trigger-icon" aria-hidden>
         <BashReviewToolbarIcon mode={bashReviewMode} />
       </span>
-      {iconOnly ? null : <span className="composer-toolbar-trigger-label">{t(current.title)}</span>}
+      {iconOnly && variant !== "menu" ? null : <span className="composer-toolbar-trigger-label">{t(current.title)}</span>}
+      {variant === "menu" ? <ChevronRight size={14} aria-hidden /> : null}
     </button>
   ) : (
     <span className={className} data-mode={bashReviewMode} aria-label={t("bash.review.readonlyTitle")}>
       <span className="composer-toolbar-trigger-icon" aria-hidden>
         <BashReviewToolbarIcon mode={bashReviewMode} />
       </span>
-      {iconOnly ? null : <span className="composer-toolbar-trigger-label">{t(current.title)}</span>}
+      {iconOnly && variant !== "menu" ? null : <span className="composer-toolbar-trigger-label">{t(current.title)}</span>}
     </span>
   );
 
   return (
     <>
-      <ComposerHoverTooltip content={t(current.title)} disabled={!iconOnly || open}>
+      <ComposerHoverTooltip content={t(current.title)} disabled={variant === "menu" || !iconOnly || open}>
         <span className="composer-orchestration-wrap">{control}</span>
       </ComposerHoverTooltip>
       {open && clickable ? (
         <ComposerBashReviewPopover
           panelRef={panelRef}
-          panelStyle={panelStyle}
+          panelStyle={variant === "menu" ? { ...panelStyle, zIndex: 10001 } : panelStyle}
           bashReviewMode={bashReviewMode}
           disabled={Boolean(saving)}
           onSelect={selectMode}
