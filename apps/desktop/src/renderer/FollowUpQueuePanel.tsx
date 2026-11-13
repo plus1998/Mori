@@ -7,6 +7,7 @@ import { FollowUpPromptPreview } from "./FollowUpPromptPreview";
 import { canEscalateThreadFollowUp, isThreadFollowUpGuidancePending } from "./thread-follow-up-ui";
 
 export function FollowUpQueuePanel({
+  variant = "default",
   followUps,
   editingFollowUpId,
   queuePaused,
@@ -23,6 +24,7 @@ export function FollowUpQueuePanel({
   onReorder,
   onTogglePause,
 }: {
+  variant?: "default" | "floating";
   followUps: ThreadPendingFollowUp[];
   editingFollowUpId: string | undefined;
   queuePaused: boolean;
@@ -59,8 +61,8 @@ export function FollowUpQueuePanel({
     onReorder(next);
   };
   return (
-    <div className="follow-up-queue" aria-label={t("app.queuedGuidance")}>
-      <div className="follow-up-queue-header">
+    <div className={`follow-up-queue${variant === "floating" ? " is-floating" : ""}`} aria-label={t("app.queuedGuidance")}>
+      {variant !== "floating" || showPauseHint ? <div className="follow-up-queue-header">
         {showPauseHint && pauseHint ? (
           <div className="follow-up-queue-pause-hint" role="status">
             {pauseHint}
@@ -87,7 +89,7 @@ export function FollowUpQueuePanel({
           )}
           <span>{queuePaused ? t("thread.followUpQueueResume") : t("thread.followUpQueuePause")}</span>
         </button>
-      </div>
+      </div> : null}
       <div className="follow-up-queue-rows">
         {followUps.map((followUp) => {
           const isEditing = editingFollowUpId === followUp.id;
@@ -152,7 +154,7 @@ export function FollowUpQueuePanel({
                   }}
                   onDragEnd={() => setDraggedId(undefined)}
                 >
-                  <GripVertical size={14} aria-hidden />
+                  {variant === "floating" ? <CornerDownRight size={14} aria-hidden /> : <GripVertical size={14} aria-hidden />}
                 </span>
                 <FollowUpPromptPreview followUp={followUp} />
               </div>
@@ -198,6 +200,13 @@ export function FollowUpQueuePanel({
                         </span>
                       )
                     ) : null}
+                    {variant === "floating" ? (
+                      <button type="button" className="follow-up-card-action" disabled={actionBusy}
+                        aria-label={t("thread.deleteFollowUpAria")} title={t("common.delete")}
+                        onClick={() => onCancel(followUp)}>
+                        <Trash2 size={14} aria-hidden />
+                      </button>
+                    ) : null}
                     <FollowUpActionsMenu
                       busy={actionBusy}
                       label={t("thread.followUpActions")}
@@ -214,10 +223,16 @@ export function FollowUpQueuePanel({
                           id: "todo", label: t("thread.followUpToTodo"),
                           icon: <ListTodo size={14} />, onSelect: () => onMoveToTodo(followUp),
                         },
-                        {
+                        ...(variant === "floating" ? [{
+                          id: "pause", label: queuePaused ? t("thread.followUpQueueResume") : t("thread.followUpQueuePause"),
+                          icon: queuePaused ? <Play size={14} /> : <Pause size={14} />,
+                          disabled: pauseBusy,
+                          onSelect: () => onTogglePause(!queuePaused),
+                        }] : []),
+                        ...(variant !== "floating" ? [{
                           id: "delete", label: t("common.delete"),
                           icon: <Trash2 size={14} />, onSelect: () => onCancel(followUp),
-                        },
+                        }] : []),
                       ]}
                     />
                   </>

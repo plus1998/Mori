@@ -49,7 +49,6 @@ import {
   GitBranch,
   Globe,
   Globe2,
-  GripVertical,
   HardDrive,
   Images,
   Keyboard,
@@ -60,7 +59,6 @@ import {
   MessageCirclePlus,
   MessageSquare,
   Mic,
-  Minus,
   Minimize2,
   Monitor,
   Palette,
@@ -311,8 +309,7 @@ import { ComposerAcpModelTrigger } from "./ComposerAcpModelTrigger";
 import { ComposerAgentModels } from "./ComposerAgentModels";
 import { ComposerBashReviewToggle } from "./ComposerBashReviewToggle";
 import { ComposerFloatingSettings } from "./ComposerFloatingSettings";
-import { useFloatingConversationPosition } from "./use-floating-conversation-position";
-import { useFloatingConversationFocus } from "./use-floating-conversation-focus";
+import { FloatingConversation } from "./FloatingConversation";
 import { ComposerDockMorph } from "./ComposerDockMorph";
 import { ComposerFloatingLoading } from "./ComposerFloatingLoading";
 import { useComposerIconOnlyToolbar } from "./ComposerHoverTooltip";
@@ -2341,10 +2338,6 @@ function App() {
   const [taskPanelLayoutPresent, setTaskPanelLayoutPresent] = useState(false);
   const [taskPanelExiting, setTaskPanelExiting] = useState(false);
   const [taskPanelFullscreen, setTaskPanelFullscreen] = useState(false);
-  const [floatingConversationMinimized, setFloatingConversationMinimized] = useState(true);
-  const [floatingConversationFeedOpen, setFloatingConversationFeedOpen] = useState(false);
-  const floatingConversationBallRef = useRef<HTMLButtonElement>(null);
-  const floatingConversationRef = useRef<HTMLDivElement>(null);
   const [taskPanelWidth, setTaskPanelWidth] = useState(readTaskPanelWidth);
   const [activityWorkspaceLayoutMode, setActivityWorkspaceLayoutMode] =
     useState<ActivityWorkspaceLayoutMode>("feed-only");
@@ -11792,14 +11785,6 @@ function App() {
   const taskPanelOpen = Boolean(showWorkspacePanel && taskDrawerOpen);
   const taskPanelLayoutOpen = Boolean(showWorkspacePanel && taskPanelLayoutPresent);
   const taskPanelFullscreenOpen = Boolean(taskPanelLayoutOpen && taskPanelFullscreen);
-  const floatingConversationFocus = useFloatingConversationFocus(taskPanelFullscreenOpen);
-  const floatingConversationDrag = useFloatingConversationPosition({
-    paneRef: mainPaneRef,
-    conversationRef: floatingConversationRef,
-    ballRef: floatingConversationBallRef,
-    enabled: taskPanelFullscreenOpen,
-    minimized: floatingConversationMinimized,
-  });
   const taskPanelPhase = resolveTaskPanelLayoutPhase({
     layoutPresent: taskPanelLayoutOpen,
     exiting: taskPanelExiting,
@@ -11828,7 +11813,6 @@ function App() {
       setTaskPanelFullscreen(false);
       return;
     }
-    setFloatingConversationMinimized(true);
     setTaskPanelFullscreen((current) => !current);
   }, []);
 
@@ -12493,7 +12477,6 @@ function App() {
     activeThread?.status === "running" || activeThread?.status === "queued" ||
     activeThread?.status === "awaiting_plan";
   const floatingConversationStatus = showComposerDockApproval ? "attention" : composerModelReadOnly ? "running" : "ready";
-  const floatingConversationStatusLabel = t(`composer.floating.${floatingConversationStatus}`);
   const renderComposerModelControl = (anchorRef = composerAnchorRef, disabled = false, floatingMenu = false) =>
     composerModelAvailability === "acp" ? (
       <ComposerAcpModelTrigger
@@ -12575,6 +12558,7 @@ function App() {
           <div ref={composerInputOverlaysRef} className="composer-input-overlays">
             {queuedFollowUps.length > 0 ? (
               <FollowUpQueuePanel
+                variant={taskPanelFullscreenOpen ? "floating" : "default"}
                 followUps={queuedFollowUps}
                 editingFollowUpId={editingFollowUpId}
                 queuePaused={Boolean(activeThread?.followUpQueuePaused)}
@@ -13435,74 +13419,26 @@ function App() {
               ) : null}
               <div className="codex-main-left-column">
                 <div ref={scrollBodyRef} className="codex-main-scroll-body">
-                  <div
-                    ref={floatingConversationRef}
-                    className={[
-                      "codex-chat-shell",
-                      showLanding ? "is-landing" : "is-conversation",
-                      taskPanelFullscreenOpen ? "is-floating-conversation" : "",
-                      taskPanelFullscreenOpen && floatingConversationFocus.focused ? "is-floating-active" : "",
-                      taskPanelFullscreenOpen && floatingConversationFeedOpen && floatingConversationFocus.focused ? "is-floating-feed-open" : "",
-                      taskPanelFullscreenOpen && floatingConversationMinimized ? "is-floating-minimized" : "",
-                    ]
-                      .filter(Boolean)
-                      .join(" ")}
-                    inert={taskPanelFullscreenOpen && floatingConversationMinimized ? true : undefined}
-                    {...floatingConversationFocus.focusProps}
-                    onPointerDown={(event) => {
-                      if (!event.currentTarget.contains(event.target as Node)) return;
-                      if (event.target instanceof Element && event.target.closest("button, input, textarea, [contenteditable=true], a, [role=region]")) return;
-                      floatingConversationDrag.onPointerDown(event);
+                  <FloatingConversation
+                    enabled={taskPanelFullscreenOpen}
+                    landing={showLanding}
+                    paneRef={mainPaneRef}
+                    threadId={activeThread?.id}
+                    title={activeThread?.title}
+                    status={floatingConversationStatus}
+                    overlayHeight={composerInputOverlaysHeight}
+                    timeline={displayProjection?.timeline}
+                    requiresApproval={showComposerDockApproval}
+                    onViewResult={requestActivityFeedForceScroll}
+                    onRestore={() => {
+                      if (showComposerDockApproval) {
+                        composerAnchorRef.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus({ preventScroll: true });
+                      } else {
+                        composerRef.current?.focus();
+                      }
                     }}
-                    onClickCapture={floatingConversationDrag.onClickCapture}
-                    style={
-                      {
-                        "--composer-input-overlays-height": `${composerInputOverlaysHeight}px`,
-                      } as CSSProperties
-                    }
+                    composer={<AppRenderContent render={renderComposer} />}
                   >
-                    {taskPanelFullscreenOpen ? (
-                      <div className="floating-conversation-header">
-                        <button
-                          type="button"
-                          className="floating-conversation-minimize"
-                          onClick={() => {
-                            setFloatingConversationMinimized(true);
-                            requestAnimationFrame(() => floatingConversationBallRef.current?.focus({ preventScroll: true }));
-                          }}
-                          aria-label={t("composer.floating.minimize")}
-                          title={t("composer.floating.minimize")}
-                        >
-                          <Minus size={16} aria-hidden />
-                        </button>
-                        {floatingConversationStatus === "running" ? (
-                          <span className="floating-conversation-status" role="status" aria-label={floatingConversationStatusLabel}>
-                            <LoaderCircle size={14} className="spinning" aria-hidden />
-                          </span>
-                        ) : null}
-                        <button
-                          type="button"
-                          className="floating-conversation-toggle"
-                          onClick={() => setFloatingConversationFeedOpen((open) => !open)}
-                          aria-expanded={floatingConversationFeedOpen}
-                          aria-label={t(floatingConversationFeedOpen ? "composer.floating.hideFeed" : "composer.floating.showFeed")}
-                          title={t(floatingConversationFeedOpen ? "composer.floating.hideFeed" : "composer.floating.showFeed")}
-                        >
-                          <MessageSquare size={14} aria-hidden />
-                          <span>{activeThread?.title ?? t("composer.floating.newConversation")}</span>
-                          <ChevronUp size={14} className={floatingConversationFeedOpen ? "is-expanded" : ""} aria-hidden />
-                        </button>
-                        <button
-                          type="button"
-                          className="floating-conversation-drag-handle"
-                          {...floatingConversationDrag}
-                          aria-label={t("composer.floating.drag")}
-                          title={t("composer.floating.drag")}
-                        >
-                          <GripVertical size={14} aria-hidden />
-                        </button>
-                      </div>
-                    ) : null}
                     {showLanding ? (
                       <div className="codex-landing">
                         <div className="codex-landing-brand">
@@ -13647,8 +13583,7 @@ function App() {
                         </div>
                       </div>
                     )}
-                    <AppRenderContent render={renderComposer} />
-                  </div>
+                  </FloatingConversation>
                 </div>
                 {Object.entries(terminalByProject).map(([workspacePath, terminalState]) => {
                   if (terminalState.tabs.length === 0) {
@@ -13848,31 +13783,6 @@ function App() {
               </aside>
             ) : null}
           </div>
-          {taskPanelFullscreenOpen && floatingConversationMinimized ? (
-            <button
-              ref={floatingConversationBallRef}
-              type="button"
-              className="floating-conversation-ball"
-              data-status={floatingConversationStatus}
-              {...floatingConversationDrag}
-              onClick={() => {
-                setFloatingConversationMinimized(false);
-                if (showComposerDockApproval) setFloatingConversationFeedOpen(true);
-                requestAnimationFrame(() => {
-                  if (showComposerDockApproval) {
-                    composerAnchorRef.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus({ preventScroll: true });
-                  } else {
-                    composerRef.current?.focus();
-                  }
-                });
-              }}
-              aria-label={`${t("composer.floating.restore")} · ${floatingConversationStatusLabel}`}
-              title={`${t("composer.floating.restore")} · ${floatingConversationStatusLabel} · ${t("composer.floating.drag")}`}
-            >
-              <MessageSquare size={21} strokeWidth={1.75} aria-hidden />
-              {floatingConversationStatus !== "ready" ? <span className="floating-conversation-ball-status" aria-hidden /> : null}
-            </button>
-          ) : null}
           {taskPanelLayoutOpen ? renderTaskPanel() : null}
           <SuspensePanel>
             <LazyBrowserWebviewLayer />
