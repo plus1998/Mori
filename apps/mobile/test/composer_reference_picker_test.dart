@@ -79,6 +79,7 @@ void main() {
         '待办': 'todo',
         'MCP': 'mcp',
         '子代理': 'subagent',
+        'Multi-Agents': 'multi_agents',
       }.entries) {
         final text = '帮我看看@${entry.key}：生产';
         expect(parseComposerMentionQuery(text, text.length), (

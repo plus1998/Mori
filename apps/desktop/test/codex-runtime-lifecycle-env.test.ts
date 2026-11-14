@@ -65,7 +65,9 @@ readline.createInterface({input:process.stdin}).on('line', line => {
         eventType: "diagnostic",
         metadata: { turnId: "turn-a", retry: { attempt: 1, delayMs: 314998.382375 } },
       });
-      expect(events[0]?.message).toContain("约 315 秒后重试");
+      expect(events[0]?.message).toContain(
+        "Selected model is at capacity. Please try a different model.",
+      );
     } finally {
       await lifecycle.stop();
       await fs.rm(ecoDataDir, { recursive: true, force: true });

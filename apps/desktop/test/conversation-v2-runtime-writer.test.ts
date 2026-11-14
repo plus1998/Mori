@@ -159,7 +159,9 @@ test("Codex retry notifications become durable system notices without settling t
       status: "final",
       providerRole: "request.retry_scheduled",
     });
-    expect(notice?.body).toContain("（2/5）：模型容量已满");
+    expect(notice?.body).toContain(
+      "（2/5）：Selected model is at capacity. Please try a different model.",
+    );
     expect(
       db
         .prepare(
@@ -196,7 +198,9 @@ test("a first retry visible only in process logs persists immediately and surviv
       status: "final",
       providerRole: "request.retry_scheduled",
     });
-    expect(notice?.body).toContain("（1/5）：模型容量已满。约 315 秒后重试");
+    expect(notice?.body).toContain(
+      "（1/5）：Selected model is at capacity. Please try a different model.",
+    );
     expect(v2.bootstrap("thread").runs[0]?.status).toBe("running");
     v2.rebuildReadModels("thread");
     expect(v2.bootstrap("thread").messages[0]?.body).toBe(notice?.body);

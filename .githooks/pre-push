@@ -13,6 +13,12 @@ unset GIT_DIR GIT_INDEX_FILE GIT_PREFIX GIT_WORK_TREE
 echo "[pre-push] verifying the real terminal runtime..."
 node apps/desktop/scripts/verify-terminal-runtime.mjs
 
+echo "[pre-push] analyzing the mobile app..."
+(cd apps/mobile && flutter pub get && flutter analyze)
+
+echo "[pre-push] running the mobile test suite..."
+node scripts/test.mjs --mobile
+
 echo "[pre-push] type checking the desktop app..."
 bunx tsc -b apps/desktop/tsconfig.json --pretty false
 bunx tsc --noEmit -p apps/desktop/tsconfig.json

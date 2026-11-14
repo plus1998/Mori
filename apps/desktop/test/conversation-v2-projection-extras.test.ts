@@ -388,7 +388,9 @@ test("request span reads reuse settled history, load changed sources only, and i
     expect(sourceReads).toBe(1);
     append({ eventType: "request.completed", requestId: "request-0" });
     expect(read().find((span) => span.requestId === "request-0")?.status).toBe("completed");
-    expect(sourceRows).toBe(81);
+    // request-0 is outside the bounded tail, so changing it requires a full
+    // source rebuild to keep the frozen span accurate.
+    expect(sourceRows).toBe(162);
     append({
       id: "thinking",
       requestId: "request-79",

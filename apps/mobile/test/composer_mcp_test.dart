@@ -157,7 +157,7 @@ void main() {
       expect(planJson['sessionMode'], 'plan');
       expect(planJson['planModelEnabled'], true);
       expect(planJson['contextWindowLimitTokens'], 262144);
-      expect(planJson['maxOutputLimitTokens'], 'dynamic');
+      expect(planJson['maxOutputLimitTokens'], 32768);
       expect(planJson['showBilling'], true);
       expect(planJson['mcpServersEnabled'], {'mongo': true});
 
@@ -169,7 +169,7 @@ void main() {
       expect(agentJson['sessionMode'], 'agent');
       expect(agentJson['planModelEnabled'], false);
       expect(agentJson['contextWindowLimitTokens'], 262144);
-      expect(agentJson['maxOutputLimitTokens'], 'dynamic');
+      expect(agentJson['maxOutputLimitTokens'], 32768);
       expect(agentJson['showBilling'], true);
       expect(agentJson['mcpServersEnabled'], {'mongo': true});
 
@@ -178,7 +178,7 @@ void main() {
       expect(noMcpJson['sessionMode'], 'ask');
       expect(noMcpJson['planModelEnabled'], false);
       expect(noMcpJson['contextWindowLimitTokens'], 262144);
-      expect(noMcpJson['maxOutputLimitTokens'], 'dynamic');
+      expect(noMcpJson['maxOutputLimitTokens'], 32768);
       final hidden = WorkflowSettingsSnapshot.fromJson(const {
         'sessionMode': 'agent',
         'showBilling': false,
@@ -214,7 +214,7 @@ void main() {
     });
 
     expect(snapshot.maxOutputLimitTokens, 131072);
-    expect(invalid.maxOutputLimitTokens, 'dynamic');
+    expect(invalid.maxOutputLimitTokens, 32768);
   });
 
   test('dynamic output survives a mobile workflow copy and serialization', () {

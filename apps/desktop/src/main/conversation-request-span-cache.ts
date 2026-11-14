@@ -172,6 +172,7 @@ export class ConversationRequestSpanCache {
         version_seq: row.version_seq,
         source_json: row.source_json,
         message: row.message,
+        messageChanged: after !== undefined && row.version_seq <= after,
         event: withLegacyConversationV2MessageIdentity({
           ...source,
           id: row.input_id,
@@ -184,7 +185,8 @@ export class ConversationRequestSpanCache {
     // A row at or before the checkpoint means an old fact was revised. Rebuild
     // from the complete history; only append-only changes use the tail path.
     const appendOnly =
-      canIncrement && decoded.every((row) => row.version_seq > after!);
+      canIncrement &&
+      decoded.every((row) => row.version_seq > after! || row.messageChanged);
     const previousTailRequestIds =
       previous?.tailRequestIds ?? new Set<string>();
     const touchesFrozenRequest =
@@ -195,7 +197,7 @@ export class ConversationRequestSpanCache {
           !previousTailRequestIds.has(row.event.requestId) &&
           row.event.eventType !== "request.started",
       );
-    if (!appendOnly || touchesFrozenRequest) {
+    if (canIncrement && (!appendOnly || touchesFrozenRequest)) {
       after = undefined;
       rows = queryRows(undefined);
       decoded = rows.map((row) => {
@@ -205,6 +207,7 @@ export class ConversationRequestSpanCache {
           version_seq: row.version_seq,
           source_json: row.source_json,
           message: row.message,
+          messageChanged: false,
           event: withLegacyConversationV2MessageIdentity({
             ...source,
             id: row.input_id,

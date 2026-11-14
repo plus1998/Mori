@@ -12,10 +12,14 @@ ComposerMentionQuery? parseComposerMentionQuery(String text, int cursor) {
   if (match == null) return null;
   final raw = match.group(1)!;
   final category = RegExp(
-    r'^(SSH|待办|todo|计划|plan|网页|会话|集成|工具|子代理|MCP|web|conversation|chat|integration|subagent)[:：]?',
+    r'^(Multi-Agents|multi_agents|多代理|多智能体|SSH|待办|todo|计划|plan|网页|会话|集成|工具|子代理|MCP|web|conversation|chat|integration|subagent)[:：]?',
     caseSensitive: false,
   ).firstMatch(raw);
   const categories = {
+    'multi-agents': 'multi_agents',
+    'multi_agents': 'multi_agents',
+    '多代理': 'multi_agents',
+    '多智能体': 'multi_agents',
     'ssh': 'ssh',
     '待办': 'todo',
     'todo': 'todo',
@@ -69,7 +73,10 @@ class ComposerPromptSegment {
 }
 
 final _referencePattern = RegExp(
-  r'@(ssh|todo|plan|web|web_selection|conversation|integration|subagent|mcp)\{([^{}\s]+)\}',
+  // Keep this list in sync with the desktop durable reference kinds. In
+  // particular, `multi_agents` is returned by an unfiltered search and must
+  // not make the whole mobile picker fail to parse its result.
+  r'@(project|ssh|todo|plan|web|web_selection|conversation|integration|subagent|multi_agents|mcp)\{([^{}\s]+)\}',
 );
 
 List<ComposerPromptSegment> parseComposerPrompt(String text) {
@@ -101,7 +108,7 @@ ComposerPromptSegment? _parseReference(RegExpMatch match) {
     final detail = data['detail'];
     if (id is! String ||
         id.isEmpty ||
-        id.length > 256 ||
+        id.length > (match.group(1) == 'project' ? 4096 : 256) ||
         label is! String ||
         detail is! String) {
       return null;

@@ -156,4 +156,24 @@ void main() {
       );
     },
   );
+
+  test('accepts reference kinds introduced by the desktop composer', () {
+    final result = ComposerReferenceSearchResult.fromJson({
+      'items': [
+        {
+          'kind': 'multi_agents',
+          'id': 'config-full-stack',
+          'label': '全栈协作',
+          'detail': '独立会话 · 前端, 后端 · 并发 2',
+        },
+      ],
+      'hasMore': false,
+    });
+
+    expect(result.items.single.kind, 'multi_agents');
+    expect(
+      parseComposerPrompt(result.items.single.token).single.id,
+      'config-full-stack',
+    );
+  });
 }

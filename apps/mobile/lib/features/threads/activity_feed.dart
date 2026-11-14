@@ -17,7 +17,6 @@ import '../../core/models/thread_models.dart';
 import '../../core/models/thread_runtime_config.dart';
 import '../../core/theme/eco_theme.dart';
 import '../../core/utils/activity_display.dart';
-import '../../core/utils/mobile_performance.dart';
 import '../../core/utils/approval_feedback.dart';
 import '../../core/utils/composer_references.dart';
 import '../../core/utils/feed_action_kind.dart';
@@ -414,37 +413,35 @@ List<ActivityFeedEntry> buildActivityFeed({
   bool? conversationLive,
   ProjectionActivityFeedCache? presentationCache,
 }) {
-  return mobilePerformance.measure('feed.compute', () {
-    if (!isProjectionFeedReady(runProjection)) {
-      return const [];
-    }
-    final strings = l10n ?? lookupAppLocalizations(const Locale('zh'));
-    final projected = buildProjectionActivityFeed(
-      projection: runProjection!,
-      threadPrompt: threadPrompt,
-      threadId: threadId,
-      subagentSessions: subagentSessions,
-      l10n: strings,
-      thinkingDisplayMode: thinkingDisplayMode,
-      conversationLive: conversationLive,
-      cache: presentationCache,
-    );
-    final groupedActions = groupActions
-        ? groupActivityFeedActionEntries(projected, l10n: strings)
-        : projected;
-    final groupedThinking = groupConsecutiveThinkingEntries(groupedActions);
-    final liveEntries = resolveActivityFeedLiveSlot(
-      groupedThinking,
-      projection: runProjection,
-      isRunning:
-          conversationLive ??
-          !isThreadStoppedForMessageMeta(runProjection.status),
-      l10n: strings,
-    );
-    return groupTurns
-        ? groupProjectionActivityFeedTurns(liveEntries, runProjection)
-        : liveEntries;
-  });
+  if (!isProjectionFeedReady(runProjection)) {
+    return const [];
+  }
+  final strings = l10n ?? lookupAppLocalizations(const Locale('zh'));
+  final projected = buildProjectionActivityFeed(
+    projection: runProjection!,
+    threadPrompt: threadPrompt,
+    threadId: threadId,
+    subagentSessions: subagentSessions,
+    l10n: strings,
+    thinkingDisplayMode: thinkingDisplayMode,
+    conversationLive: conversationLive,
+    cache: presentationCache,
+  );
+  final groupedActions = groupActions
+      ? groupActivityFeedActionEntries(projected, l10n: strings)
+      : projected;
+  final groupedThinking = groupConsecutiveThinkingEntries(groupedActions);
+  final liveEntries = resolveActivityFeedLiveSlot(
+    groupedThinking,
+    projection: runProjection,
+    isRunning:
+        conversationLive ??
+        !isThreadStoppedForMessageMeta(runProjection.status),
+    l10n: strings,
+  );
+  return groupTurns
+      ? groupProjectionActivityFeedTurns(liveEntries, runProjection)
+      : liveEntries;
 }
 
 /// Thinking, summary, writing and the trailing tool aggregate share one row.
@@ -1596,7 +1593,6 @@ class _ActivityFeedListState extends State<ActivityFeedList> {
 
   @override
   Widget build(BuildContext context) {
-    mobilePerformance.count('feed.build');
     // A running turn can contain hundreds of process rows. Keeping those in
     // the turn's Column defeats ListView's laziness and lays out all of them
     // for every streamed update. Give each process row its own list slot.
@@ -1630,9 +1626,7 @@ class _ActivityFeedListState extends State<ActivityFeedList> {
         : null;
     final paceTargetId = resolveFeedPaceTargetId(widget.entries);
 
-    return trackMobileRender(
-      'feed',
-      _FeedStoppingScope(
+    return _FeedStoppingScope(
         stopping: widget.stopping,
         child: Stack(
           clipBehavior: Clip.hardEdge,
@@ -1824,7 +1818,6 @@ class _ActivityFeedListState extends State<ActivityFeedList> {
             ),
           ],
         ),
-      ),
     );
   }
 }
