@@ -3546,6 +3546,14 @@ app
         if (!candidate || !candidate.apiCompat || candidate.apiCompat === "system_one") return undefined;
         return { providerId: candidate.providerId, upstreamModelId: candidate.modelId, apiCompat: candidate.apiCompat };
       },
+      onImageGenerationResult: async ({ codexThreadId, itemId, item }) => {
+        const threadId = codexThreadMap.getEcoThreadId(codexThreadId) ?? codexThreadId;
+        try {
+          await imageGenerationGateway?.importCodexResult({ threadId, toolUseId: itemId, item });
+        } catch (error) {
+          process.stderr.write(`[eco] native image import failed: ${String(error)}\n`);
+        }
+      },
       ecoDataDir: app.getPath("userData"),
       ensureAccountReady: async (accountId) => {
         if (!openaiAccountService) throw new Error("ChatGPT Login 账号服务尚未初始化，请稍后重试。");

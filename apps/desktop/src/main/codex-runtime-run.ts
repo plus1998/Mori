@@ -175,6 +175,12 @@ export interface EcoProviderForCodexCatalog extends EcoProviderForCodexConfig {
 
 export interface CodexRuntimeRunDeps {
   resolveCandidateModel?: import("@eco/runtime").CodexEventAdapterOptions["resolveCandidateModel"];
+  onImageGenerationResult?: (input: {
+    codexThreadId: string;
+    turnId?: string;
+    itemId: string;
+    item: Record<string, unknown>;
+  }) => void | Promise<void>;
   ecoDataDir: string;
   /** Refresh managed ChatGPT credentials before a native OpenAI turn. */
   ensureAccountReady?: (accountId?: string) => Promise<void>;
@@ -435,6 +441,7 @@ export function configureCodexRuntimeRun(config: CodexRuntimeRunDeps): void {
     ...config.accountUsageObserver,
     resolveEcoThreadId,
     ...(config.resolveCandidateModel ? { resolveCandidateModel: config.resolveCandidateModel } : {}),
+    ...(config.onImageGenerationResult ? { onImageGenerationResult: config.onImageGenerationResult } : {}),
     turnRouteRegistry,
     ...(config.resolveTurnContextIdentity && { resolveTurnContextIdentity: config.resolveTurnContextIdentity }),
     onTurnTokenUsageUpdated: (route) => {

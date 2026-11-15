@@ -51,6 +51,53 @@ export class ImageGenerationMcpGateway {
 
   constructor(private readonly deps: ImageGenerationGatewayDeps) {}
 
+  /** Import a result produced by Codex's native image_generation tool. */
+  async importCodexResult(input: {
+    threadId: string;
+    toolUseId?: string;
+    prompt?: string;
+    item: Record<string, unknown>;
+  }): Promise<ImageGenerationArtifact | undefined> {
+    const result = input.item.result && typeof input.item.result === "object" ? input.item.result as Record<string, unknown> : input.item;
+    const encoded = [
+      result.data,
+      result.result,
+      input.item.data,
+      typeof input.item.result === "string" ? input.item.result : undefined,
+    ].find((value) => typeof value === "string" && value.length > 0) as string | undefined;
+    if (!encoded) return undefined;
+    const bytes = Buffer.from(encoded.replace(/^data:[^;]+;base64,/, ""), "base64");
+    if (!bytes.length) return undefined;
+    const workspacePath = this.deps.resolveWorkspacePath(input.threadId)?.trim();
+    const generationRoot = this.deps.resolveGenerationRoot(input.threadId)?.trim();
+    if (!workspacePath || !generationRoot) return undefined;
+    const config = this.deps.store.getActiveClientConfig();
+    const artifact = this.deps.store.createArtifact({
+      threadId: input.threadId,
+      ...(input.toolUseId ? { toolUseId: input.toolUseId } : {}),
+      prompt: input.prompt?.trim() || "Codex 原生图片生成",
+      parameters: {},
+      config,
+      workspacePath,
+      generationRoot,
+    });
+    try {
+      const image = await this.deps.library?.saveGeneratedImage(
+        artifact,
+        { bytes, mimeType: "image/png" },
+        0,
+        `${artifact.id}.png`,
+      );
+      const completed = this.deps.store.completeArtifact(artifact.id, image ? [image] : []);
+      this.deps.onArtifactChanged(completed);
+      return completed;
+    } catch (error) {
+      const failed = this.deps.store.failArtifact(artifact.id, "native_import_failed", error instanceof Error ? error.message : String(error));
+      this.deps.onArtifactChanged(failed);
+      throw error;
+    }
+  }
+
   noteUpcomingTool(threadId: string, toolName?: string, toolUseId?: string): void {
     if (
       toolName?.includes(ECO_IMAGE_GENERATION_MCP_SERVER) ||

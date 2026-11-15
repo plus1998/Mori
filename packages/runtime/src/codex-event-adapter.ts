@@ -176,6 +176,13 @@ export interface CodexEventAdapterOptions {
   /** Map Codex `threadId` from notifications to Eco thread id. */
   resolveEcoThreadId: (codexThreadId: string) => string;
   recordThreadRunEvent: (event: CodexThreadRunEventInput) => void;
+  /** Raw native image result; consumers must persist bytes separately from the feed event. */
+  onImageGenerationResult?: (input: {
+    codexThreadId: string;
+    turnId?: string;
+    itemId: string;
+    item: Record<string, unknown>;
+  }) => void | Promise<void>;
   /** Optional richer attribution for billing (sub-thread roles, agentId). */
   resolveThreadAttribution?: (codexThreadId: string) => CodexThreadAttribution | undefined;
   /** Shared with CodexAppServerDriver; official completion notifications omit route and usage. */
@@ -1582,6 +1589,9 @@ function emitImageGenerationToolEvent(
   }
   const turnId = readCodexTurnId(params);
   const image = readImageGenerationMetadata(item);
+  if (eventType === "tool.completed") {
+    void ctx.onImageGenerationResult?.({ codexThreadId, ...(turnId ? { turnId } : {}), itemId, item });
+  }
   const detail = image.fileId ?? image.generationId ?? "image";
   const toolStatus = eventType === "tool.started" ? "started" : eventType === "tool.completed" ? "completed" : "failed";
   const error = isRecord(item.error) ? readString(item.error, "message") : readString(item, "error");
