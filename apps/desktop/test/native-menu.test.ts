@@ -103,6 +103,25 @@ test("preserves native application, edit, view, and window roles", () => {
   expect(submenuFor(linuxTemplate, "File").some((item) => item.role === "quit")).toBe(true);
 });
 
+test("macOS toggle DevTools targets the resolved desktop window", () => {
+  let toggles = 0;
+  const desktopWindow = {
+    webContents: { toggleDevTools: () => { toggles += 1; } },
+  };
+  const template = buildApplicationMenuTemplate(
+    "Mori",
+    "darwin",
+    () => {},
+    defaultShortcutBindings("darwin"),
+    () => desktopWindow as never,
+  );
+  const item = submenuFor(template, "View").find((entry) => entry.role === "toggleDevTools");
+
+  expect(item?.click).toBeDefined();
+  (item?.click as () => void)();
+  expect(toggles).toBe(1);
+});
+
 test("custom accelerators replace defaults, cleared roles stay unbound, aliases dispatch", () => {
   const commands: AppMenuCommand[] = [];
   const bindings = {

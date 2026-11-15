@@ -75,6 +75,16 @@ export function GitCommitDialog({
   const operationIdRef = useRef<number | null>(null);
 
   useEffect(() => {
+    if (!window.eco) {
+      return;
+    }
+    setMessage("");
+    setIncludeUnstaged(true);
+    setError(undefined);
+    setSelectedModel(defaultModelSelection);
+  }, [workspacePath]);
+
+  useEffect(() => {
     if (!open || !window.eco) {
       setBranchMenuOpen(false);
       setBranchCreateMode(false);
@@ -87,16 +97,12 @@ export function GitCommitDialog({
       }
       return;
     }
-    setMessage("");
-    setIncludeUnstaged(true);
-    setError(undefined);
     setActiveAction(null);
     setBranchMenuOpen(false);
     setBranchCreateMode(false);
     setNewBranchName("");
     setBranchError(undefined);
-    setSelectedModel(defaultModelSelection);
-  }, [open, defaultModelSelection]);
+  }, [open]);
 
   const handleSelectModel = useCallback(async (selection: AuxiliaryModelSelection | undefined) => {
     if (!selection) return;
@@ -313,6 +319,7 @@ export function GitCommitDialog({
         }
 
         if (settlement.shouldClose) {
+          setMessage("");
           onClose();
         }
       } finally {

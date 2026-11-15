@@ -13751,7 +13751,7 @@ function App() {
                   {...(activeWorkspacePath && { workspacePath: activeWorkspacePath })}
                   workspaceLabel={currentProjectName}
                   {...(gitStatus && { gitStatus })}
-                  gitBusy={gitStatusBusy || gitStatusLoading}
+                  gitBusy={gitStatusBusy}
                   onCheckoutGitBranch={handleGitCheckoutBranch}
                   onCreateGitBranch={handleGitCreateBranch}
                   onOpenGitSettings={openGitSettings}

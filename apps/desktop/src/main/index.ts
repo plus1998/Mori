@@ -1524,6 +1524,7 @@ function applyApplicationShortcuts(bindings: ShortcutBindings): void {
             sendToLiveRenderer(window, IPC_CHANNELS.appMenuCommand, command);
         },
         bindings,
+        getMainWindow,
       ),
     ),
   );

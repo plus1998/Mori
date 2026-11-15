@@ -147,7 +147,10 @@ export function WorkspaceGitSection({
   }, [workspacePath, commitDialogWorkspacePath]);
 
   const showCommitEntry = Boolean(
-    workspacePath && onSaveCommitModelPreference && onCommitSuccess && gitStatus?.isGitRepository,
+    workspacePath &&
+      onSaveCommitModelPreference &&
+      onCommitSuccess &&
+      (gitStatus?.isGitRepository || !gitStatus),
   );
   const commitDialogVisible = Boolean(
     commitDialogOpen &&
@@ -621,7 +624,11 @@ export function WorkspaceGitSection({
                 if (commitEntryBusy || !workspacePath) {
                   return;
                 }
-                void onRefreshGitStatus?.(true);
+                // The dialog can generate from the working tree while the richer
+                // status (remote, branches and ahead/behind) refreshes in the
+                // background. Avoid blocking the first interaction on a forced
+                // fetch or GitHub CLI probe.
+                void onRefreshGitStatus?.();
                 setCommitDialogWorkspacePath(workspacePath);
                 setCommitDialogOpen(true);
                 onActionsClose?.();
@@ -750,7 +757,6 @@ export function WorkspaceGitSection({
           {...(onCreateGitBranch && { onCreateBranch: onCreateGitBranch })}
           onClose={() => {
             setCommitDialogOpen(false);
-            setCommitDialogWorkspacePath(undefined);
           }}
           onManageModelAccounts={onManageModelAccounts}
           onSaveModelPreference={onSaveCommitModelPreference!}

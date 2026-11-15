@@ -1,4 +1,4 @@
-import type { BaseWindow, MenuItemConstructorOptions } from "electron";
+import type { BaseWindow, BrowserWindow, MenuItemConstructorOptions } from "electron";
 import type { AppMenuCommand } from "../shared/ipc";
 import { defaultShortcutBindings, type ShortcutBindings } from "../shared/keyboard-shortcuts";
 
@@ -26,6 +26,7 @@ export function buildApplicationMenuTemplate(
   platform: NodeJS.Platform,
   dispatch: AppMenuCommandDispatcher,
   bindings: ShortcutBindings = defaultShortcutBindings(platform),
+  resolveDevToolsWindow?: () => BrowserWindow | undefined,
 ): MenuItemConstructorOptions[] {
   const isMac = platform === "darwin";
   const template: MenuItemConstructorOptions[] = [];
@@ -87,7 +88,17 @@ export function buildApplicationMenuTemplate(
         { type: "separator" },
         { role: "reload" },
         { role: "forceReload" },
-        { role: "toggleDevTools" },
+        {
+          role: "toggleDevTools",
+          ...(isMac && resolveDevToolsWindow
+            ? {
+                // The native role targets the focused window. The pet window can
+                // be focused on macOS, so always bind this menu action to the
+                // desktop window instead.
+                click: () => resolveDevToolsWindow()?.webContents.toggleDevTools(),
+              }
+            : {}),
+        },
         { type: "separator" },
         { role: "resetZoom" },
         { role: "zoomIn" },
