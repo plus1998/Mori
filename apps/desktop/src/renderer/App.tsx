@@ -783,6 +783,7 @@ const emptyIntegrationAvailability: IntegrationAvailabilitySnapshot = {
     { id: "browser", enabled: false, available: false },
     { id: "imageGeneration", enabled: false, available: false },
     { id: "tts", enabled: false, available: false },
+    { id: "asr", enabled: true, available: false },
     { id: "computerUse", enabled: false, available: false },
   ],
 };
@@ -7234,6 +7235,7 @@ function App() {
           browser: t("settings.browser"),
           imageGeneration: t("settings.imageGeneration.title"),
           tts: t("settings.tts.title"),
+          asr: t("asr.integrationTitle"),
           computerUse: t("settings.computerUse"),
         },
         mcpServers: mcpSettings.servers,
@@ -9699,6 +9701,7 @@ function App() {
     setAsrBusy(true);
     try {
       setAsrProfiles(await mutation());
+      if (window.eco) setIntegrationAvailability(await window.eco.getIntegrationAvailability());
       setAsrSettingsLoadError(undefined);
     } finally {
       asrBusyRef.current = false;
@@ -9715,6 +9718,7 @@ function App() {
     try {
       const saved = await eco.saveAsrProfile(input);
       setAsrProfiles(await eco.listAsrProfiles());
+      setIntegrationAvailability(await eco.getIntegrationAvailability());
       setAsrSettingsLoadError(undefined);
       return saved;
     } finally {
@@ -13752,6 +13756,7 @@ function App() {
                   workspaceLabel={currentProjectName}
                   {...(gitStatus && { gitStatus })}
                   gitBusy={gitStatusBusy}
+                  gitStatusLoading={gitStatusLoading}
                   onCheckoutGitBranch={handleGitCheckoutBranch}
                   onCreateGitBranch={handleGitCreateBranch}
                   onOpenGitSettings={openGitSettings}

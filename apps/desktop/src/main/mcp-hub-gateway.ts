@@ -1,3 +1,4 @@
+import { ECO_ASR_MCP_SERVER, ASR_MCP_TOOL_TIMEOUT_MS } from "../shared/asr-tool";
 import http from "node:http";
 import { randomBytes } from "node:crypto";
 import type { AddressInfo } from "node:net";
@@ -307,7 +308,9 @@ export class McpHubGateway {
       ? IMAGE_GENERATION_MCP_TOOL_TIMEOUT_MS
       : allowedServers.includes(ECO_TTS_MCP_SERVER)
         ? TTS_MCP_TOOL_TIMEOUT_MS
-        : undefined;
+        : allowedServers.includes(ECO_ASR_MCP_SERVER)
+          ? ASR_MCP_TOOL_TIMEOUT_MS
+          : undefined;
     const toolTimeoutSec = toolTimeoutMs === undefined ? undefined : Math.ceil(toolTimeoutMs / 1000);
     const injection = buildEcoHttpInjection({
       name: input.runtimeName?.trim() || "eco_mcp",

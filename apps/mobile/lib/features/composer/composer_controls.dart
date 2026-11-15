@@ -1169,6 +1169,7 @@ class _ComposerRouteSheetState extends ConsumerState<ComposerRouteSheet> {
                                     context.l10n.composerImageGeneration,
                                   'computerUse' =>
                                     context.l10n.composerComputerUse,
+                                  'asr' => context.l10n.composerSpeechRecognition,
                                   'tts' =>
                                     context.l10n.composerReferencesSpeech,
                                   _ => integration.id,

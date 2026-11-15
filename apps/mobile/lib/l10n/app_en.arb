@@ -270,6 +270,7 @@
     }
   },
   "composerMcpServers": "MCP Servers",
+  "composerSpeechRecognition": "Speech recognition",
   "composerVoiceInput": "Voice input",
   "composerVoiceInputFailed": "Voice recognition failed",
   "composerStopVoiceInput": "Stop voice input",

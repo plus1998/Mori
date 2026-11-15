@@ -2509,6 +2509,22 @@ button.sidebar-settings-meta {
 }
 
 /*
+ * Landing expands its chat shell by the shadow gutter so the Composer's
+ * elevation is not clipped in a full-width feed. Once the task panel is
+ * docked, that expansion crosses the feed/task boundary and the native
+ * browser guest (which paints above the DOM) covers the Composer. Keep the
+ * landing shell inside its grid track while the panel is open.
+ */
+.codex-main-pane.is-task-panel-open:not(.is-task-panel-exiting):not(.is-task-panel-fullscreen)
+  .codex-chat-shell.is-landing {
+  width: 100%;
+  max-width: 100%;
+  margin-inline: 0;
+  /* Keep a real gutter on both sides after removing the shadow expansion. */
+  padding-inline: 24px;
+}
+
+/*
  * Exit in parallel with the transform: pull the panel out of flow immediately so the
  * feed reclaims width while the panel slides, instead of waiting for spring settle.
  */

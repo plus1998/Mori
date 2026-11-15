@@ -23,6 +23,7 @@ const INTEGRATIONS: Record<IntegrationId, { label: string; server: string; alias
     server: ECO_IMAGE_GENERATION_MCP_SERVER,
     aliases: "imageGeneration image drawing 创意绘画 绘图 图片生成",
   },
+  asr: { label: "语音识别", server: "eco_asr", aliases: "asr transcribe audio 语音识别 音频转写" },
   tts: { label: "语音生成", server: ECO_TTS_MCP_SERVER, aliases: "tts speech voice 语音生成" },
   computerUse: {
     label: "电脑操控",

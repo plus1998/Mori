@@ -1,3 +1,4 @@
+import { ECO_ASR_MCP_SERVER } from "../shared/asr-tool";
 import { ECO_TTS_MCP_SERVER } from "../shared/tts";
 import path from "node:path";
 import { ECO_IMAGE_VIEW_MCP_SERVER } from "@eco/runtime";
@@ -57,6 +58,11 @@ export function buildPiMcpSessionConfig(input: {
     sdkEntry?: Record<string, unknown>;
     promptAppend?: string;
   };
+  asrInject?: {
+    enabled: boolean;
+    sdkEntry?: Record<string, unknown>;
+    promptAppend?: string;
+  };
   imageViewInject?: {
     enabled: boolean;
     sdkEntry?: Record<string, unknown>;
@@ -84,6 +90,7 @@ export function buildPiMcpSessionConfig(input: {
         key !== ECO_COMPUTER_USE_MCP_SERVER &&
         key !== ECO_IMAGE_GENERATION_MCP_SERVER &&
         key !== ECO_TTS_MCP_SERVER &&
+        key !== ECO_ASR_MCP_SERVER &&
         key !== ECO_IMAGE_VIEW_MCP_SERVER &&
         key !== ECO_IMAGE_DISPLAY_MCP_SERVER &&
         key !== ECO_HTML_HOST_MCP_SERVER,
@@ -123,6 +130,13 @@ export function buildPiMcpSessionConfig(input: {
     mcpServers[ECO_TTS_MCP_SERVER] = input.ttsInject.sdkEntry;
     if (input.ttsInject.promptAppend?.trim()) {
       appendSystemPrompt.push(input.ttsInject.promptAppend.trim());
+    }
+  }
+
+  if (input.asrInject?.enabled && input.asrInject.sdkEntry) {
+    mcpServers[ECO_ASR_MCP_SERVER] = input.asrInject.sdkEntry;
+    if (input.asrInject.promptAppend?.trim()) {
+      appendSystemPrompt.push(input.asrInject.promptAppend.trim());
     }
   }
 

@@ -1,4 +1,4 @@
-import { ASR_WAV_DATA_URL_PREFIX, asrDataUrlByteLength, MAX_ASR_DATA_URL_BYTES } from "../shared/asr-limits";
+import { asrDataUrlByteLength, MAX_ASR_DATA_URL_BYTES } from "../shared/asr-limits";
 import {
   type AsrApiMode,
   type AsrClientConfig,
@@ -8,6 +8,8 @@ import {
 
 export interface AsrTranscribeRequest {
   audioWavBase64: string;
+  mimeType?: string;
+  filename?: string;
 }
 
 export interface AsrTranscribeResult {
@@ -23,6 +25,7 @@ export function asrRequestPath(apiMode: AsrApiMode): string {
 export function buildAsrRequestBody(
   config: AsrClientConfig,
   audioWavBase64: string,
+  mimeType = "audio/wav",
 ): Record<string, unknown> {
   return {
     model: config.model,
@@ -34,7 +37,7 @@ export function buildAsrRequestBody(
         content: [
           {
             type: "input_audio",
-            input_audio: { data: `${ASR_WAV_DATA_URL_PREFIX}${audioWavBase64}` },
+            input_audio: { data: `data:${mimeType};base64,${audioWavBase64}` },
           },
         ],
       },
@@ -44,11 +47,11 @@ export function buildAsrRequestBody(
   };
 }
 
-export function buildAsrTranscriptionsFormData(config: AsrClientConfig, audioWavBase64: string): FormData {
+export function buildAsrTranscriptionsFormData(config: AsrClientConfig, audioWavBase64: string, mimeType = "audio/wav", filename = "audio.wav"): FormData {
   const bytes = Uint8Array.from(Buffer.from(audioWavBase64, "base64"));
   const form = new FormData();
   // File keeps filename/content-type on Electron/Node multipart more reliably than bare Blob.
-  const file = new File([bytes], "audio.wav", { type: "audio/wav" });
+  const file = new File([bytes], filename, { type: mimeType });
   form.append("file", file);
   form.append("model", config.model);
   if (config.systemPrompt) {
@@ -96,7 +99,7 @@ function parseTranscriptionsText(payload: Record<string, unknown> | undefined): 
 export async function transcribeAsr(
   config: AsrClientConfig,
   request: AsrTranscribeRequest,
-  options: { fetch?: typeof fetch; timeoutMs?: number } = {},
+  options: { fetch?: typeof fetch; timeoutMs?: number; signal?: AbortSignal } = {},
 ): Promise<AsrTranscribeResult> {
   if (
     !request.audioWavBase64 ||
@@ -115,14 +118,14 @@ export async function transcribeAsr(
         ? await (options.fetch ?? fetch)(url, {
             method: "POST",
             headers: { authorization: `Bearer ${config.apiKey}` },
-            body: buildAsrTranscriptionsFormData(config, request.audioWavBase64),
-            signal: controller.signal,
+            body: buildAsrTranscriptionsFormData(config, request.audioWavBase64, request.mimeType, request.filename),
+            signal: options.signal ? AbortSignal.any([controller.signal, options.signal]) : controller.signal,
           })
         : await (options.fetch ?? fetch)(url, {
             method: "POST",
             headers: { "content-type": "application/json", authorization: `Bearer ${config.apiKey}` },
-            body: JSON.stringify(buildAsrRequestBody(config, request.audioWavBase64)),
-            signal: controller.signal,
+            body: JSON.stringify(buildAsrRequestBody(config, request.audioWavBase64, request.mimeType)),
+            signal: options.signal ? AbortSignal.any([controller.signal, options.signal]) : controller.signal,
           });
     const rawText = await response.text().catch(() => "");
     let payload: Record<string, unknown> | undefined;
@@ -143,6 +146,7 @@ export async function transcribeAsr(
     }
     return { text: normalizedContent.trim() };
   } catch (error) {
+    if (options.signal?.aborted) throw options.signal.reason;
     if (error instanceof DOMException && error.name === "AbortError") {
       throw new Error("ASR 请求超时。");
     }

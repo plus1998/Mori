@@ -1,5 +1,5 @@
 import { Switch } from "./components/Switch";
-import { Blocks, Globe, Image, Monitor, Volume2 } from "lucide-react";
+import { Blocks, Globe, Image, Monitor, Mic, Volume2 } from "lucide-react";
 import { type CSSProperties, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
@@ -24,6 +24,7 @@ interface Props {
 function integrationLabelKey(id: IntegrationId): string {
   if (id === "browser") return "settings.browser";
   if (id === "imageGeneration") return "settings.imageGeneration.title";
+  if (id === "asr") return "asr.integrationTitle";
   if (id === "tts") return "settings.tts.title";
   return "settings.computerUse";
 }
@@ -31,6 +32,7 @@ function integrationLabelKey(id: IntegrationId): string {
 function IntegrationIcon({ id }: { id: IntegrationId }) {
   if (id === "browser") return <Globe size={16} strokeWidth={1.75} />;
   if (id === "imageGeneration") return <Image size={16} strokeWidth={1.75} />;
+  if (id === "asr") return <Mic size={16} strokeWidth={1.75} />;
   if (id === "tts") return <Volume2 size={16} strokeWidth={1.75} />;
   return <Monitor size={16} strokeWidth={1.75} />;
 }

@@ -81,6 +81,7 @@ List<ComposerReference> buildComposerCapabilityReferences({
       '创意绘画',
       'imageGeneration image generation drawing 创意绘画 绘图 图片生成',
     ),
+    'asr': ('语音识别', 'asr transcription audio speech recognition 语音识别 音频转写'),
     'tts': ('语音生成', 'tts speech generation text to speech voice 语音生成'),
     'computerUse': ('电脑操控', 'computerUse computer use desktop 电脑操控'),
   };

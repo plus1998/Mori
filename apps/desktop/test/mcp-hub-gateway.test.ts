@@ -492,3 +492,14 @@ test("MCP Hub keeps speech generation's timeout on the runtime-visible wrapper",
     expect(prepared.codexServer.toolTimeoutSec).toBe(600);
   } finally { await gateway.close(); }
 });
+
+test("MCP Hub carries ASR timeout and preserves longer speech generation timeout", async () => {
+  const gateway = new McpHubGateway();
+  try {
+    const asr = await gateway.prepareThread({ threadId: "asr-timeout", allowedServers: ["eco_asr"] });
+    expect(asr.sdkEntry).toMatchObject({ timeout: 300_000, requestTimeoutMs: 300_000 });
+    expect(asr.codexServer.toolTimeoutSec).toBe(300);
+    const both = await gateway.prepareThread({ threadId: "speech-timeout", allowedServers: ["eco_asr", "eco_tts"] });
+    expect(both.sdkEntry).toMatchObject({ timeout: 600_000, requestTimeoutMs: 600_000 });
+  } finally { await gateway.close(); }
+});

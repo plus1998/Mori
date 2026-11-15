@@ -1,3 +1,5 @@
+import { AsrMcpGateway } from "./asr-mcp-gateway";
+import { ECO_ASR_MCP_SERVER, buildAsrPromptAppend } from "../shared/asr-tool";
 import { isCompactCommand } from "@eco/shared";
 import { resolveCandidateModelRequestRouteWithLimits } from "./candidate-model-request-route";
 import { buildThreadWorkLocationPrompt } from "./thread-work-location-context";
@@ -1742,6 +1744,7 @@ let notificationSettingsStore: NotificationSettingsStore;
 let browserHost: BrowserHost | undefined;
 let ttsStore: TtsStore;
 let ttsGateway: TtsMcpGateway;
+let asrGateway: AsrMcpGateway;
 let ttsReadAloud: TtsReadAloudService;
 let imageGenerationStore: ImageGenerationStore;
 let imageLibraryStore: ImageLibraryStore;
@@ -3163,6 +3166,12 @@ app
       },
     };
     asrSettingsStore = await createAsrSettingsStore(dbPath, asrSecretCodec);
+    asrGateway = new AsrMcpGateway({
+      store: asrSettingsStore,
+      fetchImpl: net.fetch.bind(net) as typeof fetch,
+      resolveWorkspacePath: (threadId) => activeRunRuntimeState.worktreePlan(threadId)?.worktreePath ?? conversationStore.getThread(threadId)?.sdkCwd ?? conversationStore.getThread(threadId)?.workspacePath,
+      isSessionEnabled: (threadId) => integrationEnabled(conversationStore.getThread(threadId)?.runtimeConfig?.integrationsEnabled, "asr"),
+    });
     packageScriptArgsStore = createPackageScriptArgsStore(
       path.join(app.getPath("userData"), "package-script-args.json"),
     );
@@ -3956,6 +3965,7 @@ app
       noteUpcomingImageGenerationTool: (threadId, toolName, toolUseId) => {
         imageGenerationGateway.noteUpcomingTool(threadId, toolName, toolUseId);
         ttsGateway.noteUpcomingTool(threadId, toolName, toolUseId);
+        asrGateway.noteUpcomingTool(threadId, toolName, toolUseId);
       },
       reviewApproval: (threadId, request, tool) => reviewThreadToolApproval(threadId, request, tool, "codex"),
       injectCodexApprovalFeedback: async ({ ecoThreadId, codexThreadId, turnId, toolUseId, text }) => {
@@ -4422,6 +4432,7 @@ installApplicationShutdownHook(
       ttsReadAloud?.close();
       await imageGenerationGateway?.close();
       await ttsGateway?.close();
+      await asrGateway?.close();
     },
     closeImageViewGateway: async () => {
       await imageViewGateway?.close();
@@ -13377,6 +13388,7 @@ async function startCodexThreadRun(
     const sessionImageGenerationEnabled =
       imageGenerationStore.getSettings().enabled &&
       integrationEnabled(threadRuntimeForIntegrations?.integrationsEnabled, "imageGeneration");
+    const sessionAsrEnabled = integrationEnabled(threadRuntimeForIntegrations?.integrationsEnabled, "asr");
     const sessionTtsEnabled =
       ttsStore.getSettings().enabled &&
       integrationEnabled(threadRuntimeForIntegrations?.integrationsEnabled, "tts");
@@ -13434,6 +13446,7 @@ async function startCodexThreadRun(
                 buildImageGenerationPromptAppend(imageGenerationStore.getActiveClientConfig()),
               );
             }
+            if (sessionAsrEnabled) append = appendBrowserPrompt(append, buildAsrPromptAppend());
             if (sessionTtsEnabled) {
               append = appendBrowserPrompt(append, buildTtsPromptAppend(ttsStore.getActiveClientConfig()));
             }
@@ -13512,6 +13525,11 @@ async function startCodexThreadRun(
                 );
               }
               registerBuiltin(ECO_IMAGE_GENERATION_MCP_SERVER, imageInject.sdkEntry);
+            }
+            if (sessionAsrEnabled) {
+              const asrInject = await asrGateway.resolveInjection({ threadId: input.thread.id, sessionEnabled: true });
+              if (!asrInject.enabled || !asrInject.sdkEntry) throw new Error(`本会话已开启语音识别，但不可用：${asrInject.unavailableReason}`);
+              registerBuiltin(ECO_ASR_MCP_SERVER, asrInject.sdkEntry);
             }
             if (sessionTtsEnabled) {
               const ttsInject = await ttsGateway.resolveInjection({
@@ -13902,6 +13920,7 @@ async function resolvePiSessionResourcesForThread(
   const sessionImageGenerationEnabled =
     imageGenerationStore.getSettings().enabled &&
     integrationEnabled(hydrated?.runtimeConfig?.integrationsEnabled, "imageGeneration");
+  const sessionAsrEnabled = integrationEnabled(hydrated?.runtimeConfig?.integrationsEnabled, "asr");
   const sessionTtsEnabled =
     ttsStore.getSettings().enabled && integrationEnabled(hydrated?.runtimeConfig?.integrationsEnabled, "tts");
 
@@ -13926,6 +13945,8 @@ async function resolvePiSessionResourcesForThread(
   if (sessionImageGenerationEnabled && !imageInject.enabled) {
     throw new Error(`本会话已开启创意绘画，但不可用：${imageInject.unavailableReason ?? "未知原因"}`);
   }
+  const asrInject = await asrGateway.resolveInjection({ threadId, sessionEnabled: sessionAsrEnabled });
+  if (sessionAsrEnabled && !asrInject.enabled) throw new Error(`本会话已开启语音识别，但不可用：${asrInject.unavailableReason}`);
   const ttsInject = await ttsGateway.resolveInjection({
     threadId,
     sessionEnabled: sessionTtsEnabled,
@@ -13969,6 +13990,7 @@ async function resolvePiSessionResourcesForThread(
       ...(imageInject.sdkEntry ? { sdkEntry: imageInject.sdkEntry } : {}),
       ...(imageInject.promptAppend ? { promptAppend: imageInject.promptAppend } : {}),
     },
+    asrInject,
     ttsInject: {
       enabled: ttsInject.enabled,
       ...(ttsInject.sdkEntry ? { sdkEntry: ttsInject.sdkEntry } : {}),
@@ -17530,6 +17552,9 @@ function buildDesktopSdkRunInput(
     const config = ttsStore.getActiveClientConfig();
     globalUserRules = appendBrowserPrompt(globalUserRules, buildTtsPromptAppend(config));
   }
+  if (threadId && integrationEnabled(conversationStore.getThread(threadId)?.runtimeConfig?.integrationsEnabled, "asr")) {
+    globalUserRules = appendBrowserPrompt(globalUserRules, buildAsrPromptAppend());
+  }
   globalUserRules = appendBrowserPrompt(globalUserRules, SCHEDULING_PROMPT);
   globalUserRules = appendBrowserPrompt(globalUserRules, CONTEXT_REFERENCE_PROMPT + (threadId ? multiAgentsService.prompt(threadId) : ""));
   globalUserRules = appendBrowserPrompt(globalUserRules, MODEL_MANAGEMENT_PROMPT);
@@ -17795,6 +17820,7 @@ async function cleanupThreadExternalState(threadId: string): Promise<void> {
   await removePiThreadAgentDir(app.getPath("userData"), threadId);
   imageGenerationGateway.disposeThread(threadId);
   ttsGateway.disposeThread(threadId);
+  asrGateway.disposeThread(threadId);
   imageViewGateway.disposeThread(threadId);
   imageDisplayGateway.disposeThread(threadId);
   htmlHostGateway.disposeThread(threadId);
@@ -19906,6 +19932,7 @@ async function resolveIntegrationAvailability() {
   const browserFeature = requireBrowserHost().isFeatureAvailable();
   const computerUseSettings = computerUseSettingsStore.get();
   const computerUseFeature = computerUseGateway.isFeatureAvailableQuick();
+  const asrStatus = asrSettingsStore.getStatus();
   const ttsSettings = ttsStore.getSettings();
   const ttsProfile = ttsSettings.profiles.find((profile) => profile.id === ttsSettings.activeProfileId);
   const ttsReason = !ttsProfile?.hasApiKey
@@ -19936,6 +19963,13 @@ async function resolveIntegrationAvailability() {
         enabled: computerUseSettings.agentIntegrationEnabled,
         available: computerUseFeature.available,
         ...(computerUseFeature.reason ? { reason: computerUseFeature.reason } : {}),
+      },
+      {
+        id: "asr" as const,
+        enabled: true,
+        available: asrStatus.hasApiKey && asrStatus.apiKeyEncryptionAvailable,
+        activeProfileName: asrStatus.activeProfileName,
+        ...(!asrStatus.hasApiKey ? { reason: "当前语音识别 Profile 尚未配置 API Key。" } : !asrStatus.apiKeyEncryptionAvailable ? { reason: "系统加密不可用，无法读取语音识别 API Key。" } : {}),
       },
       {
         id: "tts" as const,
@@ -19978,6 +20012,7 @@ async function buildSdkSessionOptions(
   const sessionImageGenerationEnabled =
     imageGenerationStore.getSettings().enabled &&
     integrationEnabled(hydrated?.runtimeConfig?.integrationsEnabled, "imageGeneration");
+  const sessionAsrEnabled = integrationEnabled(hydrated?.runtimeConfig?.integrationsEnabled, "asr");
   const sessionTtsEnabled =
     ttsStore.getSettings().enabled && integrationEnabled(hydrated?.runtimeConfig?.integrationsEnabled, "tts");
   const browserInject = await requireBrowserHost().resolveAgentBrowserMcpInjection({
@@ -20001,6 +20036,8 @@ async function buildSdkSessionOptions(
   if (sessionImageGenerationEnabled && !imageInject.enabled) {
     throw new Error(`本会话已开启创意绘画，但不可用：${imageInject.unavailableReason ?? "未知原因"}`);
   }
+  const asrInject = await asrGateway.resolveInjection({ threadId, sessionEnabled: sessionAsrEnabled });
+  if (sessionAsrEnabled && !asrInject.enabled) throw new Error(`本会话已开启语音识别，但不可用：${asrInject.unavailableReason}`);
   const ttsInject = await ttsGateway.resolveInjection({
     threadId,
     sessionEnabled: sessionTtsEnabled,
@@ -20045,6 +20082,7 @@ async function buildSdkSessionOptions(
         key !== ECO_AGENT_BROWSER_MCP_SERVER &&
         !key.startsWith("eco_ab_") &&
         key !== ECO_COMPUTER_USE_MCP_SERVER &&
+        key !== ECO_ASR_MCP_SERVER &&
         key !== ECO_IMAGE_VIEW_MCP_SERVER &&
         key !== ECO_IMAGE_DISPLAY_MCP_SERVER &&
         key !== ECO_HTML_HOST_MCP_SERVER &&
@@ -20058,7 +20096,7 @@ async function buildSdkSessionOptions(
   const withComputerUseMcp = computerUseGateway.mergeIntoSdkConfig(withBrowserMcp, computerUseInject);
   const withImageMcp = imageGenerationGateway.mergeIntoSdkConfig(withComputerUseMcp, imageInject);
   const withTtsMcp = ttsGateway.mergeIntoSdkConfig(withImageMcp, ttsInject);
-  const withImageViewMcp = imageViewGateway.mergeIntoSdkConfig(withTtsMcp, imageViewInject);
+  const withImageViewMcp = imageViewGateway.mergeIntoSdkConfig(asrGateway.mergeIntoSdkConfig(withTtsMcp, asrInject), imageViewInject);
   const withImageDisplayMcp = imageDisplayGateway.mergeIntoSdkConfig(withImageViewMcp, imageDisplayInject);
   const withHtmlHostMcp = htmlHostInject
     ? htmlHostGateway.mergeIntoSdkConfig(withImageDisplayMcp, htmlHostInject)
@@ -20495,6 +20533,9 @@ function maybeRevealBrowserFromAgentTool(input: {
     ? resolveToolNameFromActivityPayload({ message: input.message })
     : undefined;
   const toolName = (input.toolName ?? fromPayload ?? fromMessage ?? "").trim();
+  if (input.threadId?.trim()) {
+    asrGateway.noteUpcomingTool(input.threadId.trim(), toolName, resolveToolUseIdFromActivityPayload(input.payload));
+  }
   if (toolName && isEcoTtsToolName(toolName)) {
     const threadId = input.threadId?.trim();
     if (threadId)
@@ -20559,6 +20600,11 @@ function maybeRevealBrowserFromThreadRunEvent(event: {
     resolveToolNameFromActivityPayload(event.metadata) ??
     resolveToolNameFromActivityPayload({ message: event.message });
   const name = (toolName ?? "").trim();
+  asrGateway.noteUpcomingTool(
+    event.threadId,
+    name,
+    typeof metaTool?.toolUseId === "string" ? metaTool.toolUseId.trim() : undefined,
+  );
   if (name && isEcoTtsToolName(name)) {
     ttsGateway.noteUpcomingTool(
       event.threadId,

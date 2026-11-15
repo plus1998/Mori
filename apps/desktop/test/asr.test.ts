@@ -646,3 +646,14 @@ test("writes PCM16 mono WAV with a RIFF header", () => {
   expect(wav.byteLength).toBe(50);
   expect(wavToBase64(wav)).toBeTruthy();
 });
+
+test("ASR cancellation preserves caller cancellation instead of reporting timeout", async () => {
+  const controller = new AbortController();
+  const reason = new Error("caller cancelled");
+  controller.abort(reason);
+  await expect(transcribeAsr(
+    { endpoint: "https://asr.example/v1", model: "asr", apiKey: "secret", systemPrompt: "", apiMode: "audio_transcriptions" },
+    { audioWavBase64: "YXVkaW8=" },
+    { signal: controller.signal, fetch: (async (_url, init) => { init!.signal!.throwIfAborted(); throw new Error("unreachable"); }) as typeof fetch },
+  )).rejects.toBe(reason);
+});

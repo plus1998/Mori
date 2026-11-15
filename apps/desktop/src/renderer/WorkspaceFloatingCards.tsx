@@ -97,6 +97,7 @@ export interface WorkspaceFloatingCardsProps {
   workspacePath?: string;
   workspaceLabel?: string;
   gitStatus?: GitWorkingTreeStatus;
+  gitStatusLoading?: boolean;
   gitBusy?: boolean;
   commitDisabled?: boolean;
   defaultCommitModelSelection?: AuxiliaryModelSelection;
@@ -794,6 +795,7 @@ export function WorkspaceFloatingCards({
   workspacePath,
   workspaceLabel,
   gitStatus,
+  gitStatusLoading,
   gitBusy,
   commitDisabled,
   defaultCommitModelSelection,
@@ -957,6 +959,7 @@ export function WorkspaceFloatingCards({
               {...(gitActionsAnchor && { actionsAnchor: gitActionsAnchor })}
               onActionsClose={closeGitActions}
               {...(gitStatus && { gitStatus })}
+              {...(gitStatusLoading !== undefined && { gitStatusLoading })}
               gitBusy={gitBusy ?? false}
               commitDisabled={commitDisabled ?? false}
               {...(defaultCommitModelSelection && { defaultCommitModelSelection })}

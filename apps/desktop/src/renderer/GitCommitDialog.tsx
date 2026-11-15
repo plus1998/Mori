@@ -29,6 +29,7 @@ interface GitCommitDialogProps {
   workspacePath: string;
   defaultModelSelection?: AuxiliaryModelSelection;
   gitStatus?: GitWorkingTreeStatus;
+  statusLoading?: boolean;
   busy?: boolean;
   disabled?: boolean;
   onCheckoutBranch?: (branch: string) => void | Promise<void>;
@@ -46,6 +47,7 @@ export function GitCommitDialog({
   workspacePath,
   defaultModelSelection,
   gitStatus,
+  statusLoading = false,
   busy,
   disabled,
   onCheckoutBranch,
@@ -386,6 +388,9 @@ export function GitCommitDialog({
   const deletions = gitStatus?.deletions ?? 0;
   const canPush = Boolean(gitStatus?.isGitRepository);
   const canCommit = Boolean(gitStatus?.canCommit) && !disabled;
+  // Generation only needs the working-tree diff. Allow it while the richer
+  // status is still loading; commit/push actions remain gated by canCommit.
+  const canGenerate = (statusLoading || !gitStatus || gitStatus.canCommit) && !disabled;
   const canPushOnly = canPush && (gitStatus?.aheadCount ?? 0) > 0;
   const branchLabel = gitStatus?.branch ?? "detached";
   const branchPickerDisabled = submitting || busy || branchBusy || generatingMessage;
@@ -540,8 +545,9 @@ export function GitCommitDialog({
             </div>
 
             <div className="git-commit-popover-stats" aria-label={t("git.commit.changedLines")}>
-              <span className="git-commit-stat-add">+{insertions}</span>
-              <span className="git-commit-stat-del">-{deletions}</span>
+            {statusLoading ? <Loader2 size={14} className="spinning" aria-label={t("workspaceGit.fetching")} /> : null}
+            <span className="git-commit-stat-add">+{insertions}</span>
+            <span className="git-commit-stat-del">-{deletions}</span>
             </div>
           </div>
 
@@ -579,7 +585,7 @@ export function GitCommitDialog({
               className="git-commit-popover-message-generate"
               aria-label={t("git.commit.generate")}
               title={t("git.commit.generate")}
-              disabled={messageFieldDisabled || !canCommit}
+              disabled={messageFieldDisabled || !canGenerate}
               onClick={() => void handleGenerateMessage()}
             >
               {generatingMessage ? (

@@ -5285,7 +5285,22 @@ export class ConversationStore {
         : undefined;
       if (!message || message.isDeleted || message.role !== "user") return undefined;
       if (message.historyTarget?.userMessageId && message.historyTarget.userMessageId !== id) {
-        throw new Error("Codex follow-up receipt conflicts with its accepted message identity.");
+        // A steer can race with the provider's user-message echo. The first echo
+        // establishes the durable identity; a later echo for the same accepted
+        // follow-up is a duplicate and must not take down the main process.
+        const acceptedTarget = message.historyTarget;
+        if (acceptedTarget.activityLineId?.trim() && acceptedTarget.userMessageId?.trim()) {
+          return {
+            id: acceptedTarget.activityLineId,
+            role: "user",
+            message: message.body,
+            rewindTarget: {
+              activityLineId: acceptedTarget.activityLineId,
+              userMessageId: acceptedTarget.userMessageId,
+            },
+          };
+        }
+        return undefined;
       }
       sourceEvents = sourceEvents.filter((event) => sourceMessageId(event.metadata) === message.messageId);
       if (!sourceEvents.length) {

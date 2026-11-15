@@ -128,6 +128,7 @@ IconData _referenceIcon(ComposerPromptSegment reference) =>
       'integration' => switch (reference.id) {
         'browser' => Icons.language_rounded,
         'imageGeneration' => Icons.image_outlined,
+        'asr' => Icons.mic_none_rounded,
         'tts' => Icons.graphic_eq_rounded,
         'computerUse' => Icons.desktop_mac_outlined,
         _ => Icons.apps_rounded,

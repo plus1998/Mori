@@ -15,6 +15,7 @@ const disabledGlobalIntegrations = {
   browser: false,
   imageGeneration: false,
   tts: false,
+  asr: false,
 };
 
 export function buildComposerGlobalRuntimeConfig(input: {

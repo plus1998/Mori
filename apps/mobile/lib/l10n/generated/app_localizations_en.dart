@@ -747,6 +747,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get composerMcpServers => 'MCP Servers';
 
   @override
+  String get composerSpeechRecognition => 'Speech recognition';
+
+  @override
   String get composerVoiceInput => 'Voice input';
 
   @override

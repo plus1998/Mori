@@ -1388,6 +1388,12 @@ abstract class AppLocalizations {
   /// **'MCP Servers'**
   String get composerMcpServers;
 
+  /// No description provided for @composerSpeechRecognition.
+  ///
+  /// In en, this message translates to:
+  /// **'Speech recognition'**
+  String get composerSpeechRecognition;
+
   /// No description provided for @composerVoiceInput.
   ///
   /// In en, this message translates to:

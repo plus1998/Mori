@@ -139,8 +139,11 @@ for (const storageMode of ["legacy_compat", "v2_only"] as const) {
       expect(v2.getMessage(threadId, second.message.messageId)?.historyTarget?.userMessageId).toBe(
         "item-second",
       );
-      expect(() => store.bindLatestUserRunEventToSdkMessage(threadId, "conflict", first.followUp.id)).toThrow(
-        "conflicts",
+      expect(store.bindLatestUserRunEventToSdkMessage(threadId, "conflict", first.followUp.id)).toEqual(
+        expect.objectContaining({
+          id: "sdk:item-first",
+          rewindTarget: { activityLineId: "sdk:item-first", userMessageId: "item-first" },
+        }),
       );
       expect(v2.listUserMessages(threadId)).toHaveLength(2);
     } finally {

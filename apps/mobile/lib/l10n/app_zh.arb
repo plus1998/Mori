@@ -240,6 +240,7 @@
     }
   },
   "composerMcpServers": "MCP 服务器",
+  "composerSpeechRecognition": "语音识别",
   "composerVoiceInput": "语音输入",
   "composerVoiceInputFailed": "语音识别失败",
   "composerStopVoiceInput": "停止语音输入",

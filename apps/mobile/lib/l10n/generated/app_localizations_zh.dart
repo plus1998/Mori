@@ -682,6 +682,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get composerMcpServers => 'MCP 服务器';
 
   @override
+  String get composerSpeechRecognition => '语音识别';
+
+  @override
   String get composerVoiceInput => '语音输入';
 
   @override

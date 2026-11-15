@@ -183,3 +183,16 @@ test("TTS uses the session injection and never inherits an ambient speech server
   expect(enabled.mcpServers.eco_tts).toMatchObject({ headers: { Authorization: "Bearer thread-a" } });
   expect(enabled.appendSystemPrompt).toEqual(["Choose voice and delivery style."]);
 });
+
+test("ASR session injection cannot be enabled through ambient user MCP config", () => {
+  const base = {
+    globalSdkConfig: { mcpServers: { eco_asr: { url: "http://ambient" } }, allowedTools: [] },
+    enabledMcpServerKeys: ["eco_asr"],
+    browserInject: { enabled: false },
+    imageInject: { enabled: false },
+  };
+  expect(buildPiMcpSessionConfig(base).mcpServers).toEqual({});
+  const result = buildPiMcpSessionConfig({ ...base, asrInject: { enabled: true, sdkEntry: { url: "http://session" }, promptAppend: "Transcribe with eco_asr" } });
+  expect(result.mcpServers.eco_asr).toMatchObject({ url: "http://session" });
+  expect(result.appendSystemPrompt).toEqual(["Transcribe with eco_asr"]);
+});

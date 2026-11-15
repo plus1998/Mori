@@ -39,6 +39,7 @@ export interface WorkspaceGitSectionProps {
   workspacePath?: string;
   workspaceLabel: string;
   gitStatus?: GitWorkingTreeStatus;
+  gitStatusLoading?: boolean;
   gitBusy?: boolean;
   commitDisabled?: boolean;
   defaultCommitModelSelection?: AuxiliaryModelSelection;
@@ -79,6 +80,7 @@ export function WorkspaceGitSection({
   workspacePath,
   workspaceLabel,
   gitStatus,
+  gitStatusLoading = false,
   gitBusy,
   commitDisabled,
   defaultCommitModelSelection,
@@ -747,6 +749,7 @@ export function WorkspaceGitSection({
         <GitCommitDialog
           open={commitDialogOpen && commitDialogWorkspacePath === workspacePath}
           workspacePath={commitDialogWorkspacePath}
+          statusLoading={gitStatusLoading && commitDialogWorkspacePath === workspacePath}
           {...(defaultCommitModelSelection
             ? { defaultModelSelection: defaultCommitModelSelection }
             : {})}

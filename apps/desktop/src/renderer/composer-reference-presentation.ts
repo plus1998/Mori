@@ -32,6 +32,7 @@ const ICONS = {
     ["circle", { cx: "8.5", cy: "8.5", r: "1.5" }],
     ["path", { d: "m21 15-5-5L5 21" }],
   ],
+  asr: [["path", { d: "M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3ZM5 10v2a7 7 0 0 0 14 0v-2M12 19v3" }]],
   tts: [["path", { d: "M2 10v4M6 6v12M10 3v18M14 8v8M18 5v14M22 10v4" }]],
   computerUse: [
     ["rect", { x: "2", y: "3", width: "20", height: "14", rx: "2" }],

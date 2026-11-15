@@ -299,6 +299,7 @@ class _ComposerReferencePickerState
                                 'imageGeneration' =>
                                   l10n.composerImageGeneration,
                                 'computerUse' => l10n.composerComputerUse,
+                                'asr' => l10n.composerSpeechRecognition,
                                 'tts' => l10n.composerReferencesSpeech,
                                 _ => item.label,
                               }
@@ -437,6 +438,7 @@ IconData _referenceIcon(ComposerReference reference) =>
         'browser' => EcoIcons.browser,
         'imageGeneration' => EcoIcons.image,
         'computerUse' => EcoIcons.computer,
+        'asr' => EcoIcons.mic,
         'tts' => EcoIcons.volume2,
         _ => EcoIcons.tool,
       },
