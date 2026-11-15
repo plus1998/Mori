@@ -773,6 +773,16 @@ test("buildEcoPiModel does not enable supportsMidConvoEffort (Gateway is not fai
   expect(model.compat).toBeUndefined();
 });
 
+test("buildEcoPiModel exposes PI 1.5 tool-history compatibility only when requested", () => {
+  const model = buildEcoPiModel({
+    bridgeBaseUrl: "http://127.0.0.1:18765",
+    bridgeModelId: "alias-history",
+    apiCompat: "openai_chat_completions",
+    requiresToolsWithToolHistory: true,
+  });
+  expect(model.compat).toEqual({ requiresToolsWithToolHistory: true });
+});
+
 test("buildEcoPiModel opts in xhigh/max so PI does not clamp max thinking to high", () => {
   const model = buildEcoPiModel({
     bridgeBaseUrl: "http://127.0.0.1:18765",

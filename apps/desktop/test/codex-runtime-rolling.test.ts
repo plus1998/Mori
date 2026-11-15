@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import {
   ensureCodexAccountRuntimeLifecycle,
+  ensureCodexProviderRuntimeLifecycle,
   ensureGlobalCodexRuntimeLifecycle,
   getCodexRuntimeClientForThread,
   getCodexRuntimeClients,
@@ -42,6 +43,8 @@ async function fixture() {
 import { createInterface } from "node:readline";
 const threads = new Map();
 const background = new Set();
+const providerArg = process.argv.find(arg => arg.startsWith('model_provider='));
+const modelProvider = providerArg ? JSON.parse(providerArg.slice('model_provider='.length)) : null;
 let loggedInAccount = '';
 let statusDelay = 0;
 for await (const line of createInterface({ input: process.stdin })) {
@@ -61,6 +64,7 @@ for await (const line of createInterface({ input: process.stdin })) {
   if (req.method === 'initialize') result = { userAgent: 'offline-fixture' };
   else if (req.method === 'account/login/start') { loggedInAccount = p.chatgptAccountId; result = { type: 'success' }; }
   else if (req.method === 'fixture/account') result = { accountId: loggedInAccount, pid: process.pid };
+  else if (req.method === 'fixture/provider') result = { modelProvider, pid: process.pid };
   else if (req.method === 'thread/loaded/list') result = { data: [...threads.keys()] };
   else if (req.method === 'thread/backgroundTerminals/list') result = { data: background.has(p.threadId) ? [{}] : [] };
   else if (req.method === 'fixture/background') { if (p.enabled) background.add(p.threadId); else background.delete(p.threadId); }
@@ -133,6 +137,53 @@ test("account-bound app-servers keep separate credentials and processes", async 
     .toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
   await stopGlobalCodexRuntimeLifecycle();
   expect(getCodexRuntimeProcesses()).toEqual([]);
+});
+
+test("conversation providers bind launch overrides and reuse only their own runtime", async () => {
+  const options = await fixture();
+  // A stale shared default must not determine a conversation's provider.
+  await fs.mkdir(path.join(options.ecoDataDir, "codex"));
+  await fs.writeFile(path.join(options.ecoDataDir, "codex/config.toml"), 'model_provider = "eco_sixoner"\n');
+  const [first, second, login] = await Promise.all([
+    ensureCodexProviderRuntimeLifecycle("eco_A001", options, 1),
+    ensureCodexProviderRuntimeLifecycle("eco_A002", options, 1),
+    ensureCodexAccountRuntimeLifecycle("account-a", options, 1),
+  ]);
+  expect(await first.request("fixture/provider")).toMatchObject({ modelProvider: "eco_A001" });
+  expect(await second.request("fixture/provider")).toMatchObject({ modelProvider: "eco_A002" });
+  expect(await login.request("fixture/provider")).toMatchObject({ modelProvider: "openai" });
+  expect(first).not.toBe(second);
+  expect(await ensureCodexProviderRuntimeLifecycle("eco_A001", options, 1)).toBe(first);
+  await expect(ensureCodexProviderRuntimeLifecycle(" ", options, 1)).rejects.toThrow("没有选择供应商");
+  await expect(ensureCodexAccountRuntimeLifecycle("account-a", { ...options, modelProvider: "eco_A001" }, 1))
+    .rejects.toThrow("requires the selected openai provider");
+  await expect(ensureCodexProviderRuntimeLifecycle("eco_A001", { ...options, modelProvider: "eco_A002" }, 1))
+    .rejects.toThrow("does not match");
+
+  await first.request("fixture/set", { threadId: "active-a", status: "active" });
+  recordCodexRuntimeThreadOwner("active-a", first);
+  const replacement = await ensureCodexProviderRuntimeLifecycle("eco_A001", options, 2);
+  expect(replacement).not.toBe(first);
+  expect(await replacement.request("fixture/provider")).toMatchObject({ modelProvider: "eco_A001" });
+  expect(getCodexRuntimeClientForThread("active-a")).toBe(first);
+  expect(await ensureCodexProviderRuntimeLifecycle("eco_A002", options, 1)).toBe(second);
+  expect(getCodexRuntimeClients()).toContain(first);
+  expect(getCodexRuntimeClients()).toContain(replacement);
+  await reapRetiredCodexRuntimes();
+  expect(getCodexRuntimeClients()).toContain(first);
+  await first.request("fixture/set", { threadId: "active-a", status: "idle" });
+  await reapRetiredCodexRuntimes();
+  expect(getCodexRuntimeClients()).not.toContain(first);
+  expect(getCodexRuntimeClientForThread("active-a", replacement)).toBe(replacement);
+
+  const idleAt = Date.now() + CODEX_APP_SERVER_IDLE_TIMEOUT_MS + 1000;
+  await reapIdleCodexRuntimes(idleAt);
+  expect(getCodexRuntimeProcesses()).toEqual([]);
+  const restarted = await ensureCodexProviderRuntimeLifecycle("eco_A002", options, 1);
+  expect(restarted).not.toBe(second);
+  expect(await restarted.request("fixture/provider")).toMatchObject({ modelProvider: "eco_A002" });
+  await stopGlobalCodexRuntimeLifecycle();
+  expect(getCodexRuntimeClients()).toEqual([]);
 });
 
 test("process snapshots keep the resolved system route and report account binding progress", async () => {

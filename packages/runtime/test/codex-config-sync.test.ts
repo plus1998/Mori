@@ -58,7 +58,7 @@ test("buildCodexConfigToml maps enabled providers to eco_* model_providers", () 
     ],
   });
 
-  expect(toml).toContain('model_provider = "eco_anthropic-main"');
+  expect(toml).not.toContain("model_provider =");
   expect(toml).toContain('model_reasoning_summary = "detailed"');
   expect(toml).toContain("[model_providers.eco_anthropic-main]");
   expect(toml).toContain('name = "Mori Gateway (eco_anthropic-main)"');
@@ -97,11 +97,7 @@ test("buildCodexConfigToml leaves the built-in OpenAI provider on Codex's offici
   expect(toml).not.toContain("view_image = false");
 });
 
-test("buildCodexConfigToml defaults model_provider to a gateway provider when both exist", () => {
-  // The trap behind the built-in OpenAI 404: with any gateway provider present the global
-  // default points at eco-gateway, so anything that relies on the default instead of an
-  // explicit provider is routed into a gateway that has no "openai" entry. thread/start and
-  // role TOMLs must therefore pin the built-in route explicitly.
+test("buildCodexConfigToml registers mixed providers without selecting a global default", () => {
   const toml = buildCodexConfigToml({
     ecoDataDir: "/data",
     gatewayBaseUrl: "http://127.0.0.1:18765/v1",
@@ -111,8 +107,28 @@ test("buildCodexConfigToml defaults model_provider to a gateway provider when bo
     ],
   });
 
-  expect(toml).toContain('model_provider = "eco_anthropic-main"');
+  expect(toml).not.toContain("model_provider =");
+  expect(toml).toContain("[model_providers.eco_anthropic-main]");
   expect(toml).not.toContain("eco_openai");
+});
+
+test("sync removes stale provider selection and never derives it from provider order", async () => {
+  const ecoDataDir = await makeTempEcoDataDir();
+  const configPath = path.join(ecoDataDir, "codex", "config.toml");
+  await fs.mkdir(path.dirname(configPath), { recursive: true });
+  await fs.writeFile(configPath, 'model_provider = "eco_sixoner"\n');
+  const providers = [
+    { id: "sixoner", name: "Sixoner", enabled: true },
+    { id: "openai", name: "ChatGPT Login", enabled: true },
+    { id: "another", name: "Another", enabled: true },
+  ];
+  for (const ordered of [providers, [...providers].reverse()]) {
+    const result = await syncCodexConfigFromEcoProviders({ ecoDataDir, providers: ordered });
+    const config = Bun.TOML.parse(await fs.readFile(configPath, "utf8"));
+    expect(config).not.toHaveProperty("model_provider");
+    expect(result).not.toHaveProperty("defaultProviderSlug");
+    expect(Object.keys(config.model_providers as object).sort()).toEqual(["eco_another", "eco_sixoner"]);
+  }
 });
 
 test("buildCodexConfigToml keeps native view_image thread-scoped and leaves Eco's MCP viewer available", () => {
@@ -145,7 +161,7 @@ test("syncCodexConfigFromEcoProviders does not report built-in OpenAI as a Gatew
   });
 
   expect(result.providerSlugs).toEqual([]);
-  expect(result.defaultProviderSlug).toBeUndefined();
+  expect(result).not.toHaveProperty("defaultProviderSlug");
   const written = await fs.readFile(result.configPath, "utf8");
   expect(written).not.toContain("eco_openai");
   expect(Bun.TOML.parse(written).features).toMatchObject({
@@ -405,7 +421,7 @@ test("syncCodexConfigFromEcoProviders writes config.toml under CODEX_HOME", asyn
   expect(result.gatewayBaseUrl).toBe("http://127.0.0.1:18765/v1");
   expect(result.providerSlugs).toEqual(["eco_anthropic-main"]);
   expect(result.mcpServerNames).toEqual([]);
-  expect(result.defaultProviderSlug).toBe("eco_anthropic-main");
+  expect(result).not.toHaveProperty("defaultProviderSlug");
 
   const written = await fs.readFile(result.configPath, "utf8");
   expect(written).toContain("[model_providers.eco_anthropic-main]");
@@ -489,10 +505,10 @@ test("syncCodexConfigFromEcoProviders includes provider id custom as eco_custom"
   });
 
   expect(result.providerSlugs).toEqual(["eco_custom"]);
-  expect(result.defaultProviderSlug).toBe("eco_custom");
+  expect(result).not.toHaveProperty("defaultProviderSlug");
 
   const written = await fs.readFile(result.configPath, "utf8");
-  expect(written).toContain('model_provider = "eco_custom"');
+  expect(written).not.toContain("model_provider =");
   expect(written).toContain("[model_providers.eco_custom]");
   expect(written).toContain('name = "Mori Gateway (eco_custom)"');
 });

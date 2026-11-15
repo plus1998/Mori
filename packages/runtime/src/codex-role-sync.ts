@@ -696,9 +696,8 @@ export function buildCodexRoleToml(input: {
   const modelValue = isBuiltInOpenAi
     ? input.modelId
     : buildCodexGatewayModelAlias(input.providerId, input.modelId, input.apiCompat, input.candidateModelId);
-  // Role configs inherit config.toml's global `model_provider = "eco_*"` default, so the
-  // built-in OpenAI route must be pinned to Codex's own provider here too — otherwise the
-  // role's official-subscription model would be sent to eco-gateway as a route miss (404).
+  // Every role pins its selected provider explicitly instead of inheriting the
+  // parent runtime's provider. ChatGPT Login uses the built-in OpenAI route.
   const modelProviderValue = isBuiltInOpenAi
     ? CODEX_BUILT_IN_OPENAI_PROVIDER_ID
     : buildCodexModelProviderSlug(input.providerId);

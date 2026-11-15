@@ -29,6 +29,8 @@ export interface CodexRuntimeLifecycleOptions {
   ecoDataDir: string;
   /** When set, the app-server stays bound to this exact ChatGPT Login account. */
   accountId?: string;
+  /** Exact Codex provider selected by the conversation; omitted only for control-plane runtimes. */
+  modelProvider?: string;
   codexExecutable?: string;
   clientOptions?: Omit<CodexAppServerClientOptions, "onNotification">;
   onNotification?: CodexAppServerNotificationHandler;
@@ -187,6 +189,11 @@ export class CodexRuntimeLifecycle {
   }
 
   private async spawnAndInitialize(generation: number): Promise<CodexAppServerClient> {
+    const modelProvider = this.options.modelProvider?.trim();
+    if (this.options.modelProvider !== undefined && !modelProvider) {
+      throw new Error("Codex runtime requires a non-empty selected model provider.");
+    }
+    const providerArgs = modelProvider ? ["-c", `model_provider=${JSON.stringify(modelProvider)}`] : [];
     const codexHomeDir = this.codexHomeDir;
     await import("node:fs/promises").then((fs) => fs.mkdir(codexHomeDir, { recursive: true }));
     if (generation !== this.generation) {
@@ -247,7 +254,7 @@ export class CodexRuntimeLifecycle {
     }
     let child: ChildProcessWithoutNullStreams;
     try {
-      child = spawn(executable, ["app-server", "--stdio", ...buildCodexProxyArgs(proxyEnvironment), ...(externalAuthProvider ? ["-c", 'cli_auth_credentials_store="ephemeral"'] : [])], {
+      child = spawn(executable, ["app-server", "--stdio", ...providerArgs, ...buildCodexProxyArgs(proxyEnvironment), ...(externalAuthProvider ? ["-c", 'cli_auth_credentials_store="ephemeral"'] : [])], {
         env,
         stdio: ["pipe", "pipe", "pipe"],
       });
@@ -312,7 +319,7 @@ export class CodexRuntimeLifecycle {
       proxy,
     };
     const spawnMessage =
-      `[eco-codex] app-server spawned pid=${child.pid ?? "unknown"} scope=${this.options.accountId ? `account:${this.options.accountId}` : "global"} generation=${generation}`;
+      `[eco-codex] app-server spawned pid=${child.pid ?? "unknown"} scope=${this.options.accountId ? `account:${this.options.accountId}` : "global"} modelProvider=${modelProvider ?? "control-plane"} generation=${generation}`;
     this.options.onStderr?.(spawnMessage);
     appendUpstreamLogLine(`${spawnMessage}\n`);
     try {
@@ -423,7 +430,9 @@ let runtimeEpoch = 0;
 let replacementTail: Promise<void> = Promise.resolve();
 const startingReplacements = new Set<CodexRuntimeLifecycle>();
 const retiringLifecycles = new Set<CodexRuntimeLifecycle>();
-const accountLifecycles = new Map<string, { lifecycle: CodexRuntimeLifecycle; revision: number }>();
+type ScopedRuntimeEntry = { lifecycle: CodexRuntimeLifecycle; revision: number | string };
+const accountLifecycles = new Map<string, ScopedRuntimeEntry>();
+const providerLifecycles = new Map<string, ScopedRuntimeEntry>();
 const threadClients = new Map<string, CodexAppServerClient>();
 const clientReservations = new Map<CodexAppServerClient, number>();
 let retirementTimer: ReturnType<typeof setTimeout> | undefined;
@@ -435,6 +444,7 @@ function managedLifecycles(): Set<CodexRuntimeLifecycle> {
   return new Set([
     ...(globalLifecycle ? [globalLifecycle] : []),
     ...[...accountLifecycles.values()].map((entry) => entry.lifecycle),
+    ...[...providerLifecycles.values()].map((entry) => entry.lifecycle),
     ...retiringLifecycles,
     ...startingReplacements,
   ]);
@@ -516,7 +526,7 @@ export async function reapIdleCodexRuntimes(now = Date.now()): Promise<void> {
 export function getCodexRuntimeClients(): CodexAppServerClient[] {
   return [
     ...new Set(
-      [globalLifecycle, ...[...accountLifecycles.values()].map((entry) => entry.lifecycle), ...retiringLifecycles].flatMap((lifecycle) => {
+      [globalLifecycle, ...[...accountLifecycles.values()].map((entry) => entry.lifecycle), ...[...providerLifecycles.values()].map((entry) => entry.lifecycle), ...retiringLifecycles].flatMap((lifecycle) => {
         const client = lifecycle?.getClient();
         return client ? [client] : [];
       }),
@@ -735,32 +745,54 @@ export function getCodexRuntimeProcesses(): CodexAppServerProcessView[] {
 export async function ensureCodexAccountRuntimeLifecycle(
   accountId: string,
   options: CodexRuntimeLifecycleOptions,
-  revision: number,
+  revision: number | string,
 ): Promise<CodexAppServerClient> {
   const id = accountId.trim();
   if (!id) throw new Error("ChatGPT Login 会话没有绑定账号。");
+  if (options.modelProvider !== undefined && options.modelProvider !== "openai") {
+    throw new Error("ChatGPT Login runtime requires the selected openai provider.");
+  }
+  return ensureScopedCodexRuntime(accountLifecycles, id, {
+    ...options, accountId: id, modelProvider: "openai",
+  }, revision);
+}
+
+/** Different conversation providers must never share a process-level selection. */
+export async function ensureCodexProviderRuntimeLifecycle(
+  modelProvider: string,
+  options: CodexRuntimeLifecycleOptions,
+  revision: number | string,
+): Promise<CodexAppServerClient> {
+  const id = modelProvider.trim();
+  if (!id) throw new Error("Codex 会话没有选择供应商。");
+  if (options.accountId || (options.modelProvider !== undefined && options.modelProvider !== id)) {
+    throw new Error("Codex runtime selection does not match the conversation provider.");
+  }
+  return ensureScopedCodexRuntime(providerLifecycles, id, { ...options, modelProvider: id }, revision);
+}
+
+async function ensureScopedCodexRuntime(
+  runtimes: Map<string, ScopedRuntimeEntry>,
+  id: string,
+  options: CodexRuntimeLifecycleOptions,
+  revision: number | string,
+): Promise<CodexAppServerClient> {
   while (globalStopPromise) await globalStopPromise;
-  const current = accountLifecycles.get(id);
-  if (current?.revision === revision) {
-    return current.lifecycle.start();
-  }
-  if (current) {
-    const replacementMessage =
-      `[eco-codex] account runtime replacement requested account=${id} previousRevision=${current.revision} nextRevision=${revision}`;
-    process.stderr.write(`${replacementMessage}\n`);
-    appendUpstreamLogLine(`${replacementMessage}\n`);
-  }
-  const lifecycle = new CodexRuntimeLifecycle({ ...options, accountId: id });
-  accountLifecycles.set(id, { lifecycle, revision });
+  const epoch = runtimeEpoch;
+  const current = runtimes.get(id);
+  if (current?.revision === revision) return current.lifecycle.start();
+  const lifecycle = new CodexRuntimeLifecycle(options);
+  runtimes.set(id, { lifecycle, revision });
   try {
     const client = await lifecycle.start();
+    if (epoch !== runtimeEpoch) throw new Error("Codex runtime startup was cancelled by shutdown.");
     if (current) retiringLifecycles.add(current.lifecycle);
     scheduleRetirementSweep();
     return client;
   } catch (error) {
-    if (accountLifecycles.get(id)?.lifecycle === lifecycle) {
-      if (current) accountLifecycles.set(id, current);
-      else accountLifecycles.delete(id);
+    if (runtimes.get(id)?.lifecycle === lifecycle) {
+      if (current && epoch === runtimeEpoch) runtimes.set(id, current);
+      else runtimes.delete(id);
     }
     await lifecycle.stop();
     throw error;
@@ -801,7 +833,7 @@ export async function stopGlobalCodexRuntimeLifecycle(): Promise<void> {
   retirementTimer = undefined;
   if (idleTimer) clearTimeout(idleTimer);
   idleTimer = undefined;
-  const lifecycles = [...new Set([globalLifecycle, ...[...accountLifecycles.values()].map((entry) => entry.lifecycle), ...retiringLifecycles, ...startingReplacements])];
+  const lifecycles = [...managedLifecycles()];
   const stopPromise = (async () => {
     await Promise.all(lifecycles.map((lifecycle) => lifecycle?.stop?.()));
     await replacementTail;
@@ -809,6 +841,7 @@ export async function stopGlobalCodexRuntimeLifecycle(): Promise<void> {
     await idleSweep;
     retiringLifecycles.clear();
     accountLifecycles.clear();
+    providerLifecycles.clear();
     threadClients.clear();
     clientReservations.clear();
   })();

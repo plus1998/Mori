@@ -57,7 +57,7 @@ import {
   isThreadFollowUpActivityMessage,
   isThreadFollowUpLiveEvent,
 } from "../shared/thread-follow-up-events";
-import { isContextCompactionEventType, parseThreadRunCodemodeMetadata, parseThreadRunImageViewMetadata } from "../shared/thread-run-events";
+import { isContextCompactionEventType, parseThreadRunCodemodeMetadata, parseThreadRunImageGenerationMetadata, parseThreadRunImageViewMetadata } from "../shared/thread-run-events";
 import {
   formatThreadRunToolDetailLabel,
   parseThreadRunGrepToolTarget,
@@ -3968,6 +3968,7 @@ function parseProjectionToolMetadata(record: Record<string, unknown>): ThreadRun
   const readTarget = parseThreadRunReadToolTarget(record.readTarget);
   const grepTarget = parseThreadRunGrepToolTarget(record.grepTarget);
   const imageView = parseThreadRunImageViewMetadata(record.imageView);
+  const imageGeneration = parseThreadRunImageGenerationMetadata(record.imageGeneration);
   const rawImageDisplay = record.imageDisplay;
   const imageDisplayArtifactId =
     rawImageDisplay && typeof rawImageDisplay === "object"
@@ -4037,6 +4038,7 @@ function parseProjectionToolMetadata(record: Record<string, unknown>): ThreadRun
     ...(grepTarget && { grepTarget }),
     ...(webSearch && { webSearch }),
     ...(imageView && { imageView }),
+    ...(imageGeneration && { imageGeneration }),
     ...(imageDisplay && { imageDisplay }),
     ...(htmlHost && { htmlHost }),
     ...(mcpDiscovery && { mcpDiscovery }),

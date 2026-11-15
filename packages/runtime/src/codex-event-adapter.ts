@@ -279,6 +279,7 @@ const HANDLED_ITEM_TYPES = new Set([
   "mcpToolCall",
   "webSearch",
   "imageView",
+  "imageGeneration",
   "reasoning",
   "plan",
   "contextCompaction",
@@ -866,6 +867,10 @@ function handleItemStarted(ctx: AdapterContext, params: Record<string, unknown>)
     emitImageViewToolEvent(ctx, params, item, "tool.started");
     return;
   }
+  if (itemType === "imageGeneration") {
+    emitImageGenerationToolEvent(ctx, params, item, "tool.started");
+    return;
+  }
   if (itemType === "reasoning") {
     const codexThreadId = readCodexThreadId(params);
     const itemId = readCodexItemId(params, item);
@@ -1152,6 +1157,17 @@ function handleItemCompleted(ctx: AdapterContext, params: Record<string, unknown
 
   if (itemType === "imageView") {
     emitImageViewToolEvent(ctx, params, item, "tool.completed");
+    return;
+  }
+
+  if (itemType === "imageGeneration") {
+    const status = readImageGenerationStatus(item);
+    emitImageGenerationToolEvent(
+      ctx,
+      params,
+      item,
+      status === "failed" ? "tool.failed" : "tool.completed",
+    );
     return;
   }
 
@@ -1551,6 +1567,86 @@ function emitImageViewToolEvent(
       },
     },
   });
+}
+
+function emitImageGenerationToolEvent(
+  ctx: AdapterContext,
+  params: Record<string, unknown>,
+  item: Record<string, unknown>,
+  eventType: "tool.started" | "tool.completed" | "tool.failed",
+): void {
+  const codexThreadId = readCodexThreadId(params);
+  const itemId = readCodexItemId(params, item);
+  if (!codexThreadId || !itemId) {
+    return;
+  }
+  const turnId = readCodexTurnId(params);
+  const image = readImageGenerationMetadata(item);
+  const detail = image.fileId ?? image.generationId ?? "image";
+  const toolStatus = eventType === "tool.started" ? "started" : eventType === "tool.completed" ? "completed" : "failed";
+  const error = isRecord(item.error) ? readString(item.error, "message") : readString(item, "error");
+  emit(ctx, {
+    eventType,
+    codexThreadId,
+    turnId,
+    itemId,
+    role: "tool",
+    message: `Tool: ImageGeneration · ${detail}`,
+    streamState: eventType === "tool.started" ? "streaming" : "finalized",
+    stableEventId: `tre:codex:tool:${itemId}:${eventType === "tool.started" ? "started" : "done"}`,
+    metadata: {
+      codexMethod: eventType === "tool.started" ? "item/started" : "item/completed",
+      liveType: eventType,
+      logicalEntityId: itemId,
+      itemId,
+      itemType: "imageGeneration",
+      tool: {
+        name: "ImageGeneration",
+        detail,
+        toolUseId: itemId,
+        status: toolStatus,
+        ...(error ? { outputPreview: error } : {}),
+        imageGeneration: image,
+      },
+    },
+  });
+}
+
+function readImageGenerationStatus(item: Record<string, unknown>): "inProgress" | "completed" | "failed" | undefined {
+  const status = readString(item, "status");
+  if (status === "inProgress" || status === "completed" || status === "failed") {
+    return status;
+  }
+  return undefined;
+}
+
+function readImageGenerationMetadata(item: Record<string, unknown>): {
+  fileId?: string;
+  generationId?: string;
+  revisedPrompt?: string;
+  inputImageCount?: number;
+} {
+  const result = isRecord(item.result) ? item.result : undefined;
+  const fileId =
+    readString(item, "fileId") ??
+    readString(item, "file_id") ??
+    (result ? readString(result, "fileId") ?? readString(result, "file_id") : undefined);
+  const generationId =
+    readString(item, "generationId") ??
+    readString(item, "generation_id") ??
+    (result ? readString(result, "generationId") ?? readString(result, "generation_id") : undefined);
+  const revisedPrompt =
+    readString(item, "revisedPrompt") ??
+    readString(item, "revised_prompt") ??
+    (result ? readString(result, "revisedPrompt") ?? readString(result, "revised_prompt") : undefined);
+  const inputImages = item.inputImages ?? item.input_images ?? result?.inputImages ?? result?.input_images;
+  const inputImageCount = Array.isArray(inputImages) ? inputImages.length : undefined;
+  return {
+    ...(fileId ? { fileId } : {}),
+    ...(generationId ? { generationId } : {}),
+    ...(revisedPrompt ? { revisedPrompt } : {}),
+    ...(inputImageCount !== undefined ? { inputImageCount } : {}),
+  };
 }
 
 function emitCommandExecutionToolEvent(

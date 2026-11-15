@@ -4,9 +4,9 @@ import { ecoPiSessionSettings } from "../src/pi-coding-agent-driver.js";
 test("Eco PI sessions turn cache warming off", async () => {
   const { SettingsManager } = await import("@earendil-works/pi-coding-agent");
 
-  // PI 1.0.3 defaults to "streaming" when the setting is absent, so the explicit
-  // value below is what keeps Eco from paying for speculative warm requests.
-  expect(SettingsManager.inMemory({}).getCacheWarmingMode()).toBe("streaming");
+  // PI 1.5 defaults to the lower-cost idle profile; Eco still opts out explicitly
+  // because sessions may run alongside other active work.
+  expect(SettingsManager.inMemory({}).getCacheWarmingMode()).toBe("idle");
   expect(SettingsManager.inMemory(ecoPiSessionSettings()).getCacheWarmingMode()).toBe("off");
 });
 

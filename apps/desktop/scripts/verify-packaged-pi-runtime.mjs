@@ -37,7 +37,7 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-const EXPECTED_PI_VERSION = "1.3.0";
+const EXPECTED_PI_VERSION = "1.5.1";
 const MAX_SEARCH_DEPTH = 8;
 
 const args = process.argv.slice(2);
@@ -128,6 +128,7 @@ const piPackages = [
   "pi-agent-core",
   "pi-tui",
   "pi-telemetry",
+  "pi-schema",
 ];
 const piVersions = {};
 for (const name of piPackages) {

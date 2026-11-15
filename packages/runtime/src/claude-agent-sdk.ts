@@ -3572,7 +3572,8 @@ export function mapSdkMessageToEvents(
       message.subtype === "permission_denied" ||
       message.subtype === "informational" ||
       message.subtype === "commands_changed" ||
-      message.subtype === "session_state_changed"
+      message.subtype === "session_state_changed" ||
+      message.subtype === "session_writes_lost"
     ) {
       return [
         createAgentEvent({
@@ -4706,6 +4707,9 @@ export function formatSdkPayloadMessage(payload: unknown): string | null {
     if (payload.subtype === "permission_denied" && typeof payload.tool_name === "string") {
       const reason = typeof payload.message === "string" ? `: ${payload.message}` : "";
       return `Permission denied for ${payload.tool_name}${reason}`;
+    }
+    if (payload.subtype === "session_writes_lost") {
+      return "Claude session writes were lost; continuing with the live session state.";
     }
   }
 

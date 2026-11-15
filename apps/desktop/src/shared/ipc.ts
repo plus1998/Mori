@@ -633,6 +633,7 @@ export type {
   ThreadRunEventScope,
   ThreadRunEventStreamState,
   ThreadRunEventType,
+  ThreadRunImageGenerationMetadata,
   ThreadRunImageViewMetadata,
   ThreadRunToolMetadata,
   ThreadRunWebSearchMetadata,
@@ -2595,7 +2596,13 @@ export interface ClarificationSubmitResult {
   delivery?: ClarificationAsyncDelivery;
 }
 
-export type BashApprovalKind = "command" | "file_change" | "network" | "image_generation" | "mcp";
+export type BashApprovalKind =
+  | "command"
+  | "human_command"
+  | "file_change"
+  | "network"
+  | "image_generation"
+  | "mcp";
 
 export interface BashApprovalNetworkPolicyAmendment {
   host: string;
@@ -2620,6 +2627,8 @@ export interface BashApprovalRequest {
   /** Auxiliary-model explanation, kept separate from the original approval request. */
   reviewRationale?: string;
   kind?: BashApprovalKind;
+  /** Codex 0.167+ marks interactive commands as human-only approvals. */
+  humanCommand?: boolean;
   /** When set, this approval is for a filesystem tool outside the workspace. */
   filesystemTool?: string;
   filesystemPath?: string;

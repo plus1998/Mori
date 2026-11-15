@@ -56,6 +56,7 @@ import { readPromptImagePreviews } from "../shared/prompt-image-metadata";
 import {
   mergeThreadRunImageViewMetadata,
   parseThreadRunCodemodeMetadata,
+  parseThreadRunImageGenerationMetadata,
   parseThreadRunImageViewMetadata,
 } from "../shared/thread-run-events";
 import { keepsOutputPreview, projectThreadRunToolMetadata } from "../shared/thread-run-tool-projection.js";
@@ -10585,11 +10586,13 @@ function mergeThreadRunToolMetadata(
   }
   const description = incoming.description ?? existing.description;
   const imageView = mergeThreadRunImageViewMetadata(existing.imageView, incoming.imageView);
+  const imageGeneration = incoming.imageGeneration ?? existing.imageGeneration;
   return {
     ...existing,
     ...incoming,
     ...(description !== undefined ? { description } : {}),
     ...(imageView && { imageView }),
+    ...(imageGeneration && { imageGeneration }),
     ...(incoming.readTarget
       ? { readTarget: incoming.readTarget }
       : existing.readTarget
@@ -10640,6 +10643,7 @@ function isRicherThreadRunToolMetadata(
         incoming.readTarget ||
         incoming.grepTarget ||
         incoming.imageView ||
+        incoming.imageGeneration ||
         incoming.imageDisplay ||
         incoming.htmlHost ||
         incoming.mcpDiscovery ||
@@ -10664,6 +10668,7 @@ function isRicherThreadRunToolMetadata(
       (incoming.readTarget && !isSameJsonValue(incoming.readTarget, existing.readTarget)) ||
       (incoming.grepTarget && !isSameJsonValue(incoming.grepTarget, existing.grepTarget)) ||
       (incoming.imageView && !isSameJsonValue(incoming.imageView, existing.imageView)) ||
+      (incoming.imageGeneration && !isSameJsonValue(incoming.imageGeneration, existing.imageGeneration)) ||
       (incoming.imageDisplay && !isSameJsonValue(incoming.imageDisplay, existing.imageDisplay)) ||
       (incoming.htmlHost && !isSameJsonValue(incoming.htmlHost, existing.htmlHost)) ||
       (incoming.mcpDiscovery && !isSameJsonValue(incoming.mcpDiscovery, existing.mcpDiscovery)) ||
@@ -10692,6 +10697,7 @@ function readThreadRunToolMetadata(
   const grepTarget = parseThreadRunGrepToolTarget(raw.grepTarget);
   const sendMessage = parseThreadRunSendMessageMetadata(raw.sendMessage);
   const imageView = parseThreadRunImageViewMetadata(raw.imageView);
+  const imageGeneration = parseThreadRunImageGenerationMetadata(raw.imageGeneration);
   const imageDisplay = parseThreadRunImageDisplayMetadata(raw.imageDisplay);
   const htmlHost = parseThreadRunHtmlHostMetadata(raw.htmlHost);
   const mcpDiscovery = parseThreadRunMcpDiscoveryMetadata(raw.mcpDiscovery);
@@ -10721,6 +10727,7 @@ function readThreadRunToolMetadata(
     ...(readTarget && { readTarget }),
     ...(grepTarget && { grepTarget }),
     ...(imageView && { imageView }),
+    ...(imageGeneration && { imageGeneration }),
     ...(imageDisplay && { imageDisplay }),
     ...(htmlHost && { htmlHost }),
     ...(mcpDiscovery && { mcpDiscovery }),

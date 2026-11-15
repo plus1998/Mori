@@ -346,10 +346,8 @@ export class CodexAppServerDriver implements AgentRuntimeDriver {
         "ResolvedModelRoute.upstreamModelId is required for Codex turn/start model (ThreadRuntimeConfig modelId; do not use primary.modelId eco alias).",
       );
     }
-    // Built-in OpenAI (auth.json) must be pinned explicitly: config.toml sets a
-    // global `model_provider = "eco_*"` default, so omitting modelProvider would
-    // send the official-subscription route into eco-gateway, which has no
-    // "openai" provider (route miss → 404).
+    // Pin the conversation route explicitly, matching the provider-bound app-server.
+    // Built-in OpenAI uses ChatGPT Login directly, never an eco-gateway alias.
     const isBuiltInOpenAi = ecoProviderId === CODEX_BUILT_IN_OPENAI_PROVIDER_ID;
     const modelProvider = isBuiltInOpenAi
       ? CODEX_BUILT_IN_OPENAI_PROVIDER_ID

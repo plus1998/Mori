@@ -43,6 +43,21 @@ test("parseSdkApiErrorAttribute maps model_not_found", () => {
   expect(formatApiErrorUserMessage(parsed!)).toBe("模型不存在或无权访问，请检查 Provider 配置与模型 ID。");
 });
 
+test("formatApiErrorUserMessage maps Codex model and policy capacity errors", () => {
+  expect(
+    formatApiErrorUserMessage({
+      message: "model unavailable",
+      codexErrorInfo: "modelNotFound",
+    }),
+  ).toBe("模型不存在或无权访问，请检查 Provider 配置与模型 ID。");
+  expect(
+    formatApiErrorUserMessage({
+      message: "capacity unavailable",
+      codexErrorInfo: "policyCapacityUnavailable",
+    }),
+  ).toBe("当前模型策略容量暂不可用，请稍后重试或切换模型。");
+});
+
 test("formatApiErrorUserMessage exposes Codex encrypted agent handoff incompatibility", () => {
   expect(
     formatApiErrorUserMessage({

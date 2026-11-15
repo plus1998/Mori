@@ -97,6 +97,7 @@ test("CodexAppServerClient completes initialize → initialized handshake", asyn
       },
       capabilities: {
         experimentalApi: true,
+        requiredHumanApproval: true,
       },
     },
   });

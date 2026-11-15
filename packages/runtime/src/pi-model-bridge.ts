@@ -30,6 +30,8 @@ export type EcoPiThinkingLevelMap = Partial<Record<PiThinkingLevel, string | nul
  */
 export type EcoPiModelCompat = {
   supportsMaxOutputTokens?: boolean;
+  /** PI 1.5 sends `tools` for tool history only when the provider requires it. */
+  requiresToolsWithToolHistory?: boolean;
 };
 
 export const ECO_PI_EXTENDED_THINKING_LEVEL_MAP = {
@@ -99,6 +101,8 @@ export interface BuildEcoPiModelInput {
   globalContextWindowLimit?: number;
   /** Request headers for binding id / provider / attempt attribution. */
   headers?: Record<string, string>;
+  /** Provider-specific PI compatibility; omitted keeps PI 1.5's native behavior. */
+  requiresToolsWithToolHistory?: boolean;
 }
 
 export function mapApiCompatToPiApi(apiCompat: EcoApiCompat): EcoPiApi {
@@ -193,6 +197,9 @@ export function buildEcoPiModel(input: BuildEcoPiModelInput): EcoPiModelSpec {
     },
     contextWindow,
     maxTokens,
+    ...(input.requiresToolsWithToolHistory !== undefined
+      ? { compat: { requiresToolsWithToolHistory: input.requiresToolsWithToolHistory } }
+      : {}),
     ...(input.headers && Object.keys(input.headers).length > 0 ? { headers: input.headers } : {}),
   };
 }
@@ -229,6 +236,7 @@ export function computePiRouteFingerprint(input: {
   baseUrl: string;
   bindingId: string;
   routes: readonly ResolvedModelRoute[];
+  requiresToolsWithToolHistory?: boolean;
 }): string {
   const routeSet = [...input.routes]
     .map((route) => {
@@ -251,6 +259,9 @@ export function computePiRouteFingerprint(input: {
     `apiCompat=${input.apiCompat}`,
     `baseUrl=${input.baseUrl.replace(/\/+$/, "")}`,
     `binding=${input.bindingId}`,
+    ...(input.requiresToolsWithToolHistory !== undefined
+      ? [`requiresToolsWithToolHistory=${input.requiresToolsWithToolHistory}`]
+      : []),
     `routes=${routeSet}`,
   ].join(";");
 }

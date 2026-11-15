@@ -2,6 +2,7 @@ import { isEcoImageViewToolName } from "@eco/runtime/eco-image-view-names";
 import { createToolOutputPreview } from "@eco/runtime/tool-output-preview";
 import {
   parseThreadRunCodemodeMetadata,
+  parseThreadRunImageGenerationMetadata,
   parseThreadRunImageViewMetadata,
   type ThreadRunCodemodeMetadata,
   type ThreadRunToolMetadata,
@@ -83,6 +84,7 @@ export function projectThreadRunToolMetadata(
       ? createToolOutputPreview(tool.outputPreview)
       : undefined;
   const imageView = parseThreadRunImageViewMetadata(tool.imageView);
+  const imageGeneration = parseThreadRunImageGenerationMetadata(tool.imageGeneration);
   const codemode = parseThreadRunCodemodeMetadata(tool.codemode);
   const projected = {
     name,
@@ -108,6 +110,7 @@ export function projectThreadRunToolMetadata(
     ...(tool.grepTarget && { grepTarget: tool.grepTarget }),
     ...(tool.webSearch && { webSearch: projectWebSearchMetadata(tool.webSearch) }),
     ...(imageView && { imageView }),
+    ...(imageGeneration && { imageGeneration }),
     ...(tool.imageDisplay?.artifactId.trim() && {
       imageDisplay: {
         artifactId: tool.imageDisplay.artifactId.trim(),

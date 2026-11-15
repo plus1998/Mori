@@ -67,6 +67,34 @@ test("fork submits model, provider, policy and instructions instead of taking gl
   expect(result).toMatchObject({ model: "gpt-6-luna", modelProvider: "openai" });
 });
 
+test("fork follows Codex paginated history cursors before resolving the rewind target", async () => {
+  const requests: Array<{ method: string; params: unknown }> = [];
+  const client = {
+    request: async (method: string, params: unknown) => {
+      requests.push({ method, params });
+      if (method === "thread/read" && requests.length === 1) {
+        return {
+          thread: {
+            turns: [{ id: "drop", items: [{ type: "userMessage", id: "target" }] }],
+            turnsBackwardsCursor: "older-1",
+            cwd: "/repo",
+          },
+        };
+      }
+      if (method === "thread/read") {
+        return { thread: { turns: [{ id: "keep", items: [{ type: "userMessage", id: "first" }] }] } };
+      }
+      return { thread: { id: "forked", forkedFromId: "source" } };
+    },
+  };
+  const result = await forkCodexThread(client as never, { threadId: "source", itemId: "target" });
+  expect(result.lastTurnId).toBe("keep");
+  expect(requests[1]).toEqual({
+    method: "thread/read",
+    params: { threadId: "source", includeTurns: true, turnsBackwardsCursor: "older-1" },
+  });
+});
+
 test("forkCodexThread sends thread/fork with lastTurnId of the previous turn", async () => {
   const stdin = new PassThrough();
   const stdout = new PassThrough();

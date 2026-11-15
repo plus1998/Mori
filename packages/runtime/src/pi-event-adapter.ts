@@ -727,14 +727,22 @@ function accumulatePiToolCallArguments(
     state.piToolCallArguments.set(key, { text, raw: true });
     return text;
   }
-  if (previous) {
-    return previous.text;
+  // PI 1.5 exposes a parsed snapshot on toolcall_start, but its first field can be
+  // syntactically closed while the model is still writing that same string. Do not
+  // hand that snapshot to the target tracker as a final path; the following deltas
+  // carry the authoritative raw JSON.
+  if (amEvent.type === "toolcall_start") {
+    return previous?.text ?? "";
   }
   const parsed = readPiToolCallParsedArguments(amEvent, contentIndex);
   if (parsed) {
     state.piToolCallArguments.set(key, { text: parsed, raw: false });
+    return parsed;
   }
-  return parsed ?? "";
+  if (previous) {
+    return previous.text;
+  }
+  return "";
 }
 
 /** `partialJson` is the call's raw JSON text, exactly as the model has written it so far. */

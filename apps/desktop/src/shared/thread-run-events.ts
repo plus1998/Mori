@@ -79,6 +79,8 @@ export interface ThreadRunToolMetadata {
   webSearch?: ThreadRunWebSearchMetadata;
   /** Codex view_image structured fields for Feed previews. */
   imageView?: ThreadRunImageViewMetadata;
+  /** Codex imageGeneration output; fileId is the durable reference for the image. */
+  imageGeneration?: ThreadRunImageGenerationMetadata;
   /** eco_image_display.display_image artifact for user-facing feed previews. */
   imageDisplay?: ThreadRunImageDisplayMetadata;
   /** eco_html_host.publish_html hosted page for Feed cards. */
@@ -228,6 +230,38 @@ export interface ThreadRunImageViewMetadata {
    * preview can show what was asked next to the answer the tool returned.
    */
   prompt?: string;
+}
+
+export interface ThreadRunImageGenerationMetadata {
+  fileId?: string;
+  generationId?: string;
+  revisedPrompt?: string;
+  inputImageCount?: number;
+}
+
+export function parseThreadRunImageGenerationMetadata(
+  value: unknown,
+): ThreadRunImageGenerationMetadata | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return undefined;
+  }
+  const record = value as Record<string, unknown>;
+  const fileId = typeof record.fileId === "string" ? record.fileId.trim() : "";
+  const generationId = typeof record.generationId === "string" ? record.generationId.trim() : "";
+  const revisedPrompt = typeof record.revisedPrompt === "string" ? record.revisedPrompt.trim() : "";
+  const inputImageCount =
+    typeof record.inputImageCount === "number" && Number.isFinite(record.inputImageCount)
+      ? Math.max(0, Math.floor(record.inputImageCount))
+      : undefined;
+  if (!fileId && !generationId && !revisedPrompt && inputImageCount === undefined) {
+    return undefined;
+  }
+  return {
+    ...(fileId ? { fileId } : {}),
+    ...(generationId ? { generationId } : {}),
+    ...(revisedPrompt ? { revisedPrompt } : {}),
+    ...(inputImageCount !== undefined ? { inputImageCount } : {}),
+  };
 }
 
 /**

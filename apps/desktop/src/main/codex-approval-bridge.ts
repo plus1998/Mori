@@ -349,6 +349,11 @@ async function handleCommandExecutionRequestApproval(
   const reason = readString(params, "reason") ?? "Codex requires your approval before running this command.";
   const plannerAgentId = deps.getPlannerAgentId(ecoThreadId) ?? `${ecoThreadId}:main`;
   const isNetwork = Boolean(params.networkApprovalContext);
+  const humanCommand =
+    params.kind === "humanCommand" ||
+    params.kind === "human_command" ||
+    params.humanCommand === true ||
+    params.human_command === true;
   const proposedExecpolicyAmendment = readStringArray(
     params.proposedExecpolicyAmendment ?? params.proposed_execpolicy_amendment,
   );
@@ -363,29 +368,33 @@ async function handleCommandExecutionRequestApproval(
     riskLevel: resolveCommandRiskLevel(params),
     agentId: plannerAgentId,
     description: reason,
-    kind: isNetwork ? "network" : "command",
+    kind: humanCommand ? "human_command" : isNetwork ? "network" : "command",
+    ...(humanCommand ? { humanCommand: true } : {}),
     ...(proposedExecpolicyAmendment.length > 0 ? { proposedExecpolicyAmendment } : {}),
     ...(proposedNetworkPolicyAmendments.length > 0 ? { proposedNetworkPolicyAmendments } : {}),
   };
 
-  if (shouldHostAutoAllowCodexApproval(deps, ecoThreadId)) {
+  if (!humanCommand && shouldHostAutoAllowCodexApproval(deps, ecoThreadId)) {
     return { decision: "accept" };
   }
 
   // An explicit user approval takes precedence over a later model review, just
   // as it does for the other runtimes. Network gates are separate permissions.
-  const canRememberCommand = !isNetwork && Boolean(readString(params, "command"));
+  const canRememberCommand = !humanCommand && !isNetwork && Boolean(readString(params, "command"));
   if (
+    !humanCommand &&
     canRememberCommand &&
     commandMatchesAnyRememberedBashPrefix(command, deps.getBashRememberPrefixes?.(ecoThreadId) ?? [])
   ) {
     return { decision: "accept" };
   }
 
-  const automatic = await reviewCodexApprovalIfEnabled(deps, ecoThreadId, approvalRequest, {
-    toolName: "Bash",
-    toolInput: params,
-  });
+  const automatic = humanCommand
+    ? undefined
+    : await reviewCodexApprovalIfEnabled(deps, ecoThreadId, approvalRequest, {
+        toolName: "Bash",
+        toolInput: params,
+      });
   if (automatic?.action === "allow") {
     emitAutomaticApproval(deps, { ...approvalRequest, reviewRationale: automatic.rationale }, command);
     return { decision: "accept" };
@@ -2370,7 +2379,9 @@ function mapBashResolutionToCodexCommandDecision(
     return { decision: "accept" };
   }
   if (resolution.decision === "approved_for_session") {
-    return { decision: "acceptForSession" };
+    // Human-command approvals are deliberately one-shot in Codex 0.167+;
+    // never broaden them into a session-wide grant.
+    return request.humanCommand ? { decision: "accept" } : { decision: "acceptForSession" };
   }
   if (resolution.decision === "approved_execpolicy_amendment") {
     const amendment = request.proposedExecpolicyAmendment;

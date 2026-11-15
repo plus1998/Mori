@@ -78,6 +78,7 @@ import { CodexModelCatalogService } from "./codex-model-catalog";
 import {
   CodexRuntimeLifecycle,
   ensureCodexAccountRuntimeLifecycle,
+  ensureCodexProviderRuntimeLifecycle,
   ensureGlobalCodexRuntimeLifecycle,
   getCodexRuntimeClientForThread,
   getGlobalCodexRuntimeLifecycle,
@@ -1146,6 +1147,13 @@ function awaitGlobalRuntimeRefresh(refresh: Promise<void>, signal?: AbortSignal)
 
 async function prepareCodexRuntimeUnlocked(input: PrepareCodexRuntimeInput): Promise<PreparedCodexRuntime> {
   input.signal?.throwIfAborted();
+  const selectedProviderId = (
+    input.mainProviderId ?? input.agentRegistry?.orchestration.mainAgent.modelRef.providerId
+  )?.trim();
+  if (!input.globalOnly && (input.ecoThreadId || input.reserveRuntime || input.mainProviderId !== undefined) && !selectedProviderId) {
+    throw new Error("Codex 会话没有选择供应商，无法启动运行实例。");
+  }
+  if (selectedProviderId) input = { ...input, mainProviderId: selectedProviderId };
   const runtimeDeps = requireDeps();
   const providers = [...runtimeDeps.listProviders()];
   const baselineInput: PrepareCodexRuntimeInput & RuntimeBaselineInput = {
@@ -1581,8 +1589,15 @@ async function finishPreparedRuntime(
   if (input.accountId && input.mainProviderId !== "openai") {
     throw new Error("只有 ChatGPT Login 模型可绑定 Login 账号。");
   }
-  const client = input.accountId
-    ? await startSharedCodexRuntimeLifecycle(requireDeps(), resolveCodexExecutable()!, false, input.accountId)
+  const modelProvider = input.mainProviderId
+    ? input.mainProviderId === "openai" ? "openai" : buildCodexModelProviderSlug(input.mainProviderId)
+    : undefined;
+  // The shared client is control-plane only. Every conversation binds its exact
+  // provider in the app-server's launch config, including provider admission checks.
+  const client = !input.globalOnly && modelProvider
+    ? await startSharedCodexRuntimeLifecycle(
+        requireDeps(), resolveCodexExecutable()!, false, input.accountId, modelProvider,
+      )
     : sharedClient;
   const release = input.reserveRuntime ? retainCodexRuntimeClient(client) : undefined;
   try {
@@ -1834,17 +1849,25 @@ async function startSharedCodexRuntimeLifecycle(
   codexExecutable: string,
   replace = false,
   accountId?: string,
+  modelProvider?: string,
 ): Promise<CodexAppServerClient> {
   let notificationClient: CodexAppServerClient | undefined;
+  const revision = JSON.stringify([
+    loadedGlobalRuntimeRevision, lastPreparedModelCatalogFingerprint, lastPreparedGlobalConfigFingerprint,
+  ]);
   const start = accountId
     ? (options: import("./codex-runtime-lifecycle").CodexRuntimeLifecycleOptions) =>
-        ensureCodexAccountRuntimeLifecycle(accountId, options, loadedGlobalRuntimeRevision)
-    : replace
-      ? replaceGlobalCodexRuntimeLifecycle
-      : ensureGlobalCodexRuntimeLifecycle;
+        ensureCodexAccountRuntimeLifecycle(accountId, options, revision)
+    : modelProvider
+      ? (options: import("./codex-runtime-lifecycle").CodexRuntimeLifecycleOptions) =>
+          ensureCodexProviderRuntimeLifecycle(modelProvider, options, revision)
+      : replace
+        ? replaceGlobalCodexRuntimeLifecycle
+        : ensureGlobalCodexRuntimeLifecycle;
   const client = await start({
     ecoDataDir: runtimeDeps.ecoDataDir,
     codexExecutable,
+    ...(modelProvider ? { modelProvider } : {}),
     ...(runtimeDeps.onAccountRateLimitsUpdated
       ? { onAccountRateLimitsUpdated: runtimeDeps.onAccountRateLimitsUpdated }
       : {}),
@@ -2071,11 +2094,14 @@ export function createCodexRuntimeDriver(
 ): CodexAppServerDriver {
   const runtimeDeps = requireDeps();
   const prepared = preparedRuntimeByThread.get(threadId);
+  if (!prepared?.runtimeClient) {
+    throw new Error("Codex 会话尚未准备所选供应商的运行实例，请先调用 prepareCodexRuntime()。");
+  }
   const existingId =
     options?.existingCodexThreadId?.trim() || runtimeDeps.threadMap.getCodexThreadId(threadId);
   const client = existingId
-    ? getCodexRuntimeClientForThread(existingId, prepared?.runtimeClient)
-    : (prepared?.runtimeClient ?? getGlobalCodexRuntimeLifecycle()?.getClient());
+    ? getCodexRuntimeClientForThread(existingId, prepared.runtimeClient)
+    : prepared.runtimeClient;
   if (!client) {
     throw new Error("Codex app-server client is not running. prepareCodexRuntime() must complete first.");
   }

@@ -1979,9 +1979,14 @@ function pushHook(
   if (!callback) {
     return;
   }
+  // Permission and tool-policy hooks are security boundaries. Claude SDK 0.3.317+
+  // can fail closed when one of these callbacks throws or times out; observer
+  // hooks keep the historical continue-on-failure behavior.
+  const onFailure = event === "PreToolUse" || event === "PermissionRequest" ? "block" : undefined;
   pushMatcher(hooks, event, {
     ...(matcher ? { matcher } : {}),
     hooks: [callback],
+    ...(onFailure ? { onFailure } : {}),
   });
 }
 

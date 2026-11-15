@@ -425,6 +425,52 @@ test("imageView items project as image-view tool lifecycle events", () => {
   ]);
 });
 
+test("Codex imageGeneration keeps fileId and generationId without embedding image data", () => {
+  const events = collectEvents((record) => {
+    const adapter = new CodexEventAdapter({ resolveEcoThreadId, recordThreadRunEvent: record });
+    adapter.dispatch("item/started", {
+      threadId: CODEX_THREAD,
+      turnId: "turn_image_generation",
+      item: { id: "item_image_generation_1", type: "imageGeneration", status: "inProgress" },
+    });
+    adapter.dispatch("item/completed", {
+      threadId: CODEX_THREAD,
+      turnId: "turn_image_generation",
+      item: {
+        id: "item_image_generation_1",
+        type: "imageGeneration",
+        status: "completed",
+        result: {
+          fileId: "file_123",
+          generationId: "gen_456",
+          revisedPrompt: "a red kite",
+          data: "base64-that-must-not-be-persisted",
+          inputImages: [{ fileId: "input_1" }],
+        },
+      },
+    });
+  });
+
+  expect(events).toHaveLength(2);
+  expect(events[1]).toMatchObject({
+    eventType: "tool.completed",
+    metadata: {
+      itemType: "imageGeneration",
+      tool: {
+        name: "ImageGeneration",
+        status: "completed",
+        imageGeneration: {
+          fileId: "file_123",
+          generationId: "gen_456",
+          revisedPrompt: "a red kite",
+          inputImageCount: 1,
+        },
+      },
+    },
+  });
+  expect(JSON.stringify(events[1])).not.toContain("base64-that-must-not-be-persisted");
+});
+
 test("eco_image_view MCP calls project imageView metadata from absolute path arguments", () => {
   const events = collectEvents((record) => {
     const adapter = new CodexEventAdapter({ resolveEcoThreadId, recordThreadRunEvent: record });

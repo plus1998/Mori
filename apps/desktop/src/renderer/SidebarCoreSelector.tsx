@@ -68,7 +68,7 @@ function CoreMenuButton({
   const buttonRef = useRef<HTMLButtonElement>(null);
   const [hovered, setHovered] = useState(false);
   const [pos, setPos] = useState({ top: 0, left: 0 });
-  const tooltip = hint?.trim() || (version ? `v${version}` : undefined);
+  const tooltip = hint?.trim() || version;
 
   const show = useCallback(() => {
     if (!tooltip) return;

@@ -141,6 +141,51 @@ test("Codex auto mode preserves the original request when the reviewer requires 
   });
 });
 
+test("Codex humanCommand approvals always reach the user and cannot be auto-granted", async () => {
+  const events: ThreadLiveEvent[] = [];
+  let reviews = 0;
+  const deps: CodexApprovalBridgeDeps = {
+    resolveEcoThreadId: () => "thread-human-command",
+    getThread: () => ({ prompt: "Run an interactive command", workspacePath: "/workspace" }),
+    getWorktreePath: () => "/workspace",
+    getPlannerAgentId: () => "planner-human-command",
+    getRoutesJson: () => "[]",
+    savePendingPlan: () => undefined,
+    emitThreadLive: (event) => {
+      events.push(event);
+      if (event.type === "bash_approval.requested" && event.bashApproval) {
+        const approval = event.bashApproval;
+        queueMicrotask(() =>
+          resolvePendingCodexBashApproval(approval.toolUseId, { decision: "approved_for_session" }),
+        );
+      }
+    },
+    updateThreadStatus: () => undefined,
+    getApprovalMode: () => "allow_all",
+    reviewApproval: async () => {
+      reviews++;
+      return { action: "allow", rationale: "review should be bypassed for humanCommand" };
+    },
+  };
+  await expect(
+    handleCodexServerRequest(deps, CODEX_COMMAND_EXECUTION_REQUEST_APPROVAL, {
+      threadId: "codex-human-command",
+      turnId: "turn-human-command",
+      itemId: "human-command",
+      startedAtMs: 1,
+      kind: "humanCommand",
+      command: "python -i",
+      cwd: "/workspace",
+      reason: "Interactive command requires a person",
+    }),
+  ).resolves.toEqual({ decision: "accept" });
+  expect(reviews).toBe(0);
+  expect(events[0]).toMatchObject({
+    type: "bash_approval.requested",
+    bashApproval: { kind: "human_command", humanCommand: true },
+  });
+});
+
 test("Codex manual command rejection injects feedback before returning decline", async () => {
   const feedback: Array<{
     ecoThreadId: string;

@@ -392,9 +392,7 @@ test("CodexAppServerDriver pins the built-in OpenAI subscription route to Codex'
   const messages = readRpcMessages(stdin);
   const threadStart = messages.find((message) => message.method === "thread/start");
   const turnStart = messages.find((message) => message.method === "turn/start");
-  // Must be explicit: config.toml sets a global `model_provider = "eco_*"` default, so an
-  // omitted value silently routes the official-subscription model into eco-gateway, whose
-  // provider table has no "openai" entry (route miss → 404).
+  // Match the selected ChatGPT Login route explicitly; never infer a provider.
   expect(threadStart?.params?.modelProvider).toBe("openai");
   // Built-in OpenAI keeps the bare upstream model id — never the eco_ gateway alias.
   expect(threadStart?.params?.model).toBe("gpt-5.6-luna");

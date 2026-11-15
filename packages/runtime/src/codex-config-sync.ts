@@ -110,7 +110,6 @@ export interface SyncCodexConfigResult {
   gatewayBaseUrl: string;
   providerSlugs: string[];
   mcpServerNames: string[];
-  defaultProviderSlug?: string;
   modelCatalogJsonPath?: string;
 }
 
@@ -141,8 +140,8 @@ export function resolveCodexHomeDir(ecoDataDir: string): string {
 /**
  * Codex's built-in provider id for the official OpenAI/ChatGPT subscription route
  * (credentials from CODEX_HOME/auth.json). Eco never writes `[model_providers.openai]`,
- * so this id must be pinned explicitly wherever config.toml's global `model_provider =
- * "eco_*"` default would otherwise apply (thread/start, role TOMLs).
+ * so this id must be pinned explicitly in the selected runtime's launch overrides,
+ * thread/start and role TOMLs. The shared provider registry has no selected provider.
  */
 export const CODEX_BUILT_IN_OPENAI_PROVIDER_ID = "openai";
 
@@ -182,7 +181,6 @@ export function buildCodexConfigToml(input: SyncCodexConfigFromEcoProvidersInput
   const gatewayProviders = enabledProviders.filter(
     (provider) => provider.id !== CODEX_BUILT_IN_OPENAI_PROVIDER_ID,
   );
-  const defaultProvider = gatewayProviders[0];
   const agentRoles = uniqueAgentRoles(input.agentRoles ?? []);
   const enableMultiAgent = input.enableMultiAgent === true || agentRoles.length > 0;
   const lines = [
@@ -207,9 +205,8 @@ export function buildCodexConfigToml(input: SyncCodexConfigFromEcoProvidersInput
     lines.push(`model_catalog_json = ${tomlString(modelCatalogJsonPath)}`, "");
   }
 
-  if (defaultProvider) {
-    lines.push(`model_provider = "${buildCodexModelProviderSlug(defaultProvider.id)}"`, "");
-  }
+  // Register providers only. Selection belongs to the current conversation and
+  // is pinned in its app-server launch overrides, never inferred from list order.
 
   // Features are global to the app-server process. Always pin fail-closed defaults:
   // Codex also loads the built-in Apps catalog independently of plugins/MCP selection.
@@ -298,7 +295,6 @@ export async function syncCodexConfigFromEcoProviders(
     gatewayBaseUrl,
     providerSlugs,
     mcpServerNames: mcpServers.map((server) => server.name),
-    ...(providerSlugs[0] ? { defaultProviderSlug: providerSlugs[0] } : {}),
     ...(modelCatalogJsonPath ? { modelCatalogJsonPath } : {}),
   };
 }

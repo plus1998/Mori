@@ -11,10 +11,10 @@ test("Windows cross build selects the target, pinned optional packages and MSVC 
   expect(nativePackTarget(["--platform", "win32", "--arch", "x64"], { platform: "darwin", arch: "arm64" })).toEqual({ platform: "win32", arch: "x64" });
   expect(() => nativePackTarget(["--platform"])).toThrow("requires a value");
   expect(windowsX64OptionalPackages({ optionalDependencies: {
-    "@openai/codex-win32-x64": "npm:@openai/codex@0.163.0-win32-x64",
-    "@openai/codex-win32-arm64": "npm:@openai/codex@0.163.0-win32-arm64",
+    "@openai/codex-win32-x64": "npm:@openai/codex@0.167.0-win32-x64",
+    "@openai/codex-win32-arm64": "npm:@openai/codex@0.167.0-win32-arm64",
     "@napi-rs/keyring-darwin-arm64": "1.3.0",
-  } })).toEqual([{ name: "@openai/codex-win32-x64", spec: "@openai/codex@0.163.0-win32-x64", version: "0.163.0-win32-x64" }]);
+  } })).toEqual([{ name: "@openai/codex-win32-x64", spec: "@openai/codex@0.167.0-win32-x64", version: "0.167.0-win32-x64" }]);
   const args = windowsCrossCompileArguments({ source: "/src/focus.c", object: "/tmp/focus.obj", cache: "/cache/gum", sdk: "/cache/sdk" });
   expect(args).toContain("--target=x86_64-pc-windows-msvc");
   expect(args).toContain("-fms-runtime-lib=static");

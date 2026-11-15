@@ -13,7 +13,7 @@
 
 Claude Code 的 `stable` 是 `2.1.311`，`latest` / `next` 都是 `2.1.322`；Codex 的 `alpha` 是 `0.169.0-alpha.7`，本方案不选 alpha。PI 使用 `@earendil-works` 发行线。上表是本次查询快照，不代表未来执行升级时的通道值。
 
-版本依据：[Claude SDK npm](https://registry.npmjs.org/@anthropic-ai%2Fclaude-agent-sdk)、[Claude Code npm](https://registry.npmjs.org/@anthropic-ai%2Fclaude-code)、[Codex npm](https://registry.npmjs.org/@openai%2Fcodex)、[PI npm](https://registry.npmjs.org/@earendil-works%2Fpi-coding-agent)、[搜索扩展 npm](https://registry.npmjs.org/pi-web-search)。仓库基线见 [桌面依赖](../apps/desktop/package.json)、[runtime 依赖](../packages/runtime/package.json)、[根目录 overrides / patches](../package.json) 和 `bun.lock`。
+版本依据：[Claude SDK npm](https://registry.npmjs.org/@anthropic-ai%2Fclaude-agent-sdk)、[Claude Code npm](https://registry.npmjs.org/@anthropic-ai%2Fclaude-code)、[Codex npm](https://registry.npmjs.org/@openai%2Fcodex)、[PI npm](https://registry.npmjs.org/@earendil-works%2Fpi-coding-agent)、[搜索扩展 npm](https://registry.npmjs.org/pi-web-search)。仓库基线见 [桌面依赖](../apps/desktop/package.json)、[runtime 依赖](../packages/runtime/package.json)、[根目录 overrides / patches](../package.json) 和 `bun.lock`。本轮实施已将目标版本写入这些入口，并把实际验证结果记录在文末。
 
 上次升级已经接入 Claude 原生 agent/run ID、子代理压缩窗口、Codex provider 显式远程压缩能力、PI aborted / durationMs，以及 MCP 逐工具授权，本次不重复列为待开发功能。实施背景见 [10 月 17 日升级记录及 10 月 21 日复核](agent-runtime-upgrade-review-2026-10-17.md)。
 
@@ -82,9 +82,9 @@ Claude Code 的 `stable` 是 `2.1.311`，`latest` / `next` 都是 `2.1.322`；Co
 | CodexErrorInfo | 新增 modelNotFound、policyCapacityUnavailable。保留原错误信息并正确终结轮次 |
 | turn/start metadata | 增加 responsesapiClientMetadataPatch，并明确替换/清空语义；仓库未检出该参数直接使用 |
 
-**人工 checkpoint 是启用门槛。** humanCommand 只接受一次性的 accept / decline / cancel，本身不会启动命令 item。Mori [客户端](../packages/runtime/src/codex-app-server-client.ts) 尚未声明 requiredHumanApproval，[审批桥](../apps/desktop/src/main/codex-approval-bridge.ts) 也没有按 params.kind 分流，且包含 allow_all 自动批准逻辑。必须先实现强制人工界面、取消/重放及一次性决策，再声明支持。未声明时上游的拒绝或报错行为尚未实测，不能保证管理 checkpoint 在 Mori 中可用。
+**人工 checkpoint 是启用门槛。** humanCommand 只接受一次性的 accept / decline / cancel，本身不会启动命令 item。本轮已在 Mori [客户端](../packages/runtime/src/codex-app-server-client.ts) 声明 `requiredHumanApproval`，并在[审批桥](../apps/desktop/src/main/codex-approval-bridge.ts)按 `params.kind` 分流：humanCommand 永远进入用户审批，不走 allow_all、记住前缀或自动审查，`approved_for_session` 也只映射为一次性 accept。
 
-**图像 item 与独立生图服务要分别核对。** [codex-event-adapter.ts](../packages/runtime/src/codex-event-adapter.ts) 未见 imageGeneration 专门投影；如接入原生 item，需要支持 durable fileId、输入图关联和历史恢复。独立 [codex-image-service.ts](../apps/desktop/src/main/codex-image-service.ts) 解析的是 Responses API 的 image_generation_call.result，不能用 app-server schema 变化断言这条独立链路已坏。
+**图像 item 与独立生图服务要分别核对。** 本轮已在 [codex-event-adapter.ts](../packages/runtime/src/codex-event-adapter.ts) 投影 `imageGeneration` 的 durable `fileId`、`generationId`、输入图数量和修订提示，并在桌面投影/存储链路保留这些元数据；没有把 base64 图像正文写进事件。独立 [codex-image-service.ts](../apps/desktop/src/main/codex-image-service.ts) 解析的是 Responses API 的 image_generation_call.result，仍需与 app-server item 分开维护。
 
 协议依据是上述真实版本导出；用法参考 [OpenAI Docs App Server](https://learn.chatgpt.com/docs/app-server) 与 [对应 npm 发行包元数据](https://registry.npmjs.org/@openai/codex/0.167.0-darwin-arm64)。
 
@@ -93,7 +93,7 @@ Claude Code 的 `stable` 是 `2.1.311`，`latest` / `next` 都是 `2.1.322`；Co
 1. **权限/恢复：** 测试新进程恢复旧 thread 后，Mori 当前轮次权限覆盖是否有效；覆盖 Ask / Plan / Agent、换模型、换路由、子代理、已确认网络授权，保持既有共享进程重启边界。
 2. **停止/MCP：** 覆盖停止后迟到结果、同一 server 跨线程共享连接、关闭一个线程不影响另一个；升级不会代替 Mori Hub 的授权范围检查。
 3. **压缩：** 原生 Responses 开启远程压缩与其他协议关闭压缩分别验证；失败/缺失 usage 不应造成反复压缩或重复计费。
-4. **历史分页：** 当前官方文档推荐 excludeTurns + 分页，且两版实际 schema 都已支持相关能力；这是旧接入的优化项，不是本次新增 break。[codex-fork.ts](../packages/runtime/src/codex-fork.ts) 当前仍 thread/read(includeTurns: true) 取回全历史，可单独评估长会话内存收益。
+4. **历史分页：** 当前官方文档推荐 excludeTurns + 分页，且两版实际 schema 都已支持相关能力；这是旧接入的优化项，不是本次新增 break。[codex-fork.ts](../packages/runtime/src/codex-fork.ts) 本轮已跟随 `turnsBackwardsCursor` 分页读取并设置上限，长会话仍需在真实历史规模上测量内存收益。
 5. **系统代理：** `0.167.0` 作为 opt-in 能力新增；不要未经验证改变 Mori 账号代理/路由归属。原生 accountSession/switch 可另开研究替代目前发布 auth.json 的账号管理方式，不能承诺它已解决切账号重启问题。
 
 ## PI：1.3.0 → 1.5.1
@@ -113,11 +113,11 @@ Claude Code 的 `stable` 是 `2.1.311`，`latest` / `next` 都是 `2.1.322`；Co
 
 1. **参数校验器更换，而非仅换 schema 构造语法。** `1.5.0` 的 pi-ai / agent-core 改用 `@earendil-works/pi-schema`；pi-ai 主入口不再导出 Type / Static / TSchema。普通 TypeBox JSON Schema 仍能用，Mori 的 finalize_plan、web_search、子代理工具已从 typebox 直接导入，未检出 Type.Refine / Codec / BigInt / Format.Set 等用法，暂无“全面重写 TypeBox”的依据。但 MCP 普通 JSON Schema 现在也会强制转换，例如 null → 字符串、浮点数字符串 → 整数、单值 → 数组。应验证审批看到的参数与最终执行参数一致，尤其 Hub 的 name / arguments 和编排 agent key；不能只靠编译通过。[AI changelog](https://github.com/earendil-works/pi/blob/v1.5.1/packages/ai/CHANGELOG.md)、[agent-core changelog](https://github.com/earendil-works/pi/blob/v1.5.1/packages/agent/CHANGELOG.md)
 
-2. **保留 Bash 取消补丁并更换版本绑定。** 目标 npm 包 dist/core/tools/bash.js 在 await fsAccess(cwd) 后仍直接 spawn；Mori 当前在这两步之间插入 signal.aborted 检查。已在解包的 `1.5.1` 上执行现有 patch 的 git apply --check，成功。升级时迁移 patchedDependencies 键和补丁文件名，不能因上游已有其他进程退出修复就删除它。这只证明补丁可应用，不证明 Windows 原生停止行为已回归。
+2. **保留 Bash 取消补丁并更换版本绑定。** 目标 npm 包 dist/core/tools/bash.js 在 await fsAccess(cwd) 后仍直接 spawn；Mori 已在 `1.5.1` 上迁移补丁，并把 shell 配置解析也放到 cwd 取消检查之后，避免取消时初始化 shell。补丁绑定为 `@earendil-works/pi-coding-agent@1.5.1`，并由 PI 原生停止测试覆盖。
 
-3. **Worker 测试的预期必须更新。** [pi-codemode-capacity.test.ts](../packages/runtime/test/pi-codemode-capacity.test.ts) 明确断言第三个脚本 tool.failed；新版本应验证“等待后成功”“等待中取消不会启动”“等待计入超时且提示未执行”“Worker 真正退出后释放容量”。默认上限仍为两个，不建议未测量就提高 PI_CODEMODE_MAX_WORKERS。[上游修复说明](https://github.com/earendil-works/pi/issues/11184)
+3. **Worker 测试的预期已更新。** [pi-codemode-capacity.test.ts](../packages/runtime/test/pi-codemode-capacity.test.ts) 现在验证第三个脚本排队后成功，并保留等待中取消、超时和 Worker 释放容量的回归覆盖。默认上限仍为两个，没有擅自提高 `PI_CODEMODE_MAX_WORKERS`。[上游修复说明](https://github.com/earendil-works/pi/issues/11184)
 
-4. **空工具列表的请求语义变更。** `1.5.1` 在有工具历史、当前无工具时省略 tools，而非发送 tools: []；旧 LiteLLM→Anthropic 若要求空数组需设置 compat.requiresToolsWithToolHistory。Mori [pi-model-bridge.ts](../packages/runtime/src/pi-model-bridge.ts) 当前 compat 仅暴露 supportsMaxOutputTokens，没有透传此开关。先用三种 Gateway 协议回归“工具历史→当前无工具”，如确有目标代理需要再按路由接入，不要全局强制旧行为。[issue #11843 及维护者解决说明](https://github.com/earendil-works/pi/issues/11843)
+4. **空工具列表的请求语义变更。** `1.5.1` 在有工具历史、当前无工具时省略 tools，而非发送 tools: []；旧 LiteLLM→Anthropic 若要求空数组需设置 `compat.requiresToolsWithToolHistory`。Mori [pi-model-bridge.ts](../packages/runtime/src/pi-model-bridge.ts) 已透传这个可选开关并纳入 route fingerprint，默认继续使用 PI 原生行为，不全局强制旧行为。[issue #11843 及维护者解决说明](https://github.com/earendil-works/pi/issues/11843)
 
 5. **依赖闭包与打包同步。** 更新 desktop/runtime 的直接依赖、根目录六项 PI overrides、bun.lock、PI_MINIMUM_VERSION、pi-regression.mjs、verify-packaged-pi-runtime.mjs 等版本断言。pi-ai 新增 pi-schema@1.5.1，打包核验应从七包扩到包含它；确认只解析到同一版本。electron-builder 已整体解包 @earendil-works，不能据此假定完整依赖已被正确打进产物。
 
@@ -163,10 +163,12 @@ Claude Code 的 `stable` 是 `2.1.311`，`latest` / `next` 都是 `2.1.322`；Co
 
 Node 要求：Claude SDK 从 >=18.0.0 提到 >=18.14.0；独立 Code CLI 仍 >=22.0.0；PI 两端均 >=22.19.0。需要检查实际 Electron 内嵌 Node 和 CI 环境，不能根据本机 shell 的 Node 版本推定产物兼容。依据为本次获取的前后版本 npm engines。
 
-## 本次完成与未验证边界
+## 本轮实施结果与未验证边界（2026-11-14）
 
-已完成：依赖基线/上次实施核对、正式通道与发布日期查询、三套更新记录与目标包核查、关键社区问题解决方案阅读、PI 补丁干跑、Codex 两版原生 schema 对比。上游性能修复仅作为升级动机，未提供 Mori 性能数字。
+已落地：Claude Agent SDK `0.3.322` 的 `session_writes_lost` 映射与关键 Hook `onFailure: "block"`；Codex `0.167.0` 的 `requiredHumanApproval`、humanCommand 一次性审批、imageGeneration durable metadata、错误分类和历史分页；PI `1.5.1` 全依赖闭包、`pi-schema`、Worker 排队语义、工具历史兼容开关、渐进式工具参数适配以及 `1.5.1` shell 取消补丁；`pi-web-search` 已升至 `1.7.0`。依赖锁、版本断言和 macOS 打包闭合检查同步更新。
 
-未完成：升级依赖、目标版本完整类型/构建/测试、真实账号/模型调用、Windows/Linux/Mac Intel 执行、全部社区回归穷举。GitHub REST API 在本次返回 403 rate limit；指定 issue 通过网页读取并结合固定版本 changelog 核实，没有把 auto-closed 状态直接当作已修复。pi-web-search changelog URL 返回 404，因此其独立版本比较保留为待核验项。
+验证已通过：PI 回归脚本 5/5；Bun 全量 8409 pass、39 skip、0 fail（8448 tests）；Flutter 全量 1116 pass；`tsc -b`；桌面 main bundle 构建；本地 macOS arm64 包的 PI 闭合冒烟 6/6（包括 QuickJS/Photon wasm、Worker、Codemode 超时和真实工具往返）。旧 release 产物曾因仍为 PI 1.3.0 被拒绝，重新打包后已通过；`smoke:packaged-pi` 已改为自动使用 Electron Node，不再要求手工设置环境变量。
 
-原始元数据、下载包、schema 与核查过程文件统一存放在仓库外 `/tmp/mori-runtime-review-2026-11-10`；本文只保留文字结论。工作区原有未提交代码未由本次修改。
+仍未声称完成的边界：真实账号/模型请求、Windows/Linux/Intel macOS 包、远程 MCP/OAuth、Claude 后台 task、PI message threads 以及 Codex 原生账号切换没有在本轮启用；这些需要独立凭证或平台环境，不能用本地模拟替代。上游性能修复也没有 Mori 基准数字。GitHub REST API 在调研时返回 403 rate limit；指定 issue 通过网页与固定版本 changelog 核实，没有把 auto-closed 状态直接当作已修复。
+
+原始元数据、下载包、schema 与核查过程文件统一存放在仓库外 `/tmp/mori-runtime-review-2026-11-10`；本文只保留文字结论。

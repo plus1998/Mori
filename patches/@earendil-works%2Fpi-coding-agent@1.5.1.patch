@@ -1,0 +1,24 @@
+diff --git a/dist/core/tools/bash.js b/dist/core/tools/bash.js
+index 60e7b06fee585cad635d91e924ad7c8b2766fa3e..e5d9507aa22f27b0b6ba3382e263a52855bb752b 100644
+--- a/dist/core/tools/bash.js
++++ b/dist/core/tools/bash.js
+@@ -64,13 +64,18 @@ export function createLocalShellOperations(shellName, resolveShellConfig) {
+             if (signal?.aborted) {
+                 throw new Error("aborted");
+             }
+-            const shellConfig = resolveShellConfig();
+             try {
+                 await fsAccess(cwd, constants.F_OK);
+             }
+             catch {
+                 throw new Error(`Working directory does not exist: ${cwd}\nCannot execute ${shellName} commands.`);
+             }
++            // Resolve the shell only after the asynchronous cwd check. Cancellation during
++            // that check must not initialize or spawn a shell whose descendants can escape.
++            if (signal?.aborted) {
++                throw new Error("aborted");
++            }
++            const shellConfig = resolveShellConfig();
+             const commandFromStdin = shellConfig.commandTransport === "stdin";
+             const child = spawn(shellConfig.shell, commandFromStdin ? shellConfig.args : [...shellConfig.args, command], {
+                 cwd,

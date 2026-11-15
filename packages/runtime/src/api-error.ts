@@ -262,6 +262,7 @@ function readOptionalStructuredString(
 
 export function formatApiErrorUserMessage(info: ThreadApiErrorInfo): string {
   const code = info.code?.toLowerCase();
+  const codexErrorInfo = typeof info.codexErrorInfo === "string" ? info.codexErrorInfo.toLowerCase() : "";
   const status = info.statusCode;
   const normalized = info.message.toLowerCase();
 
@@ -275,8 +276,11 @@ export function formatApiErrorUserMessage(info: ThreadApiErrorInfo): string {
   if (code === "upstream_error" || (status === 502 && !info.message)) {
     return "上游模型服务暂时不可用，请稍后重试或切换 Provider。";
   }
-  if (code === "model_not_found") {
+  if (code === "model_not_found" || code === "modelnotfound" || codexErrorInfo === "modelnotfound") {
     return "模型不存在或无权访问，请检查 Provider 配置与模型 ID。";
+  }
+  if (code === "policy_capacity_unavailable" || code === "policycapacityunavailable" || codexErrorInfo === "policycapacityunavailable") {
+    return "当前模型策略容量暂不可用，请稍后重试或切换模型。";
   }
   if (code === "subscription_sharing_usage_limit_exceeded") {
     return "该账号的 ChatGPT 订阅用量受限，本轮已停止";

@@ -146,8 +146,8 @@ realAppServerTest(
           ...(plan.backend === "native" ? {} : { webSearchOverride: "disabled" as const }),
         });
         expect(prepared.threadConfig?.web_search).toBe(enabled ? "live" : "disabled");
-        const client = getGlobalCodexRuntimeLifecycle()?.getClient();
-        if (!client) throw new Error("Missing native app-server");
+        const client = prepared.runtimeClient;
+        if (!client) throw new Error("Missing provider-bound native app-server");
         const result = await client.request<{ thread: { id: string } }>(
           threadId ? "thread/resume" : "thread/start",
           {
@@ -316,9 +316,9 @@ realAppServerTest(
         appendConversationRuntimeEvent: () => {},
         scheduleThreadRunProjectionUpdated: () => {},
       });
-      await prepareCodexRuntime();
-      const old = getGlobalCodexRuntimeLifecycle()?.getClient();
-      if (!old) throw new Error("Missing native app-server");
+      const prepare = () => prepareCodexRuntime({ mainProviderId: "vendor", mainModelId: "probe" });
+      const old = (await prepare()).runtimeClient;
+      if (!old) throw new Error("Missing provider-bound native app-server");
       releaseOld = retainCodexRuntimeClient(old);
       const started = await old.request<{ thread: { id: string } }>("thread/start", {
         cwd: root,
@@ -333,9 +333,8 @@ realAppServerTest(
       });
       contextWindowLimit = 131_072;
       scheduleCodexGlobalRuntimeRefresh();
-      await prepareCodexRuntime();
-      const current = getGlobalCodexRuntimeLifecycle()?.getClient();
-      if (!current || current === old) throw new Error("Missing replacement app-server");
+      const current = (await prepare()).runtimeClient;
+      if (!current || current === old) throw new Error("Missing provider-bound replacement app-server");
       const { handoffCodexRuntimeThread } = await import("../src/main/codex-runtime-lifecycle");
       await handoffCodexRuntimeThread(started.thread.id, current, AbortSignal.timeout(5_000));
       const resumed = await current.request<{ thread: { id: string } }>("thread/resume", {
@@ -343,13 +342,12 @@ realAppServerTest(
       });
       expect(resumed.thread.id).toBe(started.thread.id);
       // Reclaim the current process, then prepare and resume the persisted conversation.
-      for (let attempt = 0; attempt < 3 && getGlobalCodexRuntimeLifecycle()?.getClient(); attempt++) {
+      for (let attempt = 0; attempt < 3 && getCodexRuntimeClients().includes(current); attempt++) {
         await Bun.sleep(50);
         await reapIdleCodexRuntimes(Date.now() + CODEX_APP_SERVER_IDLE_TIMEOUT_MS + 1_000);
       }
-      expect(getGlobalCodexRuntimeLifecycle()?.getClient()).toBeUndefined();
-      await prepareCodexRuntime();
-      const restarted = getGlobalCodexRuntimeLifecycle()?.getClient();
+      expect(getCodexRuntimeClients()).not.toContain(current);
+      const restarted = (await prepare()).runtimeClient;
       if (!restarted || restarted === current) throw new Error("Idle app-server did not restart");
       const afterIdle = await restarted.request<{ thread: { id: string } }>("thread/resume", {
         threadId: started.thread.id,

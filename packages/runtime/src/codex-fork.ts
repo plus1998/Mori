@@ -74,6 +74,54 @@ type CodexTurnReadShape = {
   items?: Array<{ id?: unknown; clientId?: unknown; type?: unknown }>;
 };
 
+type CodexThreadReadPage = {
+  thread?: {
+    cwd?: string;
+    turns?: CodexTurnReadShape[];
+    turnsBackwardsCursor?: string | null;
+    turns_backwards_cursor?: string | null;
+  };
+};
+
+/** Read all rewind-relevant turns while honoring Codex 0.167 paginated history. */
+async function readCodexThreadTurns(
+  client: Pick<CodexAppServerClient, "request">,
+  threadId: string,
+): Promise<{ turns: CodexTurnReadShape[]; cwd?: string }> {
+  const first = await client.request<CodexThreadReadPage>("thread/read", {
+    threadId,
+    includeTurns: true,
+  });
+  const firstThread = first.thread;
+  const turns = [...(firstThread?.turns ?? [])];
+  let cursor = firstThread?.turnsBackwardsCursor ?? firstThread?.turns_backwards_cursor ?? null;
+  const seen = new Set<string>();
+  for (let page = 0; cursor && page < 64; page += 1) {
+    if (seen.has(cursor)) {
+      throw new CodexForkNotAvailable("Codex thread/read returned a repeated history cursor.", {
+        nextAction: "Reload the thread history and retry rewind.",
+      });
+    }
+    seen.add(cursor);
+    const next = await client.request<CodexThreadReadPage>("thread/read", {
+      threadId,
+      includeTurns: true,
+      turnsBackwardsCursor: cursor,
+    });
+    const nextTurns = next.thread?.turns ?? [];
+    // A backwards cursor returns older turns; keep chronological order for
+    // target-turn lookup and preserve the first page's cwd.
+    turns.unshift(...nextTurns);
+    cursor = next.thread?.turnsBackwardsCursor ?? next.thread?.turns_backwards_cursor ?? null;
+  }
+  if (cursor) {
+    throw new CodexForkNotAvailable("Codex thread history exceeded the pagination limit.", {
+      nextAction: "Select a newer user message and retry rewind.",
+    });
+  }
+  return { turns, ...(firstThread?.cwd ? { cwd: firstThread.cwd } : {}) };
+}
+
 /**
  * Locate the zero-based turn index for the user message being rewound.
  * Reuses item id / clientId match, then Eco ordinal fallback when item ids rebuild.
@@ -86,13 +134,19 @@ export function resolveCodexRewindTargetTurnIndex(
   let targetTurnIndex = turns.findIndex((turn) =>
     turn.items?.some((item) => isCodexUserMessageItem(item) && codexItemIds(item).includes(targetItemId)),
   );
-  if (targetTurnIndex < 0 && Number.isInteger(input.targetTurnIndex) && input.targetTurnIndex! >= 0) {
+  const requestedTurnIndex = input.targetTurnIndex;
+  if (
+    targetTurnIndex < 0 &&
+    typeof requestedTurnIndex === "number" &&
+    Number.isInteger(requestedTurnIndex) &&
+    requestedTurnIndex >= 0
+  ) {
     const userTurnIndexes = turns.flatMap((turn, index) =>
       turn.items?.some((item) => isCodexUserMessageItem(item)) ? [index] : [],
     );
     // Prefer exact ordinal; when Eco history is ahead of a rebuilt remote transcript,
     // fall back to the last remote user turn so the newest editable message still rewinds.
-    const requested = input.targetTurnIndex!;
+    const requested = requestedTurnIndex;
     targetTurnIndex =
       userTurnIndexes[requested] ??
       (requested >= userTurnIndexes.length ? (userTurnIndexes.at(-1) ?? -1) : -1);
@@ -186,10 +240,8 @@ export async function forkCodexThread(
     });
   }
 
-  const read = await client.request<{
-    thread?: { turns?: CodexTurnReadShape[]; cwd?: string };
-  }>("thread/read", { threadId, includeTurns: true });
-  const turns = read.thread?.turns;
+  const read = await readCodexThreadTurns(client, threadId);
+  const turns = read.turns;
   if (!Array.isArray(turns)) {
     throw new CodexForkNotAvailable("Codex thread history is unavailable for fork.", {
       nextAction: "Reload the Codex thread with turn history, then retry rewind.",
@@ -226,7 +278,7 @@ export async function forkCodexThread(
     CODEX_FORK_METHOD,
     buildCodexThreadForkParams(threadId, lastTurnId, {
       ...input,
-      ...(input.cwd === undefined && read.thread?.cwd ? { cwd: read.thread.cwd } : {}),
+      ...(input.cwd === undefined && read.cwd ? { cwd: read.cwd } : {}),
     }),
   );
 

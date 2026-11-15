@@ -12,6 +12,8 @@ export interface CodexAppServerInitializeParams {
   clientInfo: CodexAppServerClientInfo;
   capabilities?: {
     experimentalApi?: boolean;
+    /** Ask Codex 0.167+ to surface human-command approvals to the host. */
+    requiredHumanApproval?: boolean;
     optOutNotificationMethods?: string[];
   };
 }
@@ -203,6 +205,7 @@ export class CodexAppServerClient {
       },
       capabilities: {
         experimentalApi: true,
+        requiredHumanApproval: true,
       },
     },
   ): Promise<CodexAppServerInitializeResult> {

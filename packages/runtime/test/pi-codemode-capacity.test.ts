@@ -65,8 +65,10 @@ test("native Codemode enforces process-wide worker capacity and recovers after t
       expect(stopped.type).toBe("tool.failed");
       expect(stopped.text).toMatch(/timed?\s*out|timeout|deadline/i);
     }
-    expect(report.third.type, JSON.stringify(report)).toBe("tool.failed");
-    expect(report.third.text).toMatch(/worker|capacity/i);
+    // PI 1.4+ queues over-capacity workers instead of rejecting them. The
+    // queued worker starts after one of the timed-out workers releases a slot.
+    expect(report.third.type, JSON.stringify(report)).toBe("tool.completed");
+    expect(report.third.text).toMatch(/Script completed/i);
     expect(report.recovered.type, JSON.stringify(report)).toBe("tool.completed");
   } finally {
     clearTimeout(timer);

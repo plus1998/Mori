@@ -2623,6 +2623,7 @@ test("buildEcoSdkHooks registers expected hook events", () => {
   });
 
   expect(hooks.PreToolUse?.length).toBeGreaterThanOrEqual(3);
+  expect(hooks.PreToolUse?.every((matcher) => matcher.onFailure === "block")).toBe(true);
 
   const withResume = buildEcoSdkHooks({
     subagentSessions: {

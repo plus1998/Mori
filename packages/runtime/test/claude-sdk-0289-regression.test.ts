@@ -16,6 +16,7 @@ test("new SDK status events and result diagnostics survive mapping", () => {
     { type: "rate_limit_event", rate_limit_info: { status: "rejected", resetsAt: 123 } },
     { type: "system", subtype: "informational", content: "Warning", level: "warning" },
     { type: "system", subtype: "session_state_changed", state: "requires_action" },
+    { type: "system", subtype: "session_writes_lost", lost: ["assistant"] },
     { type: "conversation_reset", new_conversation_id: "new-session", trigger: "clear" },
     { type: "system", subtype: "commands_changed", commands: [{ name: "example" }] },
   ])
