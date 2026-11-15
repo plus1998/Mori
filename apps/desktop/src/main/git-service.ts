@@ -165,7 +165,9 @@ export async function handleGitGenerateCommitMessage(
     providerStore: deps.providerStore,
   });
   const run = deps.run ?? defaultGitRunner;
-  await stageChanges(request.workspacePath, { includeUnstaged: request.includeUnstaged }, run);
+  // Read staged and unstaged diffs directly. Generation must not run `git add -A`:
+  // large untracked trees can make the dialog appear stuck and it changes the
+  // user's index before they have chosen to commit.
   const context = await collectCommitDiffContext(request.workspacePath, request.includeUnstaged, run);
   if (!context.stagedNameStatus.trim() && !context.unstagedNameStatus?.trim()) {
     throw new Error("没有可提交的变更。");

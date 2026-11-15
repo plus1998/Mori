@@ -211,11 +211,10 @@ export function GitCommitDialog({
 
   const runAction = useCallback(
     async (action: CommitDialogAction) => {
-      if (!window.eco || activeAction || disabled || workspaceAction) {
+      if (!window.eco || activeAction || disabled || workspaceAction || statusLoading) {
         return;
       }
 
-      await onBeforeAction?.();
       const operationWorkspacePath = workspacePath;
       let operationId: number | null = null;
       let committedSuccessfully = false;
@@ -230,6 +229,7 @@ export function GitCommitDialog({
       setError(undefined);
       let actionError: string | undefined;
       try {
+        await onBeforeAction?.();
         try {
           if (action === "push") {
             await window.eco.pushGitChanges({
@@ -336,6 +336,7 @@ export function GitCommitDialog({
       activeAction,
       disabled,
       workspaceAction,
+      statusLoading,
       selectedModel,
       message,
       workspacePath,
@@ -614,7 +615,7 @@ export function GitCommitDialog({
             <button
               type="button"
               className="git-commit-popover-action"
-              disabled={!canCommit || submitting || busy || generatingMessage}
+              disabled={!canCommit || statusLoading || submitting || busy || generatingMessage}
               onClick={() => void runAction("commit")}
             >
               <GitCommitHorizontal size={16} strokeWidth={1.75} aria-hidden />
@@ -629,7 +630,7 @@ export function GitCommitDialog({
             <button
               type="button"
               className="git-commit-popover-action"
-              disabled={!canCommit || submitting || busy || generatingMessage}
+              disabled={!canCommit || statusLoading || submitting || busy || generatingMessage}
               onClick={() => void runAction("commit-push")}
             >
               <GitMerge size={16} strokeWidth={1.75} aria-hidden />
@@ -647,7 +648,7 @@ export function GitCommitDialog({
               <button
                 type="button"
                 className="git-commit-popover-action"
-                disabled={submitting || busy || generatingMessage}
+                disabled={statusLoading || submitting || busy || generatingMessage}
                 onClick={() => void runAction("push")}
               >
                 <GitCommitHorizontal size={16} strokeWidth={1.75} aria-hidden />
