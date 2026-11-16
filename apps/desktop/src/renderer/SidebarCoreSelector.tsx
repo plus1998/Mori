@@ -5,8 +5,8 @@ import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { composerFloatingViewport } from "./composer-floating";
 import { i18n } from "./i18n";
-import { SidebarAttentionButton } from "./SidebarAttentionButton";
 import { ICON_SIZE, ICON_STROKE } from "./icon-metrics";
+import { SidebarAttentionButton } from "./SidebarAttentionButton";
 import type { SidebarAttentionItem } from "./sidebar-attention-items";
 
 interface SidebarCoreSelectorProps {
@@ -36,6 +36,8 @@ interface SidebarCoreSelectorProps {
   onChange: (coreKind: CoreKind) => void;
   onOpenSearch: () => void;
   onSelectAttentionThread: (threadId: string) => void;
+  onDismissAttentionItems: (items: readonly SidebarAttentionItem[]) => void;
+  attentionDismissalError?: boolean;
   /** Test-only: start with the menu open. */
   initialMenuOpen?: boolean;
 }
@@ -177,6 +179,8 @@ export function SidebarCoreSelector({
   onChange,
   onOpenSearch,
   onSelectAttentionThread,
+  onDismissAttentionItems,
+  attentionDismissalError = false,
   initialMenuOpen = false,
 }: SidebarCoreSelectorProps) {
   const { t } = useTranslation();
@@ -253,6 +257,8 @@ export function SidebarCoreSelector({
             setAttentionOpen(next);
           }}
           onSelectThread={onSelectAttentionThread}
+          onDismissItems={onDismissAttentionItems}
+          dismissalError={attentionDismissalError}
         />
       </div>
 

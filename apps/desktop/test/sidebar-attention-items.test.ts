@@ -1,4 +1,13 @@
 import { expect, test } from "bun:test";
+import { isThreadWaitingForApproval } from "../src/renderer/ProjectSidebarTree";
+import {
+  dismissSidebarAttentionItems,
+  readSidebarAttentionDismissals,
+  revealSidebarAttentionItem,
+  SIDEBAR_ATTENTION_DISMISSALS_STORAGE_KEY,
+  saveSidebarAttentionDismissals,
+  visibleSidebarAttentionItems,
+} from "../src/renderer/sidebar-attention-dismissals";
 import { buildSidebarAttentionItems } from "../src/renderer/sidebar-attention-items";
 import type {
   BashApprovalRequest,
@@ -209,4 +218,124 @@ test("pending questions remain in attention until answered, including async ques
       (item) => item.kind === "question",
     ),
   ).toBe(false);
+});
+
+test("ignoring a plan only removes its notification; waiting approval and other notifications remain", () => {
+  const source = thread({ id: "t-1", title: "待审批计划", status: "awaiting_plan" });
+  const pendingPlan = plan({ threadId: source.id });
+  const input = {
+    threads: [source],
+    unreadThreadIds: new Set([source.id]),
+    pendingPlansByThread: { [source.id]: pendingPlan },
+    pendingBashApprovalsByThread: {},
+    pendingClarificationsByThread: {},
+  };
+  const before = structuredClone(input);
+  const items = buildSidebarAttentionItems(input);
+  const dismissed = dismissSidebarAttentionItems(
+    {},
+    items.filter((item) => item.kind === "plan"),
+  );
+
+  expect(visibleSidebarAttentionItems(items, dismissed).map((item) => item.kind)).toEqual(["completed"]);
+  expect(input).toEqual(before);
+  expect(isThreadWaitingForApproval(source, { hasPendingPlan: true })).toBe(true);
+  expect(buildSidebarAttentionItems(input)).toEqual(items);
+});
+
+test("ignoring all survives reload and plan hydration, and a revised plan is shown again", () => {
+  const source = thread({ id: "t-1", title: "计划", status: "awaiting_plan" });
+  const input = {
+    threads: [source],
+    unreadThreadIds: new Set([source.id]),
+    pendingPlansByThread: { [source.id]: plan({ threadId: source.id }) },
+    pendingBashApprovalsByThread: {},
+    pendingClarificationsByThread: {},
+  };
+  const items = buildSidebarAttentionItems(input);
+  const values = new Map<string, string>();
+  const storage = {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => {
+      values.set(key, value);
+    },
+  };
+  saveSidebarAttentionDismissals(storage, dismissSidebarAttentionItems({}, items));
+  const reloaded = readSidebarAttentionDismissals(storage);
+  expect(visibleSidebarAttentionItems(items, reloaded)).toEqual([]);
+  expect(storage.getItem(SIDEBAR_ATTENTION_DISMISSALS_STORAGE_KEY)).not.toContain("改代码");
+  // On startup, an awaiting_plan summary may precede its full plan body.
+  const summaries = buildSidebarAttentionItems({ ...input, pendingPlansByThread: {} });
+  expect(visibleSidebarAttentionItems(summaries, reloaded)).toEqual([]);
+  // Fetching the immutable plan reference must not re-create an ignored notification.
+  const hydrated = buildSidebarAttentionItems({
+    ...input,
+    pendingPlansByThread: { [source.id]: plan({ threadId: source.id, referenceId: "plan-ref", version: 1 }) },
+  });
+  expect(visibleSidebarAttentionItems(hydrated, reloaded)).toEqual([]);
+  const refreshed = buildSidebarAttentionItems({
+    ...input,
+    threads: [{ ...source, title: "新的会话标题", updatedAt: "2026-01-02T00:00:00.000Z" }],
+  });
+  expect(visibleSidebarAttentionItems(refreshed, reloaded)).toEqual([]);
+  const revised = buildSidebarAttentionItems({
+    ...input,
+    pendingPlansByThread: { [source.id]: plan({ threadId: source.id, plan: "2. 新的审批内容" }) },
+  });
+  expect(visibleSidebarAttentionItems(revised, reloaded).map((item) => item.kind)).toEqual(["plan"]);
+  expect(input.unreadThreadIds.has(source.id)).toBe(true);
+  expect(source.status).toBe("awaiting_plan");
+});
+
+test("new approvals, questions and completion events can notify again in an ignored conversation", () => {
+  const source = thread({ id: "t-1", title: "计划", status: "awaiting_plan" });
+  const input = {
+    threads: [source],
+    unreadThreadIds: new Set(["t-1"]),
+    pendingPlansByThread: { "t-1": plan({ threadId: "t-1" }) },
+    pendingBashApprovalsByThread: { "t-1": bash({ threadId: "t-1", toolUseId: "command-1" }) },
+    pendingClarificationsByThread: {
+      "t-1": { threadId: "t-1", toolUseId: "question-1", questions: [{ question: "请选择", options: [] }] },
+    },
+  };
+  const items = buildSidebarAttentionItems(input);
+  const dismissed = dismissSidebarAttentionItems({}, items);
+  expect(visibleSidebarAttentionItems(items, dismissed)).toEqual([]);
+  const next = buildSidebarAttentionItems({
+    ...input,
+    threads: [{ ...source, updatedAt: "2026-01-02T00:00:00.000Z" }],
+    pendingBashApprovalsByThread: { "t-1": bash({ threadId: "t-1", toolUseId: "command-2" }) },
+    pendingClarificationsByThread: {
+      "t-1": { ...input.pendingClarificationsByThread["t-1"], toolUseId: "question-2" },
+    },
+  });
+  expect(visibleSidebarAttentionItems(next, dismissed).map((item) => item.kind)).toEqual([
+    "question",
+    "bash",
+  ]);
+  // A fresh request also reveals a plan with identical text or a repeated completion message.
+  const revealed = revealSidebarAttentionItem(
+    revealSidebarAttentionItem(dismissed, "plan:t-1"),
+    "completed:t-1",
+  );
+  expect(visibleSidebarAttentionItems(items, revealed).map((item) => item.kind)).toEqual([
+    "plan",
+    "completed",
+  ]);
+});
+
+test("invalid or unavailable ignore storage reports a failure", () => {
+  for (const raw of ["broken-json", "null", "[]", '{"plan:t-1":true}']) {
+    expect(() => readSidebarAttentionDismissals({ getItem: () => raw })).toThrow();
+  }
+  expect(() =>
+    saveSidebarAttentionDismissals(
+      {
+        setItem: () => {
+          throw new Error("quota exceeded");
+        },
+      },
+      {},
+    ),
+  ).toThrow("quota exceeded");
 });

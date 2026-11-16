@@ -21,6 +21,7 @@ function renderSelector(locale: AppLocale, locked: boolean): string {
       onChange: () => undefined,
       onOpenSearch: () => undefined,
       onSelectAttentionThread: () => undefined,
+      onDismissAttentionItems: () => undefined,
     }),
     locale,
   );
@@ -58,6 +59,7 @@ test("open menu partitions Harnesses and ACP as matching lists", () => {
       onChange: () => undefined,
       onOpenSearch: () => undefined,
       onSelectAttentionThread: () => undefined,
+      onDismissAttentionItems: () => undefined,
     }),
     "zh-CN",
   );
@@ -94,6 +96,7 @@ test("ACP Cursor row stays selectable when last probe failed", () => {
       onChange: () => undefined,
       onOpenSearch: () => undefined,
       onSelectAttentionThread: () => undefined,
+      onDismissAttentionItems: () => undefined,
     }),
     "zh-CN",
   );
@@ -122,6 +125,7 @@ test("locked ACP thread heading shows ACP tag when acpCoreVisible is false", asy
         onChange: () => undefined,
         onOpenSearch: () => undefined,
         onSelectAttentionThread: () => undefined,
+        onDismissAttentionItems: () => undefined,
       }),
       "zh-CN",
     );
@@ -199,6 +203,7 @@ test("attention badge appears when items are present", () => {
       onChange: () => undefined,
       onOpenSearch: () => undefined,
       onSelectAttentionThread: () => undefined,
+      onDismissAttentionItems: () => undefined,
     }),
     "zh-CN",
   );

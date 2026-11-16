@@ -993,11 +993,27 @@ button.sidebar-core-heading {
 }
 
 .sidebar-core-attention-menu-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-shrink: 0;
   padding: 6px 8px 8px;
   color: var(--text-primary);
   font-size: 12px;
   font-weight: 600;
   line-height: 1.3;
+}
+
+.sidebar-core-attention-dismiss-all {
+  padding: 3px 0 3px 6px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.sidebar-core-attention-dismiss-all:hover {
+  color: var(--text-primary);
 }
 
 .sidebar-core-attention-list {
@@ -1007,7 +1023,19 @@ button.sidebar-core-heading {
   margin: 0;
   padding: 0;
   overflow: auto;
+  min-height: 0;
   list-style: none;
+}
+
+.sidebar-core-attention-row {
+  position: relative;
+  flex-shrink: 0;
+  border-radius: 6px;
+}
+
+.sidebar-core-attention-row:hover,
+.sidebar-core-attention-row:focus-within {
+  background: var(--sidebar-control-hover-bg);
 }
 
 .sidebar-core-attention-item {
@@ -1015,17 +1043,35 @@ button.sidebar-core-heading {
   flex-direction: column;
   gap: 2px;
   width: 100%;
-  padding: 8px;
+  min-width: 0;
+  padding: 8px 34px 8px 8px;
   border-radius: 6px;
   color: var(--text-primary);
   text-align: left;
 }
 
-.sidebar-core-attention-item:hover {
-  background: var(--sidebar-control-hover-bg);
+.sidebar-core-attention-dismiss {
+  position: absolute;
+  top: 4px;
+  right: 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 5px;
+  color: var(--text-muted);
 }
 
-.sidebar-core-attention-item:focus-visible {
+.sidebar-core-attention-dismiss:hover {
+  background: var(--sidebar-control-hover-bg);
+  color: var(--text-primary);
+}
+
+.sidebar-core-attention-item:focus-visible,
+.sidebar-core-attention-dismiss:focus-visible,
+.sidebar-core-attention-dismiss-all:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--accent) 52%, transparent);
   outline-offset: -1px;
 }
@@ -1063,6 +1109,24 @@ button.sidebar-core-heading {
   color: var(--text-muted);
   font-size: 12px;
   line-height: 1.4;
+}
+
+.sidebar-core-attention-hint,
+.sidebar-core-attention-error {
+  flex-shrink: 0;
+  margin: 4px 8px 2px;
+  padding-top: 8px;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.sidebar-core-attention-hint {
+  border-top: 1px solid var(--popover-border);
+}
+
+.sidebar-core-attention-error {
+  color: var(--text-danger);
 }
 
 .sidebar-core-menu-label {

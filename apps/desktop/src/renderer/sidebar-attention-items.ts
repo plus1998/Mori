@@ -1,3 +1,4 @@
+import { stableHash } from "@eco/shared";
 import type {
   BashApprovalRequest,
   ClarificationRequest,
@@ -14,6 +15,8 @@ export interface SidebarAttentionItem {
   kind: SidebarAttentionKind;
   detail?: string;
   updatedAt: string;
+  /** Notification content identity, independent of the conversation's approval state. */
+  revision?: string;
 }
 
 export interface BuildSidebarAttentionItemsInput {
@@ -62,6 +65,7 @@ export function buildSidebarAttentionItems(input: BuildSidebarAttentionItemsInpu
       threadId,
       title,
       kind: "plan",
+      revision: stableHash([plan.userPrompt, plan.analysis, plan.plan]),
       ...(detail ? { detail } : {}),
       updatedAt: thread?.updatedAt ?? "",
     });

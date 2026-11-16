@@ -1,4 +1,4 @@
-import { Bell } from "lucide-react";
+import { Bell, X } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import type { SidebarAttentionItem, SidebarAttentionKind } from "./sidebar-attention-items";
@@ -8,6 +8,8 @@ interface SidebarAttentionButtonProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSelectThread: (threadId: string) => void;
+  onDismissItems: (items: readonly SidebarAttentionItem[]) => void;
+  dismissalError?: boolean;
 }
 
 const kindLabelKey: Record<SidebarAttentionKind, string> = {
@@ -22,9 +24,14 @@ export function SidebarAttentionButton({
   open,
   onOpenChange,
   onSelectThread,
+  onDismissItems,
+  dismissalError = false,
 }: SidebarAttentionButtonProps) {
   const { t } = useTranslation();
   const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const dismissButtonRefs = useRef(new Map<string, HTMLButtonElement>());
   const hasItems = items.length > 0;
 
   useEffect(() => {
@@ -35,7 +42,10 @@ export function SidebarAttentionButton({
       }
     };
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onOpenChange(false);
+      if (event.key === "Escape") {
+        onOpenChange(false);
+        triggerRef.current?.focus();
+      }
     };
     document.addEventListener("mousedown", closeOnOutsideClick);
     document.addEventListener("keydown", closeOnEscape);
@@ -48,6 +58,7 @@ export function SidebarAttentionButton({
   return (
     <div ref={rootRef} className="sidebar-core-attention">
       <button
+        ref={triggerRef}
         type="button"
         className="sidebar-core-search sidebar-core-attention-trigger"
         aria-label={t("nav.attention")}
@@ -61,12 +72,34 @@ export function SidebarAttentionButton({
       </button>
 
       {open ? (
-        <div className="sidebar-core-attention-menu" role="dialog" aria-label={t("nav.attentionTitle")}>
-          <div className="sidebar-core-attention-menu-header">{t("nav.attentionTitle")}</div>
+        <div
+          ref={menuRef}
+          className="sidebar-core-attention-menu"
+          role="dialog"
+          aria-label={t("nav.attentionTitle")}
+          tabIndex={-1}
+        >
+          <div className="sidebar-core-attention-menu-header">
+            <span>{t("nav.attentionTitle")}</span>
+            {hasItems ? (
+              <button
+                type="button"
+                className="sidebar-core-attention-dismiss-all"
+                onClick={() => {
+                  onDismissItems(items);
+                  requestAnimationFrame(() => {
+                    if (!rootRef.current?.contains(document.activeElement)) menuRef.current?.focus();
+                  });
+                }}
+              >
+                {t("nav.ignoreAllNotifications")}
+              </button>
+            ) : null}
+          </div>
           {hasItems ? (
             <ul className="sidebar-core-attention-list">
-              {items.map((item) => (
-                <li key={item.id}>
+              {items.map((item, index) => (
+                <li key={item.id} className="sidebar-core-attention-row">
                   <button
                     type="button"
                     className="sidebar-core-attention-item"
@@ -81,12 +114,42 @@ export function SidebarAttentionButton({
                       <span className="sidebar-core-attention-item-detail">{item.detail}</span>
                     ) : null}
                   </button>
+                  <button
+                    ref={(button) => {
+                      if (button) dismissButtonRefs.current.set(item.id, button);
+                      else dismissButtonRefs.current.delete(item.id);
+                    }}
+                    type="button"
+                    className="sidebar-core-attention-dismiss"
+                    aria-label={t("nav.ignoreNotificationFor", { title: item.title })}
+                    title={t("nav.ignoreNotification")}
+                    onClick={(event) => {
+                      const button = event.currentTarget;
+                      const nextId = items[index + 1]?.id ?? items[index - 1]?.id;
+                      onDismissItems([item]);
+                      requestAnimationFrame(() => {
+                        if (button.isConnected) return;
+                        const nextButton = nextId ? dismissButtonRefs.current.get(nextId) : undefined;
+                        (nextButton ?? menuRef.current)?.focus();
+                      });
+                    }}
+                  >
+                    <X size={14} aria-hidden />
+                  </button>
                 </li>
               ))}
             </ul>
           ) : (
-            <p className="sidebar-core-attention-empty">{t("nav.attentionEmpty")}</p>
+            <p className="sidebar-core-attention-empty" role="status">
+              {t("nav.attentionEmpty")}
+            </p>
           )}
+          {dismissalError ? (
+            <p className="sidebar-core-attention-error" role="alert">
+              {t("nav.ignoreNotificationsError")}
+            </p>
+          ) : null}
+          <p className="sidebar-core-attention-hint">{t("nav.ignoreNotificationsHint")}</p>
         </div>
       ) : null}
     </div>

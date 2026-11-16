@@ -471,7 +471,9 @@ import { SettingsSyncControl } from "./SettingsSyncControl";
 import { SidebarCoreSelector } from "./SidebarCoreSelector";
 import { SidebarSearchDialog } from "./SidebarSearchDialog";
 import { SidebarSettingsUpdateControl } from "./SidebarSettingsUpdateControl";
+import { visibleSidebarAttentionItems } from "./sidebar-attention-dismissals";
 import { buildSidebarAttentionItems } from "./sidebar-attention-items";
+import { useSidebarAttentionDismissals } from "./use-sidebar-attention-dismissals";
 import type { TerminalSessionPresentation } from "./TerminalPanel";
 import { ThreadIdleCacheWarning } from "./ThreadIdleCacheWarning";
 import { OpenTtsArtifactContext, TtsArtifactsContext } from "./TtsArtifactPlayer";
@@ -1622,6 +1624,8 @@ function App() {
   const [pinnedProjectPaths, setPinnedProjectPaths] = useState<Set<string>>(() => new Set());
   const [pinnedThreadIds, setPinnedThreadIds] = useState<Set<string>>(() => new Set());
   const [unreadThreadIds, setUnreadThreadIds] = useState<Set<string>>(() => new Set());
+  const sidebarAttentionDismissals = useSidebarAttentionDismissals();
+  const revealSidebarAttention = sidebarAttentionDismissals.reveal;
   const [recentProjects, setRecentProjects] = useState<RecentProject[]>([]);
   const [customProjectNames, setCustomProjectNames] = useState<Record<string, string>>({});
   const [customProjectSearchTerms, setCustomProjectSearchTerms] =
@@ -2929,6 +2933,9 @@ function App() {
         );
       }
 
+      if (event.type === "plan_approval.requested" || event.type === "thread.plan_cleared") {
+        revealSidebarAttention(`plan:${event.threadId}`);
+      }
       if (event.type === "thread.plan_cleared") {
         const promoted = promotePendingPlanForThread(event.threadId);
         clearPendingPlanForThread(event.threadId);
@@ -2936,6 +2943,7 @@ function App() {
           void fetchApprovedPlanForThread(event.threadId);
         }
       } else if (event.type === "thread.completed") {
+        revealSidebarAttention(`completed:${event.threadId}`);
         clearPendingPlanForThread(event.threadId);
         const activelyViewed = isThreadActivelyViewed(
           moriOpenRef.current ? undefined : selectedThreadIdRef.current,
@@ -3141,7 +3149,7 @@ function App() {
       unsubscribe();
       unsubscribeThreadOpen();
     };
-  }, []);
+  }, [revealSidebarAttention]);
 
   const selectedThreadStatus = threads.find((thread) => thread.id === selectedThreadId)?.status;
 
@@ -4123,13 +4131,27 @@ function App() {
   const taskPanelPlan = pendingPlan ?? approvedPlan;
   const pendingClarification = activeThread ? pendingClarificationsByThread[activeThread.id] : undefined;
   const pendingBashApproval = activeThread ? pendingBashApprovalsByThread[activeThread.id] : undefined;
-  const attentionItems = buildSidebarAttentionItems({
-    threads,
-    unreadThreadIds,
-    pendingPlansByThread,
-    pendingBashApprovalsByThread,
-    pendingClarificationsByThread,
-  });
+  const attentionItems = useMemo(
+    () =>
+      visibleSidebarAttentionItems(
+        buildSidebarAttentionItems({
+          threads,
+          unreadThreadIds,
+          pendingPlansByThread,
+          pendingBashApprovalsByThread,
+          pendingClarificationsByThread,
+        }),
+        sidebarAttentionDismissals.dismissed,
+      ),
+    [
+      threads,
+      unreadThreadIds,
+      pendingPlansByThread,
+      pendingBashApprovalsByThread,
+      pendingClarificationsByThread,
+      sidebarAttentionDismissals.dismissed,
+    ],
+  );
 
   useEffect(() => {
     pendingPlansByThreadRef.current = pendingPlansByThread;
@@ -13124,6 +13146,8 @@ function App() {
             {...(coreAvailability?.cursor.version ? { cursorVersion: coreAvailability.cursor.version } : {})}
             {...(coreAvailability?.claude.version ? { claudeVersion: coreAvailability.claude.version } : {})}
             attentionItems={attentionItems}
+            onDismissAttentionItems={sidebarAttentionDismissals.dismiss}
+            attentionDismissalError={sidebarAttentionDismissals.error}
             onChange={(coreKind) => {
               if (coreKind === "acp") {
                 setNewThreadCoreKind("acp");
