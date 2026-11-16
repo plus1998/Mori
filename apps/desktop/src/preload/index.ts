@@ -797,6 +797,15 @@ const api = {
 
 
   // ─── OpenAI Account Management ─────────────────────────────────────────────
+  openAIAccountsSharingGet(): Promise<import("../shared/codex-account-sharing").CodexSharingSnapshot> {
+    return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsSharingGet);
+  },
+  openAIAccountsSharingConnect(accountId: string): Promise<void> {
+    return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsSharingConnect, { accountId });
+  },
+  openAIAccountsSharingSave(accountId: string, deviceIds: string[]): Promise<import("../shared/codex-account-sharing").CodexSharingSnapshot> {
+    return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsSharingSave, { accountId, deviceIds });
+  },
   openAIAccountsList(): Promise<
     OpenAIAccount[]
   > {

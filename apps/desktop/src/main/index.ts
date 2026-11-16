@@ -706,6 +706,7 @@ import {
 import {
   getGlobalCodexRuntimeLifecycle,
   invalidateCodexAccountRuntimeLifecycle,
+  revokeCodexAccountRuntimeLifecycle,
   getCodexRuntimeProcesses,
   stopCodexRuntimeProcess,
   getCodexRuntimeClientForThread,
@@ -1919,6 +1920,7 @@ const codexGatewayUsagePending = new CodexGatewayUsagePendingBuffer({
 });
 let agentLifecycle: AgentLifecycleService;
 let openaiAccountService: OpenAIAccountService | undefined;
+let codexAccountSharing: import("./codex-account-sharing").CodexAccountSharing | undefined;
 let openaiAccountServicePromise: Promise<OpenAIAccountService> | undefined;
 const resolveSystemProxyResolution = () =>
   session.defaultSession.resolveProxy("https://chatgpt.com");
@@ -3204,6 +3206,32 @@ app
       log: (message) => process.stderr.write(message),
       onStatusChange: emitCenterServerStatus,
     });
+    const { CodexAccountSharing } = await import("./codex-account-sharing");
+    codexAccountSharing = new CodexAccountSharing({
+      localAccounts: async () => (await getOpenAIAccountService()).listLocalAccounts(),
+      accountIdentity: async (accountId) => {
+        const raw = await (await getOpenAIAccountService()).getAuthJsonContent(accountId);
+        if (!raw) throw new Error("请先在本机登录 Codex，再共享给其他设备。");
+        const auth = JSON.parse(raw);
+        const identity = auth.tokens?.account_id ?? auth.account_id;
+        if (typeof identity !== "string" || !identity) throw new Error("登录凭据缺少账号身份，请重新登录。");
+        return identity;
+      },
+      tokens: async (accountId, knownVersion) => (await getOpenAIAccountService()).getShareableTokens(accountId, knownVersion),
+      quota: async accountId => (await getOpenAIAccountService()).queryQuota(accountId),
+      changed: () => {
+        for (const window of BrowserWindow.getAllWindows()) {
+          if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.openAIAccountsChanged, {});
+        }
+      },
+      invalidated: accountId => {
+        void revokeCodexAccountRuntimeLifecycle(accountId).catch(error => {
+          logEcoDiag("codex-sharing.runtime-stop.failed", { accountId, error: errorMessage(error) });
+        });
+      },
+    });
+    centerServerClient.setCodexAccountSharing(codexAccountSharing);
+    (await getOpenAIAccountService()).setSharedAccountProvider(codexAccountSharing);
     centerServerClient.setSettingsSyncHooks(
       createDesktopSettingsSyncHooks({
         providerStore,
@@ -8526,6 +8554,21 @@ function registerIpcHandlers(): void {
   // after the remaining application services are ready.
   openaiAccountService!.wakeBatches.start();
 
+  registerDesktopCommand(IPC_CHANNELS.openAIAccountsSharingGet, async () => {
+    if (!codexAccountSharing) throw new Error("账号共享服务尚未初始化。");
+    await codexAccountSharing.refresh();
+    return codexAccountSharing.snapshot();
+  });
+  registerDesktopCommand(IPC_CHANNELS.openAIAccountsSharingConnect, async (payload: { accountId: string }) => {
+    if (!payload || typeof payload.accountId !== "string" || !/^oa_shared_[0-9a-f]{32}$/.test(payload.accountId)) throw new Error("共享账号无效。");
+    await (await getOpenAIAccountService()).ensureAccountCredentials(payload.accountId);
+  });
+  registerDesktopCommand(IPC_CHANNELS.openAIAccountsSharingSave, async (payload: { accountId: string; deviceIds: string[] }) => {
+    if (!payload || typeof payload.accountId !== "string" || !Array.isArray(payload.deviceIds)
+      || payload.deviceIds.length > 100 || payload.deviceIds.some(id => typeof id !== "string")) throw new Error("账号共享参数无效。");
+    if (!codexAccountSharing) throw new Error("账号共享服务尚未初始化。");
+    return codexAccountSharing.save(payload.accountId, payload.deviceIds);
+  });
   registerDesktopCommand(IPC_CHANNELS.openAIAccountsList, async () => {
     const svc = await getOpenAIAccountService();
     return svc.listAccounts();
@@ -8549,6 +8592,7 @@ function registerIpcHandlers(): void {
 
   registerDesktopCommand(IPC_CHANNELS.openAIAccountsDelete, async (payload: { accountId: string }) => {
     const svc = await getOpenAIAccountService();
+    await codexAccountSharing?.revokeAccount(payload.accountId);
     await accountBrowser.run(payload.accountId, async () => {
       await accountBrowser.clear(payload.accountId);
       requireAccountAssistant().closeAccount(payload.accountId);

@@ -808,6 +808,19 @@ export function invalidateCodexAccountRuntimeLifecycle(accountId: string): void 
   scheduleRetirementSweep();
 }
 
+/** Revoked remote credentials must not remain usable in an active app-server. */
+export async function revokeCodexAccountRuntimeLifecycle(accountId: string): Promise<void> {
+  const entry = accountLifecycles.get(accountId);
+  accountLifecycles.delete(accountId);
+  const lifecycles = new Set<CodexRuntimeLifecycle>();
+  if (entry) lifecycles.add(entry.lifecycle);
+  for (const lifecycle of retiringLifecycles) {
+    if (lifecycle.getProcessView()?.account?.id === accountId) lifecycles.add(lifecycle);
+  }
+  for (const lifecycle of lifecycles) retiringLifecycles.delete(lifecycle);
+  await Promise.all([...lifecycles].map(lifecycle => lifecycle.stop()));
+}
+
 export function setGlobalCodexRuntimeLifecycle(lifecycle: CodexRuntimeLifecycle | undefined): void {
   globalLifecycle = lifecycle;
 }

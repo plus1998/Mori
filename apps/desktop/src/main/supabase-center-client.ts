@@ -12,6 +12,7 @@
  * The old Mongo/Redis Center Server WebSocket `/v1/rpc` client has been removed.
  */
 import { createClient, type Session, type SupabaseClient, type User } from "@supabase/supabase-js";
+import type { CodexAccountSharing } from "./codex-account-sharing";
 import { SHARE_MEDIA_BUCKET } from "../shared/conversation-share";
 import {
   buildCenterQrPayload,
@@ -167,6 +168,11 @@ export function getSupabaseClient(): SupabaseClient | undefined {
 }
 
 export class SupabaseCenterDesktopClient implements DesktopEventCenterSink {
+  private codexSharing: CodexAccountSharing | undefined;
+
+  setCodexAccountSharing(sharing: CodexAccountSharing): void {
+    this.codexSharing = sharing;
+  }
   private readonly store: CenterServerStore;
   private readonly eventCenter: DesktopEventCenter;
   private readonly fetchImpl: FetchLike;
@@ -1478,6 +1484,10 @@ export class SupabaseCenterDesktopClient implements DesktopEventCenterSink {
       this.reconnectAttempts = 0;
       this.store.markConnected(connectedAt);
       this.setStatus({ state: "connected", connectedAt });
+      // A missing optional schema is reported by the sharing panel and must not
+      // disconnect mobile RPC or settings sync on an older Center deployment.
+      void this.codexSharing?.connect({ client, userId, deviceId, deviceName: settings.deviceName,
+        onlineDeviceIds: () => this.realtime?.listOnlineDeviceIds() ?? new Set<string>() });
       void this.refreshHtmlHostingCapability({ force: true });
 
       if (this.settingsSyncHooks) {
@@ -1945,6 +1955,7 @@ export class SupabaseCenterDesktopClient implements DesktopEventCenterSink {
   }
 
   private teardownClient(): void {
+    this.codexSharing?.disconnect();
     this.stopBindingsRefreshLoop();
     this.stopDeviceSessionRefreshLoop();
     this.stopVaultClaimsRefreshLoop();

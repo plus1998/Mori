@@ -30,6 +30,8 @@ import {
   Inbox,
   ChevronDown,
   Zap,
+  Monitor,
+  Share2,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
@@ -44,6 +46,8 @@ import { type AppLocale, formatAppDateTime } from "../../shared/locale";
 import { AccountUsageHistoryButton } from "./AccountUsageHistoryDialog";
 import { AccountModelCatalogSection } from "./AccountModelCatalogSection";
 import { CodexExternalLoginDialog } from "./CodexExternalLoginDialog";
+import { CodexAccountSharingDialog } from "./CodexAccountSharingDialog";
+import { SharedCodexAccountCard } from "./SharedCodexAccountCard";
 import type { CodexModelCatalogSnapshot } from "../../shared/models";
 import { latestLunaModelId } from "../../shared/codex-wake-model";
 import {
@@ -298,17 +302,19 @@ export function OpenAIAccountProfilePresence({ fields }: { fields: OpenAIAccount
   </div>;
 }
 
-export function OpenAIAccountsPanel({ onError, data }: {
+export function OpenAIAccountsPanel({ onError, data, onOpenConnection }: {
   onError: (message: string) => void;
   data?: OpenAIAccountsData;
+  onOpenConnection?: (() => void) | undefined;
 }) {
   const localData = useOpenAIAccountsData(!data);
-  return <OpenAIAccountsContent onError={onError} data={data ?? localData} />;
+  return <OpenAIAccountsContent onError={onError} data={data ?? localData} onOpenConnection={onOpenConnection} />;
 }
 
-function OpenAIAccountsContent({ onError, data }: {
+function OpenAIAccountsContent({ onError, data, onOpenConnection }: {
   onError: (message: string) => void;
   data: OpenAIAccountsData;
+  onOpenConnection?: (() => void) | undefined;
 }) {
   const { t, i18n } = useTranslation();
   const locale = (i18n.resolvedLanguage ?? i18n.language) as AppLocale;
@@ -328,6 +334,7 @@ function OpenAIAccountsContent({ onError, data }: {
   const [operationError, setOperationError] = useState(() => initialOrder.error
     ? t("settings.openaiAccounts.orderLoadFailed", { message: initialOrder.error }) : "");
   const [searchQuery, setSearchQuery] = useState("");
+  const [sharingAccountId, setSharingAccountId] = useState<string | null | undefined>();
   const [statusFilter, setStatusFilter] = useState<"all" | "ready" | "missing">("all");
   const [busy, setBusy] = useState(false);
   const [loggingInId, setLoggingInId] = useState<string | null>(null);
@@ -884,6 +891,9 @@ function OpenAIAccountsContent({ onError, data }: {
         </div>
         <div className="codex-account-header-actions">
           <AccountModelCatalogSection onSnapshot={onCatalogSnapshot} />
+          <button type="button" className="codex-action-secondary" onClick={() => setSharingAccountId(null)}>
+            <Monitor size={14} />{t("codexShare.open")}
+          </button>
           <div className="codex-account-actions-menu-wrap" ref={accountActionsRef}>
             <button
               ref={accountActionsTriggerRef}
@@ -949,7 +959,7 @@ function OpenAIAccountsContent({ onError, data }: {
             ) : null}
           </div>
           <AccountWakeBatchesPanel
-            accounts={accounts}
+            accounts={accounts.filter(account => !account.sharedSource)}
             model={wakeModel}
             models={wakeModels}
             modelBusy={wakeModelSaving || !wakeModelReady}
@@ -1078,6 +1088,9 @@ function OpenAIAccountsContent({ onError, data }: {
         <div className="codex-account-list">
           {filteredAccounts.map((account, accountIndex) => {
             const accountQuota = account.quota;
+            if (account.sharedSource) return <SharedCodexAccountCard key={account.id} account={account}>
+              {accountQuota ? <div className="codex-account-quotas"><OpenAIAccountQuotaSummary quota={accountQuota} isLoggedIn={account.isLoggedIn} loading={false} error={undefined} /></div> : null}
+            </SharedCodexAccountCard>;
             const status = account.authState === "refreshing"
               ? t("settings.openaiAccounts.refreshingCredentials")
               : account.authState === "refreshable"
@@ -1220,6 +1233,9 @@ function OpenAIAccountsContent({ onError, data }: {
                       </div>
                     </div>
                     <div className="codex-account-actions">
+                      <button type="button" className="mcp-icon-button" aria-label={t("codexShare.accountAction")}
+                        title={account.sharedWithDeviceCount ? t("codexShare.sharedCount", { count: account.sharedWithDeviceCount }) : t("codexShare.accountAction")}
+                        onClick={() => setSharingAccountId(account.id)}><Share2 size={14} />{account.sharedWithDeviceCount ? <span>{account.sharedWithDeviceCount}</span> : null}</button>
                       <button
                         type="button"
                         className="mcp-icon-button codex-account-drag-handle"
@@ -1424,6 +1440,8 @@ function OpenAIAccountsContent({ onError, data }: {
         </div>
       )}
 
+      {sharingAccountId !== undefined ? <CodexAccountSharingDialog accounts={accounts} initialAccountId={sharingAccountId}
+        onClose={() => setSharingAccountId(undefined)} onOpenConnection={onOpenConnection} /> : null}
       {externalLoginId ? <CodexExternalLoginDialog accountId={externalLoginId} onClose={() => setExternalLoginId(null)} /> : null}
 
       {/* Manual auth inline editor */}

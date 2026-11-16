@@ -115,6 +115,8 @@ export function canUseOpenAIAccountWebCredentials(account: {
 }
 
 export interface OpenAIAccount {
+  sharedSource?: import("./codex-account-sharing").SharedCodexAccountSource;
+  sharedWithDeviceCount?: number;
   webAuthState?: "missing" | "configured" | "refreshable" | "reauthorization_required";
   webAuthError?: string;
   imageGenerationEnabled?: boolean;

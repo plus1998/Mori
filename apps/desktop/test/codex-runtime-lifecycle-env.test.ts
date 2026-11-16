@@ -6,10 +6,15 @@ import { CodexEventAdapter, type CodexThreadRunEventInput } from "@eco/runtime";
 import {
   buildCodexAppServerEnv,
   CodexRuntimeLifecycle,
+  ensureCodexAccountRuntimeLifecycle,
+  getCodexRuntimeProcesses,
   parseElectronProxyResolution,
+  retainCodexRuntimeClient,
+  revokeCodexAccountRuntimeLifecycle,
   resolveCodexProxyUrl,
   setCodexAccountProxyConfigGetter,
   setCodexExternalAuthProvider,
+  stopGlobalCodexRuntimeLifecycle,
 } from "../src/main/codex-runtime-lifecycle";
 
 describe("Codex app-server environment", () => {
@@ -122,6 +127,35 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
       await fs.rm(ecoDataDir, { recursive: true, force: true });
     }
   });
+  test("revoking a shared account stops both current and retired runtimes even while reserved", async () => {
+    const ecoDataDir = await fs.mkdtemp(path.join(os.tmpdir(), "mori-revoked-runtime-"));
+    const executable = path.join(ecoDataDir, "fake-codex");
+    await fs.writeFile(executable, `#!/usr/bin/env node
+require('node:readline').createInterface({input:process.stdin}).on('line',line=>{
+ const msg=JSON.parse(line);if(msg.method==='initialized')return;
+ process.stdout.write(JSON.stringify({id:msg.id,result:{}})+'\\n');
+});`, { mode: 0o755 });
+    const id = "oa_shared_30000000000040008000000000000001";
+    setCodexExternalAuthProvider(async () => ({ accountId: id, accessToken: "only-access", chatgptAccountId: "chatgpt-work" }));
+    const releases: Array<() => void> = [];
+    try {
+      const first = await ensureCodexAccountRuntimeLifecycle(id, { ecoDataDir, codexExecutable: executable }, 1);
+      releases.push(retainCodexRuntimeClient(first));
+      const current = await ensureCodexAccountRuntimeLifecycle(id, { ecoDataDir, codexExecutable: executable }, 2);
+      releases.push(retainCodexRuntimeClient(current));
+      expect(getCodexRuntimeProcesses().filter(p => p.account?.id === id)).toHaveLength(2);
+      await revokeCodexAccountRuntimeLifecycle(id);
+      expect(getCodexRuntimeProcesses().filter(p => p.account?.id === id)).toHaveLength(0);
+      await expect(first.request("test/after-revoke")).rejects.toThrow();
+      await expect(current.request("test/after-revoke")).rejects.toThrow();
+    } finally {
+      for (const release of releases) release();
+      await stopGlobalCodexRuntimeLifecycle();
+      setCodexExternalAuthProvider(undefined);
+      await fs.rm(ecoDataDir, { recursive: true, force: true });
+    }
+  });
+
   test("bypasses proxies for the local Eco gateway", () => {
     const env = buildCodexAppServerEnv(
       {

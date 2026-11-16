@@ -1,6 +1,7 @@
 import { executionSettingsTranslations } from "./execution-settings-i18n";
 import { imageLibraryTranslations } from "./image-library-i18n";
 import { accountWakeTranslations } from "./account-wake-i18n";
+import { codexSharingTranslations } from "./codex-account-sharing-i18n";
 import type { AppLocale } from "./locale";
 import { accountUsageTranslations } from "./account-usage-i18n";
 import { usageOverviewTranslations } from "./usage-overview-i18n";
@@ -201,6 +202,7 @@ export const i18nCatalogs = {
       "moriUi.schedulingPanel.retryNotificationOnly": "仅重试通知",
       ...accountUsageTranslations["zh-CN"],
       ...accountWakeTranslations["zh-CN"],
+      ...codexSharingTranslations["zh-CN"],
       ...usageOverviewTranslations["zh-CN"],
       ...worktreeTranslations["zh-CN"],
       ...executionSettingsTranslations["zh-CN"],
@@ -4151,6 +4153,7 @@ export const i18nCatalogs = {
       "moriUi.schedulingPanel.retryNotificationOnly": "Retry notification only",
       ...accountUsageTranslations["en-US"],
       ...accountWakeTranslations["en-US"],
+      ...codexSharingTranslations["en-US"],
       ...usageOverviewTranslations["en-US"],
       ...worktreeTranslations["en-US"],
       ...executionSettingsTranslations["en-US"],

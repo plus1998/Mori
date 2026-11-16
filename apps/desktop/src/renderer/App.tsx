@@ -14320,6 +14320,7 @@ function App() {
                       settings={settings}
                       defaultCoreKind={workflowSettings.defaultCoreKind}
                       mode="providerSettings"
+                      onOpenConnection={() => setSettingsSection("centerServer")}
                       initialTab={modelsSettingsTab}
                       busy={isSavingSettings}
                       onSettingsChange={setSettings}
@@ -14400,6 +14401,7 @@ function App() {
                         setModelsSettingsChatGptAccountId(undefined)
                       }
                       mode="agentBuilder"
+                      onOpenConnection={() => setSettingsSection("centerServer")}
                       hideCategoryTabs
                       heading={
                         settingsSection === "orchestrationComponents"

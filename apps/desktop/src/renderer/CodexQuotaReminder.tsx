@@ -1,4 +1,5 @@
 import { QuotaRefreshedAt } from "./QuotaRefreshedAt";
+import { isSharedCodexAccountId } from "../shared/codex-account-sharing";
 import { CodexResetCreditExpiry } from "./CodexResetCreditExpiry";
 import { hasUnrefreshedCodexQuotaReset } from "../shared/codex-quota-refresh";
 import { LoaderCircle, X } from "lucide-react";
@@ -179,7 +180,7 @@ export function CodexQuotaReminderCard({
             {t("codexQuota.changeModel")}
           </button>
         ) : null}
-        <button
+        {isSharedCodexAccountId(snapshot.accountId) ? <span>{t("codexShare.resetOnHost")}</span> : <button
           type="button"
           onClick={onReset}
           disabled={busy || refreshing || snapshot.quota.resetCreditsAvailable <= 0}
@@ -191,7 +192,7 @@ export function CodexQuotaReminderCard({
         >
           {busy ? <LoaderCircle size={12} className="mcp-spin" /> : null}
           {t("codexQuota.useReset")}
-        </button>
+        </button>}
       </div>
       <footer className="codex-quota-reminder-footer">
         <QuotaRefreshedAt fetchedAt={snapshot.quota.fetchedAt} />

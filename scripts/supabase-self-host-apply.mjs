@@ -186,9 +186,8 @@ function applyMigrations() {
     }
     console.log(`apply: ${filename}`);
     const body = readFileSync(path.join(migrationsDir, filename), "utf8");
-    applySql(body);
     applySql(
-      `INSERT INTO public.eco_schema_migrations (filename) VALUES ('${filename.replace(/'/g, "''")}') ON CONFLICT DO NOTHING;`,
+      `BEGIN;\n${body}\nINSERT INTO public.eco_schema_migrations (filename) VALUES ('${filename.replace(/'/g, "''")}') ON CONFLICT DO NOTHING;\nCOMMIT;`,
     );
   }
 }
@@ -201,7 +200,7 @@ function deployFunctions() {
   const destRoot = path.join(abs, "volumes", "functions");
   if (!existsSync(functionsSrc)) fail(`Missing ${functionsSrc}`);
   console.log(`\n==> Copying Edge Functions → ${destRoot}`);
-  mkdirSync(destRoot, { recursive: true });
+  if (!dryRun) mkdirSync(destRoot, { recursive: true });
 
   // Keep hello if present; sync Eco functions + _shared.
   for (const entry of readdirSync(functionsSrc, { withFileTypes: true })) {
@@ -210,7 +209,7 @@ function deployFunctions() {
     if (!entry.isDirectory()) continue;
     if (existsSync(to)) {
       console.log(`replace: ${entry.name}`);
-      rmSync(to, { recursive: true, force: true });
+      if (!dryRun) rmSync(to, { recursive: true, force: true });
     } else {
       console.log(`add: ${entry.name}`);
     }

@@ -119,6 +119,7 @@ interface ModelsSettingsPanelProps {
     | undefined;
   onSavingChange?: ((saving: boolean) => void) | undefined;
   centerServerSyncVisible?: boolean;
+  onOpenConnection?: (() => void) | undefined;
   onSyncDomain?: (
     domain: CenterServerSyncDomain,
     mode: "pull" | "push",
@@ -227,6 +228,7 @@ export function ModelsSettingsPanel({
   onDefaultVisionModelChange,
   onSavingChange,
   centerServerSyncVisible = false,
+  onOpenConnection,
   onSyncDomain,
 }: ModelsSettingsPanelProps) {
   const { t } = useTranslation();
@@ -839,7 +841,7 @@ export function ModelsSettingsPanel({
 
       {activeTab === "openaiAccounts" && (
         <Suspense fallback={<div className="codex-empty-state" role="status" aria-busy="true">{t("common.loading")}</div>}>
-          <LazyOpenAIAccountsPanel onError={showAppMessageError} data={openAIAccountsData} />
+          <LazyOpenAIAccountsPanel onError={showAppMessageError} data={openAIAccountsData} onOpenConnection={onOpenConnection} />
         </Suspense>
       )}
 

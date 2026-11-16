@@ -331,6 +331,17 @@ test("reminder shows conversation quota and disables reset without credits or du
   }
 });
 
+test("a shared account keeps quota visible and directs quota resets to its host", () => {
+  const html = renderLocalized(createElement(CodexQuotaReminderCard, {
+    snapshot: { ...snapshot, accountId: "oa_shared_30000000000040008000000000000001" },
+    onReset() {}, onChangeModel() {}, onRefresh() {},
+  }), "zh-CN");
+  expect(html).toContain("剩余 6% 使用量");
+  expect(html).toContain("如需重置额度，请在主设备操作。");
+  expect(html).toContain("刷新额度");
+  expect(html).not.toContain("使用重置");
+});
+
 test("quota card shows which operation is running and disables conflicting actions", () => {
   const props = { snapshot, onReset() {}, onChangeModel() {}, onRefresh() {} };
   const refreshing = renderLocalized(createElement(CodexQuotaReminderCard, { ...props, refreshing: true }), "zh-CN");

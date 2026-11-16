@@ -245,6 +245,7 @@ export function ComposerMainModelPicker({
       setLoginAccounts(accounts.filter((account) => account.isLoggedIn || account.authState === "refreshable" ||
         account.authState === "refreshing")
       .map((account) => ({ id: account.id, name: account.name, quota: account.quota,
+        ...(account.sharedSource ? { statusLabel: t("codexShare.source", { name: account.sharedSource.ownerDeviceName }) } : {}),
         quotaError: account.quotaRefresh?.error })));
     });
     load("oauthAccounts", eco.chatGptSubscriptionAccountsList(), (accounts) => {
@@ -551,7 +552,7 @@ export function ComposerMainModelPicker({
                 onClick={() => chooseAccount(account.id)}>
                 <span className="composer-main-model-picker-account-details">
                   <span className="composer-main-model-picker-account-name" title={account.name}>{account.name}</span>
-                  {source === "oauth" ? <span className="composer-main-model-picker-account-status">{account.statusLabel}</span> : null}
+                  {account.statusLabel ? <span className="composer-main-model-picker-account-status">{account.statusLabel}</span> : null}
                   {source === "login" ? <span className="composer-main-model-picker-account-quota"
                     title={account.quotaError || undefined}>
                     {account.quotaError ? <span className="composer-main-model-picker-quota-error">{t("codexQuota.refreshFailed")}</span> : null}

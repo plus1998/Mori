@@ -1,4 +1,5 @@
 import { AccountWakeBatches } from "./account-wake-batches";
+import { isSharedCodexAccountId, type SharedCodexAccountProvider, type SharedCodexTokens } from "../shared/codex-account-sharing";
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -132,6 +133,16 @@ export function readAuthAccountId(content: string): string | undefined {
 export { startSocksToHttpBridge } from "./socks-http-bridge";
 
 export class OpenAIAccountService {
+  private sharedAccounts: SharedCodexAccountProvider | undefined;
+
+  setSharedAccountProvider(provider: SharedCodexAccountProvider): void {
+    this.sharedAccounts = provider;
+  }
+
+  private sharedProvider(): SharedCodexAccountProvider {
+    if (!this.sharedAccounts) throw new Error("共享账号服务尚未连接，请检查 Supabase 同步服务。");
+    return this.sharedAccounts;
+  }
   private readonly accountsDir: string;
   private readonly mainCodexDir: string;
   private readonly databasePath: string;
@@ -302,6 +313,7 @@ export class OpenAIAccountService {
 
   /** Refresh on demand; operations on the same account share one credential owner. */
   ensureAccountCredentials(accountId: string): Promise<void> {
+    if (isSharedCodexAccountId(accountId)) return this.sharedProvider().getTokens(accountId).then(() => undefined);
     const existing = this.credentialRefreshes.get(accountId);
     if (existing) return existing;
     const work = this.runAccountWork(accountId, () => this.ensureAccountCredentialsUnlocked(accountId));
@@ -311,11 +323,12 @@ export class OpenAIAccountService {
   }
 
   /** External runtimes never receive refresh tokens or write their own auth.json. */
-  async getExternalChatGptTokens(accountId: string, previousAccessToken?: string): Promise<{
+  async getExternalChatGptTokens(accountId: string, previousAccessToken?: string, previousVersion?: string): Promise<{
     accessToken: string;
     chatgptAccountId: string;
     chatgptPlanType?: string;
   }> {
+    if (isSharedCodexAccountId(accountId)) return this.sharedProvider().getTokens(accountId, previousAccessToken);
     const work = this.runAccountWork(accountId, async () => {
       await this.ensureAccountCredentialsUnlocked(accountId);
       let account = await this.requireAccount(accountId);
@@ -331,7 +344,8 @@ export class OpenAIAccountService {
       let tokens = read(account.authJson);
       // A second waiter reuses a refresh already completed by the first. The existing
       // credential operation is the sole refresh-token owner for this account.
-      if (previousAccessToken && tokens.accessToken === previousAccessToken) {
+      if ((previousAccessToken && tokens.accessToken === previousAccessToken)
+        || (previousVersion && contentFingerprint(tokens.accessToken) === previousVersion)) {
         const original = account.authJson!;
         try {
           await this.withAccountClient(accountId, client => client.request("account/read", { refreshToken: true }, { timeoutMs: 30_000 }));
@@ -342,7 +356,7 @@ export class OpenAIAccountService {
         }
         account = await this.requireAccount(accountId);
         tokens = read(account.authJson);
-        if (tokens.accessToken === previousAccessToken) throw new Error("Codex 尚未回写新的访问令牌，请重新登录或重试。");
+        if (tokens.accessToken === previousAccessToken || (previousVersion && contentFingerprint(tokens.accessToken) === previousVersion)) throw new Error("Codex 尚未回写新的访问令牌，请重新登录或重试。");
       }
       return { ...tokens, ...(account.quota?.planType ? { chatgptPlanType: account.quota.planType } : {}) };
     });
@@ -350,6 +364,7 @@ export class OpenAIAccountService {
   }
 
   async getAccountProxyConfig(accountId: string): Promise<OpenAIAccountProxyConfig> {
+    if (isSharedCodexAccountId(accountId)) return { mode: "system" };
     const account = await this.requireAccount(accountId);
     return { mode: account.proxyMode, ...(account.proxyUrl ? { proxyUrl: account.proxyUrl } : {}) };
   }
@@ -386,8 +401,24 @@ export class OpenAIAccountService {
     this.onAccountsChanged?.();
   }
 
-  /** List all accounts with their login status. */
+  /** Only local accounts can be published as a credential owner. */
+  async getShareableTokens(accountId: string, previousVersion?: string): Promise<SharedCodexTokens> {
+    if (isSharedCodexAccountId(accountId)) throw new Error("远端账号不能再次共享。");
+    const tokens = await this.getExternalChatGptTokens(accountId, undefined, previousVersion);
+    const expiry = decodeJwtExpiry(tokens.accessToken);
+    if (expiry === undefined || expiry * 1000 <= Date.now()) throw new Error("账号没有有效的访问令牌，请在主设备重新登录。");
+    return { ...tokens, expiresAt: expiry * 1000, version: contentFingerprint(tokens.accessToken) };
+  }
+
+  /** List all local and explicitly authorized remote accounts. */
   async listAccounts(): Promise<OpenAIAccount[]> {
+    const local = (await this.listLocalAccounts()).map(account => ({
+      ...account, sharedWithDeviceCount: this.sharedAccounts?.sharedDeviceCount?.(account.id) ?? 0,
+    }));
+    return [...local, ...(this.sharedAccounts?.listAccounts() ?? [])];
+  }
+
+  async listLocalAccounts(): Promise<OpenAIAccount[]> {
     return this.getStore().list().map((account) => {
       const authState = this.accountAuthState(account.id, account.authJson);
       let lastLogin: string | undefined;
@@ -471,6 +502,7 @@ export class OpenAIAccountService {
 
   /** Check if an account has a valid auth.json. */
   async isAccountLoggedIn(accountId: string): Promise<boolean> {
+    if (isSharedCodexAccountId(accountId)) return this.sharedProvider().listAccounts().some(a => a.id === accountId && a.isLoggedIn);
     const account = await this.requireAccount(accountId);
     return this.accountAuthState(accountId, account.authJson) === "configured";
   }
@@ -576,11 +608,18 @@ export class OpenAIAccountService {
 
   /** Get the raw auth.json content for an account. */
   async getAuthJsonContent(accountId: string): Promise<string | null> {
+    if (isSharedCodexAccountId(accountId)) throw new Error("共享账号的完整凭据仅保存在主设备，无法在本机导出。");
     await this.requireAccount(accountId);
     return this.getStore().getAuthJson(accountId);
   }
 
   async getAccountDetails(accountId: string): Promise<OpenAIAccountDetails> {
+    if (isSharedCodexAccountId(accountId)) {
+      const account = this.sharedProvider().listAccounts().find(a => a.id === accountId);
+      if (!account) throw new Error("共享账号不存在或已取消授权。");
+      return { id: account.id, name: account.name, proxyMode: "system", createdAt: account.createdAt,
+        updatedAt: account.createdAt, authJson: null, ...(account.quota ? { quota: account.quota } : {}) };
+    }
     const account = await this.requireAccount(accountId);
     const quotaRefresh = this.quotaState(account.id, account.authJson);
     return { ...account, ...(quotaRefresh ? { quotaRefresh } : {}) };
@@ -640,6 +679,7 @@ export class OpenAIAccountService {
   }
 
   queryQuota(accountId: string, reason: QuotaRefreshReason = "manual"): Promise<OpenAIAccountQuota> {
+    if (isSharedCodexAccountId(accountId)) return this.sharedProvider().queryQuota(accountId);
     const existing = this.quotaQueries.get(accountId);
     if (existing) return existing;
     // Serialize credential operations until refreshed tokens are saved to SQLite.
