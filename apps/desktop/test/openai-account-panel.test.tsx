@@ -108,6 +108,7 @@ test("cached quota shows the last successful refresh time after credentials expi
   );
   expect(markup).toContain("剩余 63%");
   expect(markup).toContain("2 次重置");
+  expect(markup).toContain("2 张 · 有效期未知");
   expect(markup).toContain('dateTime="2025-01-01T08:30:00.000Z"');
   expect(markup).toContain("上次刷新");
   expect(markup).toContain("已到重置时间，待刷新");

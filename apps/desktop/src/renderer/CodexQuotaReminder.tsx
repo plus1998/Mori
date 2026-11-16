@@ -1,4 +1,5 @@
 import { QuotaRefreshedAt } from "./QuotaRefreshedAt";
+import { CodexResetCreditExpiry } from "./CodexResetCreditExpiry";
 import { hasUnrefreshedCodexQuotaReset } from "../shared/codex-quota-refresh";
 import { LoaderCircle, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -164,6 +165,7 @@ export function CodexQuotaReminderCard({
           count: snapshot.quota.resetCreditsAvailable,
         })}
       </p>
+      <CodexResetCreditExpiry quota={snapshot.quota} />
       <div className="codex-quota-reminder-actions">
         {onRefresh ? (
           <button type="button" onClick={onRefresh} disabled={busy || refreshing} aria-busy={refreshing}>

@@ -3220,6 +3220,21 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
+  String codexQuotaResetExpiresAt(int count, String time) {
+    return '$count 张 · 有效期至 $time';
+  }
+
+  @override
+  String codexQuotaResetNeverExpires(int count) {
+    return '$count 张 · 不过期';
+  }
+
+  @override
+  String codexQuotaResetExpiryUnknown(int count) {
+    return '$count 张 · 有效期未知';
+  }
+
+  @override
   String get codexQuotaNoCredit => '当前账号没有可用重置次数';
 
   @override

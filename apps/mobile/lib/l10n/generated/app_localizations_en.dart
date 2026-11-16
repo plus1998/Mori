@@ -3401,6 +3401,39 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String codexQuotaResetExpiresAt(int count, String time) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count resets',
+      one: '1 reset',
+    );
+    return '$_temp0 · Expires $time';
+  }
+
+  @override
+  String codexQuotaResetNeverExpires(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count resets · Do not expire',
+      one: '1 reset · Does not expire',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String codexQuotaResetExpiryUnknown(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count resets',
+      one: '1 reset',
+    );
+    return '$_temp0 · Expiry unknown';
+  }
+
+  @override
   String get codexQuotaNoCredit => 'This account has no reset credits';
 
   @override

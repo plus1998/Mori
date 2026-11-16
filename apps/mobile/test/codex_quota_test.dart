@@ -13,6 +13,7 @@ import 'package:eco_mobile/l10n/generated/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:intl/intl.dart';
 
 void main() {
   CodexQuotaController controller(
@@ -277,6 +278,60 @@ void main() {
   );
 
   testWidgets(
+    'reset expiry groups preserve capped details and explicit non-expiring credits in both locales',
+    (tester) async {
+      final rpc = _Rpc()
+        ..credits = 5
+        ..resetCredits = [
+          {'id': 'never', 'expiresAt': null},
+          {'id': 'later', 'expiresAt': 2000020000},
+          {'id': 'sooner', 'expiresAt': 2000000000},
+          {'id': 'same-expiry', 'expiresAt': 2000000000},
+        ];
+      final c = controller(rpc);
+      await c.refresh();
+      for (final locale in ['zh', 'en']) {
+        await tester.pumpWidget(
+          _app(c, const CodexQuotaPage(), locale: Locale(locale)),
+        );
+        await tester.pumpAndSettle();
+        final date = DateTime.fromMillisecondsSinceEpoch(2000000000000);
+        final time =
+            '${DateFormat.yMd(locale).add_Hm().format(date)} ${date.timeZoneName}';
+        expect(
+          find.text(
+            locale == 'zh' ? '2 张 · 有效期至 $time' : '2 resets · Expires $time',
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.text(locale == 'zh' ? '1 张 · 不过期' : '1 reset · Does not expire'),
+          findsOneWidget,
+        );
+        expect(
+          find.text(
+            locale == 'zh' ? '1 张 · 有效期未知' : '1 reset · Expiry unknown',
+          ),
+          findsOneWidget,
+        );
+        expect(tester.takeException(), isNull);
+      }
+    },
+  );
+
+  testWidgets('count-only reset credits show unknown expiry', (tester) async {
+    final c = controller(_Rpc());
+    await c.refresh();
+    await tester.pumpWidget(_app(c, const CodexQuotaPage()));
+    expect(find.text('1 张 · 有效期未知'), findsOneWidget);
+    expect(find.textContaining('不过期'), findsNothing);
+    expect(
+      () => CodexResetCredit.fromJson({'id': 'missing-expiry'}),
+      throwsFormatException,
+    );
+  });
+
+  testWidgets(
     'reset is disabled without credits; reset result and refreshed quota are visible',
     (tester) async {
       final rpc = _Rpc()..credits = 0;
@@ -348,10 +403,14 @@ void main() {
   );
 }
 
-Widget _app(CodexQuotaController c, Widget child) => ProviderScope(
+Widget _app(
+  CodexQuotaController c,
+  Widget child, {
+  Locale locale = const Locale('zh'),
+}) => ProviderScope(
   overrides: [codexQuotaProvider.overrideWith((ref) => c)],
   child: MaterialApp(
-    locale: const Locale('zh'),
+    locale: locale,
     localizationsDelegates: AppLocalizations.localizationsDelegates,
     supportedLocales: AppLocalizations.supportedLocales,
     home: Scaffold(body: child),
@@ -402,6 +461,7 @@ CodexAccount _account(String id, {double used = 20, int credits = 1}) =>
 class _Rpc extends DesktopRpc {
   _Rpc() : super(EcoCenterClient(store: CredentialStore()), 'desktop');
   var credits = 1;
+  List<Map<String, dynamic>>? resetCredits;
   final usage = <String, double>{};
   final queries = <String>[];
   final resetKeys = <String>[];
@@ -427,7 +487,10 @@ class _Rpc extends DesktopRpc {
     final wait = queryWait;
     queryWait = null;
     if (wait != null) return wait.future;
-    return _quota(used: usage[id] ?? 20, credits: credits);
+    return CodexAccountQuota.fromJson(
+      _quotaJson(used: usage[id] ?? 20, credits: credits)
+        ..['resetCredits'] = resetCredits,
+    );
   }
 
   @override

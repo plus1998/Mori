@@ -180,6 +180,8 @@ class _CodexQuotaPageState extends ConsumerState<CodexQuotaPage>
                       : l.codexQuotaNoCredit,
                   style: TextStyle(color: eco.textMuted, fontSize: 12),
                 ),
+                if (quota != null && quota.resetCreditsAvailable > 0)
+                  _ResetCreditExpiry(quota: quota),
                 const SizedBox(height: 16),
                 Row(
                   children: [
@@ -217,6 +219,61 @@ class _CodexQuotaPageState extends ConsumerState<CodexQuotaPage>
       ],
     );
   }
+}
+
+class _ResetCreditExpiry extends StatelessWidget {
+  const _ResetCreditExpiry({required this.quota});
+  final CodexAccountQuota quota;
+
+  @override
+  Widget build(BuildContext context) {
+    final l = context.l10n;
+    final locale = Localizations.localeOf(context).toLanguageTag();
+    final groups = <int?, int>{};
+    for (final credit in quota.resetCredits ?? <CodexResetCredit>[]) {
+      groups.update(credit.expiresAt, (count) => count + 1, ifAbsent: () => 1);
+    }
+    final expiries = groups.entries.toList()
+      ..sort(
+        (a, b) => a.key == null
+            ? (b.key == null ? 0 : 1)
+            : b.key == null
+            ? -1
+            : a.key!.compareTo(b.key!),
+      );
+    final unknownCount =
+        quota.resetCreditsAvailable - (quota.resetCredits?.length ?? 0);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (final group in expiries)
+          _line(
+            context,
+            group.key == null
+                ? l.codexQuotaResetNeverExpires(group.value)
+                : l.codexQuotaResetExpiresAt(
+                    group.value,
+                    _formatExpiry(group.key!, locale),
+                  ),
+          ),
+        if (unknownCount > 0)
+          _line(context, l.codexQuotaResetExpiryUnknown(unknownCount)),
+      ],
+    );
+  }
+
+  String _formatExpiry(int expiresAt, String locale) {
+    final date = DateTime.fromMillisecondsSinceEpoch(expiresAt * 1000);
+    return '${DateFormat.yMd(locale).add_Hm().format(date)} ${date.timeZoneName}';
+  }
+
+  Widget _line(BuildContext context, String text) => Padding(
+    padding: const EdgeInsets.only(top: 3),
+    child: Text(
+      text,
+      style: TextStyle(color: ecoColors(context).textMuted, fontSize: 11),
+    ),
+  );
 }
 
 class _Notice extends StatelessWidget {

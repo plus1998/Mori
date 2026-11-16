@@ -18,7 +18,13 @@ const rateLimits = {
       secondary: { usedPercent: 100, windowDurationMins: 10_080, resetsAt: 2_000_600_000 },
     },
   },
-  rateLimitResetCredits: { availableCount: 2 },
+  rateLimitResetCredits: {
+    availableCount: 2,
+    credits: [
+      { id: "reset-expiring", resetType: "codexRateLimits", status: "available", expiresAt: 2_000_000_000 },
+      { id: "reset-never", resetType: "codexRateLimits", status: "available", expiresAt: null },
+    ],
+  },
 };
 const accountResponse = { account: { type: "chatgpt", email: "demo@example.test", planType: "plus" } };
 
@@ -35,12 +41,39 @@ test("Codex quota reads use the Codex bucket and preserve both windows", async (
   expect(calls).toEqual(["account/read", "account/rateLimits/read"]);
   expect(quota).toMatchObject({
     planType: "plus", email: "demo@example.test", resetCreditsAvailable: 2,
+    resetCredits: [{ id: "reset-expiring", expiresAt: 2_000_000_000 }, { id: "reset-never", expiresAt: null }],
     rateLimit: {
       allowed: false, limitReached: true,
       primaryWindow: { usedPercent: 25, limitWindowSeconds: 18_000, resetAt: 2_000_000_000 },
       secondaryWindow: { usedPercent: 100, limitWindowSeconds: 604_800, resetAt: 2_000_600_000 },
     },
   });
+});
+
+test("reset credit details preserve count-only, empty and capped responses without guessing expiries", async () => {
+  for (const credits of [undefined, null, [], rateLimits.rateLimitResetCredits.credits.slice(0, 1)]) {
+    const quota = await readCodexAccountQuota(quotaClient((method) => method === "account/read"
+      ? accountResponse
+      : { ...rateLimits, rateLimitResetCredits: { availableCount: 2, credits } }));
+    expect(quota.resetCreditsAvailable).toBe(2);
+    expect(quota.resetCredits).toEqual(credits?.map(({ id, expiresAt }) => ({ id, expiresAt })) ?? null);
+  }
+});
+
+test("only available Codex reset credits are shown, and malformed expiries fail explicitly", async () => {
+  const credit = rateLimits.rateLimitResetCredits.credits[0]!;
+  const quota = await readCodexAccountQuota(quotaClient((method) => method === "account/read"
+    ? accountResponse
+    : { ...rateLimits, rateLimitResetCredits: { availableCount: 2, credits: [
+      credit, { ...credit, id: "used", status: "redeemed" }, { ...credit, id: "other", resetType: "unknown" },
+    ] } }));
+  expect(quota.resetCredits).toEqual([{ id: credit.id, expiresAt: credit.expiresAt }]);
+  for (const expiresAt of [undefined, "2030-01-01", NaN, Infinity, 1e20]) {
+    await expect(readCodexAccountQuota(quotaClient((method) => method === "account/read"
+      ? accountResponse
+      : { ...rateLimits, rateLimitResetCredits: { availableCount: 1, credits: [{ ...credit, expiresAt }] } })))
+      .rejects.toThrow("重置卡有效期明细无效");
+  }
 });
 
 test("a quota 401 refreshes the managed token once and retries without a model turn", async () => {
@@ -484,6 +517,8 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
   expect(await service.getAuthJsonContent(active.id)).toBe(original);
   expect(await service.getAuthJsonContent(inactive.id)).toBe(freshAuth);
   expect((await service.listAccounts()).find((entry) => entry.id === inactive.id)?.quota?.rateLimit.primaryWindow?.usedPercent).toBe(25);
+  expect((await service.listAccounts()).find((entry) => entry.id === inactive.id)?.quota?.resetCredits)
+    .toEqual([{ id: "reset-expiring", expiresAt: 2_000_000_000 }, { id: "reset-never", expiresAt: null }]);
   service.setWakeModel("unsupported-model");
   await expect(service.wakeAccount(inactive.id)).rejects.toThrow("model_not_found");
   expect((await service.listAccounts()).find((entry) => entry.id === inactive.id)?.quotaRefresh?.error).toBeUndefined();

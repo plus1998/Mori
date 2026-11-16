@@ -5966,6 +5966,24 @@ abstract class AppLocalizations {
   /// **'Available resets: {count}'**
   String codexQuotaResetCount(String count);
 
+  /// No description provided for @codexQuotaResetExpiresAt.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 reset} other{{count} resets}} · Expires {time}'**
+  String codexQuotaResetExpiresAt(int count, String time);
+
+  /// No description provided for @codexQuotaResetNeverExpires.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 reset · Does not expire} other{{count} resets · Do not expire}}'**
+  String codexQuotaResetNeverExpires(int count);
+
+  /// No description provided for @codexQuotaResetExpiryUnknown.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 reset} other{{count} resets}} · Expiry unknown'**
+  String codexQuotaResetExpiryUnknown(int count);
+
   /// No description provided for @codexQuotaNoCredit.
   ///
   /// In en, this message translates to:

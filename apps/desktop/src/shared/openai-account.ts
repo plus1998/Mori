@@ -32,6 +32,12 @@ export interface OpenAIAccountQuotaWindow {
   resetAt: number;
 }
 
+export interface OpenAIAccountResetCredit {
+  id: string;
+  /** Unix seconds; null explicitly means this credit does not expire. */
+  expiresAt: number | null;
+}
+
 export interface OpenAIAccountQuota {
   planType: string;
   email: string;
@@ -42,6 +48,8 @@ export interface OpenAIAccountQuota {
     secondaryWindow: OpenAIAccountQuotaWindow | null;
   };
   resetCreditsAvailable: number;
+  /** Available credit details; null/absent means unknown. May be capped below the available count. */
+  resetCredits?: OpenAIAccountResetCredit[] | null;
   /** Time of the last successful quota query or native quota update, in Unix milliseconds. */
   fetchedAt: number;
 }

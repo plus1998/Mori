@@ -314,6 +314,7 @@ test("reminder shows conversation quota and disables reset without credits or du
     "更换模型",
     "使用重置",
     "可用重置：2 次",
+    "2 张 · 有效期未知",
     "将于",
   ])
     expect(html).toContain(text);

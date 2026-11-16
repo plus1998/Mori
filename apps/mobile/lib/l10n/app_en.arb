@@ -1110,6 +1110,25 @@
   "codexQuotaHours": "{count}-hour quota",
   "codexQuotaResetsAt": "Resets on {time}",
   "codexQuotaResetCount": "Available resets: {count}",
+  "codexQuotaResetExpiresAt": "{count, plural, =1{1 reset} other{{count} resets}} · Expires {time}",
+  "@codexQuotaResetExpiresAt": {
+    "placeholders": {
+      "count": { "type": "int" },
+      "time": { "type": "String" }
+    }
+  },
+  "codexQuotaResetNeverExpires": "{count, plural, =1{1 reset · Does not expire} other{{count} resets · Do not expire}}",
+  "@codexQuotaResetNeverExpires": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "codexQuotaResetExpiryUnknown": "{count, plural, =1{1 reset} other{{count} resets}} · Expiry unknown",
+  "@codexQuotaResetExpiryUnknown": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
   "codexQuotaNoCredit": "This account has no reset credits",
   "codexQuotaNothingToReset": "No quota window is available to reset",
   "codexQuotaSwitching": "Switching accounts. Reset will be available when complete.",

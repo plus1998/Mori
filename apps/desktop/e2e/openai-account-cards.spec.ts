@@ -20,7 +20,12 @@ async function openCards(page: Page) {
         planType: "plus",
         email,
         fetchedAt: now,
-        resetCreditsAvailable: 0,
+        resetCreditsAvailable: 4,
+        resetCredits: [
+          { id: `${id}-expiring-1`, expiresAt: 2_000_000_000 },
+          { id: `${id}-expiring-2`, expiresAt: 2_000_000_000 },
+          { id: `${id}-never`, expiresAt: null },
+        ],
         rateLimit: {
           allowed: true,
           limitReached: false,
@@ -71,6 +76,9 @@ for (const theme of ["light", "dark"]) {
     await expect(card.locator(".codex-account-identity")).toHaveText(/personal@example.test/);
     await expect(card.locator(".codex-account-identity > span")).toHaveCount(0);
     await expect(card.getByRole("meter").first()).toHaveAttribute("aria-valuenow", "68");
+    await expect(card.locator(".codex-reset-credit-expiry")).toContainText("2 resets · Expires");
+    await expect(card.locator(".codex-reset-credit-expiry")).toContainText("1 reset · Does not expire");
+    await expect(card.locator(".codex-reset-credit-expiry")).toContainText("1 reset · Expiry unknown");
     for (const width of [960, 520, 290]) {
       // A narrow settings pane can sit inside a wide desktop window: viewport-only
       // media queries failed to handle this layout.

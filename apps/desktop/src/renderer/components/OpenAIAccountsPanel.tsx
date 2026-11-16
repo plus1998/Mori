@@ -2,6 +2,7 @@ import { codexQuotaPeriod } from "../codex-quota-reminder";
 import { AccountWakeBatchesPanel } from "./AccountWakeBatchesPanel";
 import { canUseOpenAIAccountCredentials, canUseOpenAIAccountWebCredentials } from "../../shared/openai-account";
 import { QuotaRefreshedAt } from "../QuotaRefreshedAt";
+import { CodexResetCreditExpiry } from "../CodexResetCreditExpiry";
 import { useOpenAIAccountsData, type OpenAIAccountsData } from "../useOpenAIAccountsData";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -127,7 +128,10 @@ export function OpenAIAccountQuotaSummary({ quota, isLoggedIn, loading, error, s
           </span>
         );
       })}
-      {quota.resetCreditsAvailable > 0 ? <span className="codex-quota-note">{t("settings.openaiAccounts.resetCredits", { count: quota.resetCreditsAvailable })}</span> : null}
+      {quota.resetCreditsAvailable > 0 ? <span className="codex-quota-note">
+        {t("settings.openaiAccounts.resetCredits", { count: quota.resetCreditsAvailable })}
+        <CodexResetCreditExpiry quota={quota} />
+      </span> : null}
       {showRefreshedAt ? <QuotaRefreshedAt fetchedAt={quota.fetchedAt} /> : null}
     </> : <span>{loading ? t("settings.openaiAccounts.quotaLoading") : t("settings.openaiAccounts.quotaIdle")}</span>}
   </span>;

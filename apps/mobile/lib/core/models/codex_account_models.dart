@@ -55,6 +55,23 @@ class CodexQuotaWindow {
       : null;
 }
 
+class CodexResetCredit {
+  const CodexResetCredit({required this.id, required this.expiresAt});
+  factory CodexResetCredit.fromJson(Map<String, dynamic> json) {
+    if (!json.containsKey('expiresAt')) {
+      throw const FormatException('Missing reset credit expiry');
+    }
+    return CodexResetCredit(
+      id: json['id'] as String,
+      expiresAt: (json['expiresAt'] as num?)?.toInt(),
+    );
+  }
+  final String id;
+
+  /// Unix seconds; null explicitly means this credit does not expire.
+  final int? expiresAt;
+}
+
 class CodexAccountQuota {
   const CodexAccountQuota({
     required this.planType,
@@ -64,6 +81,7 @@ class CodexAccountQuota {
     required this.windows,
     required this.resetCreditsAvailable,
     required this.fetchedAt,
+    this.resetCredits,
   });
   factory CodexAccountQuota.fromJson(Map<String, dynamic> json) {
     final rate = Map<String, dynamic>.from(json['rateLimit'] as Map);
@@ -80,6 +98,13 @@ class CodexAccountQuota {
             ),
       ],
       resetCreditsAvailable: (json['resetCreditsAvailable'] as num).toInt(),
+      resetCredits: (json['resetCredits'] as List?)
+          ?.map(
+            (credit) => CodexResetCredit.fromJson(
+              Map<String, dynamic>.from(credit as Map),
+            ),
+          )
+          .toList(),
       fetchedAt: (json['fetchedAt'] as num).toInt(),
     );
   }
@@ -89,6 +114,9 @@ class CodexAccountQuota {
   final bool limitReached;
   final List<CodexQuotaWindow> windows;
   final int resetCreditsAvailable;
+
+  /// Null means details are unknown; the service may return fewer details than the count.
+  final List<CodexResetCredit>? resetCredits;
   final int fetchedAt;
   bool get available =>
       allowed &&

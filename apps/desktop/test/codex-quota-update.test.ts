@@ -4,6 +4,7 @@ import type { OpenAIAccountQuota } from "../src/shared/openai-account";
 
 const cached: OpenAIAccountQuota = {
   fetchedAt: 1_800_000_000_000, planType: "plus", email: "test@example.test", resetCreditsAvailable: 2,
+  resetCredits: [{ id: "expiring", expiresAt: 1_800_020_000 }, { id: "never", expiresAt: null }],
   rateLimit: {
     allowed: true, limitReached: false,
     primaryWindow: { usedPercent: 20, limitWindowSeconds: 18_000, resetAt: 1_800_010_000, resetAfterSeconds: 10_000 },
@@ -21,6 +22,7 @@ test("sparse updates refresh the timestamp while preserving omitted windows and 
   expect(merged?.rateLimit).toMatchObject({ allowed: false, limitReached: true });
   expect(merged?.fetchedAt).toBe(now);
   expect(merged?.resetCreditsAvailable).toBe(2);
+  expect(merged?.resetCredits).toEqual(cached.resetCredits);
 });
 
 test("a valid notification refreshes the timestamp even when the quota values are unchanged", () => {
