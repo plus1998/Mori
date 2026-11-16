@@ -396,5 +396,12 @@ export function extractUsageFromResponsesStreamEvent(
   if (event.type !== "response.completed") {
     return null;
   }
-  return normalizeResponsesUsage(event.response?.usage, modelId ?? event.response?.model);
+  // Responses-compatible gateways occasionally put usage on the event instead
+  // of under `response`. Accept both shapes; otherwise a billable completion
+  // is silently treated as usage-less.
+  const response = event.response as { usage?: unknown; model?: unknown } | undefined;
+  const eventUsage = (event as unknown as { usage?: unknown }).usage;
+  const usage = response?.usage ?? eventUsage;
+  const responseModel = typeof response?.model === "string" ? response.model : undefined;
+  return normalizeResponsesUsage(usage as ResponsesUsage | undefined, modelId ?? responseModel);
 }

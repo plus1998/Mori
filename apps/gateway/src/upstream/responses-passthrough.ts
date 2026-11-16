@@ -501,7 +501,10 @@ function observeResponsesSseBody(input: {
   let cancelled = false;
   let responseId: string | undefined;
   const allowSyntheticCompletion = input.route.provider.authMethod !== "chatgpt_subscription";
-  const POST_TOOL_STALL_MS = 120;
+  // Third-party Responses providers can pause briefly after a tool item before
+  // sending the terminal event that contains usage. 120ms cancelled that event
+  // and made the synthetic completion look like a real zero-token response.
+  const POST_TOOL_STALL_MS = 1_000;
   let stallTimer: ReturnType<typeof setTimeout> | undefined;
 
   const clearStallTimer = () => {
@@ -536,7 +539,7 @@ function observeResponsesSseBody(input: {
     const syntheticResponseId = responseId ?? providerRequestId ?? `resp_synth_${Date.now()}`;
     input.onLog(
       `responses synthesizing completed provider=${input.route.provider.id} ` +
-        `outputs=${collectedOutputItems.length} reason=${reason}`,
+        `outputs=${collectedOutputItems.length} reason=${reason} usage=unavailable`,
     );
     try {
       const sse = responsesCompletedSse({

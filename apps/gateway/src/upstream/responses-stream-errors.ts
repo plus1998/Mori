@@ -85,7 +85,6 @@ export function responsesCompletedSse(input: {
       status: "completed",
       model: input.modelId,
       output: input.output ?? [],
-      usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
     },
   };
   return `event: response.completed\ndata: ${JSON.stringify(payload)}\n\n`;

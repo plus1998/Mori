@@ -836,6 +836,7 @@ describe("responses passthrough", () => {
     expect(body).toContain("response.completed");
     expect(body).toContain('"type":"custom_tool_call"');
     expect(body).toContain('"name":"exec"');
+    expect(body).not.toContain('"usage":{"input_tokens":0');
     expect(body).not.toContain("xxxxx");
     expect(upstreamCancelCount).toBe(1);
   });

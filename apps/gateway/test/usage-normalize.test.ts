@@ -189,6 +189,26 @@ describe("usage-normalize", () => {
     expect(parsed?.modelId).toBe("claude-sonnet-4-20250514");
   });
 
+  test("extractUsageFromResponsesStreamEvent accepts top-level completion usage", () => {
+    const parsed = extractUsageFromResponsesStreamEvent(
+      {
+        type: "response.completed",
+        response: {
+          id: "r2",
+          status: "completed",
+          output: [],
+        },
+        usage: { input_tokens: 12, output_tokens: 3, total_tokens: 15 },
+      } as never,
+      "gpt-compatible",
+    );
+    expect(parsed).toMatchObject({
+      inputTokens: 12,
+      outputTokens: 3,
+      modelId: "gpt-compatible",
+    });
+  });
+
   test("reads reasoning_tokens from completion_tokens_details", () => {
     expect(
       normalizeChatCompletionsUsage({
