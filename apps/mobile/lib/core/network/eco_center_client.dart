@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/eco_types.dart';
+import '../performance/mobile_performance_monitor.dart';
 import '../storage/credential_store.dart';
 import '../utils/center_server_auth.dart';
 import '../utils/device_profile.dart';
@@ -812,6 +813,12 @@ class EcoCenterClient {
       args: args,
       deadlineMs: deadlineMs ?? defaultInvokeTimeoutMs,
     );
+    final span = MobilePerformanceMonitor.instance.begin(
+      'rpc.invoke',
+      arguments: <String, Object?>{'channel': channel},
+    );
+    MobilePerformanceMonitor.instance.count('rpc.count');
+    MobilePerformanceMonitor.instance.count('rpc.channel.$channel');
 
     try {
       await _sendRpc(request);
@@ -836,6 +843,8 @@ class EcoCenterClient {
         _markTransportUnhealthy(error);
       }
       rethrow;
+    } finally {
+      span.end();
     }
   }
 
@@ -851,6 +860,8 @@ class EcoCenterClient {
       completer.future.then<void>((_) {}, onError: (Object _, StackTrace _) {}),
     );
     _pendingInvokes[id] = completer;
+    final span = MobilePerformanceMonitor.instance.begin('rpc.ping');
+    MobilePerformanceMonitor.instance.count('rpc.ping');
     try {
       await _sendRpc(buildEcoPingRequest(id));
       await completer.future.timeout(
@@ -865,6 +876,7 @@ class EcoCenterClient {
       );
     } finally {
       _pendingInvokes.remove(id);
+      span.end();
     }
   }
 
@@ -1127,6 +1139,7 @@ class EcoCenterClient {
     );
 
     try {
+      MobilePerformanceMonitor.instance.mark('connection.connect.start');
       final accessToken = await _ensureUserAccessToken();
       await _registerDeviceSession(accessToken);
       await _supabase!.realtime.setAuth(accessToken);
@@ -1180,9 +1193,11 @@ class EcoCenterClient {
           connectedAt: _now().toIso8601String(),
         ),
       );
+      MobilePerformanceMonitor.instance.mark('connection.connected');
       _startKeepalive();
       _startDeviceSessionRefresh();
     } catch (error) {
+      MobilePerformanceMonitor.instance.count('connection.error');
       if (_intentionallyStopped) {
         rethrow;
       }
@@ -1536,14 +1551,17 @@ class EcoCenterClient {
         unwrapEcoRpcFromBroadcast(raw) ??
         (raw is Map ? Map<String, dynamic>.from(raw) : null);
     if (message == null) return;
+    MobilePerformanceMonitor.instance.count('realtime.message');
 
     if (message.containsKey('method') && !message.containsKey('id')) {
       final method = message['method'] as String?;
       if (method == EcoRpcConstants.methodEvent) {
         final params = message['params'];
         if (params is Map<String, dynamic>) {
+          MobilePerformanceMonitor.instance.count('realtime.event');
           _eventController.add(EcoEventEnvelope.fromJson(params));
         } else if (params is Map) {
+          MobilePerformanceMonitor.instance.count('realtime.event');
           _eventController.add(
             EcoEventEnvelope.fromJson(Map<String, dynamic>.from(params)),
           );
@@ -1570,6 +1588,11 @@ class EcoCenterClient {
     final delay = ecoRealtimeReconnectDelayMs(
       reconnectDelayMs,
       _reconnectAttempts++,
+    );
+    MobilePerformanceMonitor.instance.count('reconnect.scheduled');
+    MobilePerformanceMonitor.instance.mark(
+      'connection.reconnect.scheduled',
+      arguments: <String, Object?>{'delayMs': delay},
     );
     _reconnectTimer = Timer(Duration(milliseconds: delay), () {
       if (!_intentionallyStopped) {
@@ -1599,6 +1622,7 @@ class EcoCenterClient {
       // WebSocket protocol-level ping/pong still runs; we only skip the
       // application-level transport health check.
       if (!AppLifecycleTracker.isForeground) return;
+      MobilePerformanceMonitor.instance.count('keepalive.tick');
       unawaited(_probeTransport());
     });
   }
@@ -1657,6 +1681,10 @@ class EcoCenterClient {
 
   Future<void> _refreshDeviceSessionAuthorization() async {
     if (_intentionallyStopped || !AppLifecycleTracker.isForeground) return;
+    final span = MobilePerformanceMonitor.instance.begin(
+      'auth.device_session.refresh',
+    );
+    MobilePerformanceMonitor.instance.count('auth.device_session.refresh');
     try {
       final accessToken = await _ensureUserAccessToken();
       await _registerDeviceSession(accessToken);
@@ -1665,6 +1693,8 @@ class EcoCenterClient {
       await client.realtime.setAuth(accessToken);
     } catch (error) {
       _markTransportUnhealthy(error);
+    } finally {
+      span.end();
     }
   }
 

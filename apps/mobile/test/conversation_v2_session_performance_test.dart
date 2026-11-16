@@ -146,6 +146,7 @@ void main() {
       expect(controller.state.error, isNull);
       expect(cache.messageReads, lessThan(20));
       expect(cache.syncPageWrites, lessThan(10));
+      expect(cache.syncPageSizes.every((size) => size <= 32), isTrue);
       expect(remote.capabilityCalls - beforeCapabilities, 0);
     },
   );
@@ -161,10 +162,12 @@ class _CountingCache extends ConversationV2Cache {
       );
   int messageReads = 0;
   int syncPageWrites = 0;
+  final List<int> syncPageSizes = <int>[];
 
   @override
   Future<void> applySyncPage(ConversationV2SyncPage page) {
     syncPageWrites++;
+    syncPageSizes.add(page.effects.length);
     return super.applySyncPage(page);
   }
 

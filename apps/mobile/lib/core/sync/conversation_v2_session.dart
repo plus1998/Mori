@@ -271,6 +271,8 @@ class ConversationV2SessionController
 
     if (_pendingPushes.length >= _conversationPushBatchMaxEvents ||
         _pendingPushBytes >= _conversationPushBatchMaxBytes) {
+      _pushBatchTimer?.cancel();
+      _pushBatchTimer = null;
       unawaited(_flushPushBatch());
     }
     if (_pendingPushes.length < _conversationPushBatchMaxEvents &&
@@ -293,9 +295,28 @@ class ConversationV2SessionController
     if (inFlight != null) return inFlight;
     if (_pendingPushes.isEmpty) return Future<void>.value();
 
-    final batch = List<_PendingConversationPush>.of(_pendingPushes);
-    _pendingPushes.clear();
-    _pendingPushBytes = 0;
+    var take = 0;
+    var batchBytes = 0;
+    for (
+      ;
+      take < _pendingPushes.length && take < _conversationPushBatchMaxEvents;
+      take += 1
+    ) {
+      final nextBytes = _pendingPushes[take].estimatedBytes;
+      if (take > 0 && batchBytes + nextBytes > _conversationPushBatchMaxBytes) {
+        break;
+      }
+      batchBytes += nextBytes;
+    }
+    // A single oversized effect must still make progress. It is already
+    // validated by the engine; the byte limit only controls splitting.
+    if (take == 0) {
+      take = 1;
+      batchBytes = _pendingPushes.first.estimatedBytes;
+    }
+    final batch = _pendingPushes.sublist(0, take);
+    _pendingPushes.removeRange(0, take);
+    _pendingPushBytes -= batchBytes;
     final operation = () async {
       try {
         await _engine.acceptPushEnvelopes(

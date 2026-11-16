@@ -1,10 +1,13 @@
 import Flutter
 import UIKit
 import ImageIO
+import os.signpost
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
   private var imageClipboardChannel: FlutterMethodChannel?
+  private var performanceChannel: FlutterMethodChannel?
+  private let performanceLog = OSLog(subsystem: "com.eco.mobile", category: "performance")
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
@@ -19,6 +22,14 @@ import ImageIO
 
     let registrar = engineBridge.applicationRegistrar
     let messenger = registrar.messenger()
+    let performance = FlutterMethodChannel(
+      name: "eco_mobile/performance",
+      binaryMessenger: messenger
+    )
+    performance.setMethodCallHandler { [weak self] call, result in
+      self?.handlePerformance(call, result: result)
+    }
+    performanceChannel = performance
     let clipboard = FlutterMethodChannel(name: "eco_mobile/image_clipboard", binaryMessenger: messenger)
     clipboard.setMethodCallHandler { call, result in
       guard call.method == "copyImage" else {
@@ -52,6 +63,32 @@ import ImageIO
       EcoMobileComposerSendButtonFactory(messenger: messenger),
       withId: "eco_mobile/composer_send_button"
     )
+  }
+
+  private func handlePerformance(
+    _ call: FlutterMethodCall,
+    result: @escaping FlutterResult
+  ) {
+    guard let args = call.arguments as? [String: Any] else {
+      result(FlutterError(code: "invalid_arguments", message: "Performance arguments are required.", details: nil))
+      return
+    }
+    let name = (args["name"] as? String ?? "unknown").replacingOccurrences(of: " ", with: "_")
+    let rawId = (args["id"] as? NSNumber)?.uint64Value ?? 0
+    let signpostId = rawId == 0 ? OSSignpostID.exclusive : OSSignpostID(rawId)
+    let detail = "\(name) \(args["detail"] as? String ?? "")"
+    switch call.method {
+    case "begin":
+      os_signpost(.begin, log: performanceLog, name: "EcoSpan", signpostID: signpostId, "%{public}s", detail)
+    case "end":
+      os_signpost(.end, log: performanceLog, name: "EcoSpan", signpostID: signpostId)
+    case "instant":
+      os_signpost(.event, log: performanceLog, name: "EcoEvent", "%{public}s", detail)
+    default:
+      result(FlutterMethodNotImplemented)
+      return
+    }
+    result(nil)
   }
 }
 

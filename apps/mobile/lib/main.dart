@@ -14,11 +14,15 @@ import 'core/providers/app_locale_provider.dart';
 import 'core/providers/app_theme_provider.dart';
 import 'core/providers/desktop_auto_connect_provider.dart';
 import 'core/providers/thinking_display_provider.dart';
+import 'core/performance/mobile_performance_monitor.dart';
 import 'core/theme/app_theme_preference.dart';
 import 'core/widgets/progressive_blur.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Opt-in real-device profiling. Keep this before runApp so the first frame,
+  // connection handshake, and any launch work share one Instruments timeline.
+  MobilePerformanceMonitor.instance.start();
 
   // Flutter engine does not call Android Surface.setFrameRate by default (#160952).
   // iOS has no qualified engine-control backend in refresh_rate 2.x; keeping

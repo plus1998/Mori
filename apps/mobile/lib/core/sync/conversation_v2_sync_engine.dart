@@ -3,6 +3,7 @@ import 'dart:async';
 import '../network/desktop_rpc.dart';
 import '../models/conversation_v2_models.dart';
 import '../models/eco_types.dart';
+import '../performance/mobile_performance_monitor.dart';
 import '../storage/conversation_v2_cache.dart';
 import '../utils/conversation_v2_hash.dart';
 
@@ -393,6 +394,11 @@ class ConversationV2SyncEngine {
   }) async {
     if (_disposed) return;
     if (effects.isEmpty) return;
+    MobilePerformanceMonitor.instance.count(
+      'conversation.push',
+      effects.length,
+    );
+    MobilePerformanceMonitor.instance.count('conversation.push_batch');
     final cacheState = current ?? await _cache.state(conversationId);
     if (cacheState == null) return;
 
@@ -773,6 +779,7 @@ class ConversationV2SyncEngine {
     ConversationV2Capabilities capabilities,
     int generation,
   ) async {
+    MobilePerformanceMonitor.instance.count('conversation.catchup');
     final initial = await _cache.state(conversationId);
     if (initial == null) {
       throw StateError('Conversation V2 cache has no bootstrap state.');
@@ -817,6 +824,10 @@ class ConversationV2SyncEngine {
       }
       _validateSyncPage(page, current, capabilities);
       await _applyPageWithRepairs(page, conversationId);
+      MobilePerformanceMonitor.instance.count(
+        'conversation.effects',
+        page.effects.length,
+      );
       final next = await _cache.state(conversationId);
       if (next == null) {
         throw StateError('Conversation V2 cache state disappeared.');
