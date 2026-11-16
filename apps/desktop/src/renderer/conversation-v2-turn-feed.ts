@@ -168,7 +168,15 @@ export function buildThreadRunTurnFeedSections(
       section: turn,
       // Mid-turn segments sort from the preceding user bubble so steered output
       // cannot jump above the mid-turn prompt via attempt.startedAt.
-      at: turn.boundaryAt ?? turn.attempt.startedAt,
+      // A new attempt can continue the same user prompt after an earlier attempt
+      // was cancelled. Its boundary is the original prompt's time, but sorting the
+      // whole turn at that time would move the retry above the earlier stopped turn.
+      // Keep a mid-turn segment anchored at the inserted prompt while keeping a
+      // later attempt anchored at its own start.
+      at:
+        turn.boundaryAt && turn.boundaryAt > turn.attempt.startedAt
+          ? turn.boundaryAt
+          : turn.attempt.startedAt,
       // Stopped skeleton cards have empty agent timelines, so sequence may be 0.
       // Bump past the preceding user prompt (same rule as mobile) so the turn
       // cannot sort above the bubble that opened the segment.

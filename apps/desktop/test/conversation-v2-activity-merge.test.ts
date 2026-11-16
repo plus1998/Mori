@@ -663,6 +663,54 @@ test("keeps the V2 order of a turn whose narrative rows left the feed skeleton",
   expect(feedEntryMessageId(turn.finalEntry!)).toBe("legacy_message_aabbcc03");
 });
 
+test("keeps a later retry below the stopped attempt for the same user prompt", () => {
+  const prompt = legacyUserItem("prompt", 1);
+  prompt.at = "2026-09-16T09:19:38.000Z";
+  const retryNotice = {
+    ...prompt,
+    id: "retry-notice",
+    sequence: 2,
+    eventType: "request.retry_scheduled" as const,
+    role: "system" as const,
+    text: "Codex 正在自动重试（1/5）",
+    runAttemptId: "cancelled-attempt",
+    at: "2026-09-16T09:19:40.000Z",
+    metadata: { activityOrigin: "sdk.api_retry" },
+  };
+  const answer = legacyAssistantItem("retry-answer", 3, "retry-attempt");
+  answer.scope = "main";
+  answer.at = "2026-09-16T09:20:10.000Z";
+  const base = projection([prompt, retryNotice, answer]);
+  base.attempts = [
+    {
+      attemptId: "cancelled-attempt",
+      phase: "execution",
+      retryIndex: 0,
+      status: "cancelled",
+      startedAt: "2026-09-16T09:19:39.000Z",
+      endedAt: "2026-09-16T09:19:50.000Z",
+    },
+    {
+      attemptId: "retry-attempt",
+      phase: "execution",
+      retryIndex: 0,
+      status: "completed",
+      startedAt: "2026-09-16T09:19:55.000Z",
+      endedAt: "2026-09-16T09:20:20.000Z",
+    },
+  ];
+
+  const sections = buildThreadRunTurnFeedSections(
+    buildThreadRunProjectionViewModel(base).mainFeedEntries,
+    base,
+  ).filter((section) => section.kind === "turn");
+
+  expect(sections.map((section) => section.attempt.attemptId)).toEqual([
+    "cancelled-attempt",
+    "retry-attempt",
+  ]);
+});
+
 function feedEntryItemIds(entry: ThreadRunProjectionMainFeedEntry): string[] {
   if (entry.kind === "tool-group") {
     return entry.entries.flatMap(feedEntryItemIds);
