@@ -5356,7 +5356,10 @@ export class ConversationStore {
           ...(pendingLocal?.created_at ? { createdAt: pendingLocal.created_at } : {}),
         });
         if (pendingLocal && pendingLocal.activity_line_id !== activityLineId) {
-          void this.promptImageFileStore?.deleteMessageActivity(threadId, pendingLocal.activity_line_id);
+          // Keep the activity-scoped image files for the lifetime of the thread.
+          // The SDK may reconcile this local activity with a different upstream
+          // id, but image-view/tool records can still reference the original
+          // path. Thread deletion removes the whole message image tree.
           this.db
             .prepare(
               `DELETE FROM thread_user_messages
@@ -5438,7 +5441,8 @@ export class ConversationStore {
         ...(pendingLocal?.created_at ? { createdAt: pendingLocal.created_at } : {}),
       });
       if (pendingLocal && pendingLocal.activity_line_id !== activityLineId) {
-        void this.promptImageFileStore?.deleteMessageActivity(threadId, pendingLocal.activity_line_id);
+        // Do not delete reconciled message images here. They are thread-owned
+        // assets and may still be referenced by a delayed image-view call.
         this.db
           .prepare(
             `DELETE FROM thread_user_messages
@@ -5486,7 +5490,8 @@ export class ConversationStore {
         ...(pendingLocal?.created_at ? { createdAt: pendingLocal.created_at } : {}),
       });
       if (pendingLocal && pendingLocal.activity_line_id !== activityLineId) {
-        void this.promptImageFileStore?.deleteMessageActivity(threadId, pendingLocal.activity_line_id);
+        // Do not delete reconciled message images here. They are thread-owned
+        // assets and are cleaned up with the thread.
         this.db
           .prepare(
             `DELETE FROM thread_user_messages
@@ -5549,7 +5554,8 @@ export class ConversationStore {
       ...(pendingLocal?.created_at ? { createdAt: pendingLocal.created_at } : {}),
     });
     if (pendingLocal && pendingLocal.activity_line_id !== activityLineId) {
-      void this.promptImageFileStore?.deleteMessageActivity(threadId, pendingLocal.activity_line_id);
+      // Do not delete reconciled message images here. They are thread-owned
+      // assets and are cleaned up with the thread.
       this.db
         .prepare(
           `DELETE FROM thread_user_messages

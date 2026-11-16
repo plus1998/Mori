@@ -2865,6 +2865,16 @@ app
       onDeleted: ({ threadId, workspacePath }) => {
         schedulingService?.threadDeleted(threadId);
         clearThreadRuntimeMemory(threadId);
+        // The thread's V2 records (and therefore its image content references)
+        // have been deleted by the coordinator. Reclaim unreferenced shared
+        // image objects now instead of waiting for the next app launch.
+        void promptImageFileStore
+          .sweepUnreferencedContentObjects({
+            resolveReferencedContentRefs: () => conversationStore.listReferencedPromptImageContentRefs(),
+          })
+          .catch((error) => {
+            process.stderr.write(`[eco] prompt image cleanup after thread deletion failed: ${errorMessage(error)}\n`);
+          });
         void requireBrowserHost().disposeThreadScope(threadId).catch((error) => {
           console.error("[browser] Deleted conversation cleanup failed", error);
         });
