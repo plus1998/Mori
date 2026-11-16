@@ -767,6 +767,25 @@ function OpenAIAccountsContent({ onError, data }: {
     [eco, onError],
   );
 
+  const handleWebLogin = useCallback(
+    async (accountId: string) => {
+      if (!eco) return;
+      setLoggingInId(accountId);
+      setOperationError("");
+      try {
+        const result = await eco.openAIAccountsStartLogin(accountId, "web");
+        if (!result.success) {
+          onError(result.message);
+          setLoggingInId(null);
+        }
+      } catch (error) {
+        onError(error instanceof Error ? error.message : String(error));
+        setLoggingInId(null);
+      }
+    },
+    [eco, onError],
+  );
+
   const handleOpenChatGPT = useCallback(async (accountId: string) => {
     if (!eco) return;
     setBusy(true);
@@ -1148,6 +1167,10 @@ function OpenAIAccountsContent({ onError, data }: {
                             <button type="button" role="menuitem" className="codex-account-status-item" disabled={busy} onClick={() => { setStatusMenu(null); void handleOpenChatGPT(account.id); }}>
                               <Globe2 size={14} />
                               <span>{t("settings.openaiAccounts.openChatGPT")}</span>
+                            </button>
+                            <button type="button" role="menuitem" className="codex-account-status-item is-primary" disabled={busy || loggingInId !== null} onClick={() => { setStatusMenu(null); void handleWebLogin(account.id); }}>
+                              {loggingInId === account.id ? <Loader2 size={14} className="mcp-spin" /> : <KeyRound size={14} />}
+                              <span>{t("settings.openaiAccounts.webLoginAssistant")}</span>
                             </button>
                           </div>
                         ) : null}
