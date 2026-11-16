@@ -2965,6 +2965,7 @@ export const i18nCatalogs = {
       "thread.composer.requestChanges": "要求后续变更",
       "thread.composer.unavailable": "当前对话不可发送",
       "thread.composer.placeholder": "尽管问",
+      "thread.composer.runningElapsed": "已运行 {{duration}}",
       "thread.idleCacheWarningTitle": "缓存可能已过期",
       "thread.idleCacheWarning":
         "这个对话已闲置 {{duration}}。缓存可能无法复用，继续发送的第一轮可能需要重新处理完整上下文，费用或延迟可能上升。建议新建对话。",
@@ -7002,6 +7003,7 @@ export const i18nCatalogs = {
       "thread.composer.requestChanges": "Request follow-up changes",
       "thread.composer.unavailable": "This thread cannot accept messages",
       "thread.composer.placeholder": "Ask anything",
+      "thread.composer.runningElapsed": "Running for {{duration}}",
       "thread.idleCacheWarningTitle": "The cache may have expired",
       "thread.idleCacheWarning":
         "This thread has been idle for {{duration}}. The cache may no longer be reusable, so the first new turn may reprocess the full context and increase cost or latency. Start a new thread for a cleaner cache.",

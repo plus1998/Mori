@@ -3,6 +3,7 @@ import { ComposerReferenceService, type ComposerReferenceDeps } from "../src/mai
 import { composerReferenceToken } from "../src/shared/composer-references";
 import type { ThreadSummary } from "../src/shared/ipc";
 import type { ConversationMessage } from "@eco/shared";
+import { browserPersonalScopeId, type BrowserInstanceView } from "../src/shared/browser";
 
 const threads = [
   { id: "a", title: "订单实现", workspacePath: "/project/a", updatedAt: "2026-10-15" },
@@ -45,6 +46,37 @@ test("picker searches conversations across projects and bounds each category", (
   ]);
   expect(service.search({ query: "订单", limit: 1 }).hasMore).toBe(true);
   expect(() => service.search({ query: "", limit: -1 })).toThrow();
+});
+test("web picker only lists pages from its conversation in web and all-category searches", () => {
+  const service = setup({ listBrowsers: () => [
+    { id: "a1", threadId: "a", title: "订单 A", url: "https://a.example" },
+    { id: "b1", threadId: "b", title: "订单 B", url: "https://b.example" },
+    { id: "a2", threadId: "a", title: "订单 A2", url: "https://a2.example" },
+  ] as BrowserInstanceView[] });
+  for (const kind of ["web", undefined] as const) {
+    const search = (browserScopeId: string) => service.search({
+      query: "订单", browserScopeId, ...(kind ? { kind } : {}),
+    }).items.filter(item => item.kind === "web").map(item => item.id);
+    expect(search("a")).toEqual(["a1", "a2"]);
+    expect(search("b")).toEqual(["b1"]);
+    expect(search("empty")).toEqual([]);
+  }
+  expect(service.search({ query: "", kind: "web", browserScopeId: "b", limit: 1 }).hasMore).toBe(false);
+  expect(service.search({ query: "", kind: "web", browserScopeId: "a", limit: 1 }).hasMore).toBe(true);
+});
+test("web picker isolates project landing scopes and excludes web results without a scope", () => {
+  const scopeA = browserPersonalScopeId("/project/a");
+  const scopeB = browserPersonalScopeId("/project/b");
+  const service = setup({ listBrowsers: () => [
+    { id: "personal-a", threadId: scopeA, title: "A", url: "https://a.example" },
+    { id: "personal-b", threadId: scopeB, title: "B", url: "https://b.example" },
+    { id: "thread-a", threadId: "a", title: "会话 A", url: "https://thread.example" },
+  ] as BrowserInstanceView[] });
+  expect(service.search({ query: "", kind: "web", browserScopeId: scopeA }).items.map(item => item.id))
+    .toEqual(["personal-a"]);
+  expect(service.search({ query: "", kind: "web" })).toEqual({ items: [], hasMore: false });
+  expect(service.search({ query: "" }).items.some(item => item.kind === "web")).toBe(false);
+  expect(() => service.search({ query: "", browserScopeId: " " })).toThrow("会话范围");
 });
 test("Multi-Agents search and prompt resolution use current saved configuration and expose a start request", async () => {
   const resolved: unknown[][] = [];

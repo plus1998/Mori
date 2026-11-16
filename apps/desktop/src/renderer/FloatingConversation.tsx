@@ -30,7 +30,7 @@ export function FloatingConversation({
   children: ReactNode;
 }) {
   const { t } = useTranslation();
-  const [minimized, setMinimized] = useState(true);
+  const [minimized, setMinimized] = useState(false);
   const [feedOpen, setFeedOpen] = useState(false);
   const [completionThreadId, setCompletionThreadId] = useState<string>();
   const [portalTarget, setPortalTarget] = useState<HTMLDivElement | null>(null);
@@ -49,7 +49,7 @@ export function FloatingConversation({
 
   useEffect(() => {
     if (!enabled) {
-      setMinimized(true);
+      setMinimized(false);
       setFeedOpen(false);
     }
     setCompletionThreadId(undefined);
@@ -88,7 +88,7 @@ export function FloatingConversation({
           "codex-chat-shell", landing ? "is-landing" : "is-conversation",
           enabled ? "is-floating-conversation" : "",
           enabled && focus.focused ? "is-floating-active" : "",
-          enabled && feedOpen && focus.focused ? "is-floating-feed-open" : "",
+          enabled && feedOpen ? "is-floating-feed-open" : "",
           enabled && minimized ? "is-floating-minimized" : "",
         ].filter(Boolean).join(" ")}
         inert={enabled && minimized ? true : undefined}

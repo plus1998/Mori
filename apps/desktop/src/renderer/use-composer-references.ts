@@ -29,6 +29,7 @@ export function useComposerReferences({
   onChange,
   capabilities,
   projects,
+  browserScopeId,
 }: {
   prompt: string;
   cursor: number;
@@ -36,6 +37,7 @@ export function useComposerReferences({
   onChange(value: string): void;
   capabilities: readonly ComposerCapabilityReference[];
   projects: readonly { path: string; name: string; searchTerms?: readonly string[] }[];
+  browserScopeId: string;
 }) {
   const query = useMemo(() => parseMentionQuery(prompt, cursor), [prompt, cursor]);
   const queryKey = query ? JSON.stringify(query) : "";
@@ -65,8 +67,9 @@ export function useComposerReferences({
   }, [open, query?.start, query?.kind]);
   const searchRequest = useMemo(() => ({
     query: query?.query ?? "",
+    browserScopeId,
     ...(selectedKind ? { kind: selectedKind } : {}),
-  }), [query?.query, selectedKind]);
+  }), [query?.query, selectedKind, browserScopeId]);
   const searchKey = JSON.stringify(searchRequest);
   useEffect(() => {
     if (!queryKey) setDismissed("");

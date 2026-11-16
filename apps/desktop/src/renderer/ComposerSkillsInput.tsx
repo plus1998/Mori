@@ -1,3 +1,6 @@
+import { useTranslation } from "react-i18next";
+import { formatDuration } from "./activity-log";
+import { useTurnDurationMs } from "./use-turn-duration";
 import { shortcutMatches } from "./keyboard-shortcuts";
 import {
   type ClipboardEvent,
@@ -47,6 +50,7 @@ interface ComposerSkillsInputProps {
   skillsByName: ReadonlyMap<string, SkillInfo>;
   disabled?: boolean | undefined;
   placeholder?: string | undefined;
+  runningStartedAt?: string | undefined;
   maxHeight?: number | undefined;
   onKeyDown?: (event: KeyboardEvent<HTMLDivElement>) => void;
   onPaste?: (event: ClipboardEvent<HTMLDivElement>) => void;
@@ -64,6 +68,7 @@ export const ComposerSkillsInput = forwardRef<ComposerSkillsInputHandle, Compose
       skillsByName,
       disabled,
       placeholder,
+      runningStartedAt,
       maxHeight = 200,
       onKeyDown,
       onPaste,
@@ -72,6 +77,11 @@ export const ComposerSkillsInput = forwardRef<ComposerSkillsInputHandle, Compose
     },
     ref,
   ) {
+    const { t } = useTranslation();
+    const runningDurationMs = useTurnDurationMs(runningStartedAt, undefined, Boolean(runningStartedAt) && !value);
+    const displayPlaceholder = runningStartedAt
+      ? t("thread.composer.runningElapsed", { duration: formatDuration(runningDurationMs) || "0s" })
+      : placeholder;
     const editorRef = useRef<HTMLDivElement>(null);
     const isComposingRef = useRef(false);
     const lastEmittedValueRef = useRef(value);
@@ -516,7 +526,7 @@ export const ComposerSkillsInput = forwardRef<ComposerSkillsInputHandle, Compose
           aria-activedescendant={referencePopup && referencePopup.activeIndex >= 0 ? `composer-reference-option-${referencePopup.activeIndex}` : undefined}
           role="textbox"
           aria-multiline="true"
-          data-placeholder={placeholder}
+          data-placeholder={displayPlaceholder}
           spellCheck={false}
           onInput={handleInput}
           onCompositionStart={handleCompositionStart}

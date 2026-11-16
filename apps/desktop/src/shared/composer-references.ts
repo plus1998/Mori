@@ -21,6 +21,8 @@ export interface ComposerReference {
 }
 export interface ComposerReferenceSearchRequest {
   query: string;
+  /** Current conversation or project landing-page browser scope. Omission excludes web results. */
+  browserScopeId?: string;
   kind?: ComposerReferenceKind;
   limit?: number;
 }

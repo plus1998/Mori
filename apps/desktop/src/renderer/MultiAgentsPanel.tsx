@@ -7,6 +7,7 @@ import {
   ChevronDown,
   ChevronRight,
   CircleCheck,
+  Copy,
   FolderGit2,
   LoaderCircle,
   Pause,
@@ -110,12 +111,16 @@ function MemberEditor({
   member,
   onChange,
   onRemove,
+  onDuplicate,
+  duplicateDisabled,
   accountNames,
   settings,
 }: {
   member: MultiAgentsMember;
   onChange: (member: MultiAgentsMember) => void;
   onRemove: () => void;
+  onDuplicate: () => void;
+  duplicateDisabled: boolean;
   accountNames: Record<string, string>;
   settings: ModelSettingsSnapshot;
 }) {
@@ -127,6 +132,11 @@ function MemberEditor({
       <header className="multi-agents-member-header">
         <img src={`./agent-icons/${harnessIcons[member.coreKind]}`} alt="" aria-hidden />
         <h3>{member.name || t("multiAgents.unnamedMember")}</h3>
+        <SettingsButton variant="ghost" onClick={onDuplicate} disabled={duplicateDisabled}
+          aria-label={t("multiAgents.duplicateMemberName", { name: member.name })}
+          title={t("multiAgents.duplicateMember")}>
+          <Copy size={14} aria-hidden />
+        </SettingsButton>
         <SettingsButton
           variant="ghost"
           onClick={onRemove}
@@ -481,6 +491,17 @@ export function MultiAgentsSettingsPanel({
                         member={member}
                         accountNames={accountNames}
                         settings={settings}
+                        duplicateDisabled={draft.members.length >= 16}
+                        onDuplicate={() => {
+                          const names = new Set(draft.members.map((value) => value.name));
+                          let index = 2;
+                          let name = `${member.name} ${index}`;
+                          while (names.has(name)) name = `${member.name} ${++index}`;
+                          const copy = { ...structuredClone(member), id: crypto.randomUUID(), name };
+                          const members = [...draft.members];
+                          members.splice(members.findIndex((value) => value.id === member.id) + 1, 0, copy);
+                          setDraft({ ...draft, members });
+                        }}
                         onChange={(next) =>
                           setDraft({
                             ...draft,

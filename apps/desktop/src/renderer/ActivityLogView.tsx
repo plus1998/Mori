@@ -1,3 +1,4 @@
+import { useTurnDurationMs } from "./use-turn-duration";
 import { RetryCountdownLabel } from "./RetryCountdownLabel";
 import { projectionTimelineItemRenderSignature } from "./projection-timeline-signature";
 import { shortcutMatches } from "./keyboard-shortcuts";
@@ -2843,27 +2844,6 @@ function formatStoppedTurnDuration(durationMs: number): string {
     .replace(/(\d+)s\b/g, "$1秒");
 }
 
-function useTurnDurationMs(startedAt: string, endedAt: string | undefined, running: boolean): number {
-  const resolve = useCallback(() => {
-    const startMs = Date.parse(startedAt);
-    const endMs = endedAt ? Date.parse(endedAt) : Date.now();
-    return Number.isFinite(startMs) && Number.isFinite(endMs) ? Math.max(0, endMs - startMs) : 0;
-  }, [endedAt, startedAt]);
-  const [durationMs, setDurationMs] = useState(resolve);
-
-  useEffect(() => {
-    const update = () => {
-      const next = resolve();
-      setDurationMs((current) => (current === next ? current : next));
-    };
-    update();
-    if (!running) return;
-    const timer = setInterval(update, LIVE_DURATION_TICK_MS);
-    return () => clearInterval(timer);
-  }, [resolve, running]);
-
-  return durationMs;
-}
 
 export function resolveActiveSubagentDurationMs(
   startedAt: string,

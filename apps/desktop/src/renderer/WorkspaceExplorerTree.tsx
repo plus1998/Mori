@@ -2,6 +2,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import {
   type CSSProperties,
+  type DragEvent,
   type KeyboardEvent,
   type ReactNode,
   type RefObject,
@@ -53,6 +54,7 @@ export interface WorkspaceExplorerTreeProps {
   onCollapseItem: (index: string) => void;
   onSelectItem: (index: string) => void;
   onFocusItem?: (index: string) => void;
+  onDragFile?: (event: DragEvent<HTMLDivElement>, item: ExplorerTreeItem) => void;
   /** Opt in for large review lists with a known fixed row height and gap. */
   virtualScrollRef?: RefObject<HTMLDivElement | null>;
 }
@@ -110,6 +112,7 @@ export function WorkspaceExplorerTree({
   onCollapseItem,
   onSelectItem,
   onFocusItem,
+  onDragFile,
   virtualScrollRef,
 }: WorkspaceExplorerTreeProps) {
   const treeId = useId();
@@ -264,6 +267,8 @@ export function WorkspaceExplorerTree({
             aria-level={node.depth + 1}
             data-tree-index={node.index}
             tabIndex={-1}
+            draggable={!item.isFolder && Boolean(onDragFile)}
+            onDragStart={onDragFile && !item.isFolder ? (event) => onDragFile(event, item) : undefined}
             onClick={() => activateItem(node.index)}
             onFocus={() => onFocusItem?.(node.index)}
           >

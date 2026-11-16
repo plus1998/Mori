@@ -1,3 +1,4 @@
+import { WORKSPACE_FILE_DRAG_MIME, readWorkspaceFileDrag } from "./workspace-file-drag";
 import { ThreadWorktreeControl } from "./ThreadWorktreeControl";
 import type { ThreadDevelopmentMode, ThreadWorkLocation, ThreadWorktreeRecord } from "../shared/thread-worktree";
 import { formatAccelerator } from "../shared/keyboard-shortcuts";
@@ -7273,6 +7274,7 @@ function App() {
     ],
   );
   const composerReferencesMenu = useComposerReferences({
+    browserScopeId,
     prompt,
     cursor: composerCursor,
     inputRef: composerRef,
@@ -11556,11 +11558,11 @@ function App() {
       event.dataTransfer.dropEffect = composerDisabled ? "none" : "copy";
       return;
     }
-    if (![...event.dataTransfer.types].includes("Files")) {
+    if (!event.dataTransfer.types.includes(WORKSPACE_FILE_DRAG_MIME) && ![...event.dataTransfer.types].includes("Files")) {
       return;
     }
     event.preventDefault();
-    event.dataTransfer.dropEffect = "copy";
+    event.dataTransfer.dropEffect = composerDisabled ? "none" : "copy";
   }
 
   function handleComposerDrop(event: ReactDragEvent<HTMLDivElement>) {
@@ -11577,7 +11579,7 @@ function App() {
       composerRef.current?.insertTextAtPoint(`${composerReferenceToken(reference)} `, event.clientX, event.clientY);
       return;
     }
-    if (![...event.dataTransfer.types].includes("Files")) {
+    if (!event.dataTransfer.types.includes(WORKSPACE_FILE_DRAG_MIME) && ![...event.dataTransfer.types].includes("Files")) {
       return;
     }
     event.preventDefault();
@@ -11586,12 +11588,14 @@ function App() {
       return;
     }
     const files = [...event.dataTransfer.files];
-    if (files.length === 0) {
+    const internalFileDrag = event.dataTransfer.types.includes(WORKSPACE_FILE_DRAG_MIME);
+    if (files.length === 0 && !internalFileDrag) {
       return;
     }
-    const resolvedPaths: string[] = [];
+    const internalPath = internalFileDrag ? readWorkspaceFileDrag(event.dataTransfer) : undefined;
+    const resolvedPaths: string[] = internalPath ? [internalPath] : [];
     let failed = 0;
-    for (const file of files) {
+    for (const file of internalFileDrag ? [] : files) {
       const rawPath = window.eco?.getPathForFile?.(file)?.trim() ?? "";
       if (!rawPath || !isAbsoluteLocalFilePath(rawPath)) {
         failed += 1;
@@ -12791,6 +12795,9 @@ function App() {
                     onPaste={handleComposerPaste}
                     onPasteImageFiles={(files) => void addComposerImageFiles(files)}
                     placeholder={composerPlaceholder}
+                    runningStartedAt={taskPanelFullscreenOpen && activeThread?.status === "running" && !showComposerDockApproval
+                      ? displayProjection?.attempts.find((attempt) => attempt.status === "running")?.startedAt
+                      : undefined}
                     disabled={composerDisabled}
                   />
                   <div className="composer-footer">

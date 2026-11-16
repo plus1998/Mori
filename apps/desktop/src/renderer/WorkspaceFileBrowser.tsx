@@ -23,6 +23,7 @@ import {
   workspacePathSegments,
 } from "./workspace-file-browser-logic";
 import { isWorkspacePathContained } from "./workspace-file-reference";
+import { startWorkspaceFileDrag } from "./workspace-file-drag";
 import "./workspace-file-browser.css";
 
 interface WorkspaceApi {
@@ -350,6 +351,7 @@ export function WorkspaceFileBrowser({ workspacePath, threadId, target }: Worksp
             const selectedItem = items[index];
             if (selectedItem && !selectedItem.isFolder) selectFile(index);
           }}
+          onDragFile={(event, item) => startWorkspaceFileDrag(event.dataTransfer, item.index)}
           onFocusItem={setFocusedItem}
         />
       </div>

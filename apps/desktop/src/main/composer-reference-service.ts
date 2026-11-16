@@ -73,6 +73,9 @@ export class ComposerReferenceService {
     if (!request || typeof request.query !== "string") throw new Error("引用搜索需要 query。");
     if (request.kind !== undefined && !COMPOSER_REFERENCE_KINDS.includes(request.kind))
       throw new Error("未知引用类型。");
+    if (request.browserScopeId !== undefined &&
+      (typeof request.browserScopeId !== "string" || !request.browserScopeId.trim()))
+      throw new Error("网页引用搜索需要有效的浏览器会话范围。");
     const limit = request.limit ?? 12;
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 50)
       throw new Error("引用搜索 limit 必须在 1–50 之间。");
@@ -85,10 +88,11 @@ export class ComposerReferenceService {
           .listSsh()
           .map((item) => ({ kind: "ssh", id: item.id, label: item.name, detail: endpoint(item) })),
       );
-    if (!request.kind || request.kind === "web")
+    if (request.browserScopeId && (!request.kind || request.kind === "web"))
       groups.push(
         this.deps
           .listBrowsers()
+          .filter((item) => item.threadId === request.browserScopeId)
           .map((item) => ({ kind: "web", id: item.id, label: item.title || item.url, detail: item.url })),
       );
     if (!request.kind || request.kind === "conversation")
