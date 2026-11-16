@@ -1534,6 +1534,40 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .thread-info-workspac
   overscroll-behavior: contain;
 }
 
+.sidebar-search-categories {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-height: 48px;
+  padding: 7px 11px;
+  overflow-x: auto;
+  border-top: 1px solid var(--border-subtle);
+  background: color-mix(in srgb, var(--bg-elevated) 92%, var(--text-primary));
+  scrollbar-width: none;
+}
+
+.sidebar-search-categories::-webkit-scrollbar {
+  display: none;
+}
+
+.sidebar-search-categories button {
+  flex: 0 0 auto;
+  min-height: 30px;
+  padding: 5px 11px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.sidebar-search-categories button:hover,
+.sidebar-search-categories button.is-active {
+  background: var(--popover-hover);
+  color: var(--text-primary);
+}
+
 .sidebar-search-group + .sidebar-search-group {
   margin-top: 8px;
   padding-top: 8px;

@@ -475,7 +475,7 @@ import { buildRuntimeAgentDisplayNames } from "./runtime-agent-display";
 import { buildRuntimeAgentThemes } from "./runtime-agent-theme";
 import { SettingsSyncControl } from "./SettingsSyncControl";
 import { SidebarCoreSelector } from "./SidebarCoreSelector";
-import { SidebarSearchDialog } from "./SidebarSearchDialog";
+import { SidebarSearchDialog, type SidebarSearchBrowserPage } from "./SidebarSearchDialog";
 import { SidebarSettingsUpdateControl } from "./SidebarSettingsUpdateControl";
 import { visibleSidebarAttentionItems } from "./sidebar-attention-dismissals";
 import { buildSidebarAttentionItems } from "./sidebar-attention-items";
@@ -13503,6 +13503,14 @@ function App() {
         threads={sidebarSearchThreads}
         projects={projects}
         scheduledMessages={scheduledMessages}
+        websites={webChatList.items.filter((item) => !item.builtin)}
+        sshBookmarks={sshBookmarks}
+        browserPages={browserTaskInstances.map((page): SidebarSearchBrowserPage => ({
+          id: page.id,
+          title: page.title,
+          url: page.url,
+          ...(page.faviconUrl ? { faviconUrl: page.faviconUrl } : {}),
+        }))}
         schedulingError={scheduling.error}
         onClose={() => setSidebarSearchOpen(false)}
         onSelectThread={selectSearchThread}
@@ -13512,6 +13520,21 @@ function App() {
           selectSearchThread(thread);
           setScheduledMessagesReveal({ threadId: thread.id, requestId: Date.now() });
         }}
+        onSelectTodo={(todo) => {
+          projectTodoDraftRef.current = {
+            id: todo.id,
+            revision: todo.revision,
+            projectPath: todo.projectPath,
+            text: todo.text,
+            images: todo.images,
+            completed: todo.completed,
+            status: todo.status,
+          };
+          openProjectTodos();
+        }}
+        onSelectWebsite={openWebChatItem}
+        onSelectSshBookmark={(bookmark) => void connectSshBookmark(bookmark)}
+        onSelectBrowserPage={(page) => openBrowserTaskPanel({ browserId: page.id })}
       />
 
       <section
