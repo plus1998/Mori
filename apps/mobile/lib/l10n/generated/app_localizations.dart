@@ -6763,6 +6763,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'The original draft was sent, cleared, or deleted'**
   String get conversationDraftMissing;
+
+  /// No description provided for @filePreviewDirectoryEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'Folder is empty'**
+  String get filePreviewDirectoryEmpty;
 }
 
 class _AppLocalizationsDelegate

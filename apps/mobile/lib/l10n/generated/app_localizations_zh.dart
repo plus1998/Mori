@@ -3634,4 +3634,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get conversationDraftMissing => '原草稿已发送、清空或删除';
+
+  @override
+  String get filePreviewDirectoryEmpty => '文件夹为空';
 }

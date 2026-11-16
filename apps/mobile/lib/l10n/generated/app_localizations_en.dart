@@ -3861,4 +3861,7 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get conversationDraftMissing =>
       'The original draft was sent, cleared, or deleted';
+
+  @override
+  String get filePreviewDirectoryEmpty => 'Folder is empty';
 }

@@ -25,6 +25,12 @@ typedef FilePreviewReader =
       void Function(int received, int total)? onProgress,
     });
 
+typedef DirectoryPreviewReader =
+    Future<RemoteDirectoryData> Function(
+      LocalFileLink link, {
+      String? relativeTo,
+    });
+
 class ConversationFileLinks extends StatelessWidget {
   const ConversationFileLinks({
     super.key,
@@ -42,6 +48,19 @@ class ConversationFileLinks extends StatelessWidget {
       openFilePreview(
         context,
         link: link,
+        listDirectory: (target, {relativeTo}) {
+          final remote = rpc;
+          if (remote == null) {
+            throw const AppErrorCodeException(
+              AppErrorCode.threadProjectionNoPcSelected,
+            );
+          }
+          return remote.listThreadDirectory(
+            threadId: threadId,
+            directoryPath: target.path,
+            relativeTo: relativeTo,
+          );
+        },
         readFile: (target, {relativeTo, isCancelled, onProgress}) {
           final remote = rpc;
           if (remote == null) {
@@ -67,6 +86,7 @@ void openFilePreview(
   BuildContext context, {
   required LocalFileLink link,
   required FilePreviewReader readFile,
+  DirectoryPreviewReader? listDirectory,
   String? relativeTo,
 }) {
   Navigator.of(context).push<void>(
@@ -74,6 +94,7 @@ void openFilePreview(
       builder: (_) => FilePreviewPage(
         link: link,
         readFile: readFile,
+        listDirectory: listDirectory,
         relativeTo: relativeTo,
       ),
     ),
@@ -85,10 +106,12 @@ class FilePreviewPage extends StatefulWidget {
     super.key,
     required this.link,
     required this.readFile,
+    this.listDirectory,
     this.relativeTo,
   });
   final LocalFileLink link;
   final FilePreviewReader readFile;
+  final DirectoryPreviewReader? listDirectory;
   final String? relativeTo;
 
   @override
@@ -97,6 +120,7 @@ class FilePreviewPage extends StatefulWidget {
 
 class _FilePreviewPageState extends State<FilePreviewPage> {
   RemoteFileData? _file;
+  RemoteDirectoryData? _directory;
   Object? _error;
   int _generation = 0;
   double? _progress;
@@ -112,21 +136,40 @@ class _FilePreviewPageState extends State<FilePreviewPage> {
     final generation = ++_generation;
     setState(() {
       _file = null;
+      _directory = null;
       _error = null;
       _progress = null;
     });
     try {
-      final file = await widget.readFile(
-        widget.link,
-        relativeTo: widget.relativeTo,
-        isCancelled: () => !mounted || generation != _generation,
-        onProgress: (received, total) {
+      try {
+        final file = await widget.readFile(
+          widget.link,
+          relativeTo: widget.relativeTo,
+          isCancelled: () => !mounted || generation != _generation,
+          onProgress: (received, total) {
+            if (mounted && generation == _generation) {
+              setState(() => _progress = total == 0 ? 1 : received / total);
+            }
+          },
+        );
+        if (mounted && generation == _generation) setState(() => _file = file);
+        return;
+      } catch (fileError) {
+        final listDirectory = widget.listDirectory;
+        if (listDirectory == null) rethrow;
+        try {
+          final directory = await listDirectory(
+            widget.link,
+            relativeTo: widget.relativeTo,
+          );
           if (mounted && generation == _generation) {
-            setState(() => _progress = total == 0 ? 1 : received / total);
+            setState(() => _directory = directory);
           }
-        },
-      );
-      if (mounted && generation == _generation) setState(() => _file = file);
+          return;
+        } catch (_) {
+          Error.throwWithStackTrace(fileError, StackTrace.current);
+        }
+      }
     } catch (error) {
       if (mounted && generation == _generation) setState(() => _error = error);
     }
@@ -136,8 +179,44 @@ class _FilePreviewPageState extends State<FilePreviewPage> {
     context,
     link: link,
     readFile: widget.readFile,
-    relativeTo: _file!.path,
+    listDirectory: widget.listDirectory,
+    relativeTo: _directory?.path ?? _file?.path,
   );
+
+  Widget _directoryBody(RemoteDirectoryData directory) {
+    final eco = ecoColors(context);
+    if (directory.entries.isEmpty) {
+      return Center(child: Text(context.l10n.filePreviewDirectoryEmpty));
+    }
+    return ListView.separated(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      itemCount: directory.entries.length,
+      separatorBuilder: (_, _) => const Divider(height: 1, indent: 56),
+      itemBuilder: (context, index) {
+        final entry = directory.entries[index];
+        return ListTile(
+          leading: Icon(
+            entry.isDirectory
+                ? Icons.folder_outlined
+                : Icons.insert_drive_file_outlined,
+            color: entry.isDirectory ? eco.accent : eco.textMuted,
+          ),
+          title: Text(entry.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+          subtitle: entry.size == null
+              ? null
+              : Text(_formatFileSize(entry.size!)),
+          trailing: entry.isDirectory ? const Icon(Icons.chevron_right) : null,
+          onTap: () => _openNested(LocalFileLink(path: entry.path)),
+        );
+      },
+    );
+  }
+
+  String _formatFileSize(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
 
   Widget _unsupported({String? detail}) => Center(
     child: Padding(
@@ -232,12 +311,15 @@ class _FilePreviewPageState extends State<FilePreviewPage> {
   @override
   Widget build(BuildContext context) {
     final file = _file;
+    final directory = _directory;
     final canShowSource =
         file != null &&
         (file.kind == FilePreviewKind.markdown ||
             file.kind == FilePreviewKind.html);
     final title =
-        file?.name ?? widget.link.path.replaceAll('\\', '/').split('/').last;
+        file?.name ??
+        directory?.name ??
+        widget.link.path.replaceAll('\\', '/').split('/').last;
     return FileLinkScope(
       onOpenFile: _openNested,
       child: Scaffold(
@@ -264,7 +346,7 @@ class _FilePreviewPageState extends State<FilePreviewPage> {
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
                 child: SelectableText(
-                  file?.path ?? widget.link.path,
+                  file?.path ?? directory?.path ?? widget.link.path,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: ecoColors(context).textMuted,
                   ),
@@ -294,7 +376,7 @@ class _FilePreviewPageState extends State<FilePreviewPage> {
                           ),
                         ),
                       )
-                    : file == null
+                    : file == null && directory == null
                     ? Center(
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
@@ -305,7 +387,9 @@ class _FilePreviewPageState extends State<FilePreviewPage> {
                           ],
                         ),
                       )
-                    : _body(file),
+                    : directory != null
+                    ? _directoryBody(directory)
+                    : _body(file!),
               ),
             ],
           ),

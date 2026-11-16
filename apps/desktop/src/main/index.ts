@@ -1208,7 +1208,7 @@ import {
   writeWorkspaceFile,
 } from "./workspace-file-browser";
 import { prepareWorkspaceGit } from "./workspace-git-setup";
-import { readThreadFilePreview } from "./thread-file-preview";
+import { listThreadDirectory, readThreadFilePreview } from "./thread-file-preview";
 import { WorkspaceGitStatusPublisher } from "./workspace-git-status-publisher";
 import { inspectWorkspace, resolveGitExecutable } from "./workspace-inspect";
 import { WorkspaceReviewService } from "./workspace-review-service";
@@ -6758,6 +6758,35 @@ function registerIpcHandlers(): void {
       workspacePath: thread.workspacePath,
       ...resolveWorktreeContextForThread(request.threadId),
     });
+  });
+
+  registerDesktopCommand(IPC_CHANNELS.threadListDirectory, async (payload: unknown) => {
+    const request = payload as {
+      threadId?: unknown;
+      filePath?: unknown;
+      relativeTo?: unknown;
+    } | null;
+    if (!request || typeof request.threadId !== "string" || !request.threadId.trim()) {
+      throw new Error("A conversation is required to list the directory.");
+    }
+    if (typeof request.filePath !== "string" || !request.filePath.trim()) {
+      throw new Error("A directory path is required.");
+    }
+    if (request.relativeTo !== undefined && typeof request.relativeTo !== "string") {
+      throw new Error("The source file path must be absolute.");
+    }
+    const thread = conversationStore.getThread(request.threadId);
+    if (!thread) throw new Error("Conversation not found.");
+    return listThreadDirectory(
+      {
+        filePath: request.filePath,
+        ...(request.relativeTo === undefined ? {} : { relativeTo: request.relativeTo }),
+      },
+      {
+        workspacePath: thread.workspacePath,
+        ...resolveWorktreeContextForThread(request.threadId),
+      },
+    );
   });
 
   async function openFileWithAppWindows(bundleId: string, filePath: string): Promise<void> {

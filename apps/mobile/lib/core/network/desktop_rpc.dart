@@ -44,6 +44,26 @@ class PromptImageUploadResult {
 }
 
 class DesktopRpc implements ReadAloudRemote {
+  Future<RemoteDirectoryData> listThreadDirectory({
+    required String threadId,
+    required String directoryPath,
+    String? relativeTo,
+  }) async {
+    final result = await _client.invoke<Map<String, dynamic>>(
+      desktopDeviceId,
+      'thread:list-directory',
+      [
+        {
+          'threadId': threadId,
+          'filePath': directoryPath,
+          'relativeTo': ?relativeTo,
+        },
+      ],
+      deadlineMs: 60000,
+    );
+    return RemoteDirectoryData.fromJson(result);
+  }
+
   Future<RemoteFileData> readThreadFile({
     required String threadId,
     required String filePath,

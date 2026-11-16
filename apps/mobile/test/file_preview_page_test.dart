@@ -52,4 +52,31 @@ void main() {
       findsOneWidget,
     );
   });
+  testWidgets('loads a directory listing', (tester) async {
+    await tester.pumpWidget(
+      _app(
+        FilePreviewPage(
+          link: const LocalFileLink(path: '/repo/assets'),
+          readFile: (_, {relativeTo, isCancelled, onProgress}) async {
+            throw StateError('File path must be a regular file.');
+          },
+          listDirectory: (_, {relativeTo}) async => const RemoteDirectoryData(
+            path: '/repo/assets',
+            name: 'assets',
+            entries: [
+              RemoteDirectoryEntry(
+                name: 'logo.png',
+                path: '/repo/assets/logo.png',
+                kind: 'file',
+                size: 2048,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.text('logo.png'), findsOneWidget);
+    expect(find.text('2.0 KB'), findsOneWidget);
+  });
 }

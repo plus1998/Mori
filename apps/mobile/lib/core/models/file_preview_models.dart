@@ -104,6 +104,78 @@ class RemoteFileData {
   };
 }
 
+class RemoteDirectoryEntry {
+  const RemoteDirectoryEntry({
+    required this.name,
+    required this.path,
+    required this.kind,
+    this.size,
+  });
+
+  factory RemoteDirectoryEntry.fromJson(Map<String, dynamic> json) {
+    final kind = json['kind'];
+    if (kind != 'directory' && kind != 'file') {
+      throw const FormatException('Invalid directory entry kind.');
+    }
+    final name = json['name'];
+    final path = json['path'];
+    if (name is! String || name.isEmpty || path is! String || path.isEmpty) {
+      throw const FormatException('Invalid directory entry identity.');
+    }
+    return RemoteDirectoryEntry(
+      name: name,
+      path: path,
+      kind: kind,
+      size: (json['size'] as num?)?.toInt(),
+    );
+  }
+
+  final String name;
+  final String path;
+  final String kind;
+  final int? size;
+
+  bool get isDirectory => kind == 'directory';
+}
+
+class RemoteDirectoryData {
+  const RemoteDirectoryData({
+    required this.path,
+    required this.name,
+    required this.entries,
+    this.parentPath,
+  });
+
+  factory RemoteDirectoryData.fromJson(Map<String, dynamic> json) {
+    final path = json['path'];
+    final name = json['name'];
+    final entries = json['entries'];
+    if (path is! String ||
+        path.isEmpty ||
+        name is! String ||
+        name.isEmpty ||
+        entries is! List) {
+      throw const FormatException('Invalid directory listing response.');
+    }
+    return RemoteDirectoryData(
+      path: path,
+      name: name,
+      parentPath: json['parentPath'] as String?,
+      entries: entries
+          .map(
+            (entry) =>
+                RemoteDirectoryEntry.fromJson(entry as Map<String, dynamic>),
+          )
+          .toList(growable: false),
+    );
+  }
+
+  final String path;
+  final String name;
+  final String? parentPath;
+  final List<RemoteDirectoryEntry> entries;
+}
+
 class FilePreviewCancelled implements Exception {
   const FilePreviewCancelled();
 }

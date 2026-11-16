@@ -141,6 +141,7 @@
   "filePreviewSource": "源码",
   "filePreviewRendered": "预览",
   "filePreviewNoContext": "当前会话没有可用的文件目录",
+  "filePreviewDirectoryEmpty": "文件夹为空",
   "commonOnline": "在线",
   "commonOffline": "离线",
   "commonChecking": "检测中",

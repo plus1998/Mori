@@ -171,6 +171,7 @@
   "filePreviewSource": "Source",
   "filePreviewRendered": "Preview",
   "filePreviewNoContext": "This conversation has no file directory",
+  "filePreviewDirectoryEmpty": "Folder is empty",
   "commonOnline": "Online",
   "commonOffline": "Offline",
   "commonChecking": "Checking",

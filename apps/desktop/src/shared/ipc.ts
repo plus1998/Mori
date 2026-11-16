@@ -191,6 +191,7 @@ export const IPC_CHANNELS = {
   threadListMore: "thread:list-more",
   threadGet: "thread:get",
   threadReadFile: "thread:read-file",
+  threadListDirectory: "thread:list-directory",
   threadWechatFollow: "thread:wechat-follow",
   projectTodoList: "project-todo:list",
   projectTodoQuery: "project-todo:query",

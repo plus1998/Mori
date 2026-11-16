@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { readThreadFilePreview } from "../src/main/thread-file-preview";
+import { listThreadDirectory, readThreadFilePreview } from "../src/main/thread-file-preview";
 
 let workspace = "";
 
@@ -51,4 +51,19 @@ test("resolves links relative to the source file", async () => {
     { workspacePath: workspace },
   );
   expect(result.path).toBe(await fs.realpath(path.join(workspace, "src", "util.ts")));
+});
+
+
+test("lists directories and keeps entries inside the conversation workspace", async () => {
+  await fs.mkdir(path.join(workspace, "src", "nested"));
+  await fs.writeFile(path.join(workspace, "src", "nested", "note.md"), "hello");
+  const result = await listThreadDirectory(
+    { filePath: "src" },
+    { workspacePath: workspace },
+  );
+  expect(result.path).toBe(await fs.realpath(path.join(workspace, "src")));
+  expect(result.entries.map((entry) => [entry.name, entry.kind])).toEqual([
+    ["nested", "directory"],
+    ["main.ts", "file"],
+  ]);
 });
