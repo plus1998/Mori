@@ -17,6 +17,11 @@ export interface ActivityHeaderProjectInfoPanelProps {
   threadId: string;
   acpSessionId?: string;
   onOpenProjectFolder: () => void;
+  isCodexLogin?: boolean;
+  autoRetryEnabled?: boolean;
+  autoRetryAttempt?: number;
+  autoRetryRemainingSeconds?: number;
+  onAutoRetryChange?: (enabled: boolean) => void;
 }
 
 export interface ActivityHeaderProjectInfoProps {
@@ -26,6 +31,11 @@ export interface ActivityHeaderProjectInfoProps {
   threadId: string;
   acpSessionId?: string;
   onError: (message: string) => void;
+  isCodexLogin?: boolean;
+  autoRetryEnabled?: boolean;
+  autoRetryAttempt?: number;
+  autoRetryRemainingSeconds?: number;
+  onAutoRetryChange?: (enabled: boolean) => void;
 }
 
 const POPOVER_SPRING = { type: "spring" as const, bounce: 0, duration: 0.34 };
@@ -46,6 +56,11 @@ export function ActivityHeaderProjectInfoPanel({
   threadId,
   acpSessionId,
   onOpenProjectFolder,
+  isCodexLogin,
+  autoRetryEnabled,
+  autoRetryAttempt,
+  autoRetryRemainingSeconds,
+  onAutoRetryChange,
 }: ActivityHeaderProjectInfoPanelProps) {
   const { t } = useTranslation();
   const cursorSessionId = acpSessionId?.trim() || undefined;
@@ -86,6 +101,34 @@ export function ActivityHeaderProjectInfoPanel({
           </div>
         ) : null}
       </dl>
+      {isCodexLogin ? (
+        <section className="activity-header-project-info-codex" aria-label={t("thread.codexRetry.title")}>
+          <div className="activity-header-project-info-codex-heading">
+            <span>{t("thread.codexRetry.title")}</span>
+            {autoRetryAttempt ? (
+              <span className="activity-header-project-info-codex-status">
+                {t("thread.codexRetry.scheduled", {
+                  attempt: autoRetryAttempt,
+                  limit: 5,
+                  seconds: autoRetryRemainingSeconds ?? 0,
+                })}
+              </span>
+            ) : null}
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={autoRetryEnabled === true}
+            className="activity-header-project-info-codex-toggle"
+            onClick={() => onAutoRetryChange?.(autoRetryEnabled !== true)}
+          >
+            <span>{t("thread.codexRetry.auto")}</span>
+            <span className="activity-header-project-info-switch" aria-hidden="true">
+              <span />
+            </span>
+          </button>
+        </section>
+      ) : null}
       <div className="activity-header-project-info-actions">
         <ConversationShareButton threadId={threadId} showLabel />
       </div>
@@ -100,6 +143,11 @@ export function ActivityHeaderProjectInfo({
   threadId,
   acpSessionId,
   onError,
+  isCodexLogin,
+  autoRetryEnabled,
+  autoRetryAttempt,
+  autoRetryRemainingSeconds,
+  onAutoRetryChange,
 }: ActivityHeaderProjectInfoProps) {
   const { t } = useTranslation();
   const prefersReducedMotion = useReducedMotion();
@@ -212,6 +260,11 @@ export function ActivityHeaderProjectInfo({
                     threadCount={threadCount}
                     threadId={threadId}
                     {...(acpSessionId ? { acpSessionId } : {})}
+                    {...(isCodexLogin ? { isCodexLogin } : {})}
+                    {...(autoRetryEnabled !== undefined ? { autoRetryEnabled } : {})}
+                    {...(autoRetryAttempt !== undefined ? { autoRetryAttempt } : {})}
+                    {...(autoRetryRemainingSeconds !== undefined ? { autoRetryRemainingSeconds } : {})}
+                    {...(onAutoRetryChange ? { onAutoRetryChange } : {})}
                     onOpenProjectFolder={() => {
                       void openProjectFolder();
                     }}

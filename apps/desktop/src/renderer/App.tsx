@@ -22,6 +22,11 @@ import { startTaskPanelResizeSession } from "./task-panel-resize-session";
 import { BROWSER_SELECTION_INSERT_EVENT, BROWSER_SELECTION_REVEAL_EVENT } from "./browser-selection-events";
 import { CodexQuotaReminder } from "./CodexQuotaReminder";
 import { isCodexAuthThread, codexAccountIdForThread } from "../shared/codex-auth-thread";
+import {
+  CODEX_CAPACITY_RETRY_DELAY_MS,
+  CODEX_CAPACITY_RETRY_LIMIT,
+  hasCodexCapacityFailure,
+} from "../shared/codex-capacity-retry";
 import { assertCodexLoginSubagentPolicy, isCodexLoginProvider } from "../shared/codex-login-subagent-policy";
 import type { CoreKind } from "@eco/runtime/core-runtime";
 import {
@@ -3821,6 +3826,14 @@ function App() {
     () => (feedThreadId ? threads.find((thread) => thread.id === feedThreadId) : undefined),
     [feedThreadId, threads],
   );
+  const [codexAutoRetryEnabled, setCodexAutoRetryEnabled] = useState(false);
+  useEffect(() => {
+    setCodexAutoRetryEnabled(
+      activeThread
+        ? window.localStorage.getItem(`codex-capacity-auto-retry:${activeThread.id}`) === "true"
+        : false,
+    );
+  }, [activeThread?.id]);
   const activeWorkspacePath = useMemo(() => {
     const worktree = activeThread?.workLocation;
     if (worktree?.mode === "isolated" && worktree.worktree?.worktreePath) {
@@ -6045,6 +6058,32 @@ function App() {
     }
     return undefined;
   }, [lastRunInterrupted, activeThread, threadAcceptsInput, displayProjection, latestContinueAttempt]);
+  const composerContinueTargetRef = useRef(composerContinueTarget);
+  composerContinueTargetRef.current = composerContinueTarget;
+  const latestCodexUserMessageId = useMemo(() => {
+    const timeline = displayProjection?.timeline ?? [];
+    for (let i = timeline.length - 1; i >= 0; i -= 1) {
+      const target = readUserPromptRetryIdentity(timeline[i]!, { allowEmptyPrompt: true });
+      if (target) return target.activityLineId;
+    }
+    return "";
+  }, [displayProjection?.timeline]);
+
+  const codexAutoRetryCycleRef = useRef({
+    threadId: "",
+    userMessageId: "",
+    retriesStarted: 0,
+    timeout: undefined as number | undefined,
+    interval: undefined as number | undefined,
+  });
+  const [codexAutoRetryStatus, setCodexAutoRetryStatus] = useState<
+    { attempt: number; remainingSeconds: number } | undefined
+  >();
+  const codexCapacityFailure = Boolean(
+    latestContinueAttempt &&
+      hasCodexCapacityFailure(displayProjection?.timeline ?? [], latestContinueAttempt.attemptId),
+  );
+  const activeThreadIsCodexLogin = Boolean(activeThread && isCodexAuthThread(activeThread));
 
   // Show only for a settled Codex attempt with an empty composer.
   const composerShowContinue =
@@ -8599,6 +8638,12 @@ function App() {
     target: RequestFailureRetryTarget & { sourceAttemptId: string },
   ) {
     if (!activeThread || isStarting || !window.eco) return;
+    const retryCycle = codexAutoRetryCycleRef.current;
+    if (retryCycle.timeout !== undefined) window.clearTimeout(retryCycle.timeout);
+    if (retryCycle.interval !== undefined) window.clearInterval(retryCycle.interval);
+    retryCycle.timeout = undefined;
+    retryCycle.interval = undefined;
+    setCodexAutoRetryStatus(undefined);
     const threadId = activeThread.id;
     setIsStarting(true);
     setError(undefined);
@@ -8624,6 +8669,97 @@ function App() {
     }
   }
 
+  const autoContinueInterruptedCodexTurn = useStableCallback(continueInterruptedCodexTurn);
+  useEffect(() => {
+    const cycle = codexAutoRetryCycleRef.current;
+    if (cycle.threadId !== (activeThread?.id ?? "") || cycle.userMessageId !== latestCodexUserMessageId) {
+      cycle.threadId = activeThread?.id ?? "";
+      cycle.userMessageId = latestCodexUserMessageId;
+      cycle.retriesStarted = 0;
+    }
+    if (cycle.timeout !== undefined) window.clearTimeout(cycle.timeout);
+    if (cycle.interval !== undefined) window.clearInterval(cycle.interval);
+    cycle.timeout = undefined;
+    cycle.interval = undefined;
+
+    if (latestContinueAttempt?.status === "completed") {
+      cycle.retriesStarted = 0;
+    }
+    const canSchedule = Boolean(
+      activeThread &&
+        activeThreadIsCodexLogin &&
+        codexAutoRetryEnabled &&
+        codexCapacityFailure &&
+        composerContinueTargetRef.current &&
+        latestContinueAttempt?.status === "failed" &&
+        cycle.retriesStarted < CODEX_CAPACITY_RETRY_LIMIT,
+    );
+    if (!canSchedule || !activeThread) {
+      setCodexAutoRetryStatus(undefined);
+      return;
+    }
+    const sourceAttemptId = latestContinueAttempt?.attemptId;
+    if (!sourceAttemptId) {
+      setCodexAutoRetryStatus(undefined);
+      return;
+    }
+
+    const attempt = cycle.retriesStarted + 1;
+    const deadline = Date.now() + CODEX_CAPACITY_RETRY_DELAY_MS;
+    const updateCountdown = () =>
+      setCodexAutoRetryStatus({
+        attempt,
+        remainingSeconds: Math.max(0, Math.ceil((deadline - Date.now()) / 1_000)),
+      });
+    updateCountdown();
+    cycle.interval = window.setInterval(updateCountdown, 1_000);
+    const threadId = activeThread.id;
+    cycle.timeout = window.setTimeout(() => {
+      cycle.timeout = undefined;
+      if (cycle.interval !== undefined) window.clearInterval(cycle.interval);
+      cycle.interval = undefined;
+      if (selectedThreadIdRef.current !== threadId) {
+        setCodexAutoRetryStatus(undefined);
+        return;
+      }
+      const target = composerContinueTargetRef.current;
+      if (!target || target.sourceAttemptId !== sourceAttemptId) {
+        setCodexAutoRetryStatus(undefined);
+        return;
+      }
+      cycle.retriesStarted += 1;
+      setCodexAutoRetryStatus(undefined);
+      void autoContinueInterruptedCodexTurn(target);
+    }, CODEX_CAPACITY_RETRY_DELAY_MS);
+    return () => {
+      if (cycle.timeout !== undefined) window.clearTimeout(cycle.timeout);
+      if (cycle.interval !== undefined) window.clearInterval(cycle.interval);
+      cycle.timeout = undefined;
+      cycle.interval = undefined;
+    };
+  }, [
+    activeThread?.id,
+    activeThreadIsCodexLogin,
+    autoContinueInterruptedCodexTurn,
+    codexAutoRetryEnabled,
+    codexCapacityFailure,
+    Boolean(composerContinueTarget),
+    composerContinueTarget?.activityLineId,
+    composerContinueTarget?.sourceAttemptId,
+    latestCodexUserMessageId,
+    latestContinueAttempt?.attemptId,
+    latestContinueAttempt?.status,
+  ]);
+
+  const setThreadCodexAutoRetry = useCallback(
+    (enabled: boolean) => {
+      if (!activeThread) return;
+      window.localStorage.setItem(`codex-capacity-auto-retry:${activeThread.id}`, String(enabled));
+      setCodexAutoRetryEnabled(enabled);
+    },
+    [activeThread?.id],
+  );
+
   async function retryFailedRequest(target: RequestFailureRetryTarget) {
     if (!activeThread) {
       setError(t("activity.retryUnavailable"));
@@ -8637,11 +8773,15 @@ function App() {
       return;
     }
     const threadId = activeThread.id;
+    if (target.codexMidTurnPrompt) {
+      // Codex turn/steer rejects an empty input. Use a short, explicit continuation
+      // instruction while the automatic provider retry is still in flight.
+      await sendComposerMessage(target.codexMidTurnPrompt, { followUpDeliveryMode: "steer" });
+      return;
+    }
     const useRewrite = usesRewindOnRequestRetry(activeThread.coreKind);
     setError(undefined);
     requestActivityFeedForceScroll();
-    if (useRewrite) {
-    }
     setIsStarting(true);
     try {
       const command = await buildV2CommandEnvelope(threadId, "history_retry", {
@@ -13462,6 +13602,15 @@ function App() {
                           threadsByProject.get(normalizeProjectPath(activeThread.workspacePath))?.length ?? 0
                         }
                         threadId={activeThread.id}
+                        isCodexLogin={activeThreadIsCodexLogin}
+                        autoRetryEnabled={codexAutoRetryEnabled}
+                        {...(codexAutoRetryStatus
+                          ? {
+                              autoRetryAttempt: codexAutoRetryStatus.attempt,
+                              autoRetryRemainingSeconds: codexAutoRetryStatus.remainingSeconds,
+                            }
+                          : {})}
+                        onAutoRetryChange={setThreadCodexAutoRetry}
                         {...(activeThread.coreKind === "acp" && activeThread.externalSessionId
                           ? { acpSessionId: activeThread.externalSessionId }
                           : {})}

@@ -106,6 +106,7 @@ import {
   CONVERSATION_RUNTIME_EVENT_FAILURE_ROLE,
   CONVERSATION_RUNTIME_EVENT_FAILURE_TITLE,
 } from "../shared/conversation-runtime-event-failure";
+import { isCodexAuthThread } from "../shared/codex-auth-thread";
 import {
   type ActionGroupBucket,
   type ActionKindPayload,
@@ -2146,14 +2147,16 @@ function ConversationV2ProjectionActivityLogViewImpl({
     [feedSections],
   );
   const paceTargetKey = useMemo(() => resolveFeedPaceTargetKey(feedSections), [feedSections]);
+  const codexLoginThread = Boolean(thread && isCodexAuthThread(thread));
   const retryTargets = useMemo(
     () =>
       buildRequestFailureRetryTargets({
         items: projection.timeline,
         ...(thread?.coreKind && { coreKind: thread.coreKind }),
         threadStatus: thread?.status ?? projection.thread.status,
+        codexLogin: codexLoginThread,
       }),
-    [projection.timeline, projection.thread.status, thread?.coreKind, thread?.status],
+    [codexLoginThread, projection.timeline, projection.thread.status, thread?.coreKind, thread?.status],
   );
   const allowUserMessageRewrite = supportsHistoryRewrite(thread?.coreKind);
   const forkStatus = thread?.status ?? projection.thread.status;
@@ -4989,6 +4992,7 @@ function ProjectionTimelineEntry({
           void onRetryFailedRequest(retryTarget);
         }
       : undefined;
+  const retryLabel = retryTarget?.codexMidTurnPrompt ? i18n.t("thread.codexRetry.now") : undefined;
 
   // Account recovery must remain available even when the failed turn already
   // produced output and cannot use one-click request retry.
@@ -5104,6 +5108,7 @@ function ProjectionTimelineEntry({
     return wrapRunLogFeedEntry(
       <PhaseBlock
         label={block.label}
+        {...(retryLabel && { retryLabel })}
         {...(block.retryAt && { retryAt: block.retryAt })}
         {...(block.compaction && { compaction: block.compaction })}
         {...(block.reconnecting && { reconnecting: block.reconnecting })}
@@ -5128,6 +5133,7 @@ function ProjectionTimelineEntry({
       hideSubagentIdentity={omitIdentity}
       forceActionDetailsExpanded={forceActionDetailsExpanded}
       {...(actionLabelOverride && { actionLabelOverride })}
+      {...(retryLabel && { retryLabel })}
       {...(requestSpan && { requestSpan })}
       {...(onRetry && { onRetry })}
       {...(imageToolUseId &&
@@ -5312,6 +5318,7 @@ function ExpandableMissionText({
 
 function DetailBlock({
   block,
+  retryLabel,
   modelByRole,
   usageByRole,
   hideSubagentIdentity,
@@ -5327,6 +5334,7 @@ function DetailBlock({
   onRetry,
 }: {
   block: ActivityDetailBlock;
+  retryLabel?: string;
   modelByRole?: Record<string, string>;
   usageByRole?: Record<string, ThreadUsageSnapshot>;
   hideSubagentIdentity?: boolean;
@@ -5347,6 +5355,7 @@ function DetailBlock({
     return (
       <PhaseBlock
         label={block.label}
+        {...(retryLabel && { retryLabel })}
         {...(block.retryAt && { retryAt: block.retryAt })}
         {...(block.compaction && { compaction: block.compaction })}
         {...(block.reconnecting && { reconnecting: block.reconnecting })}
@@ -5472,6 +5481,7 @@ function DetailBlock({
     return (
       <ApiErrorBlock
         message={block.message}
+        {...(retryLabel && { retryLabel })}
         {...(block.title && { title: block.title })}
         {...(block.statusCode !== undefined && {
           statusCode: block.statusCode,
@@ -5532,6 +5542,7 @@ function DetailBlock({
 
 function PhaseBlock({
   label,
+  retryLabel,
   retryAt,
   compaction,
   reconnecting,
@@ -5540,6 +5551,7 @@ function PhaseBlock({
   onRetry,
 }: {
   label: string;
+  retryLabel?: string;
   retryAt?: string;
   compaction?: Extract<ActivityDetailBlock, { kind: "phase" }>["compaction"];
   reconnecting?: boolean;
@@ -5602,7 +5614,13 @@ function PhaseBlock({
     );
   }
   if (onRetry) {
-    return <FeedErrorCard message={label} actionLabel={i18n.t("common.retry")} onAction={onRetry} />;
+    return (
+      <FeedErrorCard
+        message={label}
+        actionLabel={retryLabel ?? i18n.t("common.retry")}
+        onAction={onRetry}
+      />
+    );
   }
   return (
     <div className="run-log-phase">
@@ -7007,6 +7025,7 @@ function ToolFailedBlock({
 
 function ApiErrorBlock({
   message,
+  retryLabel,
   title: explicitTitle,
   statusCode,
   subagent,
@@ -7015,6 +7034,7 @@ function ApiErrorBlock({
   onRetry,
 }: {
   message: string;
+  retryLabel?: string;
   title?: string;
   statusCode?: number;
   subagent?: string;
@@ -7035,7 +7055,7 @@ function ApiErrorBlock({
       {...(subagent && !omitRoleLabel
         ? { context: formatRoleModelLabel(subagent, modelByRole?.[subagent]) }
         : {})}
-      {...(onRetry ? { actionLabel: i18n.t("common.retry"), onAction: onRetry } : {})}
+      {...(onRetry ? { actionLabel: retryLabel ?? i18n.t("common.retry"), onAction: onRetry } : {})}
     />
   );
 }

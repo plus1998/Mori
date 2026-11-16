@@ -1,3 +1,4 @@
+import { isCodexCapacityFailureItem } from "../shared/codex-capacity-retry";
 import { isCodexRetryBlockingProgressItem } from "../shared/codex-request-retry-gate";
 import { CONVERSATION_RUNTIME_EVENT_FAILURE_ORIGIN } from "../shared/conversation-runtime-event-failure";
 import type { ThreadRunProjectionTimelineItem } from "../shared/ipc";
@@ -20,6 +21,8 @@ export type RequestFailureRetryTarget = {
   activityLineId: string;
   prompt: string;
   hasImages: boolean;
+  codexMidTurnPrompt?: string;
+  sourceAttemptId?: string;
 };
 
 function readRewindActivityLineId(item: ThreadRunProjectionTimelineItem): string | undefined {
@@ -107,10 +110,34 @@ export function buildRequestFailureRetryTargets(input: {
   items: readonly ThreadRunProjectionTimelineItem[];
   coreKind?: string;
   threadStatus?: string;
+  codexLogin?: boolean;
 }): Map<string, RequestFailureRetryTarget> {
   const targets = new Map<string, RequestFailureRetryTarget>();
   if (!supportsOneClickRequestRetry(input.coreKind)) {
     return targets;
+  }
+  if (input.codexLogin && input.coreKind === "codex") {
+    let latestUser: RequestFailureRetryTarget | undefined;
+    for (const item of input.items) {
+      const user = readUserPromptRetryIdentity(item, { allowEmptyPrompt: true });
+      if (user) {
+        latestUser = user;
+        continue;
+      }
+      if (
+        item.eventType === "request.retry_scheduled" &&
+        item.scope !== "agent" &&
+        item.runAttemptId &&
+        isCodexCapacityFailureItem(item) &&
+        latestUser
+      ) {
+        targets.set(item.id, {
+          ...latestUser,
+          codexMidTurnPrompt: "继续",
+          sourceAttemptId: item.runAttemptId,
+        });
+      }
+    }
   }
   if (input.threadStatus === "running" || input.threadStatus === "queued") {
     return targets;

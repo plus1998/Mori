@@ -293,6 +293,31 @@ test("buildRequestFailureRetryTargets hides retry while the thread is running", 
   expect(targets.size).toBe(0);
 });
 
+test("Codex Login exposes immediate retry on a scheduled capacity row while running", () => {
+  const targets = buildRequestFailureRetryTargets({
+    coreKind: "codex",
+    codexLogin: true,
+    threadStatus: "running",
+    items: [
+      userPrompt,
+      item({
+        id: "retry-scheduled",
+        sequence: 2,
+        eventType: "request.retry_scheduled",
+        runAttemptId: "attempt-1",
+        text: "Selected model is at capacity; retrying shortly.",
+      }),
+    ],
+  });
+  expect(targets.get("retry-scheduled")).toEqual({
+    activityLineId: "user:abc",
+    prompt: "请继续实现登录页",
+    hasImages: false,
+    codexMidTurnPrompt: "继续",
+    sourceAttemptId: "attempt-1",
+  });
+});
+
 test("ACP started exhaustion retries from the visible blocked banner", () => {
   const targets = buildRequestFailureRetryTargets({
     coreKind: "acp",

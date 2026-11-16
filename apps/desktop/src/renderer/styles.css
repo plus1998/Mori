@@ -3390,6 +3390,110 @@ button.sidebar-settings-meta {
   cursor: text;
 }
 
+.activity-header-project-info-codex {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px 0 2px;
+  border-top: 1px solid var(--popover-border, var(--border-subtle));
+}
+
+.activity-header-project-info-codex-heading,
+.activity-header-project-info-codex-toggle,
+.activity-header-project-info-codex-retry {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.activity-header-project-info-codex-heading {
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--popover-muted, var(--text-secondary));
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.activity-header-project-info-codex-status {
+  color: var(--accent-text, var(--text-primary));
+  font-weight: 500;
+  text-align: right;
+}
+
+.activity-header-project-info-codex-toggle {
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: var(--popover-text, var(--text-primary));
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.activity-header-project-info-switch {
+  display: flex;
+  align-items: center;
+  width: 30px;
+  height: 18px;
+  flex: 0 0 auto;
+  padding: 2px;
+  border-radius: 999px;
+  background: var(--border-strong, #777);
+  transition: background-color 120ms ease-out;
+}
+
+.activity-header-project-info-switch > span {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 18%);
+  transition: transform 120ms ease-out;
+}
+
+.activity-header-project-info-codex-toggle[aria-checked="true"] .activity-header-project-info-switch {
+  background: var(--accent, #3b82f6);
+}
+
+.activity-header-project-info-codex-toggle[aria-checked="true"] .activity-header-project-info-switch > span {
+  transform: translateX(12px);
+}
+
+.activity-header-project-info-codex-toggle:focus-visible,
+.activity-header-project-info-codex-retry:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent-text) 42%, transparent);
+  outline-offset: 2px;
+}
+
+.activity-header-project-info-codex-retry {
+  justify-content: center;
+  gap: 7px;
+  min-height: 32px;
+  padding: 0 9px;
+  border: 1px solid var(--popover-border, var(--border-subtle));
+  border-radius: 6px;
+  background: var(--popover-control-bg, transparent);
+  color: var(--popover-text, var(--text-primary));
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.activity-header-project-info-codex-retry:hover:not(:disabled) {
+  background: var(--popover-control-hover, color-mix(in srgb, var(--text-primary) 7%, transparent));
+}
+
+.activity-header-project-info-codex-retry:disabled {
+  opacity: 0.48;
+  cursor: default;
+}
+
 .activity-header-project-info-actions {
   display: flex;
   justify-content: flex-start;
