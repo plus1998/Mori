@@ -1,4 +1,4 @@
-import { KeyRound, Lock, Pencil, Plus, Server, Trash2, X } from "lucide-react";
+import { Check, KeyRound, Lock, Pencil, Plus, Server, Trash2, X } from "lucide-react";
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
@@ -12,18 +12,30 @@ import type {
 import { SSH_DEFAULT_PORT, sshBookmarkEndpointLabel } from "../shared/ssh-bookmarks";
 import { SettingsSyncControl } from "./SettingsSyncControl";
 
-export interface SshBookmarksPanelProps {
-  workspacePath: string;
+export type SshBookmarksPanelProps = {
+  workspacePath?: string;
   bookmarks: SshBookmarkView[];
   busy?: boolean;
   centerServerSyncVisible?: boolean;
   onBookmarksChange: (bookmarks: SshBookmarkView[]) => void;
-  onConnect: (bookmark: SshBookmarkView) => void | Promise<void>;
   onSyncDomain?: (
     domain: CenterServerSyncDomain,
     mode: "pull" | "push",
   ) => Promise<CenterServerSyncDomainResult>;
-}
+} & (
+  | {
+      onConnect: (bookmark: SshBookmarkView) => void | Promise<void>;
+      selection?: undefined;
+    }
+  | {
+      onConnect?: never;
+      selection: {
+        selectedId: string;
+        onSelect: (bookmark: SshBookmarkView) => void;
+        description: string;
+      };
+    }
+);
 
 type FormMode = "idle" | "create" | "edit";
 
@@ -328,12 +340,13 @@ function SshBookmarkEditorDialog({
 }
 
 export function SshBookmarksPanel({
-  workspacePath,
+  workspacePath = "",
   bookmarks,
   busy,
   centerServerSyncVisible,
   onBookmarksChange,
   onConnect,
+  selection,
   onSyncDomain,
 }: SshBookmarksPanelProps) {
   const { t } = useTranslation();
@@ -441,7 +454,8 @@ export function SshBookmarksPanel({
       setFormError(undefined);
       setSaving(true);
       try {
-        await persist(draft);
+        const saved = await persist(draft);
+        selection?.onSelect(saved);
         setFormMode("idle");
       } catch (caught) {
         const message = caught instanceof Error ? caught.message : String(caught);
@@ -450,7 +464,7 @@ export function SshBookmarksPanel({
         setSaving(false);
       }
     },
-    [draft, mapSaveError, persist],
+    [draft, mapSaveError, persist, selection],
   );
 
   const handleDelete = useCallback(
@@ -474,6 +488,10 @@ export function SshBookmarksPanel({
 
   const handleConnect = useCallback(
     async (bookmark: SshBookmarkView) => {
+      if (selection) {
+        selection.onSelect(bookmark);
+        return;
+      }
       if (!workspacePath.trim()) {
         setPanelError(t("app.sshBookmarks.noWorkspace"));
         return;
@@ -481,12 +499,12 @@ export function SshBookmarksPanel({
       setPanelError(undefined);
       setConnectingId(bookmark.id);
       try {
-        await onConnect(bookmark);
+        await onConnect?.(bookmark);
       } finally {
         setConnectingId(undefined);
       }
     },
-    [onConnect, t, workspacePath],
+    [onConnect, selection, t, workspacePath],
   );
 
   return (
@@ -511,9 +529,10 @@ export function SshBookmarksPanel({
             title={t("app.sshBookmarks.add")}
           >
             <Plus size={16} strokeWidth={1.75} aria-hidden />
+            {selection ? <span>{t("app.sshBookmarks.add")}</span> : null}
           </button>
         </div>
-        <p className="ssh-bookmarks-subtitle">{t("app.sshBookmarks.subtitle")}</p>
+        <p className="ssh-bookmarks-subtitle">{selection?.description ?? t("app.sshBookmarks.subtitle")}</p>
       </header>
 
       {panelError ? <p className="ssh-bookmarks-panel-error">{panelError}</p> : null}
@@ -528,6 +547,7 @@ export function SshBookmarksPanel({
                 type="button"
                 className="ssh-bookmarks-item"
                 disabled={Boolean(connectingId) || saving || busy}
+                aria-pressed={selection ? selection.selectedId === bookmark.id : undefined}
                 onClick={() => void handleConnect(bookmark)}
                 title={`${bookmark.name}\n${sshBookmarkEndpointLabel(bookmark)}`}
               >
@@ -545,6 +565,7 @@ export function SshBookmarksPanel({
                 {connectingId === bookmark.id ? (
                   <span className="ssh-bookmarks-item-status">{t("app.sshBookmarks.connecting")}</span>
                 ) : null}
+                {selection?.selectedId === bookmark.id ? <Check size={16} aria-hidden /> : null}
               </button>
               <div className="ssh-bookmarks-row-actions">
                 <button
@@ -557,16 +578,18 @@ export function SshBookmarksPanel({
                 >
                   <Pencil size={15} strokeWidth={1.5} aria-hidden />
                 </button>
-                <button
-                  type="button"
-                  className="ssh-bookmarks-icon-btn ssh-bookmarks-remove"
-                  title={t("app.sshBookmarks.remove")}
-                  aria-label={t("app.sshBookmarks.removeNamed", { name: bookmark.name })}
-                  disabled={saving || busy}
-                  onClick={() => void handleDelete(bookmark)}
-                >
-                  <Trash2 size={15} strokeWidth={1.5} aria-hidden />
-                </button>
+                {!selection ? (
+                  <button
+                    type="button"
+                    className="ssh-bookmarks-icon-btn ssh-bookmarks-remove"
+                    title={t("app.sshBookmarks.remove")}
+                    aria-label={t("app.sshBookmarks.removeNamed", { name: bookmark.name })}
+                    disabled={saving || busy}
+                    onClick={() => void handleDelete(bookmark)}
+                  >
+                    <Trash2 size={15} strokeWidth={1.5} aria-hidden />
+                  </button>
+                ) : null}
               </div>
             </div>
           ))
@@ -586,7 +609,7 @@ export function SshBookmarksPanel({
         onSubmit={(event) => void handleSubmit(event)}
       />
 
-      {!workspacePath.trim() ? (
+      {!selection && !workspacePath.trim() ? (
         <p className="ssh-bookmarks-hint">
           <Server size={14} aria-hidden />
           <span>{t("app.sshBookmarks.noWorkspace")}</span>

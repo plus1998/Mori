@@ -30,10 +30,10 @@ Agent Skill：[`.agents/skills/mori-supabase/SKILL.md`](../.agents/skills/mori-s
 
 需要 **Realtime + Edge Functions**（Mori 遥控依赖二者），不要为了省内存删掉这两个服务。
 
-Mori **账密/设备中心不需要** Storage / imgproxy。HTML Artifacts 托管走 Edge Functions（Postgres 存正文），也不依赖 Storage。若机器内存紧（例如 Windows Docker 上限约 8G），可只起最小栈：
+当前 Mori 数据库迁移包含会话分享媒体，依赖 Storage 的 `storage.buckets`、`storage.objects` 和 `storage.foldername`。首次部署和旧实例更新都需先启动 Storage 及其 imgproxy 依赖，再执行 Mori 迁移；已有精简栈不能直接跳过这项依赖。若机器内存紧（例如 Windows Docker 上限约 8G），可不启动 Studio，保留以下服务：
 
 ```bash
-docker compose up -d db auth rest realtime api-gw functions
+docker compose up -d db auth rest realtime api-gw functions storage imgproxy
 ```
 
 官方 `api-gw` 默认 `depends_on: studio`。若不起 Studio，需把该依赖改成 `db`（或自备 `docker-compose.eco.yml` 覆盖），否则网关起不来。
@@ -73,14 +73,14 @@ cd ~/supabase-project
 docker compose pull
 # 全套：
 sh run.sh start    # 或 docker compose up -d --wait
-# 或 Mori 最小栈（无 Studio/Storage）：
-docker compose up -d db auth rest realtime api-gw functions
+# 或 Mori 所需服务（无 Studio）：
+docker compose up -d db auth rest realtime api-gw functions storage imgproxy
 ```
 
 确认：
 
 ```bash
-docker compose ps   # db/auth/rest/realtime/api-gw/functions 应为 healthy（或 running）
+docker compose ps   # db/auth/rest/realtime/api-gw/functions/storage/imgproxy 应为 healthy（或 running）
 ```
 
 Studio（若已启动）：浏览器打开 `http://<host>:8000`（网关默认 8000），用 Dashboard 用户名密码登录。无 Studio 时用 curl / Mori 客户端验证即可。
@@ -101,6 +101,12 @@ Studio（若已启动）：浏览器打开 `http://<host>:8000`（网关默认 8
 ```bash
 # <COMPOSE_DIR> = 上一步的 supabase-project 绝对路径
 bun run supabase:deploy -- --platform self-host --compose-dir <COMPOSE_DIR>
+```
+
+从 Mori 设置页的「自托管部署」入口准备 Agent 会话时，草稿会附带当前安装版的后端资源目录、部署脚本和本文的本机路径。把完整 `supabase/` 目录与脚本复制到服务器，保持目录结构为 `supabase/` 和 `scripts/supabase-self-host-apply.mjs`，即可从该资源根目录直接运行，无需安装 Mori 项目依赖：
+
+```bash
+node scripts/supabase-self-host-apply.mjs --compose-dir <COMPOSE_DIR>
 ```
 
 该命令会：

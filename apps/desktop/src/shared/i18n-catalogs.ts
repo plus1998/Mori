@@ -2,6 +2,7 @@ import { executionSettingsTranslations } from "./execution-settings-i18n";
 import { imageLibraryTranslations } from "./image-library-i18n";
 import { accountWakeTranslations } from "./account-wake-i18n";
 import { codexSharingTranslations } from "./codex-account-sharing-i18n";
+import { supabaseSelfHostTranslations } from "./supabase-self-host-i18n";
 import type { AppLocale } from "./locale";
 import { accountUsageTranslations } from "./account-usage-i18n";
 import { usageOverviewTranslations } from "./usage-overview-i18n";
@@ -203,6 +204,7 @@ export const i18nCatalogs = {
       ...accountUsageTranslations["zh-CN"],
       ...accountWakeTranslations["zh-CN"],
       ...codexSharingTranslations["zh-CN"],
+      ...supabaseSelfHostTranslations["zh-CN"],
       ...usageOverviewTranslations["zh-CN"],
       ...worktreeTranslations["zh-CN"],
       ...executionSettingsTranslations["zh-CN"],
@@ -3853,6 +3855,8 @@ export const i18nCatalogs = {
       "time.months": "{{count}} 月",
       "time.years": "{{count}} 年",
       "native.openProject": "打开项目文件夹",
+      "native.rendererRecoveryFailedTitle": "Mori 界面恢复失败",
+      "native.rendererRecoveryFailedMessage": "界面连续崩溃或重新加载失败，已暂停自动恢复。后台任务不会因此停止。可通过 View 菜单中的重新加载操作重试。",
       "native.codexUnavailable": "未找到可执行的 Codex CLI。请安装工作区依赖或设置 CODEX_EXECUTABLE。",
       "native.piUnavailable": "PI Harness 不可用：无法加载 @earendil-works/pi-coding-agent。",
       "native.cursorUnavailable":
@@ -4154,6 +4158,7 @@ export const i18nCatalogs = {
       ...accountUsageTranslations["en-US"],
       ...accountWakeTranslations["en-US"],
       ...codexSharingTranslations["en-US"],
+      ...supabaseSelfHostTranslations["en-US"],
       ...usageOverviewTranslations["en-US"],
       ...worktreeTranslations["en-US"],
       ...executionSettingsTranslations["en-US"],
@@ -7933,6 +7938,8 @@ export const i18nCatalogs = {
       "time.months": "{{count}} mo",
       "time.years": "{{count}} yr",
       "native.openProject": "Open project folder",
+      "native.rendererRecoveryFailedTitle": "Mori could not restore the interface",
+      "native.rendererRecoveryFailedMessage": "The interface crashed repeatedly or failed to reload. Automatic recovery has been paused. Background tasks are not stopped. Use Reload in the View menu to try again.",
       "native.codexUnavailable":
         "No executable Codex CLI was found. Install workspace dependencies or set CODEX_EXECUTABLE.",
       "native.piUnavailable": "PI Harness is unavailable: could not load @earendil-works/pi-coding-agent.",

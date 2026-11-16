@@ -1524,6 +1524,9 @@ const api = {
   testIntegratedWebSearch(input: IntegratedWebSearchTestInput): Promise<IntegratedWebSearchTestResult> {
     return ipcRenderer.invoke(IPC_CHANNELS.integratedWebSearchTest, input);
   },
+  getSupabaseSelfHostDeploymentContext(): Promise<import("../shared/supabase-deployment").SupabaseSelfHostDeploymentContext> {
+    return ipcRenderer.invoke(IPC_CHANNELS.supabaseSelfHostContext);
+  },
   getSupabaseDeployment(): Promise<SupabaseDeploymentSnapshot> {
     return ipcRenderer.invoke(IPC_CHANNELS.supabaseDeploymentGet);
   },

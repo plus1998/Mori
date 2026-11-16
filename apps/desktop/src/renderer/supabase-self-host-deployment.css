@@ -1,0 +1,145 @@
+.cs-selfhost {
+  margin-bottom: 20px;
+  overflow: hidden;
+  border-radius: 16px;
+}
+
+.cs-selfhost-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 20px 22px 16px;
+}
+
+.cs-selfhost-icon {
+  display: grid;
+  flex: 0 0 40px;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 11px;
+  color: var(--text-secondary);
+  background: var(--card-surface-bg);
+}
+
+.cs-selfhost-heading {
+  flex: 1;
+  min-width: 0;
+}
+
+.cs-selfhost-heading h2 {
+  margin: 0;
+  color: var(--text-heading);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.cs-selfhost-heading p {
+  margin: 5px 0 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.cs-selfhost-open {
+  flex-shrink: 0;
+}
+
+.cs-selfhost-flow,
+.cs-selfhost-picker-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.cs-selfhost-flow {
+  padding: 12px 22px;
+  border-top: 1px solid var(--border-subtle);
+  background: color-mix(in srgb, var(--text-primary) 2%, transparent);
+}
+
+.cs-selfhost-flow svg,
+.cs-selfhost-picker-hint svg {
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+
+.settings-modal.cs-selfhost-picker {
+  position: relative;
+  width: min(540px, calc(100vw - 40px));
+  max-height: min(700px, calc(100vh - 64px));
+}
+
+.cs-selfhost-scrim {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: transparent;
+}
+
+.cs-selfhost-picker-body {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.cs-selfhost-picker .ssh-bookmarks-panel {
+  min-height: 0;
+  padding: 0;
+  overflow: visible;
+}
+
+.cs-selfhost-picker .ssh-bookmarks-add-btn {
+  display: inline-flex;
+  gap: 6px;
+  width: auto;
+  padding: 6px 9px;
+}
+
+.cs-selfhost-picker .ssh-bookmarks-item[aria-pressed="true"] {
+  color: var(--text-primary);
+  background: var(--card-surface-bg);
+  box-shadow: inset 0 0 0 1px var(--border-subtle);
+}
+
+.cs-selfhost-picker-hint {
+  padding: 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+}
+
+.cs-selfhost-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.cs-selfhost-error {
+  color: var(--danger);
+  font-size: 12px;
+}
+
+.cs-selfhost-error p {
+  margin: 0 0 6px;
+}
+
+.cs-selfhost-primary {
+  margin-left: auto;
+}
+
+@media (max-width: 680px) {
+  .cs-selfhost-content {
+    flex-wrap: wrap;
+  }
+
+  .cs-selfhost-open {
+    margin-left: 52px;
+  }
+}

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -19,6 +20,22 @@ bool _refreshesProjectionExtras(Map effect) {
   return type == 'message.create' ||
       type == 'tool.summary.upsert' ||
       type == 'run.upsert';
+}
+
+const _conversationPushBatchWindow = Duration(milliseconds: 35);
+const _conversationPushBatchMaxEvents = 32;
+const _conversationPushBatchMaxBytes = 256 * 1024;
+
+class _PendingConversationPush {
+  _PendingConversationPush({
+    required this.envelope,
+    required this.estimatedBytes,
+    required this.completer,
+  });
+
+  final Map<String, dynamic> envelope;
+  final int estimatedBytes;
+  final Completer<void> completer;
 }
 
 /// Existing thread actions exposed to the V2 session without duplicating the
@@ -205,10 +222,21 @@ class ConversationV2SessionController
   Future<void>? _synchronizationInFlight;
   Future<void>? _interactionsInFlight;
   int _interactionGeneration = 0;
+  Timer? _pushBatchTimer;
+  final List<_PendingConversationPush> _pendingPushes =
+      <_PendingConversationPush>[];
+  int _pendingPushBytes = 0;
+  Future<void>? _pushBatchInFlight;
 
-  Future<void> start() => _synchronize(bootstrap: true);
+  Future<void> start() async {
+    await _flushPushBatch();
+    await _synchronize(bootstrap: true);
+  }
 
-  Future<void> refresh() => _synchronize(bootstrap: false);
+  Future<void> refresh() async {
+    await _flushPushBatch();
+    await _synchronize(bootstrap: false);
+  }
 
   Future<void> _synchronize({required bool bootstrap}) {
     if (_disposed || !enabled) return Future<void>.value();
@@ -230,36 +258,104 @@ class ConversationV2SessionController
     }().whenComplete(() => _synchronizationInFlight = null);
   }
 
-  Future<void> acceptPushEnvelope(Map<String, dynamic> envelope) async {
-    if (_disposed) return;
-    try {
-      await _engine.acceptPushEnvelope(
-        envelope,
-        conversationId: conversationId,
-      );
-      final payload = envelope['payload'];
-      if (envelope['kind'] == 'conversation.sync_effect' &&
-          payload is Map &&
-          payload['conversationId'] == conversationId) {
-        final receipt = payload['effect'];
-        final effect = receipt is Map ? receipt['effect'] : null;
-        if (effect is Map && _refreshesProjectionExtras(effect)) {
-          _projectionExtrasReloadRequested = true;
+  Future<void> acceptPushEnvelope(Map<String, dynamic> envelope) {
+    if (_disposed) return Future<void>.value();
+    final completer = Completer<void>();
+    final pending = _PendingConversationPush(
+      envelope: Map<String, dynamic>.from(envelope),
+      estimatedBytes: _estimatePushBytes(envelope),
+      completer: completer,
+    );
+    _pendingPushes.add(pending);
+    _pendingPushBytes += pending.estimatedBytes;
+
+    if (_pendingPushes.length >= _conversationPushBatchMaxEvents ||
+        _pendingPushBytes >= _conversationPushBatchMaxBytes) {
+      unawaited(_flushPushBatch());
+    }
+    if (_pendingPushes.length < _conversationPushBatchMaxEvents &&
+        _pendingPushBytes < _conversationPushBatchMaxBytes) {
+      _pushBatchTimer ??= Timer(_conversationPushBatchWindow, () {
+        _pushBatchTimer = null;
+        unawaited(_flushPushBatch());
+      });
+    }
+    // The returned future is completed by the batch flush. This preserves the
+    // old caller contract while allowing concurrent event-center callbacks to
+    // share one engine operation and one cache transaction.
+    return completer.future;
+  }
+
+  Future<void> _flushPushBatch() {
+    _pushBatchTimer?.cancel();
+    _pushBatchTimer = null;
+    final inFlight = _pushBatchInFlight;
+    if (inFlight != null) return inFlight;
+    if (_pendingPushes.isEmpty) return Future<void>.value();
+
+    final batch = List<_PendingConversationPush>.of(_pendingPushes);
+    _pendingPushes.clear();
+    _pendingPushBytes = 0;
+    final operation = () async {
+      try {
+        await _engine.acceptPushEnvelopes(
+          batch.map((entry) => entry.envelope).toList(growable: false),
+          conversationId: conversationId,
+        );
+        for (final entry in batch) {
+          _recordPushEffect(entry.envelope);
         }
-        final detail = effect is Map ? effect['detail'] : null;
-        final detailType = detail is Map ? detail['type'] : null;
-        if (effect is Map &&
-            (effect['type'] == 'run.upsert' ||
-                (effect['type'] == 'detail.upsert' &&
-                    detailType is String &&
-                    (detailType.startsWith('approval.') ||
-                        detailType.startsWith('clarification.'))))) {
-          _pendingInteractionsReloadRequested = true;
+        await _reloadAfterPush();
+      } catch (error) {
+        // Keep the old session contract: transport errors become visible in
+        // state and do not create unhandled futures for the event listener.
+        _update(state.copyWith(syncState: _engine.state, error: error));
+      } finally {
+        for (final entry in batch) {
+          if (!entry.completer.isCompleted) entry.completer.complete();
+        }
+        _pushBatchInFlight = null;
+        if (_pendingPushes.isNotEmpty && !_disposed) {
+          unawaited(_flushPushBatch());
         }
       }
-      await _reloadAfterPush();
-    } catch (error) {
-      state = state.copyWith(syncState: _engine.state, error: error);
+    }();
+    _pushBatchInFlight = operation;
+    return operation;
+  }
+
+  void _recordPushEffect(Map<String, dynamic> envelope) {
+    final payload = envelope['payload'];
+    if (envelope['kind'] != 'conversation.sync_effect' ||
+        payload is! Map ||
+        payload['conversationId'] != conversationId) {
+      return;
+    }
+    final receipt = payload['effect'];
+    final effect = receipt is Map ? receipt['effect'] : null;
+    if (effect is Map && _refreshesProjectionExtras(effect)) {
+      _projectionExtrasReloadRequested = true;
+    }
+    final detail = effect is Map ? effect['detail'] : null;
+    final detailType = detail is Map ? detail['type'] : null;
+    if (effect is Map &&
+        (effect['type'] == 'run.upsert' ||
+            (effect['type'] == 'detail.upsert' &&
+                detailType is String &&
+                (detailType.startsWith('approval.') ||
+                    detailType.startsWith('clarification.'))))) {
+      _pendingInteractionsReloadRequested = true;
+    }
+  }
+
+  int _estimatePushBytes(Map<String, dynamic> envelope) {
+    try {
+      return utf8.encode(jsonEncode(envelope)).length;
+    } catch (_) {
+      // The event center normally provides JSON-compatible maps. If a future
+      // transport adds a richer value, keep correctness and let the timer
+      // flush it instead of rejecting the event in the batching layer.
+      return 0;
     }
   }
 
@@ -279,6 +375,8 @@ class ConversationV2SessionController
   }
 
   Future<void> loadOlder() async {
+    if (_disposed || !state.hasOlder) return;
+    await _flushPushBatch();
     if (_disposed || !state.hasOlder) return;
     try {
       await _engine.loadOlder(conversationId);
@@ -468,6 +566,8 @@ class ConversationV2SessionController
     if (_disposed || !enabled) {
       throw StateError('Desktop is not available.');
     }
+    await _flushPushBatch();
+    if (_disposed) throw StateError('Desktop is not available.');
     _commandSequence += 1;
     final commandId =
         'mobile_${DateTime.now().toUtc().microsecondsSinceEpoch}_$_commandSequence';
@@ -503,6 +603,11 @@ class ConversationV2SessionController
 
   Future<void> close() async {
     if (_disposed) return;
+    _pushBatchTimer?.cancel();
+    _pushBatchTimer = null;
+    while (_pendingPushes.isNotEmpty || _pushBatchInFlight != null) {
+      await _flushPushBatch();
+    }
     _disposed = true;
     _reloadGeneration += 1;
     await _stateSubscription.cancel();

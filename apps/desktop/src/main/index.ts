@@ -995,6 +995,7 @@ import {
 import { resolveProxyUsageBilling } from "./proxy-usage-billing";
 import { REMOTE_THREAD_LIST_INITIAL_LIMIT_PER_WORKSPACE } from "./remote-thread-list";
 import { sendToLiveRenderer } from "./renderer-send";
+import { attachRendererCrashRecovery } from "./renderer-crash-recovery";
 import { formatUserFacingRequestError, type RequestAttemptResult } from "./request-retry";
 import { resolveCommandExecutable } from "./resolve-command-executable";
 import { resolveCodexThreadWebSearchPlan, resolveThreadWebSearchPlan } from "./resolve-thread-web-search";
@@ -1045,6 +1046,7 @@ import { reconcileSubagentTerminalTranscript } from "./subagent-terminal-reconci
 import { SupabaseCenterDesktopClient } from "./supabase-center-client";
 import { SupabaseCloudDeployment } from "./supabase-cloud-deployment";
 import { readSupabaseDeploymentBundle } from "./supabase-deployment-bundle";
+import { readSupabaseSelfHostDeploymentContext } from "./supabase-self-host-context";
 import { createDesktopSettingsSyncHooks } from "./supabase-settings-sync-hooks";
 import { SystemSleepBlocker } from "./system-sleep-blocker";
 import { DisplayControl } from "./display-control";
@@ -2580,6 +2582,21 @@ async function createMainWindow(
       exitCode: details.exitCode,
     });
   });
+  if (app.isPackaged && !isStartupSplash) {
+    attachRendererCrashRecovery(window, {
+      canRecover: () => !isApplicationQuitting(),
+      log: logUpstream,
+      onFailure: () => {
+        void dialog.showMessageBox(window, {
+          type: "error",
+          title: mainText("native.rendererRecoveryFailedTitle"),
+          message: mainText("native.rendererRecoveryFailedMessage"),
+        }).catch((error: unknown) => {
+          logUpstream("desktop.renderer-recovery.dialog-failed", { message: errorMessage(error) });
+        });
+      },
+    });
+  }
   if (isStartupSplash) {
     startupSplashWindows.add(window);
     // On screen right away, but ordered front without activating the app.
@@ -10679,6 +10696,12 @@ function registerIpcHandlers(): void {
     },
   });
   registerDesktopCommand(IPC_CHANNELS.supabaseDeploymentGet, async () => supabaseDeployment.getSnapshot());
+  registerDesktopCommand(IPC_CHANNELS.supabaseSelfHostContext, async () =>
+    readSupabaseSelfHostDeploymentContext(
+      app.isPackaged ? process.resourcesPath : path.resolve(app.getAppPath(), "../.."),
+      app.getVersion(),
+    ),
+  );
   registerDesktopCommand(IPC_CHANNELS.supabaseDeploymentAuthorize, async (token: unknown) =>
     supabaseDeployment.authorize(token),
   );

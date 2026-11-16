@@ -240,6 +240,7 @@ import {
   type SkillLayout,
 } from "../shared/skills";
 import type { SshBookmarkView } from "../shared/ssh-bookmarks";
+import { appendSupabaseSelfHostDraft } from "./supabase-self-host-draft";
 import { isContinuableThreadStatus } from "../shared/thread-continuation";
 import {
   extractPlanFailureMessage,
@@ -4255,11 +4256,11 @@ function App() {
   composerAttachmentsRef.current = composerAttachments;
   composerRewindTargetRef.current = composerRewindTarget;
   useEffect(() => {
-    if (projectTodosOpen || !projectTodoComposerFocusRef.current) return;
+    if (projectTodosOpen || settingsOpen || !projectTodoComposerFocusRef.current) return;
     projectTodoComposerFocusRef.current = false;
     // Run after the closing panel restores its trigger focus.
     window.requestAnimationFrame(() => composerRef.current?.focus());
-  }, [projectTodosOpen, composerContextKey]);
+  }, [projectTodosOpen, settingsOpen, composerContextKey]);
   useEffect(() => {
     saveTerminalWorkspaceState(terminalByProject);
   }, [terminalByProject]);
@@ -11457,6 +11458,60 @@ function App() {
     setProjectTodosOpen(false);
   }
 
+  async function prepareSelfHostDeployment(bookmark: SshBookmarkView) {
+    const api = window.eco;
+    if (!api) throw new Error(t("settings.center.selfHost.homeUnavailable"));
+    const [homePath, deployment] = await Promise.all([
+      homeProjectPath ?? api.getHomeProjectPath(),
+      api.getSupabaseSelfHostDeploymentContext(),
+    ]);
+    if (!homePath) throw new Error(t("settings.center.selfHost.homeUnavailable"));
+    const contextKey = composerContextKeyFromParts(undefined, homePath)!;
+    if (composerDraftSaveTimerRef.current?.key === contextKey) {
+      window.clearTimeout(composerDraftSaveTimerRef.current.timer);
+      composerDraftSaveTimerRef.current = undefined;
+    }
+    const sameContext = composerContextKeyRef.current === contextKey;
+    const memory = sameContext
+      ? { prompt: composerPromptRef.current, attachments: composerAttachmentsRef.current }
+      : composerDraftsByKeyRef.current[contextKey];
+    if (memory) await api.saveComposerDraft({ contextKey, prompt: memory.prompt, attachments: toPromptImageAttachments(memory.attachments) });
+    const previous = await api.getComposerDraft(contextKey);
+    const deploymentPrompt = `${t("settings.center.selfHost.prompt")}\n\n${t("settings.center.selfHost.resources", {
+      version: deployment.backendVersion,
+      directory: deployment.supabaseDirectory,
+      script: deployment.applyScriptPath,
+      guide: deployment.guidePath,
+    })}`;
+    const nextPrompt = appendSupabaseSelfHostDraft(previous?.prompt ?? "", bookmark, deploymentPrompt);
+    const attachments = previous?.attachments ?? [];
+    const nextAttachments = await hydrateComposerImageAttachments(
+      fromPromptImageAttachments(attachments), contextKey, request => api.readPromptImageChunk(request),
+    );
+    await api.saveComposerDraft({ contextKey, prompt: nextPrompt, attachments, managedWorktreeId: null });
+    draftWorktreeBindingsRef.current[contextKey] = null;
+    updateComposerDraftSnapshot(contextKey, { prompt: nextPrompt, attachments: nextAttachments });
+    ++composerDraftLoadRequestRef.current;
+    setHomeProjectPath(homePath);
+    switchProject(homePath);
+    setNewThreadCoreKind(workflowSettings.defaultCoreKind ?? DEFAULT_CORE_KIND);
+    // Keep the current Home model when possible, and always prepare an Agent draft.
+    setComposerRuntimeConfig(sameContext && composerRuntimeConfig ? withSessionMode(composerRuntimeConfig, "agent") : null);
+    if (sameContext) {
+      revokeComposerAttachmentPreviews(composerAttachmentsRef.current);
+      composerPromptRef.current = nextPrompt;
+      setPrompt(nextPrompt);
+      setComposerAttachments(nextAttachments);
+      setComposerImageNotice(undefined);
+      setDraftWorktreeReadyKey(contextKey);
+      setDraftWorktreeError(undefined);
+    }
+    projectTodoComposerFocusRef.current = true;
+    requestSidebarReveal("project", homePath);
+    setSettingsOpen(false);
+    showAppMessageSuccessRef.current(t("settings.center.selfHost.draftReady"));
+  }
+
   async function startNewChatWithPlan(plan: ThreadPendingPlan) {
     if (!window.eco || !activeThread || activeThread.id !== plan.threadId || planActionBusy || isSavingSettings) return;
     setPlanActionBusy(true);
@@ -14284,6 +14339,8 @@ function App() {
                     onCancelVaultClaim={cancelCenterServerVaultClaim}
                     ecoConnectLink={ecoConnectLink}
                     onEcoConnectLinkDismiss={() => setEcoConnectLink(undefined)}
+                    onPrepareSelfHostDeployment={prepareSelfHostDeployment}
+                    onSshBookmarksChange={setSshBookmarks}
                   />
                 )}
 

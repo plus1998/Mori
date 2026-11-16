@@ -169,6 +169,41 @@ void main() {
     },
   );
 
+  test('commits a contiguous envelope batch in one cache page', () async {
+    final cache = _FakeCache()..current = _state(appliedSeq: 1);
+    final engine = ConversationV2SyncEngine(
+      cache: cache,
+      remote: _FakeRemote(),
+    );
+
+    await engine.acceptPushEnvelopes([
+      _envelope(2),
+      _envelope(3),
+      _envelope(4),
+    ], conversationId: 'thread_1');
+
+    expect(cache.current?.appliedSeq, 4);
+    expect(cache.syncPageWrites, 1);
+    expect(cache.lastSyncPage?.effects.map((effect) => effect.seq), [2, 3, 4]);
+    await engine.dispose();
+  });
+
+  test('a gap inside a batch enters authoritative catch-up', () async {
+    final cache = _FakeCache()..current = _state(appliedSeq: 1);
+    final remote = _FakeRemote();
+    final engine = ConversationV2SyncEngine(cache: cache, remote: remote);
+
+    await engine.acceptPushEnvelopes([
+      _envelope(2),
+      _envelope(4),
+    ], conversationId: 'thread_1');
+
+    expect(remote.syncCalls, 1);
+    expect(cache.current?.appliedSeq, 2);
+    expect(engine.state, ConversationV2SyncState.live);
+    await engine.dispose();
+  });
+
   test('verifies and ignores a duplicate push at the applied cursor', () async {
     final cache = _FakeCache()..current = _state(appliedSeq: 2);
     final remote = _FakeRemote();
@@ -936,6 +971,8 @@ class _FakeCache implements ConversationV2CachePort {
   Future<String?> effectHash(String conversationId, int seq) async => null;
 
   ConversationV2CacheState? current;
+  int syncPageWrites = 0;
+  ConversationV2SyncPage? lastSyncPage;
 
   @override
   Future<List<ConversationV2Message>> messages(String conversationId) async =>
@@ -957,6 +994,8 @@ class _FakeCache implements ConversationV2CachePort {
 
   @override
   Future<void> applySyncPage(ConversationV2SyncPage page) async {
+    syncPageWrites += 1;
+    lastSyncPage = page;
     var next = current!;
     for (final effect in page.effects) {
       if (effect.seq == next.appliedSeq + 1) {
@@ -1051,6 +1090,23 @@ ConversationV2Effect _messageAppendEffect(int seq) {
     type: 'message.append',
     payload: payload,
   );
+}
+
+Map<String, dynamic> _envelope(int seq) {
+  final payload = <String, dynamic>{'type': 'noop', 'reason': 'fixture_$seq'};
+  return {
+    'kind': 'conversation.sync_effect',
+    'payload': {
+      'conversationId': 'thread_1',
+      'storeEpoch': 'epoch_1',
+      'effect': {
+        'seq': seq,
+        'effectVersion': 1,
+        'effectHash': conversationV2StableHash(payload),
+        'effect': payload,
+      },
+    },
+  };
 }
 
 ConversationV2Effect _effect(int seq) => ConversationV2Effect(

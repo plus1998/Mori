@@ -307,6 +307,7 @@ export const IPC_CHANNELS = {
   integratedWebSearchTest: "integrated-web-search:test",
   centerServerSettingsGet: "center-server-settings:get",
   supabaseDeploymentGet: "supabase-deployment:get",
+  supabaseSelfHostContext: "supabase-deployment:self-host-context",
   supabaseDeploymentAuthorize: "supabase-deployment:authorize",
   supabaseDeploymentForget: "supabase-deployment:forget",
   supabaseDeploymentInspect: "supabase-deployment:inspect",

@@ -145,6 +145,7 @@ void main() {
       expect((await cache.state('burst'))?.appliedSeq, 100);
       expect(controller.state.error, isNull);
       expect(cache.messageReads, lessThan(20));
+      expect(cache.syncPageWrites, lessThan(10));
       expect(remote.capabilityCalls - beforeCapabilities, 0);
     },
   );
@@ -159,6 +160,14 @@ class _CountingCache extends ConversationV2Cache {
         databaseFactory: databaseFactoryFfi,
       );
   int messageReads = 0;
+  int syncPageWrites = 0;
+
+  @override
+  Future<void> applySyncPage(ConversationV2SyncPage page) {
+    syncPageWrites++;
+    return super.applySyncPage(page);
+  }
+
   @override
   Future<ConversationV2PresentationSnapshot> presentationSnapshot(
     String conversationId,

@@ -47,6 +47,10 @@ asarUnpack:
 
 # Platform agent-browser native binary for CDP-driven Agent tools.
 extraResources:
+  - from: ../../scripts/supabase-self-host-apply.mjs
+    to: scripts/supabase-self-host-apply.mjs
+  - from: ../../docs/supabase-self-host.md
+    to: docs/supabase-self-host.md
   - from: ../../supabase/
     to: supabase
     filter:

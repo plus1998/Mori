@@ -336,72 +336,163 @@ class ConversationV2SyncEngine {
   Future<void> acceptPush(ConversationV2Effect effect, String conversationId) =>
       _serialize(() => _acceptPush(effect, conversationId));
 
+  /// Accepts a batch of event-center envelopes in one serialized operation.
+  ///
+  /// The transport still delivers individual envelopes, but the cache reducer
+  /// can commit a contiguous burst in one SQLite transaction. Envelopes are
+  /// kept in arrival order; a gap is never papered over by sorting or merging
+  /// effects and is recovered through the authoritative range sync instead.
+  Future<void> acceptPushEnvelopes(
+    List<Map<String, dynamic>> envelopes, {
+    required String conversationId,
+  }) => _serialize(
+    () => _acceptPushEnvelopes(envelopes, conversationId: conversationId),
+  );
+
   Future<void> _acceptPush(
     ConversationV2Effect effect,
     String conversationId,
-  ) async {
-    if (_disposed) return;
+  ) => _acceptPushes([effect], conversationId);
+
+  Future<void> _acceptPushEnvelopes(
+    List<Map<String, dynamic>> envelopes, {
+    required String conversationId,
+  }) async {
+    if (_disposed || envelopes.isEmpty) return;
+
+    final payloads = <Map<String, dynamic>>[];
+    for (final envelope in envelopes) {
+      if (envelope['kind'] != 'conversation.sync_effect') continue;
+      final rawPayload = envelope['payload'];
+      if (rawPayload is! Map) {
+        throw StateError('Conversation V2 push payload is invalid.');
+      }
+      final payload = Map<String, dynamic>.from(rawPayload);
+      if (payload['conversationId'] != conversationId) continue;
+      payloads.add(payload);
+    }
+    if (payloads.isEmpty) return;
+
     final current = await _cache.state(conversationId);
     if (current == null) return;
-    final unsupportedEffect =
-        effect.effectVersion != 1 ||
-        !conversationV2SupportedEffectTypes.contains(effect.type);
-    if (effect.seq <= 0 ||
-        unsupportedEffect ||
-        effect.type.trim().isEmpty ||
-        effect.effectHash != conversationV2StableHash(effect.payload)) {
-      _setState(
-        unsupportedEffect
-            ? ConversationV2SyncState.incompatible
-            : ConversationV2SyncState.error,
-      );
-      throw StateError('Conversation V2 push effect is invalid.');
+    final effects = <ConversationV2Effect>[];
+    for (final payload in payloads) {
+      if (payload['storeEpoch'] != current.storeEpoch) {
+        _setState(ConversationV2SyncState.incompatible);
+        throw StateError('Conversation V2 push store epoch changed.');
+      }
+      effects.add(ConversationV2Effect.fromJson(payload['effect']));
     }
-    if (effect.seq > current.appliedSeq + 1) {
-      _setState(ConversationV2SyncState.catchingUp);
-      await _refresh(conversationId);
-      return;
+    await _acceptPushes(effects, conversationId, current: current);
+  }
+
+  Future<void> _acceptPushes(
+    List<ConversationV2Effect> effects,
+    String conversationId, {
+    ConversationV2CacheState? current,
+  }) async {
+    if (_disposed) return;
+    if (effects.isEmpty) return;
+    final cacheState = current ?? await _cache.state(conversationId);
+    if (cacheState == null) return;
+
+    for (final effect in effects) {
+      final unsupportedEffect =
+          effect.effectVersion != 1 ||
+          !conversationV2SupportedEffectTypes.contains(effect.type);
+      if (effect.seq <= 0 ||
+          unsupportedEffect ||
+          effect.type.trim().isEmpty ||
+          effect.effectHash != conversationV2StableHash(effect.payload)) {
+        _setState(
+          unsupportedEffect
+              ? ConversationV2SyncState.incompatible
+              : ConversationV2SyncState.error,
+        );
+        throw StateError('Conversation V2 push effect is invalid.');
+      }
     }
-    // Negotiate at bootstrap/reconnect, not once per streamed delta. The push
-    // envelope still validates epoch, version, sequence and content hash.
+
+    // Detect gaps before doing any local writes. A gap immediately enters the
+    // existing authoritative catch-up path, and the queued effects are safe
+    // to drop because the range sync owns the durable cursor.
+    var observedSeq = cacheState.appliedSeq;
+    for (final effect in effects) {
+      if (effect.seq > observedSeq + 1) {
+        _setState(ConversationV2SyncState.catchingUp);
+        await _refresh(conversationId);
+        return;
+      }
+      if (effect.seq > observedSeq) observedSeq = effect.seq;
+    }
+
     final capabilities = _capabilities ?? await _remote.capabilities();
     if (!_isCompatible(capabilities) ||
-        capabilities.storeEpoch != current.storeEpoch) {
+        capabilities.storeEpoch != cacheState.storeEpoch) {
       _setState(ConversationV2SyncState.incompatible);
       throw StateError(
         'Conversation V2 push is not compatible with the cache.',
       );
     }
-    if (effect.effectVersion != capabilities.effectVersion) {
-      _setState(ConversationV2SyncState.incompatible);
-      throw StateError('Conversation V2 push effect version is unsupported.');
-    }
     _capabilities = capabilities;
-    if (effect.seq <= current.appliedSeq) {
-      await _verifyDuplicatePush(
-        effect,
-        conversationId,
-        current.storeEpoch,
-        capabilities.maxBytes,
-      );
+
+    final newEffects = <ConversationV2Effect>[];
+    final stagedBySeq = <int, ConversationV2Effect>{};
+    var cursor = cacheState.appliedSeq;
+    for (final effect in effects) {
+      if (effect.effectVersion != capabilities.effectVersion) {
+        _setState(ConversationV2SyncState.incompatible);
+        throw StateError('Conversation V2 push effect version is unsupported.');
+      }
+      if (effect.seq <= cursor) {
+        final staged = stagedBySeq[effect.seq];
+        if (staged != null) {
+          if (staged.effectHash != effect.effectHash) {
+            throw StateError(
+              'Conversation V2 duplicate push conflicts within a batch.',
+            );
+          }
+          continue;
+        }
+        await _verifyDuplicatePush(
+          effect,
+          conversationId,
+          cacheState.storeEpoch,
+          capabilities.maxBytes,
+        );
+        continue;
+      }
+      newEffects.add(effect);
+      stagedBySeq[effect.seq] = effect;
+      cursor = effect.seq;
+    }
+
+    if (newEffects.isEmpty) {
       _setState(ConversationV2SyncState.live);
       return;
     }
-    final page = ConversationV2SyncPage(
-      protocolVersion: 2,
-      storeEpoch: current.storeEpoch,
-      conversationId: conversationId,
-      fromSeq: current.appliedSeq + 1,
-      throughSeq: current.appliedSeq >= effect.seq
-          ? current.appliedSeq
-          : effect.seq,
-      headSeq: current.appliedSeq >= effect.seq
-          ? current.appliedSeq
-          : effect.seq,
-      hasMore: false,
-      effects: [effect],
-    );
-    await _applyPageWithRepairs(page, conversationId);
+
+    // The queue normally keeps this below maxEvents. Split defensively when a
+    // server advertises a smaller limit so correctness does not depend on the
+    // negotiated value.
+    final maxEvents = capabilities.maxEvents;
+    for (var offset = 0; offset < newEffects.length; offset += maxEvents) {
+      final end = offset + maxEvents < newEffects.length
+          ? offset + maxEvents
+          : newEffects.length;
+      final chunk = newEffects.sublist(offset, end);
+      final page = ConversationV2SyncPage(
+        protocolVersion: 2,
+        storeEpoch: cacheState.storeEpoch,
+        conversationId: conversationId,
+        fromSeq: chunk.first.seq,
+        throughSeq: chunk.last.seq,
+        headSeq: chunk.last.seq,
+        hasMore: false,
+        effects: chunk,
+      );
+      await _applyPageWithRepairs(page, conversationId);
+    }
     _setState(ConversationV2SyncState.live);
   }
 
@@ -450,30 +541,7 @@ class ConversationV2SyncEngine {
   Future<void> acceptPushEnvelope(
     Map<String, dynamic> envelope, {
     required String conversationId,
-  }) => _serialize(
-    () => _acceptPushEnvelope(envelope, conversationId: conversationId),
-  );
-
-  Future<void> _acceptPushEnvelope(
-    Map<String, dynamic> envelope, {
-    required String conversationId,
-  }) async {
-    if (envelope['kind'] != 'conversation.sync_effect') return;
-    final payload = envelope['payload'];
-    if (payload is! Map) {
-      throw StateError('Conversation V2 push payload is invalid.');
-    }
-    final payloadMap = Map<String, dynamic>.from(payload);
-    if (payloadMap['conversationId'] != conversationId) return;
-    final state = await _cache.state(conversationId);
-    if (state == null) return;
-    if (payloadMap['storeEpoch'] != state.storeEpoch) {
-      _setState(ConversationV2SyncState.incompatible);
-      throw StateError('Conversation V2 push store epoch changed.');
-    }
-    final rawEffect = payloadMap['effect'];
-    await _acceptPush(ConversationV2Effect.fromJson(rawEffect), conversationId);
-  }
+  }) => acceptPushEnvelopes([envelope], conversationId: conversationId);
 
   Future<void> loadOlder(String conversationId) =>
       _serialize(() => _loadOlder(conversationId));

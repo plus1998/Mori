@@ -54,6 +54,8 @@ import {
 } from "../shared/center-server";
 import { i18n } from "./i18n";
 import { SupabaseDeploymentPanel } from "./SupabaseDeploymentPanel";
+import { SupabaseSelfHostDeploymentPanel } from "./SupabaseSelfHostDeploymentPanel";
+import type { SshBookmarkView } from "../shared/ssh-bookmarks";
 import type { SupabaseDeploymentConnection } from "../shared/supabase-deployment";
 import "./runtime-settings.css";
 
@@ -91,6 +93,8 @@ interface CenterServerSettingsPanelProps {
   ecoConnectLink?: EcoConnectDeepLink | undefined;
   /** Dismiss the deep-link confirmation dialog. */
   onEcoConnectLinkDismiss: () => void;
+  onPrepareSelfHostDeployment: (bookmark: SshBookmarkView) => Promise<void>;
+  onSshBookmarksChange: (bookmarks: SshBookmarkView[]) => void;
 }
 
 type PanelView = "list" | "edit-server" | "edit-account";
@@ -122,6 +126,8 @@ export function CenterServerSettingsPanel({
   onCancelVaultClaim,
   ecoConnectLink,
   onEcoConnectLinkDismiss,
+  onPrepareSelfHostDeployment,
+  onSshBookmarksChange,
 }: CenterServerSettingsPanelProps) {
   const { t } = useTranslation();
   const [view, setView] = useState<PanelView>("list");
@@ -1240,6 +1246,11 @@ export function CenterServerSettingsPanel({
           projectUrl={serverUrl}
           disabled={actionBusy}
           onUseProject={handleUseDeployedProject}
+        />
+        <SupabaseSelfHostDeploymentPanel
+          disabled={actionBusy}
+          onPrepare={onPrepareSelfHostDeployment}
+          onBookmarksChange={onSshBookmarksChange}
         />
       </div>
 

@@ -56,6 +56,13 @@ export interface SupabaseDeploymentConnection {
   anonKey: string;
 }
 
+export interface SupabaseSelfHostDeploymentContext {
+  backendVersion: string;
+  supabaseDirectory: string;
+  applyScriptPath: string;
+  guidePath: string;
+}
+
 export function supabaseCloudProjectRef(url: string): string | null {
   try {
     const parsed = new URL(url);
