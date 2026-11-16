@@ -455,6 +455,13 @@ test("isCodexZeroTurnRolloutMissingError detects Codex #42099 message", () => {
   expect(
     isCodexZeroTurnRolloutMissingError(new Error("thread/resume failed: no rollout found for thread id abc")),
   ).toBe(true);
+  expect(
+    isCodexZeroTurnRolloutMissingError(
+      new Error(
+        "Codex resume failed because thread 'abc' has no durable rollout. Next action: clear mapping",
+      ),
+    ),
+  ).toBe(true);
   expect(isCodexZeroTurnRolloutMissingError(new Error("other failure"))).toBe(false);
 });
 

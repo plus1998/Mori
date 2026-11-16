@@ -110,6 +110,7 @@ import {
   evaluateFilesystemWriteConfirmation,
   isAcpProviderExhaustionMessage,
   isCoreKind,
+  isCodexZeroTurnRolloutMissingError,
   isCodexTurnInterruptFailed,
   isPiThreadMidTurnAccepting,
   isReadFilesystemTool,
@@ -13466,6 +13467,12 @@ async function startCodexThreadRun(
   requireThreadCore(input.thread, "codex", input.continuation ? "continue with Codex" : "start Codex");
   const mode = resolveSessionMode(input.thread.runtimeConfig);
   const controller = new AbortController();
+  // `thread/start` creates a native thread before `turn/start` creates a durable
+  // rollout.  If the user stops in that gap, the native id is unusable for resume
+  // and must not become the next turn's continuation binding.
+  const hadCodexBinding = Boolean(codexThreadMap.getCodexThreadId(input.thread.id));
+  let shouldDropUnstartedCodexBinding = !hadCodexBinding;
+  let codexTurnStarted = false;
 
   let worktreePlan = createSessionPlan(input.workspace.path, input.thread.id);
   let cwd = input.workspace.path;
@@ -13780,33 +13787,36 @@ async function startCodexThreadRun(
             });
           },
           run: async ({ routes }) => {
-            const driver = createCodexRuntimeDriver(input.thread.id, mode, {
-              enableMidTurnPort: true,
-              onTurnBound: ({ ecoThreadId, codexThreadId, turnId }) => {
-                if (!activeRunRuntimeState.bindCodexTurn(ecoThreadId, controller, turnId)) {
-                  return;
-                }
-                const client = getCodexRuntimeClientForEcoThread(ecoThreadId);
-                if (!client) {
-                  return;
-                }
-                codexMidTurnPorts.open(ecoThreadId, {
-                  client,
-                  codexThreadId,
-                  turnId,
-                });
-                retryGuidedThreadFollowUp(ecoThreadId);
-              },
-              onTurnClosing: async ({ ecoThreadId }) => {
-                await codexMidTurnPorts.closeIngress(ecoThreadId);
-              },
-              onTurnClosed: ({ ecoThreadId, turnId }) => {
-                if (turnId) {
-                  activeRunRuntimeState.clearCodexTurn(ecoThreadId, controller, turnId);
-                }
-                codexMidTurnPorts.close(ecoThreadId);
-              },
-            });
+            const createDriver = () =>
+              createCodexRuntimeDriver(input.thread.id, mode, {
+                enableMidTurnPort: true,
+                onTurnBound: ({ ecoThreadId, codexThreadId, turnId }) => {
+                  codexTurnStarted = true;
+                  if (!activeRunRuntimeState.bindCodexTurn(ecoThreadId, controller, turnId)) {
+                    return;
+                  }
+                  const client = getCodexRuntimeClientForEcoThread(ecoThreadId);
+                  if (!client) {
+                    return;
+                  }
+                  codexMidTurnPorts.open(ecoThreadId, {
+                    client,
+                    codexThreadId,
+                    turnId,
+                  });
+                  retryGuidedThreadFollowUp(ecoThreadId);
+                },
+                onTurnClosing: async ({ ecoThreadId }) => {
+                  await codexMidTurnPorts.closeIngress(ecoThreadId);
+                },
+                onTurnClosed: ({ ecoThreadId, turnId }) => {
+                  if (turnId) {
+                    activeRunRuntimeState.clearCodexTurn(ecoThreadId, controller, turnId);
+                  }
+                  codexMidTurnPorts.close(ecoThreadId);
+                },
+              });
+            let driver = createDriver();
             try {
               const agentRegistry = resolveAgentRuntimeConfigForThreadId(input.thread.id);
               const runInput = {
@@ -13821,20 +13831,58 @@ async function startCodexThreadRun(
                 },
                 ...(agentRegistry ? { agentRegistry } : {}),
               };
-              const events =
-                input.continuation && driver.runContinuation
-                  ? driver.runContinuation(
-                      runInput,
-                      mode === "plan" ? "planning" : mode === "ask" ? "ask" : "execution",
-                    )
-                  : mode === "plan" && driver.runPlan
-                    ? driver.runPlan(runInput)
-                    : mode === "ask" && driver.runAsk
-                      ? driver.runAsk(runInput)
-                      : driver.run(runInput);
-              for await (const event of events) {
-                if (event.type === "agent.started" || event.type === "agent.completed") {
-                  process.stderr.write(`[eco-codex] ${event.type} thread=${input.thread.id}\n`);
+              const consume = async (
+                activeDriver: ReturnType<typeof createCodexRuntimeDriver>,
+                activeInput: typeof runInput,
+                continuation: boolean,
+              ): Promise<void> => {
+                const events =
+                  continuation && activeDriver.runContinuation
+                    ? activeDriver.runContinuation(
+                        activeInput,
+                        mode === "plan" ? "planning" : mode === "ask" ? "ask" : "execution",
+                      )
+                    : mode === "plan" && activeDriver.runPlan
+                      ? activeDriver.runPlan(activeInput)
+                      : mode === "ask" && activeDriver.runAsk
+                        ? activeDriver.runAsk(activeInput)
+                        : activeDriver.run(activeInput);
+                for await (const event of events) {
+                  if (event.type === "agent.started" || event.type === "agent.completed") {
+                    process.stderr.write(`[eco-codex] ${event.type} thread=${input.thread.id}\n`);
+                  }
+                }
+              };
+              try {
+                await consume(driver, runInput, input.continuation);
+              } catch (error) {
+                // A Codex thread created immediately before Stop has no rollout.
+                // Resume cannot make that thread usable; clear only this known
+                // zero-turn condition and replay the local task on a fresh thread.
+                if (
+                  input.continuation &&
+                  !input.rewindTarget &&
+                  !isCompactCommand(input.prompt) &&
+                  !controller.signal.aborted &&
+                  isCodexZeroTurnRolloutMissingError(error)
+                ) {
+                  process.stderr.write(
+                    `[eco-codex] clearing zero-turn Codex binding before fresh continuation thread=${input.thread.id}\n`,
+                  );
+                  codexThreadMap.deleteMapping(input.thread.id);
+                  shouldDropUnstartedCodexBinding = true;
+                  driver.dispose();
+                  driver = createDriver();
+                  await consume(
+                    driver,
+                    {
+                      ...runInput,
+                      prompt: buildThreadTurnPrompt(input.thread.prompt, runInput.prompt),
+                    },
+                    false,
+                  );
+                } else {
+                  throw error;
                 }
               }
               return controller.signal.aborted
@@ -13859,6 +13907,15 @@ async function startCodexThreadRun(
       0,
       input.runtimeDispatch,
     );
+
+    if (!outcome.ok && shouldDropUnstartedCodexBinding && !codexTurnStarted) {
+      // No durable Codex turn was ever created.  Do not leave the id returned by
+      // thread/start behind as a binding that every later continuation must resume.
+      codexThreadMap.deleteMapping(input.thread.id);
+      process.stderr.write(
+        `[eco-codex] dropped unstarted Codex binding after terminal run thread=${input.thread.id}\n`,
+      );
+    }
 
     const forcedDelegationActive = !isCompactCommand(input.prompt) && Boolean(forcedPlanDelegationStore.get(input.thread.id));
     if (!outcome.ok) {

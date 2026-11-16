@@ -255,7 +255,10 @@ export async function resumeCodexThread(
  */
 export function isCodexZeroTurnRolloutMissingError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
-  return /no rollout found for thread id/i.test(message);
+  // The app-server reports the raw `no rollout found` error.  `mapCodexResumeFailure`
+  // wraps that response before it reaches the desktop runtime, so recognize the
+  // mapped diagnostic as well; both forms mean the same zero-turn thread state.
+  return /no rollout found for thread id|no durable rollout/i.test(message);
 }
 
 export function mapCodexResumeFailure(threadId: string, error: unknown): Error {
