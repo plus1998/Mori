@@ -19359,12 +19359,41 @@ async function handleCodexAppServerTurnUsage(
         ...(runAttemptId ? { runAttemptId } : {}),
         ...(plannerAgentId ? { plannerAgentId } : {}),
         ...(attribution.agentId ? { agentId: attribution.agentId } : {}),
+        ...(request.ttftMs !== undefined ? { ttftMs: request.ttftMs } : {}),
+        ...(request.generationMs !== undefined ? { generationMs: request.generationMs } : {}),
       },
       request.metadata,
     ),
+    updateTiming: ({ requestKey, ttftMs, generationMs }) => {
+      if (ttftMs === undefined && generationMs === undefined) return;
+      const timingEvents = conversationStore.listUsageLedgerEvents(threadId).filter(
+        (event) =>
+          event.source === "codex" &&
+          event.usageKind === "request_final" &&
+          (event.requestKey === requestKey || event.requestKey?.startsWith(`${requestKey}:`)),
+      );
+      for (const event of timingEvents) {
+        conversationStore.updateUsageLedgerEventAttribution(event.id, {
+          attribution: event.attribution,
+          ...(event.agentId ? { agentId: event.agentId } : {}),
+          role: event.role,
+          ...(event.parentToolUseId ? { parentToolUseId: event.parentToolUseId } : {}),
+          metadata: {
+            ...(event.metadata ?? {}),
+            ...(ttftMs !== undefined ? { ttftMs } : {}),
+            ...(generationMs !== undefined ? { generationMs } : {}),
+          },
+        });
+      }
+    },
   });
   usageLedgerCoordinator.trackUsageUpdate(threadId, billingTask);
   await billingTask;
+  if (input.ttftMs !== undefined || input.generationMs !== undefined) {
+    // The timing can arrive after the token checkpoint already exists; refresh
+    // the projection so the Feed consumes the metadata-only ledger update.
+    scheduleThreadRunProjectionUpdated(threadId, { streaming: false });
+  }
   logEcoDiag("codex.app_server_turn_usage", {
     threadId: shortThreadId(threadId),
     codexThreadId,

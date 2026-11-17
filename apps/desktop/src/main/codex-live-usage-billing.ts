@@ -25,6 +25,9 @@ export interface CodexLiveUsageInput {
   appServerTokenUsage: Tokens;
   appServerTokenUsageRequests?: readonly Tokens[];
   appServerTokenUsageSnapshot?: CodexTurnTokenUsageSnapshot;
+  /** Authoritative timing read from Codex's rollout `task_complete` record. */
+  ttftMs?: number;
+  generationMs?: number;
 }
 
 export interface CodexLiveUsageRequest {
@@ -32,11 +35,19 @@ export interface CodexLiveUsageRequest {
   requestKey: string;
   codexUsageIsAggregate: boolean;
   metadata?: Record<string, unknown>;
+  ttftMs?: number;
+  generationMs?: number;
 }
 
 interface Services {
   listEvents(): readonly UsageLedgerEvent[];
   bill(request: CodexLiveUsageRequest): Promise<unknown>;
+  /** Update an already persisted checkpoint when timing arrived after usage. */
+  updateTiming?(input: {
+    requestKey: string;
+    ttftMs?: number;
+    generationMs?: number;
+  }): Promise<unknown> | unknown;
 }
 
 /** Serialize each native turn; the ledger row is also its durable checkpoint.
@@ -62,6 +73,17 @@ export class CodexLiveUsageBilling {
 
 async function billSnapshot(input: CodexLiveUsageInput, services: Services): Promise<void> {
   const prefix = `codex-turn-usage:${input.codexThreadId}:${input.turnId}`;
+  const timing = resolveTiming(input);
+  const updateTiming = async (requestKey: string): Promise<void> => {
+    if (!timing || !services.updateTiming) return;
+    await services.updateTiming({ requestKey, ...timing });
+  };
+  const withTiming = (
+    request: CodexLiveUsageRequest,
+    index: number,
+    total: number,
+  ): CodexLiveUsageRequest =>
+    timing && index === total - 1 ? { ...request, ...timing } : request;
   const events = services
     .listEvents()
     .filter(
@@ -85,16 +107,19 @@ async function billSnapshot(input: CodexLiveUsageInput, services: Services): Pro
       ] as const;
       if (
         keys.every((key) => events.reduce((sum, event) => sum + (event[key] ?? 0), 0) === (current[key] ?? 0))
-      )
+      ) {
+        await updateTiming(prefix);
         return;
+      }
       throw new Error("Codex terminal usage cannot reconcile without its native checkpoint.");
     }
-    for (const request of buildCodexAppServerBillingRequests({
+    const requests = buildCodexAppServerBillingRequests({
       usage: input.appServerTokenUsage,
       ...(input.appServerTokenUsageRequests && { requests: input.appServerTokenUsageRequests }),
       requestKey: prefix,
-    })) {
-      await services.bill(request);
+    });
+    for (const [index, request] of requests.entries()) {
+      await services.bill(withTiming(request, index, requests.length));
     }
     return;
   }
@@ -107,7 +132,10 @@ async function billSnapshot(input: CodexLiveUsageInput, services: Services): Pro
       .slice(0, 32)}`;
   // Includes historical replay and the repeated terminal notification, even
   // after a process restart or after newer checkpoints were committed.
-  if (events.some((event) => event.requestKey === identity(snapshot.total))) return;
+  if (events.some((event) => event.requestKey === identity(snapshot.total))) {
+    await updateTiming(identity(snapshot.total));
+    return;
+  }
   if (events.some((event) => !event.metadata?.[CHECKPOINT])) {
     throw new Error("Codex live usage overlaps legacy terminal billing without a checkpoint.");
   }
@@ -129,28 +157,49 @@ async function billSnapshot(input: CodexLiveUsageInput, services: Services): Pro
       : snapshot.last // Native totals reset after compaction; never charge the historical total.
     : input.appServerTokenUsage;
   validate(delta);
-  if (!KEYS.some((key) => delta[key] > 0)) return;
+  if (!KEYS.some((key) => delta[key] > 0)) {
+    await updateTiming(prefix);
+    return;
+  }
 
   const chunks = partition(delta, input.appServerTokenUsageRequests, snapshot.last);
   let remaining = delta;
   let sequence = previous?.sequence ?? 0;
-  for (const chunk of chunks) {
+  for (const [index, chunk] of chunks.entries()) {
     remaining = subtract(remaining, chunk.usage);
     const threadTotal = subtract(snapshot.total, remaining);
     validate(threadTotal);
     const requestKey = identity(threadTotal);
-    await services.bill({
+    await services.bill(withTiming({
       usage: normalizeCodexAppServerUsage(chunk.usage),
       requestKey,
       codexUsageIsAggregate: chunk.aggregate,
       metadata: { [CHECKPOINT]: { sequence: ++sequence, threadTotal } },
-    });
+    }, index, chunks.length));
     // The existing billing effects report write failures. Do not silently treat
     // one as success: the next observation/completion must retry the same delta.
     if (!services.listEvents().some((event) => event.source === "codex" && event.requestKey === requestKey)) {
       throw new Error(`Codex usage checkpoint was not persisted: ${requestKey}`);
     }
   }
+}
+
+function resolveTiming(input: Pick<CodexLiveUsageInput, "ttftMs" | "generationMs">):
+  | { ttftMs: number; generationMs: number }
+  | undefined {
+  const ttftMs = input.ttftMs;
+  const generationMs = input.generationMs;
+  if (
+    typeof ttftMs !== "number" ||
+    !Number.isSafeInteger(ttftMs) ||
+    ttftMs < 0 ||
+    typeof generationMs !== "number" ||
+    !Number.isSafeInteger(generationMs) ||
+    generationMs < 0
+  ) {
+    return undefined;
+  }
+  return { ttftMs, generationMs };
 }
 
 function partition(

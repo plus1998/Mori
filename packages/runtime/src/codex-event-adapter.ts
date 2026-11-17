@@ -204,6 +204,8 @@ export interface CodexEventAdapterOptions {
   resolveOrchestrationRoleIds?: () => readonly string[] | undefined;
   /** Called when `turn/started` is observed (main or child). */
   onTurnStarted?: (input: { codexThreadId: string; turnId: string }) => void;
+  /** Reports the native rollout JSONL path carried by a `thread/started` notification. */
+  onThreadRolloutPath?: (input: { codexThreadId: string; rolloutPath: string }) => void;
   /** Raw, validated usage for account history, including native child turns and compaction. */
   onAccountTokenUsage?: (input: { codexThreadId: string; turnId: string; usage: CodexTurnTokenUsageSnapshot }) => void;
   /** Registered turn usage; the host decides which routes can bill directly. */
@@ -786,6 +788,10 @@ function handleThreadStarted(ctx: AdapterContext, params: Record<string, unknown
     return;
   }
   const codexThreadId = readString(thread, "id");
+  const rolloutPath = readString(thread, "path");
+  if (codexThreadId && rolloutPath) {
+    ctx.onThreadRolloutPath?.({ codexThreadId, rolloutPath });
+  }
   const parentThreadId = readString(thread, "parentThreadId") ?? readString(thread, "parent_thread_id");
   const agentNickname = readAgentNickname(thread);
   const existingRecord = codexThreadId ? ctx.getThreadAttributionRecord?.(codexThreadId) : undefined;

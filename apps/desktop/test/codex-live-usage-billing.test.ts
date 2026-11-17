@@ -167,6 +167,41 @@ test("usage becomes billable before completion; duplicates, history replay and c
   });
 });
 
+test("rollout timing is attached once to the final native checkpoint", async () => {
+  const store = services();
+  const snapshot = input(total, total, [one, two]);
+  snapshot.ttftMs = 17_879;
+  snapshot.generationMs = 5_304;
+  await new CodexLiveUsageBilling().enqueue(snapshot, store);
+  expect(store.requests).toHaveLength(2);
+  expect(store.requests[0]).not.toHaveProperty("ttftMs");
+  expect(store.requests[0]).not.toHaveProperty("generationMs");
+  expect(store.requests[1]).toMatchObject({ ttftMs: 17_879, generationMs: 5_304 });
+});
+
+test("late rollout timing updates an already persisted checkpoint without rebilling", async () => {
+  const store = services();
+  await new CodexLiveUsageBilling().enqueue(input(), store);
+  const updates: Array<Record<string, unknown>> = [];
+  await new CodexLiveUsageBilling().enqueue(
+    { ...input(), ttftMs: 17_879, generationMs: 5_304 },
+    {
+      ...store,
+      updateTiming: (update) => {
+        updates.push(update);
+      },
+    },
+  );
+  expect(store.requests).toHaveLength(1);
+  expect(updates).toEqual([
+    {
+      requestKey: store.requests[0]?.requestKey,
+      ttftMs: 17_879,
+      generationMs: 5_304,
+    },
+  ]);
+});
+
 test("native cumulative history is not billed when the first observed request belongs to a resumed thread", async () => {
   const store = services();
   await new CodexLiveUsageBilling().enqueue(input(one, add(total, one)), store);

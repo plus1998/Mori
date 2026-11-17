@@ -46,6 +46,19 @@ test("dispatch maps turn/started to run.attempt.started", () => {
   expect(events[0]?.metadata?.turnId).toBe("turn_001");
 });
 
+test("thread/started exposes the native rollout path before attribution checks", () => {
+  const paths: string[] = [];
+  const adapter = new CodexEventAdapter({
+    resolveEcoThreadId,
+    recordThreadRunEvent: () => {},
+    onThreadRolloutPath: ({ rolloutPath }) => paths.push(rolloutPath),
+  });
+  adapter.dispatch("thread/started", {
+    thread: { id: CODEX_THREAD, path: "/tmp/codex/rollout.jsonl" },
+  });
+  expect(paths).toEqual(["/tmp/codex/rollout.jsonl"]);
+});
+
 test("Codex retries expose capacity and progress without failing or completing the turn", () => {
   const events = collectEvents((record) => {
     const adapter = new CodexEventAdapter({ resolveEcoThreadId, recordThreadRunEvent: record });

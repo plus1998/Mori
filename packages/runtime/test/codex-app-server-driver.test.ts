@@ -212,6 +212,7 @@ test("CodexAppServerDriver runs thread/start then turn/start and observes item n
   const stdin = new PassThrough();
   const stdout = new PassThrough();
   const itemNotifications: string[] = [];
+  const rolloutPaths: string[] = [];
   const client = new CodexAppServerClient(stdin, stdout);
 
   const driver = new CodexAppServerDriver({
@@ -224,6 +225,9 @@ test("CodexAppServerDriver runs thread/start then turn/start and observes item n
     },
     onItemNotification: (method) => {
       itemNotifications.push(method);
+    },
+    onThreadRolloutPath: ({ rolloutPath }) => {
+      rolloutPaths.push(rolloutPath);
     },
   });
 
@@ -261,7 +265,7 @@ test("CodexAppServerDriver runs thread/start then turn/start and observes item n
 
   writeResponse(stdout, {
     id: 2,
-    result: { thread: { id: "thr_codex_1" } },
+    result: { thread: { id: "thr_codex_1", path: "/tmp/codex/rollout.jsonl" } },
   });
   await Bun.sleep(0);
 
@@ -294,6 +298,7 @@ test("CodexAppServerDriver runs thread/start then turn/start and observes item n
   expect(events[0]?.type).toBe("agent.started");
   expect(events.at(-1)?.type).toBe("agent.completed");
   expect(itemNotifications).toContain("item/started");
+  expect(rolloutPaths).toEqual(["/tmp/codex/rollout.jsonl"]);
 
   const messages = readRpcMessages(stdin);
   const threadStart = messages.find((message) => message.method === "thread/start");

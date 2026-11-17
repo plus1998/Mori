@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ResolvedModelRoute } from "@eco/model-router";
+import { readCodexRolloutTurnTiming } from "@eco/runtime/codex-rollout-timing";
 import {
   applyCodexExecutionConfirmation,
   assertCodexRoleProvidersAvailable,
@@ -260,6 +261,9 @@ export interface CodexRuntimeRunDeps {
     appServerTokenUsage: CodexTurnTokenUsageBreakdown;
     appServerTokenUsageRequests?: CodexTurnTokenUsageBreakdown[];
     appServerTokenUsageSnapshot?: CodexTurnTokenUsageSnapshot;
+    /** Codex-native timing read from the thread's rollout JSONL. */
+    ttftMs?: number;
+    generationMs?: number;
     modelId?: string;
     providerId?: string;
     runAttemptId?: string;
@@ -391,6 +395,16 @@ let eventAdapter: CodexEventAdapter | undefined;
 let approvalBridge: CodexApprovalBridge | undefined;
 let modelCatalogService: CodexModelCatalogService | undefined;
 const turnRouteRegistry = new CodexTurnRouteRegistry();
+/** Native Codex thread id → rollout JSONL path returned by thread/start/resume. */
+const codexRolloutPathByThreadId = new Map<string, string>();
+
+function rememberCodexRolloutPath(codexThreadId: string | undefined, rolloutPath: string | null | undefined): void {
+  const threadId = codexThreadId?.trim();
+  const file = rolloutPath?.trim();
+  if (threadId && file) {
+    codexRolloutPathByThreadId.set(threadId, file);
+  }
+}
 
 export function configureCodexApprovalBridge(bridgeDeps: CodexApprovalBridgeDeps): void {
   approvalBridge = createCodexApprovalBridge(bridgeDeps);
@@ -404,6 +418,7 @@ export function configureCodexRuntimeRun(config: CodexRuntimeRunDeps): void {
   deps = config;
   modelCatalogService = undefined;
   turnRouteRegistry.clearAll();
+  codexRolloutPathByThreadId.clear();
   preparedRuntimeByThread.clear();
   lastPreparedRoleIds = [];
   lastPreparedMcpFingerprint = "";
@@ -444,8 +459,13 @@ export function configureCodexRuntimeRun(config: CodexRuntimeRunDeps): void {
     ...(config.onImageGenerationResult ? { onImageGenerationResult: config.onImageGenerationResult } : {}),
     turnRouteRegistry,
     ...(config.resolveTurnContextIdentity && { resolveTurnContextIdentity: config.resolveTurnContextIdentity }),
+    onThreadRolloutPath: ({ codexThreadId, rolloutPath }: { codexThreadId: string; rolloutPath: string }) => {
+      rememberCodexRolloutPath(codexThreadId, rolloutPath);
+    },
     onTurnTokenUsageUpdated: (route) => {
       if (!route.appServerTokenUsage) return;
+      const rolloutPath = codexRolloutPathByThreadId.get(route.codexThreadId);
+      const rolloutTiming = readCodexRolloutTurnTiming(rolloutPath, route.turnId);
       const threadId = resolveEcoThreadId(route.codexThreadId);
       const runAttemptId =
         config.resolvePersistedRunAttemptId?.(threadId, route.turnId) ??
@@ -458,6 +478,12 @@ export function configureCodexRuntimeRun(config: CodexRuntimeRunDeps): void {
         providerId: route.providerId,
         ...(runAttemptId ? { runAttemptId } : {}),
         appServerTokenUsage: route.appServerTokenUsage,
+        ...(rolloutTiming
+          ? {
+              ttftMs: rolloutTiming.timeToFirstTokenMs,
+              generationMs: rolloutTiming.generationMs,
+            }
+          : {}),
         ...(route.appServerTokenUsageRequests && {
           appServerTokenUsageRequests: route.appServerTokenUsageRequests,
         }),
@@ -555,29 +581,52 @@ function emitCodexTurnTokenUsage(config: CodexRuntimeRunDeps, event: ThreadRunEv
   const runAttemptId =
     config.resolvePersistedRunAttemptId?.(event.threadId, turnId) ??
     config.resolveRunAttemptId?.(event.threadId);
-  config.onCodexTurnTokenUsage?.({
-    threadId: event.threadId,
-    codexThreadId,
-    turnId,
-    appServerTokenUsage: appServerTokenUsage as CodexTurnTokenUsageBreakdown,
-    ...(typeof event.metadata?.usageModelId === "string" ? { modelId: event.metadata.usageModelId } : {}),
-    ...(runAttemptId ? { runAttemptId } : {}),
-    ...(typeof event.metadata?.usageProviderId === "string"
-      ? { providerId: event.metadata.usageProviderId }
-      : {}),
-    ...(event.metadata?.appServerTokenUsageSnapshot
-      ? {
-          appServerTokenUsageSnapshot: event.metadata
-            .appServerTokenUsageSnapshot as CodexTurnTokenUsageSnapshot,
-        }
-      : {}),
-    ...(Array.isArray(event.metadata?.appServerTokenUsageRequests)
-      ? {
-          appServerTokenUsageRequests: event.metadata
-            .appServerTokenUsageRequests as CodexTurnTokenUsageBreakdown[],
-        }
-      : {}),
-  });
+  const rolloutPath = codexRolloutPathByThreadId.get(codexThreadId);
+  const emitUsage = (rolloutTiming: ReturnType<typeof readCodexRolloutTurnTiming>): void => {
+    config.onCodexTurnTokenUsage?.({
+      threadId: event.threadId,
+      codexThreadId,
+      turnId,
+      appServerTokenUsage: appServerTokenUsage as CodexTurnTokenUsageBreakdown,
+      ...(rolloutTiming
+        ? {
+            ttftMs: rolloutTiming.timeToFirstTokenMs,
+            generationMs: rolloutTiming.generationMs,
+          }
+        : {}),
+      ...(typeof event.metadata?.usageModelId === "string" ? { modelId: event.metadata.usageModelId } : {}),
+      ...(runAttemptId ? { runAttemptId } : {}),
+      ...(typeof event.metadata?.usageProviderId === "string"
+        ? { providerId: event.metadata.usageProviderId }
+        : {}),
+      ...(event.metadata?.appServerTokenUsageSnapshot
+        ? {
+            appServerTokenUsageSnapshot: event.metadata
+              .appServerTokenUsageSnapshot as CodexTurnTokenUsageSnapshot,
+          }
+        : {}),
+      ...(Array.isArray(event.metadata?.appServerTokenUsageRequests)
+        ? {
+            appServerTokenUsageRequests: event.metadata
+              .appServerTokenUsageRequests as CodexTurnTokenUsageBreakdown[],
+          }
+        : {}),
+    });
+  };
+  const rolloutTiming = readCodexRolloutTurnTiming(rolloutPath, turnId);
+  emitUsage(rolloutTiming);
+  if (!rolloutTiming && rolloutPath) {
+    let delivered = false;
+    for (const delayMs of [25, 100, 300]) {
+      setTimeout(() => {
+        if (delivered) return;
+        const lateTiming = readCodexRolloutTurnTiming(rolloutPath, turnId);
+        if (!lateTiming) return;
+        delivered = true;
+        emitUsage(lateTiming);
+      }, delayMs);
+    }
+  }
 }
 
 export function bindCodexThreadRunEventAttempt(
@@ -687,13 +736,15 @@ export async function resumeCodexThreadForEcoThread(input: {
       },
     );
   }
-  return resumeCodexThread(client, {
+  const result = await resumeCodexThread(client, {
     threadId: codexThreadId,
     ...(input.cwd?.trim() && { cwd: input.cwd.trim() }),
     ...(input.model?.trim() && { model: input.model.trim() }),
     ...(input.modelProvider?.trim() && { modelProvider: input.modelProvider.trim() }),
     config: prepared.threadConfig,
   });
+  rememberCodexRolloutPath(result.thread.id, result.thread.path);
+  return result;
 }
 
 /**
@@ -751,6 +802,7 @@ export async function resumeCodexSubagentThread(input: {
     ...(input.modelProvider?.trim() && { modelProvider: input.modelProvider.trim() }),
     config: roleThreadConfig,
   });
+  rememberCodexRolloutPath(resume.thread.id, resume.thread.path);
   return {
     codexThreadId,
     followupPrompt: buildCodexSubagentFollowupPrompt(codexThreadId, input.followupTask),
@@ -2143,6 +2195,12 @@ export function createCodexRuntimeDriver(
     ...(preparedThreadConfig ? { threadConfig: preparedThreadConfig } : {}),
     onResumeDiagnostic: (diagnostic: unknown) => {
       runtimeDeps.onStderr?.(`[eco-codex] resume diagnostic ${JSON.stringify(diagnostic)}`);
+    },
+    onThreadRolloutPath: ({ codexThreadId, rolloutPath }: {
+      codexThreadId: string;
+      rolloutPath: string;
+    }) => {
+      rememberCodexRolloutPath(codexThreadId, rolloutPath);
     },
     onThreadMapped: (ecoThreadId: string, codexThreadId: string) => {
       recordCodexRuntimeThreadOwner(codexThreadId, client);

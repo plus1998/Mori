@@ -23,6 +23,7 @@
     "./codex-config-sync": "./src/codex-config-sync.ts",
     "./codex-model-catalog-sync": "./src/codex-model-catalog-sync.ts",
     "./codex-app-server-driver": "./src/codex-app-server-driver.ts",
+    "./codex-rollout-timing": "./src/codex-rollout-timing.ts",
     "./codex-turn-interrupt": "./src/codex-turn-interrupt.ts",
     "./codex-turn-steer": "./src/codex-turn-steer.ts",
     "./codex-version": "./src/codex-version.ts",

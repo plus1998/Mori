@@ -13,6 +13,26 @@ test("attachOutputTokensToRequestSpans collapses partial+final rows per invocati
   expect(attached[0]).toMatchObject({ outputTokens: 50, reasoningTokens: 10 });
 });
 
+test("native Codex request keys attach rollout timing to the turn span", () => {
+  const spans = [
+    { requestId: "turn_native", status: "completed" as const, startedAt: "2025-01-01T00:00:00.000Z" },
+  ];
+  const attached = attachOutputTokensToRequestSpans(spans, [
+    {
+      outputTokens: 308,
+      requestKey: "codex-turn-usage:native:turn_native:usage:checkpoint",
+      ttftMs: 17_879,
+      generationMs: 5_304,
+      source: "codex",
+    },
+  ]);
+  expect(attached[0]).toMatchObject({
+    outputTokens: 308,
+    ttftMs: 17_879,
+    generationMs: 5_304,
+  });
+});
+
 test("attachOutputTokensToRequestSpans sums distinct provider invocations in a turn", () => {
   const spans = [
     {

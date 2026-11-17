@@ -119,6 +119,12 @@ export interface CodexAppServerDriverOptions {
   /** Exact immutable role config is known to own the existing child on this client. */
   threadConfigAlreadyApplied?: boolean;
   onThreadMapped?: (ecoThreadId: string, codexThreadId: string) => void;
+  /** Reports the native rollout JSONL path for a started or resumed thread. */
+  onThreadRolloutPath?: (input: {
+    ecoThreadId: string;
+    codexThreadId: string;
+    rolloutPath: string;
+  }) => void;
   onThreadName?: (ecoThreadId: string, codexThreadId: string, name: string) => void;
   /** Fires as soon as turn/start returns a turn id (before tools run). */
   onTurnBound?: (input: { ecoThreadId: string; codexThreadId: string; turnId: string }) => void;
@@ -186,6 +192,7 @@ export class CodexAppServerDriver implements AgentRuntimeDriver {
   private readonly existingCodexThreadId: string | undefined;
   private readonly threadConfigAlreadyApplied: boolean;
   private readonly onThreadMapped: ((ecoThreadId: string, codexThreadId: string) => void) | undefined;
+  private readonly onThreadRolloutPath: CodexAppServerDriverOptions["onThreadRolloutPath"];
   private readonly onThreadName: CodexAppServerDriverOptions["onThreadName"];
   private readonly onTurnBound:
     | ((input: { ecoThreadId: string; codexThreadId: string; turnId: string }) => void)
@@ -215,6 +222,7 @@ export class CodexAppServerDriver implements AgentRuntimeDriver {
     this.existingCodexThreadId = options.existingCodexThreadId;
     this.threadConfigAlreadyApplied = options.threadConfigAlreadyApplied ?? false;
     this.onThreadMapped = options.onThreadMapped;
+    this.onThreadRolloutPath = options.onThreadRolloutPath;
     this.onThreadName = options.onThreadName;
     this.onTurnBound = options.onTurnBound;
     this.onTurnClosing = options.onTurnClosing;
@@ -394,6 +402,14 @@ export class CodexAppServerDriver implements AgentRuntimeDriver {
         signal: input.signal,
       });
       codexThreadId = resumed.thread.id.trim() || codexThreadId;
+      const resumedRolloutPath = resumed.thread.path?.trim();
+      if (resumedRolloutPath) {
+        this.onThreadRolloutPath?.({
+          ecoThreadId: input.threadId,
+          codexThreadId,
+          rolloutPath: resumedRolloutPath,
+        });
+      }
       needsContextRecovery = codexThreadNeedsContextRecovery(resumed.thread);
       if (this.threadConfig) {
         recordAppliedCodexThreadConfig(this.client, codexThreadId, this.threadConfig);
@@ -425,6 +441,14 @@ export class CodexAppServerDriver implements AgentRuntimeDriver {
         ),
       );
       codexThreadId = thread.thread.id;
+      const startedRolloutPath = thread.thread.path?.trim();
+      if (startedRolloutPath) {
+        this.onThreadRolloutPath?.({
+          ecoThreadId: input.threadId,
+          codexThreadId,
+          rolloutPath: startedRolloutPath,
+        });
+      }
       if (this.threadConfig) {
         recordAppliedCodexThreadConfig(this.client, codexThreadId, this.threadConfig);
       }

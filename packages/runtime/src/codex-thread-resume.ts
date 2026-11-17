@@ -42,6 +42,8 @@ export interface CodexThreadResumeResult {
   thread: {
     id: string;
     name?: string | null;
+    /** Absolute rollout JSONL path returned by Codex when the thread is loaded. */
+    path?: string | null;
     status?: CodexThreadStatusPayload;
     parentThreadId?: string | null;
     agentRole?: string | null;
