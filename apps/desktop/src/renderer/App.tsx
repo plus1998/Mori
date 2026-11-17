@@ -6069,6 +6069,16 @@ function App() {
     }
     return "";
   }, [displayProjection?.timeline]);
+  const latestCodexForkTarget = useMemo(() => {
+    const timeline = displayProjection?.timeline ?? [];
+    for (let i = timeline.length - 1; i >= 0; i -= 1) {
+      const item = timeline[i];
+      if (item?.scope !== "main" || item.role !== "assistant" || item.eventType !== "message.final") continue;
+      const messageId = item.metadata?.conversationV2MessageId;
+      if (typeof messageId === "string" && messageId.trim()) return messageId.trim();
+    }
+    return "";
+  }, [displayProjection?.timeline]);
 
   const codexAutoRetryCycleRef = useRef({
     threadId: "",
@@ -8560,7 +8570,11 @@ function App() {
   const activityLoadUserMessageEdit = useStableCallback(loadUserMessageEdit);
   const activityRewriteUserMessage = useStableCallback(rewriteUserMessage);
   const activityForkMessage = useStableCallback(
-    async (input: { activityLineId: string; expectedHistoryRevision: number }) => {
+    async (input: {
+      activityLineId: string;
+      expectedHistoryRevision: number;
+      runtimeConfig?: ThreadRuntimeConfig;
+    }) => {
       if (!activeThread || !window.eco) throw new Error("当前会话不可用。");
       const result = await window.eco.forkThreadFromMessage({
         principalId: "desktop-local",
@@ -10426,6 +10440,40 @@ function App() {
           }
         : {}),
     };
+    const currentMainProvider =
+      current.mainModel?.providerId ?? composerRuntimeConfig?.resolvedOrchestrationSnapshot?.mainAgent.modelRef.providerId;
+    const nextMainProvider = nextSelection.mainModel?.providerId ?? snapshot.mainAgent.modelRef.providerId;
+    const providerChanged =
+      activeThread?.coreKind === "codex" &&
+      Boolean(currentMainProvider && nextMainProvider && currentMainProvider !== nextMainProvider);
+    if (providerChanged && activeThread && !latestCodexForkTarget) {
+      setError("当前 Codex 历史尚未加载到可分叉的已完成回复，请刷新会话后再切换 provider。");
+      return;
+    }
+    if (providerChanged && activeThread && latestCodexForkTarget) {
+      const targetLabel = nextSelection.mainModel?.providerId ?? nextMainProvider;
+      if (
+        !window.confirm(
+          `Codex 不支持直接修改已有会话的 provider。将保留当前会话，并使用 ${targetLabel} 创建一个分支继续。是否继续？`,
+        )
+      ) {
+        return;
+      }
+      setIsStarting(true);
+      setError(undefined);
+      try {
+        await activityForkMessage({
+          activityLineId: latestCodexForkTarget,
+          expectedHistoryRevision: displayProjection?.historyRevision ?? 0,
+          runtimeConfig: next,
+        });
+      } catch (caught) {
+        setError(errorMessage(caught));
+      } finally {
+        setIsStarting(false);
+      }
+      return;
+    }
     if (!activeThread) {
       try {
         assertCodexLoginSubagentPolicy({

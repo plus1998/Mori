@@ -28,6 +28,9 @@ export interface NativeConversationForkInput {
   recoveryTitle: string;
   codexExecutable?: string;
   codexHome?: string;
+  /** Explicit Codex settings for a provider-switch fork. */
+  codexModelProvider?: string;
+  codexModel?: string;
   resolveClaudeUserId?: (activityLineId: string) => Promise<string>;
   /** Called synchronously when the provider returns its new identity. */
   onCreated: (result: NativeConversationFork) => void;
@@ -268,11 +271,17 @@ export async function forkNativeConversation(
       .slice(0, targetIndex + (afterAssistant ? 1 : 0))
       .flatMap((turn) => turn.items.filter((item) => item.type === "userMessage"));
     if (nativeUsers.length !== expected.length) throw new Error("Codex 原生历史与 Mori 分叉边界不一致。");
-    const fork = await client.request<{ thread: Thread }>(
+    const fork = await client.request<{
+      thread: Thread;
+      model?: string;
+      modelProvider?: string;
+    }>(
       "thread/fork",
       {
         threadId: input.sessionId,
         ...(afterAssistant ? { lastTurnId: target.id } : { beforeTurnId: target.id }),
+        ...(input.codexModelProvider ? { modelProvider: input.codexModelProvider } : {}),
+        ...(input.codexModel ? { model: input.codexModel } : {}),
         config: { mcp_servers: {} },
       },
       {
@@ -289,6 +298,16 @@ export async function forkNativeConversation(
         },
       },
     );
+    if (input.codexModelProvider && fork.modelProvider !== input.codexModelProvider) {
+      throw new Error(
+        `Codex 分支 provider 校验失败：请求 ${input.codexModelProvider}，返回 ${fork.modelProvider ?? "(missing)"}。`,
+      );
+    }
+    if (input.codexModel && fork.model !== input.codexModel) {
+      throw new Error(
+        `Codex 分支 model 校验失败：请求 ${input.codexModel}，返回 ${fork.model ?? "(missing)"}。`,
+      );
+    }
     const forkUsers = fork.thread.turns.flatMap((turn) =>
       turn.items.filter((item) => item.type === "userMessage"),
     );

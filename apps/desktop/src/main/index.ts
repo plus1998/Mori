@@ -125,6 +125,8 @@ import {
   readFilesystemPath,
   resolveAcpHostUiFeatures,
   resolveCodexHomeDir,
+  buildCodexGatewayModelAlias,
+  buildCodexModelProviderSlug,
   resolveCursorAgentExecutable,
   resolveEffectiveContextLimit,
   requireCodexAccountContextWindow,
@@ -1687,6 +1689,30 @@ function getConversationForkCommands(): ConversationForkCommands {
       const binding = conversationStore.getThreadCoreSession(thread.id);
       if (!binding || !["claude", "codex", "pi"].includes(binding.coreKind))
         throw new Error("源会话缺少可恢复的原生绑定。");
+      let codexModelProvider: string | undefined;
+      let codexModel: string | undefined;
+      if (binding.coreKind === "codex" && thread.runtimeConfig) {
+        const mainRoute = roleRoutesForThreadConfig(getModelSettingsSnapshot(), thread.runtimeConfig).find(
+          (route) => route.role === "main",
+        );
+        if (mainRoute) {
+          codexModelProvider =
+            mainRoute.providerId === "openai" ? "openai" : buildCodexModelProviderSlug(mainRoute.providerId);
+          codexModel =
+            mainRoute.providerId === "openai"
+              ? mainRoute.modelId
+              : buildCodexGatewayModelAlias(
+                  mainRoute.providerId,
+                  mainRoute.modelId,
+                  mainRoute.apiCompat === "anthropic" ||
+                    mainRoute.apiCompat === "openai_responses" ||
+                    mainRoute.apiCompat === "openai_chat_completions"
+                    ? mainRoute.apiCompat
+                    : undefined,
+                  mainRoute.candidateModelId,
+                );
+        }
+      }
       return forkNativeConversation({
         history,
         childThreadId,
@@ -1700,6 +1726,8 @@ function getConversationForkCommands(): ConversationForkCommands {
         recoveryTitle: `eco-fork:${childThreadId}`,
         ...(resolveCodexExecutable() ? { codexExecutable: resolveCodexExecutable()! } : {}),
         codexHome: resolveCodexHomeDir(app.getPath("userData")),
+        ...(codexModelProvider ? { codexModelProvider } : {}),
+        ...(codexModel ? { codexModel } : {}),
         resolveClaudeUserId: (activityLineId) => resolveCurrentClaudeUserMessageId(thread.id, activityLineId),
         onCreated,
       });
@@ -8080,6 +8108,9 @@ function registerIpcHandlers(): void {
         request.expectedHistoryRevision,
         "expectedHistoryRevision",
       ),
+      ...(request.runtimeConfig
+        ? { runtimeConfig: parseThreadRuntimeConfigInput(request.runtimeConfig) }
+        : {}),
     };
     requireConversationV2Thread(input.threadId);
     const result = await getConversationForkCommands().execute(input);

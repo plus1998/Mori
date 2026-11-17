@@ -2262,6 +2262,8 @@ export interface ThreadForkFromMessageRequest {
   threadId: string;
   activityLineId: string;
   expectedHistoryRevision: number;
+  /** Optional child runtime configuration. When set, the fork uses this configuration. */
+  runtimeConfig?: ThreadRuntimeConfigInput;
 }
 
 export interface ThreadForkFromMessageResult {
