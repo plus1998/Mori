@@ -620,6 +620,10 @@ export function SubagentTaskDrawer({
   reviewSelectedPath,
   reviewRevision,
   onRefreshReview,
+  reviewDiscardBusy,
+  onDiscardReviewPath,
+  onDeleteReviewPath,
+  onOpenReviewContainingFolder,
   onSelectAgent,
   onSelectPlan,
   onCloseTab,
@@ -689,6 +693,10 @@ export function SubagentTaskDrawer({
   /** Bumped when the reviewer refreshes manually, to drop cached per-file diffs. */
   reviewRevision?: number;
   onRefreshReview?: () => void;
+  reviewDiscardBusy?: boolean;
+  onDiscardReviewPath?: (path: string) => void | Promise<void>;
+  onDeleteReviewPath?: (path: string) => void | Promise<void>;
+  onOpenReviewContainingFolder?: (absolutePath: string) => void | Promise<void>;
   onSelectAgent: (agentId: string) => void;
   onSelectPlan: () => void;
   onCloseTab: (tabId: TaskPanelActiveTab) => void;
@@ -1373,6 +1381,7 @@ export function SubagentTaskDrawer({
           >
             <WorkspaceDiffPanel
               loading={(reviewLoading ?? false) && !reviewDiff}
+              discardBusy={reviewDiscardBusy ?? false}
               refreshing={reviewLoading ?? false}
               {...(reviewError && { error: reviewError })}
               {...(reviewDiff && { diff: reviewDiff })}
@@ -1380,6 +1389,9 @@ export function SubagentTaskDrawer({
               loadFileDiff={loadFileDiff}
               revision={reviewRevision ?? 0}
               onSelectPath={onSelectReviewPath}
+              {...(onDiscardReviewPath && { onDiscardPath: onDiscardReviewPath })}
+              {...(onDeleteReviewPath && { onDeletePath: onDeleteReviewPath })}
+              {...(onOpenReviewContainingFolder && { onOpenContainingFolder: onOpenReviewContainingFolder })}
               {...(onRefreshReview && { onRefresh: onRefreshReview })}
             />
           </div>

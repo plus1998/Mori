@@ -153,6 +153,7 @@ test("buildDiffTree collapses single-child directories", () => {
   ]);
 
   expect(tree.items["directory:apps"]?.data).toBe("apps/desktop/src");
+  expect(tree.items["directory:apps"]?.filePath).toBe("apps/desktop/src");
   expect(tree.items["directory:apps/desktop"]).toBeUndefined();
   expect(tree.items["directory:apps"]?.children).toEqual(["file:apps/desktop/src/a.ts"]);
 });

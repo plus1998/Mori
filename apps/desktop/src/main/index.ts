@@ -6937,19 +6937,65 @@ function registerIpcHandlers(): void {
     }
     const cleanPath = filePath.trim().replace(/[\\/]+$/, "");
     const resolvedPath = path.resolve(cleanPath);
-    let fileStat: Awaited<ReturnType<typeof fs.stat>>;
     try {
-      fileStat = await fs.stat(resolvedPath);
+      await fs.stat(resolvedPath);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
         throw new Error("找不到该文件。");
       }
       throw error;
     }
-    if (!fileStat.isFile()) {
-      throw new Error("请选择一个文件。");
-    }
     shell.showItemInFolder(resolvedPath);
+  });
+
+  registerDesktopCommand(IPC_CHANNELS.workspaceDeletePath, async (payload: unknown) => {
+    if (!payload || typeof payload !== "object") {
+      throw new Error("Invalid workspace delete path request.");
+    }
+    const record = payload as Record<string, unknown>;
+    if (typeof record.workspacePath !== "string" || !record.workspacePath.trim()) {
+      throw new Error("Workspace path is required.");
+    }
+    if (typeof record.path !== "string" || !record.path.trim()) {
+      throw new Error("File path is required.");
+    }
+
+    const workspacePath = path.resolve(record.workspacePath.trim());
+    const resolvedPath = path.resolve(workspacePath, record.path.trim());
+    const relativePath = path.relative(workspacePath, resolvedPath);
+    if (
+      !relativePath ||
+      relativePath === ".." ||
+      relativePath.startsWith(`..${path.sep}`) ||
+      path.isAbsolute(relativePath)
+    ) {
+      throw new Error("File path must be inside the workspace.");
+    }
+
+    let workspaceRealPath: string;
+    let targetRealPath: string;
+    let fileStat: Awaited<ReturnType<typeof fs.lstat>>;
+    try {
+      workspaceRealPath = await fs.realpath(workspacePath);
+      targetRealPath = await fs.realpath(resolvedPath);
+      fileStat = await fs.lstat(resolvedPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        throw new Error("找不到要删除的文件。");
+      }
+      throw error;
+    }
+    const realRelativePath = path.relative(workspaceRealPath, targetRealPath);
+    if (
+      !realRelativePath ||
+      realRelativePath === ".." ||
+      realRelativePath.startsWith(`..${path.sep}`) ||
+      path.isAbsolute(realRelativePath)
+    ) {
+      throw new Error("File path must be inside the workspace.");
+    }
+    await fs.rm(resolvedPath, { recursive: fileStat.isDirectory(), force: false });
+    scheduleWorkspaceGitStatusPublish(workspacePath);
   });
 
   registerDesktopCommand(IPC_CHANNELS.workspaceGetAssociatedApps, async (filePath: unknown) => {

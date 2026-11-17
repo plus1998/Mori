@@ -274,6 +274,7 @@ import {
   type ThreadUserMessageEditGetRequest,
   type ThreadUserMessageEditGetResult,
   type WorkflowSettingsSnapshot,
+  type WorkspaceDeletePathRequest,
   type WorkspaceDiffResult,
   type WorkspaceDirectoryListing,
   type WorkspaceFileBrowserRequest,
@@ -539,6 +540,9 @@ const api = {
   },
   openContainingFolder(filePath: string): Promise<void> {
     return ipcRenderer.invoke(IPC_CHANNELS.workspaceOpenContainingFolder, filePath);
+  },
+  deleteWorkspacePath(request: WorkspaceDeletePathRequest): Promise<void> {
+    return ipcRenderer.invoke(IPC_CHANNELS.workspaceDeletePath, request);
   },
   getAssociatedApps(
     filePath: string,

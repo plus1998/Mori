@@ -2389,6 +2389,7 @@ function App() {
   const [reviewDiffError, setReviewDiffError] = useState<string>();
   const [reviewSelectedPath, setReviewSelectedPath] = useState<string>();
   const [reviewDiffRevision, setReviewDiffRevision] = useState(0);
+  const [reviewDiscardBusy, setReviewDiscardBusy] = useState(false);
   const reviewDiffRequestRef = useRef(0);
   const reviewDiffRef = useRef<WorkspaceDiffResult | undefined>(undefined);
   /** Set by a manual refresh; the next successful load drops cached per-file diffs. */
@@ -10082,6 +10083,61 @@ function App() {
     void refreshReviewDiff();
   }, [refreshReviewDiff]);
 
+  const discardReviewPath = useCallback(
+    async (filePath: string) => {
+      const eco = window.eco;
+      if (!activeWorkspacePath || !eco || reviewDiscardBusy) {
+        return;
+      }
+      setReviewDiscardBusy(true);
+      try {
+        await eco.discardWorkspaceChanges({ workspacePath: activeWorkspacePath, path: filePath });
+        reviewDiffManualRefreshRef.current = true;
+        await refreshReviewDiff();
+      } catch (caught) {
+        setReviewDiffError(errorMessage(caught));
+      } finally {
+        setReviewDiscardBusy(false);
+      }
+    },
+    [activeWorkspacePath, refreshReviewDiff, reviewDiscardBusy],
+  );
+
+  const deleteReviewPath = useCallback(
+    async (filePath: string) => {
+      const eco = window.eco;
+      if (!activeWorkspacePath || !eco || reviewDiscardBusy) {
+        return;
+      }
+      setReviewDiscardBusy(true);
+      try {
+        await eco.deleteWorkspacePath({ workspacePath: activeWorkspacePath, path: filePath });
+        reviewDiffManualRefreshRef.current = true;
+        await refreshReviewDiff();
+      } catch (caught) {
+        setReviewDiffError(errorMessage(caught));
+      } finally {
+        setReviewDiscardBusy(false);
+      }
+    },
+    [activeWorkspacePath, refreshReviewDiff, reviewDiscardBusy],
+  );
+
+  const openReviewContainingFolder = useCallback(
+    async (absolutePath: string) => {
+      const eco = window.eco;
+      if (!eco) {
+        return;
+      }
+      try {
+        await eco.openContainingFolder(absolutePath);
+      } catch (caught) {
+        showAppMessageError(errorMessage(caught));
+      }
+    },
+    [showAppMessageError],
+  );
+
   const openTaskPanelHomeTool = useCallback(
     async (sourceTabId: string, tool: TaskPanelHomeTool) => {
       const eco = window.eco;
@@ -12253,6 +12309,10 @@ function App() {
             {...(reviewSelectedPath && { reviewSelectedPath })}
             reviewRevision={reviewDiffRevision}
             onRefreshReview={requestReviewDiffRefresh}
+            reviewDiscardBusy={reviewDiscardBusy}
+            onDiscardReviewPath={discardReviewPath}
+            onDeleteReviewPath={deleteReviewPath}
+            onOpenReviewContainingFolder={openReviewContainingFolder}
             onSelectAgent={(agentId) => {
               setTaskPanelActiveTab(agentId);
               setSelectedSubagentAgentId(agentId);

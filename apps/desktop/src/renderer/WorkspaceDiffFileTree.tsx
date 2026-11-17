@@ -1,9 +1,19 @@
-import { RefreshCw, RotateCcw, Search } from "lucide-react";
-import { type ReactNode, useDeferredValue, useMemo, useRef, useState } from "react";
+import { ExternalLink, RefreshCw, RotateCcw, Search, Trash2 } from "lucide-react";
+import {
+  type ReactNode,
+  useDeferredValue,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import type { WorkspaceDiffFileStatus, WorkspaceDiffResult } from "../shared/ipc";
 import { MaterialFileIcon } from "./MaterialFileIcon";
 import { type ExplorerTreeItem, WorkspaceExplorerTree } from "./WorkspaceExplorerTree";
+import { type ContextMenuBox, contextMenuBoxForPoint } from "./context-menu-layout";
 
 const ROOT_ID = "__workspace-diff-root__";
 
@@ -21,6 +31,9 @@ interface WorkspaceDiffFileTreeProps {
   discardBusy: boolean;
   onSelectPath: (path: string) => void;
   onDiscardPath?: (path: string) => void | Promise<void>;
+  workspacePath?: string;
+  onDeletePath?: (path: string) => void | Promise<void>;
+  onOpenContainingFolder?: (absolutePath: string) => void | Promise<void>;
   /** Manual reload of the changed-file list; omit to hide the refresh button. */
   onRefresh?: () => void | Promise<void>;
   refreshing?: boolean;
@@ -41,6 +54,7 @@ function compactSingleChildDirectories(items: Record<string, DiffTreeItem>, root
       if (!child?.isFolder) break;
       item.data = `${item.data}/${child.data}`;
       item.children = child.children ?? [];
+      if (child.filePath) item.filePath = child.filePath;
       delete items[childId];
     }
   };
@@ -95,6 +109,7 @@ export function buildDiffTree(
               data: segment,
               isFolder: true,
               children: [],
+              filePath: currentPath,
             };
         if (!isFile) expandedItems.push(itemId);
       }
@@ -149,6 +164,9 @@ export function WorkspaceDiffFileTree({
   discardBusy,
   onSelectPath,
   onDiscardPath,
+  workspacePath,
+  onDeletePath,
+  onOpenContainingFolder,
   onRefresh,
   refreshing = false,
 }: WorkspaceDiffFileTreeProps) {
@@ -158,6 +176,14 @@ export function WorkspaceDiffFileTree({
   const scrollRef = useRef<HTMLDivElement>(null);
   const [focusedItem, setFocusedItem] = useState<string>();
   const [collapsedItems, setCollapsedItems] = useState<string[]>([]);
+  const [contextMenu, setContextMenu] = useState<{
+    item: DiffTreeItem;
+    x: number;
+    y: number;
+    trigger: HTMLElement;
+  }>();
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [menuBox, setMenuBox] = useState<ContextMenuBox>();
   const filteredFiles = useMemo(() => {
     const normalizedQuery = deferredQuery.trim().toLowerCase();
     if (!normalizedQuery) return files;
@@ -170,6 +196,50 @@ export function WorkspaceDiffFileTree({
   );
   const selectedItemId = activePath ? tree.fileItemIds[activePath] : undefined;
   const selectedItems = selectedItemId ? [selectedItemId] : [];
+
+  useLayoutEffect(() => {
+    if (!contextMenu || !menuRef.current) return;
+    setMenuBox(
+      contextMenuBoxForPoint(
+        contextMenu,
+        { height: menuRef.current.getBoundingClientRect().height },
+        { width: window.innerWidth, height: window.innerHeight },
+      ),
+    );
+    menuRef.current.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
+  }, [contextMenu]);
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    const close = () => setContextMenu(undefined);
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.target instanceof Node && menuRef.current?.contains(event.target)) return;
+      close();
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" || event.key === "Tab") {
+        event.preventDefault();
+        contextMenu.trigger.focus();
+        close();
+      }
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("keydown", onKeyDown, true);
+    window.addEventListener("blur", close);
+    window.addEventListener("resize", close);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("blur", close);
+      window.removeEventListener("resize", close);
+    };
+  }, [contextMenu]);
+
+  const absolutePath =
+    contextMenu?.item.filePath && workspacePath
+      ? `${workspacePath.replace(/[\\/]+$/, "")}/${contextMenu.item.filePath}`
+      : undefined;
+  const closeContextMenu = () => setContextMenu(undefined);
 
   return (
     <div className="workspace-diff-tree">
@@ -219,6 +289,18 @@ export function WorkspaceDiffFileTree({
             selectedItems={selectedItems}
             focusedItem={focusedItem ?? selectedItems[0] ?? ROOT_ID}
             onFocusItem={setFocusedItem}
+            onContextMenu={(event, item) => {
+              event.preventDefault();
+              const treeItem = item as DiffTreeItem;
+              setFocusedItem(item.index);
+              if (!treeItem.isFolder && treeItem.filePath) onSelectPath(treeItem.filePath);
+              setContextMenu({
+                item: treeItem,
+                x: event.clientX,
+                y: event.clientY,
+                trigger: event.currentTarget,
+              });
+            }}
             virtualScrollRef={scrollRef}
             treeLabel={t("workspace.diff.files")}
             hideRoot
@@ -240,7 +322,7 @@ export function WorkspaceDiffFileTree({
               return (
                 <>
                   {statusMark(status, Boolean(treeItem.isFolder))}
-                  {treeItem.filePath && onDiscardPath ? (
+                  {treeItem.filePath && !treeItem.isFolder && onDiscardPath ? (
                     <button
                       type="button"
                       className="workspace-diff-tree__discard"
@@ -249,7 +331,8 @@ export function WorkspaceDiffFileTree({
                       disabled={discardBusy}
                       onClick={(event) => {
                         event.stopPropagation();
-                        void onDiscardPath(treeItem.filePath!);
+                        const path = treeItem.filePath;
+                        if (path) void onDiscardPath(path);
                       }}
                     >
                       <RotateCcw size={13} aria-hidden />
@@ -271,6 +354,69 @@ export function WorkspaceDiffFileTree({
           />
         </div>
       )}
+      {contextMenu?.item.filePath && absolutePath
+        ? createPortal(
+            <div
+              ref={menuRef}
+              className="workspace-diff-context-menu"
+              role="menu"
+              aria-label={t("workspace.diff.fileMenuLabel")}
+              style={menuBox ?? { position: "fixed", visibility: "hidden" }}
+              onContextMenu={(event) => event.preventDefault()}
+            >
+              {onOpenContainingFolder ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="workspace-diff-context-menu-item"
+                  onClick={() => {
+                    closeContextMenu();
+                    void onOpenContainingFolder(absolutePath);
+                  }}
+                >
+                  <ExternalLink size={14} aria-hidden />
+                  {t("workspace.diff.openContainingFolder")}
+                </button>
+              ) : null}
+              {onDiscardPath ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="workspace-diff-context-menu-item"
+                  disabled={discardBusy}
+                  onClick={() => {
+                    const path = contextMenu.item.filePath;
+                    if (!path) return;
+                    closeContextMenu();
+                    void onDiscardPath(path);
+                  }}
+                >
+                  <RotateCcw size={14} aria-hidden />
+                  {t("workspace.diff.discardChanges")}
+                </button>
+              ) : null}
+              {onDeletePath ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="workspace-diff-context-menu-item is-danger"
+                  disabled={discardBusy}
+                  onClick={() => {
+                    const path = contextMenu.item.filePath;
+                    if (!path) return;
+                    closeContextMenu();
+                    if (!window.confirm(t("workspace.diff.confirmDeleteFile", { path }))) return;
+                    void onDeletePath(path);
+                  }}
+                >
+                  <Trash2 size={14} aria-hidden />
+                  {t("workspace.diff.deleteFile")}
+                </button>
+              ) : null}
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }

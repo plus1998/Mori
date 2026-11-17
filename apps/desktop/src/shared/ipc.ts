@@ -85,6 +85,7 @@ export const IPC_CHANNELS = {
   workspaceOpenInFileManager: "workspace:open-in-file-manager",
   workspaceOpenFileExternally: "workspace:open-file-externally",
   workspaceOpenContainingFolder: "workspace:open-containing-folder",
+  workspaceDeletePath: "workspace:delete-path",
   workspaceGetAssociatedApps: "workspace:get-associated-apps",
   workspaceOpenFileWithApp: "workspace:open-file-with-app",
   workspaceListPackageScripts: "workspace:list-package-scripts",
@@ -906,6 +907,11 @@ export interface WorkspaceFileWriteResult {
   path: string;
   name: string;
   size: number;
+}
+
+export interface WorkspaceDeletePathRequest {
+  workspacePath: string;
+  path: string;
 }
 
 export type WorkspaceFileKind = "text" | "image" | "audio" | "video" | "pdf" | "spreadsheet" | "unsupported";

@@ -539,16 +539,12 @@ async function workspaceHasGitCommits(cwd: string, run: GitRunner): Promise<bool
   return (await run(["git", "rev-parse", "--verify", "HEAD"], cwd)).exitCode === 0;
 }
 
-async function isUntrackedWorkspaceFile(cwd: string, filePath: string, run: GitRunner): Promise<boolean> {
+async function hasUntrackedWorkspacePath(cwd: string, filePath: string, run: GitRunner): Promise<boolean> {
   const result = await run(["git", "ls-files", "--others", "--exclude-standard", "--", filePath], cwd);
   if (result.exitCode !== 0) {
     return false;
   }
-  return result.stdout
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .includes(filePath);
+  return result.stdout.split("\n").some((line) => line.trim().length > 0);
 }
 
 export interface DiscardWorkspaceChangesResult {
@@ -577,16 +573,36 @@ export async function discardWorkspaceChanges(
     return { discardedPaths: [] };
   }
 
-  if (await isUntrackedWorkspaceFile(cwd, targetPath, run)) {
-    await runGitOk(run, cwd, ["git", "clean", "-f", "--", targetPath]);
-    return { discardedPaths: [targetPath] };
+  let targetIsDirectory = false;
+  try {
+    targetIsDirectory = (await stat(path.resolve(cwd, targetPath))).isDirectory();
+  } catch {
+    // A deleted tracked path has no working-tree stat; git restore below handles it.
+  }
+
+  const hasUntracked = await hasUntrackedWorkspacePath(cwd, targetPath, run);
+  if (hasUntracked) {
+    await runGitOk(run, cwd, ["git", "clean", "-f", ...(targetIsDirectory ? ["-d"] : []), "--", targetPath]);
+    if (!targetIsDirectory) {
+      return { discardedPaths: [targetPath] };
+    }
   }
 
   if (!hasHead) {
+    if (hasUntracked && targetIsDirectory) {
+      return { discardedPaths: [targetPath] };
+    }
     throw new Error(`文件 ${targetPath} 没有可撤掉的变更。`);
   }
 
-  await runGitOk(run, cwd, ["git", "restore", "--source=HEAD", "--staged", "--worktree", "--", targetPath]);
+  let hasTrackedWorkspacePath = true;
+  if (targetIsDirectory) {
+    const tracked = await run(["git", "ls-files", "--", targetPath], cwd);
+    hasTrackedWorkspacePath = tracked.exitCode === 0 && tracked.stdout.trim().length > 0;
+  }
+  if (hasTrackedWorkspacePath) {
+    await runGitOk(run, cwd, ["git", "restore", "--source=HEAD", "--staged", "--worktree", "--", targetPath]);
+  }
   return { discardedPaths: [targetPath] };
 }
 

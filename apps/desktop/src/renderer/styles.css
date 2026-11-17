@@ -4094,7 +4094,8 @@ button.sidebar-settings-meta {
 .image-context-menu,
 .composer-context-menu,
 .feed-text-context-menu,
-.task-panel-tab-context-menu {
+.task-panel-tab-context-menu,
+.workspace-diff-context-menu {
   display: flex;
   flex-direction: column;
   padding: 4px;
@@ -4111,7 +4112,8 @@ button.sidebar-settings-meta {
 .image-context-menu-item,
 .composer-context-menu-item,
 .feed-text-context-menu-item,
-.task-panel-tab-context-menu-item {
+.task-panel-tab-context-menu-item,
+.workspace-diff-context-menu-item {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -4134,6 +4136,11 @@ button.sidebar-settings-meta {
   color: var(--text-muted);
 }
 
+.workspace-diff-context-menu-item svg {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+}
+
 .terminal-context-menu-item:hover:not(:disabled),
 .terminal-context-menu-item:focus-visible:not(:disabled),
 .image-context-menu-item:hover:not(:disabled),
@@ -4143,7 +4150,9 @@ button.sidebar-settings-meta {
 .feed-text-context-menu-item:hover:not(:disabled),
 .feed-text-context-menu-item:focus-visible:not(:disabled),
 .task-panel-tab-context-menu-item:hover:not(:disabled),
-.task-panel-tab-context-menu-item:focus-visible:not(:disabled) {
+.task-panel-tab-context-menu-item:focus-visible:not(:disabled),
+.workspace-diff-context-menu-item:hover:not(:disabled),
+.workspace-diff-context-menu-item:focus-visible:not(:disabled) {
   background: var(--nav-hover);
   color: var(--text-heading);
 }
@@ -4156,11 +4165,16 @@ button.sidebar-settings-meta {
   outline: none;
 }
 
+.workspace-diff-context-menu-item.is-danger {
+  color: var(--text-danger, #d14);
+}
+
 .terminal-context-menu-item:disabled,
 .image-context-menu-item:disabled,
 .composer-context-menu-item:disabled,
 .feed-text-context-menu-item:disabled,
-.task-panel-tab-context-menu-item:disabled {
+.task-panel-tab-context-menu-item:disabled,
+.workspace-diff-context-menu-item:disabled {
   color: var(--text-tertiary);
   cursor: default;
 }
@@ -4169,6 +4183,10 @@ button.sidebar-settings-meta {
 .image-context-menu-item:disabled svg,
 .composer-context-menu-item:disabled svg,
 .feed-text-context-menu-item:disabled svg {
+  color: var(--text-tertiary);
+}
+
+.workspace-diff-context-menu-item:disabled svg {
   color: var(--text-tertiary);
 }
 

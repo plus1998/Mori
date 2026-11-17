@@ -4,6 +4,7 @@ import {
   type CSSProperties,
   type DragEvent,
   type KeyboardEvent,
+  type MouseEvent,
   type ReactNode,
   type RefObject,
   useCallback,
@@ -54,6 +55,7 @@ export interface WorkspaceExplorerTreeProps {
   onCollapseItem: (index: string) => void;
   onSelectItem: (index: string) => void;
   onFocusItem?: (index: string) => void;
+  onContextMenu?: (event: MouseEvent<HTMLDivElement>, item: ExplorerTreeItem) => void;
   onDragFile?: (event: DragEvent<HTMLDivElement>, item: ExplorerTreeItem) => void;
   /** Opt in for large review lists with a known fixed row height and gap. */
   virtualScrollRef?: RefObject<HTMLDivElement | null>;
@@ -112,6 +114,7 @@ export function WorkspaceExplorerTree({
   onCollapseItem,
   onSelectItem,
   onFocusItem,
+  onContextMenu,
   onDragFile,
   virtualScrollRef,
 }: WorkspaceExplorerTreeProps) {
@@ -271,6 +274,7 @@ export function WorkspaceExplorerTree({
             onDragStart={onDragFile && !item.isFolder ? (event) => onDragFile(event, item) : undefined}
             onClick={() => activateItem(node.index)}
             onFocus={() => onFocusItem?.(node.index)}
+            onContextMenu={onContextMenu ? (event) => onContextMenu(event, item) : undefined}
           >
             <span
               className="workspace-explorer-tree__indent"

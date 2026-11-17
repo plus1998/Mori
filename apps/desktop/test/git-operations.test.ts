@@ -355,6 +355,46 @@ test("discardWorkspaceChanges removes an untracked file", async () => {
   expect(calls).toContainEqual(["git", "clean", "-f", "--", "src/new.ts"]);
 });
 
+test("discardWorkspaceChanges handles tracked and untracked changes in a directory", async () => {
+  const workspacePath = await mkdtemp(join(tmpdir(), "eco-discard-directory-"));
+  await mkdir(join(workspacePath, "src"), { recursive: true });
+  const calls: string[][] = [];
+  const run = async (args: string[], _cwd: string) => {
+    calls.push(args);
+    const key = args.join(" ");
+    if (key === "git rev-parse --show-toplevel") {
+      return { exitCode: 0, stdout: `${workspacePath}\n`, stderr: "" };
+    }
+    if (key === "git rev-parse --verify HEAD") {
+      return { exitCode: 0, stdout: "abc\n", stderr: "" };
+    }
+    if (key === "git ls-files --others --exclude-standard -- src") {
+      return { exitCode: 0, stdout: "src/new.ts\n", stderr: "" };
+    }
+    if (key === "git ls-files -- src") {
+      return { exitCode: 0, stdout: "src/tracked.ts\n", stderr: "" };
+    }
+    return { exitCode: 0, stdout: "", stderr: "" };
+  };
+
+  try {
+    const result = await discardWorkspaceChanges(workspacePath, { path: "src" }, run);
+    expect(result.discardedPaths).toEqual(["src"]);
+    expect(calls).toContainEqual(["git", "clean", "-f", "-d", "--", "src"]);
+    expect(calls).toContainEqual([
+      "git",
+      "restore",
+      "--source=HEAD",
+      "--staged",
+      "--worktree",
+      "--",
+      "src",
+    ]);
+  } finally {
+    await rm(workspacePath, { recursive: true, force: true });
+  }
+});
+
 test("getWorkspaceDiff returns empty result for non-git workspace", async () => {
   const run = async (args: string[], _cwd: string) => {
     if (args.join(" ") === "git rev-parse --show-toplevel") {

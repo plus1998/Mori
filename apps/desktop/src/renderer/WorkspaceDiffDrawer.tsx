@@ -72,6 +72,8 @@ interface WorkspaceDiffDrawerProps {
   revision?: number;
   onSelectPath: (path: string) => void;
   onDiscardPath?: (path: string) => void | Promise<void>;
+  onDeletePath?: (path: string) => void | Promise<void>;
+  onOpenContainingFolder?: (absolutePath: string) => void | Promise<void>;
   onDiscardAll?: () => void | Promise<void>;
   onRefresh?: () => void | Promise<void>;
   refreshing?: boolean;
@@ -90,6 +92,8 @@ export interface WorkspaceDiffPanelProps {
   revision?: number;
   onSelectPath: (path: string) => void;
   onDiscardPath?: (path: string) => void | Promise<void>;
+  onDeletePath?: (path: string) => void | Promise<void>;
+  onOpenContainingFolder?: (absolutePath: string) => void | Promise<void>;
   onDiscardAll?: () => void | Promise<void>;
   onRefresh?: () => void | Promise<void>;
   refreshing?: boolean;
@@ -216,6 +220,8 @@ export function WorkspaceDiffPanel({
   revision = 0,
   onSelectPath,
   onDiscardPath,
+  onDeletePath,
+  onOpenContainingFolder,
   onDiscardAll,
   onRefresh,
   refreshing = false,
@@ -293,7 +299,10 @@ export function WorkspaceDiffPanel({
                 {...(activePath && { activePath })}
                 discardBusy={discardBusy}
                 onSelectPath={onSelectPath}
+                {...(diff?.workspacePath && { workspacePath: diff.workspacePath })}
                 {...(onDiscardPath && { onDiscardPath })}
+                {...(onDeletePath && { onDeletePath })}
+                {...(onOpenContainingFolder && { onOpenContainingFolder })}
                 {...(onRefresh && { onRefresh })}
                 refreshing={refreshing || loading}
               />
@@ -342,6 +351,8 @@ export function WorkspaceDiffDrawer({
   revision = 0,
   onSelectPath,
   onDiscardPath,
+  onDeletePath,
+  onOpenContainingFolder,
   onDiscardAll,
   onRefresh,
   refreshing = false,
@@ -384,6 +395,8 @@ export function WorkspaceDiffDrawer({
           showHeader
           revision={revision}
           onSelectPath={onSelectPath}
+          {...(onDeletePath && { onDeletePath })}
+          {...(onOpenContainingFolder && { onOpenContainingFolder })}
           {...(onDiscardPath && { onDiscardPath })}
           {...(onDiscardAll && { onDiscardAll })}
           {...(onRefresh && { onRefresh })}
