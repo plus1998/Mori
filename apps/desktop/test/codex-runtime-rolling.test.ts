@@ -19,6 +19,7 @@ import {
   retainCodexRuntimeClient,
   setCodexAccountProxyConfigGetter,
   setCodexExternalAuthProvider,
+  setCodexRuntimeBackgroundTerminalWork,
   setCodexSystemProxyResolver,
   stopCodexRuntimeProcess,
   stopGlobalCodexRuntimeLifecycle,
@@ -405,6 +406,19 @@ test("idle recycling protects reservations, active or unknown threads, terminals
   expect(getCodexRuntimeProcesses()).toHaveLength(1);
   await pending;
   await reap();
+  expect(getCodexRuntimeProcesses()).toEqual([]);
+});
+
+test("a discovered background terminal holds the runtime across a later idle probe", async () => {
+  const options = await fixture();
+  const client = await ensureGlobalCodexRuntimeLifecycle(options);
+  setCodexRuntimeBackgroundTerminalWork(client, true);
+
+  await reapIdleCodexRuntimes(Date.now() + CODEX_APP_SERVER_IDLE_TIMEOUT_MS + 1000);
+  expect(getCodexRuntimeProcesses()).toHaveLength(1);
+
+  setCodexRuntimeBackgroundTerminalWork(client, false);
+  await reapIdleCodexRuntimes(Date.now() + CODEX_APP_SERVER_IDLE_TIMEOUT_MS + 1000);
   expect(getCodexRuntimeProcesses()).toEqual([]);
 });
 

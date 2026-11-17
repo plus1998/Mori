@@ -712,6 +712,7 @@ import {
   stopCodexRuntimeProcess,
   getCodexRuntimeClientForThread,
   getCodexRuntimeClients,
+  setCodexRuntimeBackgroundTerminalWork,
   parseElectronProxyResolution,
   setCodexAccountProxyConfigGetter,
   setCodexExternalAuthProvider,
@@ -1602,6 +1603,8 @@ function getCodexBackgroundTerminalService(): CodexBackgroundTerminalService {
     getClient: () => getGlobalCodexRuntimeLifecycle()?.getClient(),
     getClients: getCodexRuntimeClients,
     getClientForThread: getCodexRuntimeClientForThread,
+    setClientBackgroundTerminalWork: (client, hasWork) =>
+      setCodexRuntimeBackgroundTerminalWork(client as Parameters<typeof setCodexRuntimeBackgroundTerminalWork>[0], hasWork),
     resolveEcoThreadId: (codexThreadId) => {
       const mapped = codexThreadMap?.getEcoThreadId(codexThreadId);
       if (mapped) {

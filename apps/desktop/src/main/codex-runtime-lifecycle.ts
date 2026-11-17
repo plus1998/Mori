@@ -435,6 +435,10 @@ const accountLifecycles = new Map<string, ScopedRuntimeEntry>();
 const providerLifecycles = new Map<string, ScopedRuntimeEntry>();
 const threadClients = new Map<string, CodexAppServerClient>();
 const clientReservations = new Map<CodexAppServerClient, number>();
+// A resource-panel/list probe can observe a background terminal after the
+// native idle probe has already started. Keep that observation as a hard hold
+// until a later successful probe confirms that the client has no terminals.
+const clientsWithBackgroundTerminals = new Set<CodexAppServerClient>();
 let retirementTimer: ReturnType<typeof setTimeout> | undefined;
 let retirementSweep: Promise<void> | undefined;
 let idleTimer: ReturnType<typeof setTimeout> | undefined;
@@ -491,13 +495,20 @@ async function hasRuntimeWork(client: CodexAppServerClient): Promise<boolean> {
 async function releaseRuntime(lifecycle: CodexRuntimeLifecycle, idleBefore?: number): Promise<boolean> {
   const client = lifecycle.getClient();
   if (!client?.isInitialized || lifecycle.isBusy()) return false;
+  if (clientsWithBackgroundTerminals.has(client)) return false;
   if (idleBefore !== undefined && client.lastActivityAt > idleBefore) return false;
   const version = client.activityVersion;
   if (await hasRuntimeWork(client)) return false;
   // Acquisition, a new RPC or a native notification can race the status checks.
-  if (lifecycle.getClient() !== client || lifecycle.isBusy() || client.activityVersion !== version)
+  if (
+    lifecycle.getClient() !== client ||
+    lifecycle.isBusy() ||
+    client.activityVersion !== version ||
+    clientsWithBackgroundTerminals.has(client)
+  )
     return false;
   await lifecycle.stop();
+  clientsWithBackgroundTerminals.delete(client);
   retiringLifecycles.delete(lifecycle);
   for (const [id, owner] of threadClients) if (owner === client) threadClients.delete(id);
   return true;
@@ -532,6 +543,15 @@ export function getCodexRuntimeClients(): CodexAppServerClient[] {
       }),
     ),
   ];
+}
+
+/** Record resource-panel knowledge that must outlive a single idle probe. */
+export function setCodexRuntimeBackgroundTerminalWork(
+  client: CodexAppServerClient,
+  hasWork: boolean,
+): void {
+  if (hasWork) clientsWithBackgroundTerminals.add(client);
+  else clientsWithBackgroundTerminals.delete(client);
 }
 
 export function getCodexRuntimeClientForThread(
@@ -676,6 +696,7 @@ export async function reapRetiredCodexRuntimes(): Promise<void> {
       // A driver may have reserved this generation while the status RPC was in flight.
       if (client && (clientReservations.get(client) ?? 0) > 0) continue;
       await lifecycle.stop();
+      clientsWithBackgroundTerminals.delete(client);
       retiringLifecycles.delete(lifecycle);
       for (const [id, owner] of threadClients) if (owner === client) threadClients.delete(id);
     } catch (error) {
@@ -853,6 +874,7 @@ export async function stopGlobalCodexRuntimeLifecycle(): Promise<void> {
     await retirementSweep;
     await idleSweep;
     retiringLifecycles.clear();
+    clientsWithBackgroundTerminals.clear();
     accountLifecycles.clear();
     providerLifecycles.clear();
     threadClients.clear();

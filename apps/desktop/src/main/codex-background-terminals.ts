@@ -25,6 +25,7 @@ export interface CodexBackgroundTerminalServiceDeps {
   getClients?(): CodexBackgroundTerminalClient[];
   getClientForThread?(codexThreadId: string): CodexBackgroundTerminalClient | undefined;
   resolveEcoThreadId(codexThreadId: string): string | undefined;
+  setClientBackgroundTerminalWork?(client: CodexBackgroundTerminalClient, hasWork: boolean): void;
 }
 
 const LOADED_THREAD_PAGE_SIZE = 100;
@@ -43,9 +44,11 @@ export class CodexBackgroundTerminalService {
     const clients = this.deps.getClients?.() ?? [this.deps.getClient()];
     for (const client of clients) {
       if (!client?.isInitialized) continue;
+      let clientHasWork = false;
       const codexThreadIds = await this.listLoadedThreadIds(client);
       for (const codexThreadId of codexThreadIds) {
         const rows = await this.listThreadTerminals(client, codexThreadId);
+        clientHasWork ||= rows.length > 0;
         for (const row of rows) {
           const key = `${codexThreadId}\0${row.processId}`;
           terminalsByKey.set(key, {
@@ -61,6 +64,7 @@ export class CodexBackgroundTerminalService {
           });
         }
       }
+      this.deps.setClientBackgroundTerminalWork?.(client, clientHasWork);
     }
     return [...terminalsByKey.values()].sort(
       (left, right) =>
@@ -73,14 +77,14 @@ export class CodexBackgroundTerminalService {
     codexThreadId: string;
     processId: string;
   }): Promise<CodexBackgroundTerminalTerminateResult> {
-    const client = this.deps.getClientForThread?.(input.codexThreadId) ?? this.requireClient();
-    if (!client) {
-      throw new Error("Codex app-server is not running; cannot terminate the Agent Bash process.");
-    }
     const codexThreadId = input.codexThreadId.trim();
     const processId = input.processId.trim();
     if (!codexThreadId || !processId) {
       throw new Error("Codex thread id and process id are required.");
+    }
+    const client = this.deps.getClientForThread?.(codexThreadId) ?? this.requireClient();
+    if (!client) {
+      throw new Error("Codex app-server is not running; cannot terminate the Agent Bash process.");
     }
     const result = await client.request<unknown>("thread/backgroundTerminals/terminate", {
       threadId: codexThreadId,
