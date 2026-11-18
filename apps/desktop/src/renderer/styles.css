@@ -31614,6 +31614,26 @@ html:not([data-platform="darwin"])
   margin-top: var(--codex-feed-gap-block);
 }
 
+/*
+ * ProjectionMainFeedEntry carries its durable key in a display:contents
+ * wrapper. The older virtual-row selectors above expect `.run-log-feed-entry`
+ * to be the row's direct child, so they miss the real entry and compute a
+ * zero margin exactly when a mid-turn prompt is followed by another user
+ * message. Keep the previous section kind on every row and target the actual
+ * descendant entry as well. This also covers non-virtual rows, which now carry
+ * the same data attribute.
+ */
+.codex-main:not(.codex-main-landing)
+  .run-log
+  > .run-log-virtual-row[data-previous-section-kind="turn"]
+  .run-log-feed-entry:has(.run-log-user-prompt):not(:where(.run-log-active-tail)),
+.codex-main:not(.codex-main-landing)
+  .run-log
+  > .run-log-virtual-row[data-previous-section-kind="entry"]
+  .run-log-feed-entry:has(.run-log-user-prompt):not(:where(.run-log-active-tail)) {
+  margin-top: var(--codex-feed-gap-block);
+}
+
 .codex-main:not(.codex-main-landing)
   .run-log
   > .run-log-feed-entry:has(.run-log-mission)

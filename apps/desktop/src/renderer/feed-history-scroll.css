@@ -1,0 +1,16 @@
+.feed-history-loading {
+  position: absolute;
+  z-index: 6;
+  top: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 7px;
+  border-radius: 12px;
+  background: var(--codex-log-bg);
+  color: var(--codex-log-muted);
+  font-size: 11px;
+  pointer-events: none;
+}

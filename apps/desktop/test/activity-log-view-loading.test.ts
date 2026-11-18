@@ -1256,13 +1256,19 @@ test("ActivityLogView keeps block spacing between a completed turn and the next 
   );
 
   expect(html).toMatch(
-    /<div class="run-log-virtual-row" data-index="\d+"><section class="run-log-turn is-completed is-collapsed"[\s\S]*<\/section><\/div><div class="run-log-virtual-row" data-index="\d+"><div class="run-log-feed-entry"><article class="run-log-user-prompt"/,
+    /<div class="run-log-virtual-row" data-index="\d+"[^>]*><section class="run-log-turn is-completed is-collapsed"[\s\S]*<\/section><\/div><div class="run-log-virtual-row" data-index="\d+"[^>]*><div data-feed-entry-key="[^"]+"[^>]*><div class="run-log-feed-entry"><article class="run-log-user-prompt"/,
   );
   expect(styles).toMatch(
     /\.codex-main:not\(\.codex-main-landing\)\s+\.run-log\s*>\s*\.run-log-turn\s*\+\s*\.run-log-feed-entry:not\(:where\(\.run-log-active-tail\)\)\s*,/,
   );
   expect(styles).toMatch(
     /\.run-log\s*>\s*\.run-log-virtual-row:has\(>\s*\.run-log-turn\)\s*\+\s*\.run-log-virtual-row:has\(>\s*\.run-log-feed-entry\)\s*>\s*\.run-log-feed-entry[\s\S]*?margin-top:\s*var\(--codex-feed-gap-block\);/,
+  );
+  expect(styles).toMatch(
+    /\.run-log\s*>\s*\.run-log-virtual-row\[data-previous-section-kind="turn"\][\s\S]*?\.run-log-feed-entry:has\(\.run-log-user-prompt\):not\(:where\(\.run-log-active-tail\)\)[\s\S]*?margin-top:\s*var\(--codex-feed-gap-block\);/,
+  );
+  expect(styles).toMatch(
+    /\.run-log\s*>\s*\.run-log-virtual-row\[data-previous-section-kind="entry"\][\s\S]*?\.run-log-feed-entry:has\(\.run-log-user-prompt\):not\(:where\(\.run-log-active-tail\)\)[\s\S]*?margin-top:\s*var\(--codex-feed-gap-block\);/,
   );
 });
 

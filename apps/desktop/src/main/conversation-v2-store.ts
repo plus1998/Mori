@@ -1,3 +1,7 @@
+import {
+  FEED_MESSAGE_LIMIT, FEED_TOOL_LIMIT, FEED_PAGE_BYTES, FEED_TIMELINE_PAGE_LIMIT, buildTimelineFeedWindow,
+  type ConversationFeedWindow, type ConversationFeedWindowRequest,
+} from "../shared/conversation-feed-window";
 import crypto from "node:crypto";
 import type { DatabaseSync as DatabaseSyncType } from "node:sqlite";
 import {
@@ -2769,6 +2773,206 @@ export class ConversationV2Store {
       }
       return response;
     });
+  }
+
+  /** One transactional snapshot; navigation replaces the resident page instead of accumulating it. */
+  feedWindow(request: ConversationFeedWindowRequest): ConversationFeedWindow {
+    return this.readTransaction(() => {
+      const { conversationId } = request;
+      if (request.skeleton) return this.feedSkeleton(conversationId);
+      const base = this.bootstrap(conversationId, FEED_MESSAGE_LIMIT, FEED_PAGE_BYTES);
+      if (request.timeline) return this.timelineFeedWindow(base, request);
+      const page = request.beforeCursor
+        ? this.messagesPage(conversationId, request.beforeCursor, FEED_MESSAGE_LIMIT, FEED_PAGE_BYTES)
+        : undefined;
+      const snapshot: ConversationBootstrap = page ? {
+        ...base, snapshotSeq: page.readSeq, historyRevision: page.historyRevision,
+        messages: page.messages, runs: page.runs ?? [], tools: page.tools ?? [],
+        agents: page.agents ?? [], details: page.details ?? [], turns: [],
+        toolSummaryCounts: page.toolSummaryCounts ?? {}, hasOlder: page.hasMore,
+        ...(page.nextCursor ? { olderCursor: page.nextCursor } : {}),
+      } : base;
+      if (page && !page.nextCursor) delete snapshot.olderCursor;
+      const toolPages: ConversationFeedWindow["toolPages"] = {};
+      if (request.toolRunId) {
+        if (!(request.toolRunId in (snapshot.toolSummaryCounts ?? {}))) {
+          throw new Error("The requested tool run is outside the Feed window.");
+        }
+        const tools = this.toolsPage(conversationId, request.toolRunId, request.toolCursor,
+          FEED_TOOL_LIMIT, FEED_PAGE_BYTES);
+        snapshot.tools = tools.tools;
+        snapshot.details = tools.details ?? [];
+        toolPages[request.toolRunId] = {
+          total: tools.totalCount, hasOlder: tools.hasMore, ...(tools.nextCursor ? { olderCursor: tools.nextCursor } : {}),
+        };
+      }
+      for (const [runId, total] of Object.entries(snapshot.toolSummaryCounts ?? {})) {
+        if (toolPages[runId]) continue;
+        const rows = snapshot.tools.filter(tool => tool.runId === runId)
+          .sort((a, b) => a.createdSeq - b.createdSeq || a.toolCallId.localeCompare(b.toolCallId));
+        const oldest = rows[0];
+        toolPages[runId] = {
+          total, hasOlder: rows.length < total,
+          ...(rows.length < total && oldest ? { olderCursor: encodeConversationCursor({
+            kind: "tools", storeEpoch: snapshot.storeEpoch, historyRevision: snapshot.historyRevision,
+            createdSeq: oldest.createdSeq, id: oldest.toolCallId,
+          }) } : {}),
+        };
+      }
+      return { ...snapshot, toolPages };
+    });
+  }
+
+  /**
+   * Complete lightweight Feed rows. The renderer needs every user message and one
+   * answer row per turn for stable navigation. A queued or running turn is the
+   * exception: it remains fully expanded until its lifecycle becomes terminal, so
+   * its thinking messages, tools and detail items are included in this snapshot.
+   */
+  private feedSkeleton(conversationId: string): ConversationFeedWindow {
+    const stream = this.requireExistingStream(conversationId);
+    const runs = this.listRuns(conversationId, CONVERSATION_V2_MAX_PAGE_SIZE);
+    const activeRunIds = runs
+      .filter((run) => run.status === "queued" || run.status === "running")
+      .map((run) => run.runId);
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM conversation_messages_v2
+         WHERE conversation_id = ? AND is_deleted = 0
+           AND ((role = 'user' AND channel = 'answer') OR
+                (role = 'assistant' AND channel = 'answer'))
+         ORDER BY created_seq ASC, message_id ASC`,
+      )
+      .all(conversationId) as unknown as MessageRow[];
+    const skeletonMessages = rows.map(rowToMessage);
+    const finalAnswerByTurn = new Map<string, ConversationMessage>();
+    const userMessages: ConversationMessage[] = [];
+    for (const message of skeletonMessages) {
+      if (message.role === "user") {
+        userMessages.push(message);
+        continue;
+      }
+      const previous = finalAnswerByTurn.get(message.turnId);
+      if (
+        !previous ||
+        message.versionSeq > previous.versionSeq ||
+        (message.versionSeq === previous.versionSeq && message.createdSeq > previous.createdSeq)
+      ) {
+        finalAnswerByTurn.set(message.turnId, message);
+      }
+    }
+    const retainedMessagesById = new Map(
+      [...userMessages, ...finalAnswerByTurn.values()].map((message) => [message.messageId, message]),
+    );
+    if (activeRunIds.length > 0) {
+      const activeRows = this.db
+        .prepare(
+          `SELECT * FROM conversation_messages_v2
+             WHERE conversation_id = ? AND is_deleted = 0
+               AND run_id IN (${activeRunIds.map(() => "?").join(", ")})
+             ORDER BY created_seq ASC, message_id ASC`,
+        )
+        .all(conversationId, ...activeRunIds) as unknown as MessageRow[];
+      for (const message of activeRows.map(rowToMessage)) {
+        retainedMessagesById.set(message.messageId, message);
+      }
+    }
+    const messages = [...retainedMessagesById.values()].sort(
+      (left, right) => left.createdSeq - right.createdSeq || left.messageId.localeCompare(right.messageId),
+    );
+    const tools =
+      activeRunIds.length === 0
+        ? []
+        : (
+            this.db
+              .prepare(
+                `SELECT * FROM conversation_tool_calls_v2
+                   WHERE conversation_id = ?
+                     AND run_id IN (${activeRunIds.map(() => "?").join(", ")})
+                   ORDER BY created_seq ASC, tool_call_id ASC`,
+              )
+              .all(conversationId, ...activeRunIds) as unknown as ToolRow[]
+          ).map(rowToTool);
+    const details =
+      activeRunIds.length === 0
+        ? []
+        : (
+            this.db
+              .prepare(
+                `SELECT * FROM conversation_detail_items_v2
+                   WHERE conversation_id = ?
+                     AND run_id IN (${activeRunIds.map(() => "?").join(", ")})
+                   ORDER BY created_seq ASC, item_id ASC`,
+              )
+              .all(conversationId, ...activeRunIds) as unknown as DetailRow[]
+          ).map(rowToDetail);
+    const toolSummaryCounts = this.listToolSummaryCounts(conversationId, activeRunIds);
+    const toolPages = Object.fromEntries(
+      activeRunIds.map((runId) => [
+        runId,
+        { total: toolSummaryCounts[runId] ?? 0, hasOlder: false },
+      ]),
+    );
+    return {
+      protocolVersion: CONVERSATION_V2_PROTOCOL_VERSION,
+      storeEpoch: stream.store_epoch,
+      conversationId,
+      snapshotSeq: stream.last_seq,
+      historyRevision: stream.history_revision,
+      messages,
+      runs,
+      tools,
+      toolSummaryCounts,
+      agents: this.listAgents(conversationId),
+      todos: this.listTodos(conversationId),
+      details,
+      turns: this.listTurns(conversationId, CONVERSATION_V2_MAX_PAGE_SIZE),
+      hasOlder: false,
+      toolPages,
+      skeleton: true,
+    };
+  }
+
+  private timelineFeedWindow(base: ConversationBootstrap, request: ConversationFeedWindowRequest): ConversationFeedWindow {
+    const cursorValue = request.beforeFeedCursor ?? request.afterFeedCursor;
+    if (request.beforeFeedCursor && request.afterFeedCursor) throw new Error("Ambiguous Feed cursor direction.");
+    const cursor = cursorValue ? decodeConversationCursor(cursorValue, "feed") : undefined;
+    this.validateCursor(cursor, this.requireExistingStream(request.conversationId));
+    const feedSql = `WITH feed AS (
+      SELECT created_seq AS seq, 'm:' || message_id AS entity_key FROM conversation_messages_v2 WHERE conversation_id = ?
+      UNION ALL
+      SELECT created_seq AS seq, 't:' || tool_call_id AS entity_key FROM conversation_tool_calls_v2 WHERE conversation_id = ?
+    )`;
+    const direction = request.afterFeedCursor ? ">" : "<";
+    const params: Array<string | number> = [request.conversationId, request.conversationId];
+    if (cursor) params.push(cursor.createdSeq, cursor.createdSeq, cursor.id);
+    const rows = this.db.prepare(`${feedSql} SELECT seq, entity_key FROM feed
+      ${cursor ? `WHERE seq ${direction} ? OR (seq = ? AND entity_key ${direction} ?)` : ""}
+      ORDER BY seq ${request.afterFeedCursor ? "ASC" : "DESC"}, entity_key ${request.afterFeedCursor ? "ASC" : "DESC"} LIMIT ?`)
+      .all(...params, FEED_TIMELINE_PAGE_LIMIT + 1) as Array<{seq:number;entity_key:string}>;
+    const messages = rows.filter(row => row.entity_key.startsWith("m:")).map(row => this.getMessage(request.conversationId, row.entity_key.slice(2))!);
+    const tools = rows.filter(row => row.entity_key.startsWith("t:")).map(row => limitConversationToolSummaryPayload(this.getTool(request.conversationId, row.entity_key.slice(2))));
+    const runIds = [...new Set([...messages.flatMap(row => row.runId ? [row.runId] : []), ...tools.map(row => row.runId)])];
+    const runs = new Map(base.runs.map(run => [run.runId, run]));
+    for (const id of runIds) { const run = this.getRun(request.conversationId,id); if (run) runs.set(id,run); }
+    const firstSeq = Math.min(...rows.map(row => row.seq));
+    const lastSeq = request.beforeFeedCursor || request.afterFeedCursor ? Math.max(...rows.map(row => row.seq)) : base.snapshotSeq;
+    const compactions = rows.length ? (this.db.prepare(`SELECT * FROM conversation_detail_items_v2
+      WHERE conversation_id = ? AND type LIKE 'context.compaction.%' AND created_seq >= ? AND created_seq <= ?
+      ORDER BY created_seq DESC LIMIT 120`).all(request.conversationId,firstSeq,lastSeq) as unknown as DetailRow[]).map(rowToDetail) : [];
+    const response = buildTimelineFeedWindow({ ...base, messages, tools, runs:[...runs.values()],
+      toolSummaryCounts:this.listToolSummaryCounts(request.conversationId,runIds),
+      details:[...compactions, ...this.listClarificationDetails(tools)],
+    },request);
+    const exists = (value: string | undefined, comparison: "<" | ">") => {
+      if (!value) return false;
+      const position = decodeConversationCursor(value,"feed");
+      return !!this.db.prepare(`${feedSql} SELECT 1 FROM feed WHERE seq ${comparison} ? OR (seq = ? AND entity_key ${comparison} ?) LIMIT 1`)
+        .get(request.conversationId,request.conversationId,position.createdSeq,position.createdSeq,position.id);
+    };
+    response.hasOlder = exists(response.olderFeedCursor,"<");
+    response.hasNewer = exists(response.newerFeedCursor,">");
+    return response;
   }
 
   /** Internal, bounded failure facts. Callers must authorize the conversation and redact text before export. */
@@ -6342,10 +6546,14 @@ export class ConversationV2Store {
     }
   }
 
+  private readTransactionDepth = 0;
+
   private readTransaction<T>(read: () => T): T {
+    if (this.readTransactionDepth > 0) return read();
     this.ensureInitialized();
     try {
       this.db.exec("BEGIN");
+      this.readTransactionDepth++;
       const result = read();
       this.db.exec("COMMIT");
       return result;
@@ -6356,6 +6564,8 @@ export class ConversationV2Store {
         // Preserve the original read/reducer error.
       }
       throw error;
+    } finally {
+      this.readTransactionDepth = 0;
     }
   }
 

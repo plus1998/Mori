@@ -66,6 +66,35 @@ const head = {
 };
 type Api = Parameters<typeof loadConversationV2ProjectionUpdate>[1];
 
+test("releasing a Feed during an in-flight projection prevents further reads and publication", async () => {
+  let release!: (value: { requestSpans: [] }) => void;
+  let current = true;
+  let heads = 0;
+  const api = {
+    conversationV2Projection: () => new Promise<{ requestSpans: [] }>(resolve => { release = resolve; }),
+    conversationV2Head: async () => { heads++; return head; },
+  } as unknown as Api;
+  const loading = loadConversationV2ProjectionUpdate(initial, api, () => initial, () => current);
+  current = false;
+  release({ requestSpans: [] });
+  await expect(loading).rejects.toMatchObject({ name: "AbortError" });
+  expect(heads).toBe(0);
+});
+
+test("a history window scopes mutable panels and stays at its snapshot boundary", async () => {
+  const state = { ...initial, feedWindow: { mode: "history" as const, request: { conversationId: "thread", beforeCursor: "cursor" }, toolPages: {} } };
+  let scope: string[] | undefined;
+  let heads = 0;
+  const api = {
+    conversationV2Projection: async (_id: string, requestIds?: string[]) => { scope = requestIds; return { requestSpans: [] }; },
+    conversationV2Head: async () => { heads++; return head; },
+  } as unknown as Api;
+  const result = await loadConversationV2ProjectionUpdate(state, api);
+  expect(scope).toEqual([]);
+  expect(heads).toBe(0);
+  expect(result.appliedSeq).toBe(initial.appliedSeq);
+});
+
 test("a cleared preparation status waits for its actual tool row before either is published", async () => {
   let release!: (value: ConversationSyncPage) => void;
   let reachedSync!: () => void;

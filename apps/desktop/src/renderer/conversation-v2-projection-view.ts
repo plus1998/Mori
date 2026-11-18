@@ -2879,6 +2879,10 @@ function projectionStreamDisplayKey(
   }
   const channel =
     item.eventType === "thinking.delta" || item.eventType === "thinking.final" ? "thinking" : "message";
+  // V2 already materializes each logical stream into a unique durable message.
+  // Its identity must survive loading/evicting the preceding user prompt.
+  const messageId = item.metadata?.conversationV2MessageId;
+  if (typeof messageId === "string" && messageId.trim()) return `${channel}:entity:${messageId}`;
   const requestId = resolveEffectiveStreamRequestId(item, timeline, requestSpansById);
   const requestSpan = requestId ? requestSpansById?.get(requestId) : undefined;
   const forceMidTurnBoundary = Boolean(

@@ -1,3 +1,4 @@
+import { createFeedEntryIdentityReconciler, createFeedSectionIdentityReconciler, feedEntryEntityKeys } from "./feed-reading-identity";
 import { useTurnDurationMs } from "./use-turn-duration";
 import { RetryCountdownLabel } from "./RetryCountdownLabel";
 import { projectionTimelineItemRenderSignature } from "./projection-timeline-signature";
@@ -2106,22 +2107,26 @@ function ConversationV2ProjectionActivityLogViewImpl({
     return i18n.t(label.key, label.params);
   }, [toolWritingIndicator, i18n]);
   const resolvedThinkingDisplayMode = thinkingDisplayMode ?? readStoredThinkingDisplayPreferences().mode;
+  const [reconcileFeedEntries] = useState(createFeedEntryIdentityReconciler);
+  const [reconcileFeedSections] = useState(createFeedSectionIdentityReconciler);
   const viewModel = useMemo(
-    () =>
-      buildThreadRunProjectionViewModel(
+    () => {
+      const model = buildThreadRunProjectionViewModel(
         projection,
         thread ? { id: thread.id, prompt: thread.prompt } : undefined,
         {
           agentDisplayNames,
           thinkingDisplayMode: resolvedThinkingDisplayMode,
         },
-      ),
-    [agentDisplayNames, projection, resolvedThinkingDisplayMode, thread?.id, thread?.prompt],
+      );
+      return {...model,mainFeedEntries:reconcileFeedEntries(model.mainFeedEntries)};
+    },
+    [agentDisplayNames, projection, resolvedThinkingDisplayMode, thread?.id, thread?.prompt, reconcileFeedEntries],
   );
   const showThreadPrompt = viewModel.showThreadPrompt;
   const feedSections = useMemo(
-    () => buildThreadRunTurnFeedSections(viewModel.mainFeedEntries, projection),
-    [projection, viewModel.mainFeedEntries],
+    () => reconcileFeedSections(buildThreadRunTurnFeedSections(viewModel.mainFeedEntries, projection)),
+    [projection, viewModel.mainFeedEntries, reconcileFeedSections],
   );
   // Mid-turn segments share one disclosure, including when virtualization
   // unmounts a segment. The attempt owns expansion, not each inserted prompt.
@@ -2474,7 +2479,19 @@ function ConversationV2ProjectionActivityLogViewImpl({
         <ProjectionTurnFeedSection
           section={section}
           expanded={expandedTurns.has(turnExpansionKey(section.attempt.attemptId))}
-          onExpandedChange={(expanded) => setTurnExpanded(section.attempt.attemptId, expanded)}
+          onExpandedChange={(expanded) => {
+            setTurnExpanded(section.attempt.attemptId, expanded);
+            // Keep detail hydration at the section owner as well as inside the
+            // disclosure component. The final answer belongs to the skeleton,
+            // so the disclosure can be mounted with no process rows at all;
+            // in that case the child has no local content transition to use as
+            // a reliable hydration trigger.
+            if (expanded && onLoadProjectionDetail) {
+              void onLoadProjectionDetail("turn", section.attempt.attemptId).catch((error) => {
+                console.warn("[eco] Feed turn detail load failed:", error);
+              });
+            }
+          }}
           {...sharedSectionProps}
           stopping={Boolean(thread?.cancelling)}
         />
@@ -2543,7 +2560,13 @@ function ConversationV2ProjectionActivityLogViewImpl({
               </>
             ) : (
               renderedFeedSections.map((section, index) => (
-                <div key={section.key} className="run-log-virtual-row" data-index={index}>
+                <div
+                  key={section.key}
+                  className="run-log-virtual-row"
+                  data-index={index}
+                  data-feed-section-key={section.key}
+                  data-previous-section-kind={renderedFeedSections[index - 1]?.kind}
+                >
                   {renderFeedSection(index)}
                 </div>
               ))
@@ -2746,7 +2769,11 @@ function RunLogTurnSection({
             const nextExpanded = !expanded;
             setExpanded(nextExpanded);
             onExpandedChange?.(nextExpanded);
-            if (nextExpanded && onLoadDetail && !detailLoading && !detailLoaded && !detailLoadedLocally) {
+            // The final answer is part of the Feed skeleton, so `detailLoaded`
+            // can be true even when the collapsed process/tool detail has never
+            // been read. Only the local detail flag proves that this turn has
+            // already completed its lazy hydration.
+            if (nextExpanded && onLoadDetail && !detailLoading && !detailLoadedLocally) {
               setDetailError(undefined);
               setDetailLoading(true);
               void onLoadDetail()
@@ -2970,7 +2997,11 @@ function readProjectionToolUseId(item: ThreadRunProjectionTimelineItem): string 
   return undefined;
 }
 
-function ProjectionMainFeedEntry({
+function ProjectionMainFeedEntry(props: Parameters<typeof ProjectionMainFeedEntryContent>[0]) {
+  return <div data-feed-entry-key={props.entry.key} data-feed-entity-keys={JSON.stringify(feedEntryEntityKeys(props.entry))} style={{display:"contents"}}><ProjectionMainFeedEntryContent {...props} /></div>;
+}
+
+function ProjectionMainFeedEntryContent({
   entry,
   requestSpansById,
   finalSummaryItemIds,
@@ -3358,7 +3389,11 @@ function resolveToolGroupRunningLabel(
   return undefined;
 }
 
-function ProjectionToolGroupChildEntry({
+function ProjectionToolGroupChildEntry(props: Parameters<typeof ProjectionToolGroupChildEntryContent>[0]) {
+  return <div data-feed-entry-key={props.entry.key} data-feed-entity-keys={JSON.stringify(feedEntryEntityKeys(props.entry))} style={{display:"contents"}}><ProjectionToolGroupChildEntryContent {...props} /></div>;
+}
+
+function ProjectionToolGroupChildEntryContent({
   entry,
   requestSpansById,
   nestedChildren,
@@ -5581,9 +5616,9 @@ function PhaseBlock({
     if (isFailure) {
       return (
         <FeedErrorCard
-          message={label}
+          message={retryAt ? <RetryCountdownLabel label={label} retryAt={retryAt} /> : label}
           {...(reconnectDetail && { detail: reconnectDetail })}
-          {...(onRetry && { actionLabel: i18n.t("common.retry"), onAction: onRetry })}
+          {...(onRetry && { actionLabel: retryLabel ?? i18n.t("common.retry"), onAction: onRetry })}
         />
       );
     }
@@ -5616,7 +5651,7 @@ function PhaseBlock({
   if (onRetry) {
     return (
       <FeedErrorCard
-        message={label}
+        message={retryAt ? <RetryCountdownLabel label={label} retryAt={retryAt} /> : label}
         actionLabel={retryLabel ?? i18n.t("common.retry")}
         onAction={onRetry}
       />

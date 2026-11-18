@@ -295,6 +295,86 @@ test("places a finalized queued follow-up after the turn that accepted it", () =
   expect(onlyV2.timeline.map((item) => item.text)).toEqual(["第一轮回答", "第二轮问题"]);
 });
 
+test("a mid-turn user message without a run id splits the same attempt in the V2 Feed", () => {
+  const run: ConversationRun = {
+    runId: "run_1",
+    conversationId: "thread_merge",
+    turnId: "run_turn",
+    status: "running",
+    startedAt: "2026-09-14T00:00:01.000Z",
+    versionSeq: 2,
+    timingQuality: "recorded",
+  };
+  const initialUser: ConversationMessage = {
+    ...message("initial_user", 1),
+    turnId: "initial_turn",
+    body: "开始",
+    occurredAt: "2026-09-14T00:00:00.500Z",
+  };
+  const beforeSteer: ConversationMessage = {
+    ...assistantMessage("before_steer", 3, "插话前的输出"),
+    turnId: "run_turn",
+    versionSeq: 3,
+    occurredAt: "2026-09-14T00:00:05.000Z",
+  };
+  const midTurn: ConversationMessage = {
+    ...message("mid_turn", 10),
+    turnId: "mid_turn",
+    versionSeq: 11,
+    body: "中途补充要求",
+    occurredAt: "2026-09-14T00:00:20.000Z",
+  };
+  const afterSteer: ConversationMessage = {
+    ...assistantMessage("after_steer", 12, "插话后的输出"),
+    turnId: "run_turn",
+    versionSeq: 12,
+    occurredAt: "2026-09-14T00:00:25.000Z",
+  };
+  const state = v2State([initialUser, beforeSteer, midTurn, afterSteer], [run]);
+  const current = buildConversationV2OnlyProjection(state, { status: "running" });
+  const sections = buildThreadRunTurnFeedSections(
+    buildThreadRunProjectionViewModel(current).mainFeedEntries,
+    current,
+  );
+
+  expect(sections.map((section) => section.kind)).toEqual(["entry", "turn", "entry", "turn"]);
+  if (sections[1]?.kind !== "turn" || sections[2]?.kind !== "entry" || sections[3]?.kind !== "turn") {
+    throw new Error("expected a mid-turn prompt to split the running attempt");
+  }
+  expect(
+    sections[1].processEntries.some(
+      (entry) => entry.kind === "timeline" && entry.item.text === "插话前的输出",
+    ),
+  ).toBe(true);
+  expect(sections[2].entry.kind === "timeline" && sections[2].entry.item.text).toBe("中途补充要求");
+  expect(sections[3].continuation).toBe(true);
+  expect(
+    sections[3].processEntries.some(
+      (entry) => entry.kind === "timeline" && entry.item.text === "插话后的输出",
+    ),
+  ).toBe(true);
+
+  const settled = buildConversationV2OnlyProjection(
+    v2State(
+      [initialUser, beforeSteer, midTurn, afterSteer],
+      [{ ...run, status: "completed", endedAt: "2026-09-14T00:00:26.000Z" }],
+    ),
+    { status: "completed" },
+  );
+  const settledSections = buildThreadRunTurnFeedSections(
+    buildThreadRunProjectionViewModel(settled).mainFeedEntries,
+    settled,
+  ).filter((section) => section.kind === "turn");
+  expect(settledSections).toHaveLength(2);
+  expect(settledSections[0]?.finalEntry?.kind === "timeline" && settledSections[0].finalEntry.item.text).toBe(
+    "插话前的输出",
+  );
+  expect(settledSections[1]?.continuation).toBe(true);
+  expect(settledSections[1]?.finalEntry?.kind === "timeline" && settledSections[1].finalEntry.item.text).toBe(
+    "插话后的输出",
+  );
+});
+
 test("keeps a directly accepted continuation out of the Feed until finalization", () => {
   const queued = queuedMessage("direct_continuation", 3);
   const projection = buildConversationV2OnlyProjection(v2State([queued]), {

@@ -23,6 +23,7 @@ function timelineItem(
     role: input.role ?? "main",
     text: input.text ?? "Model request failed",
     at: input.at ?? `2026-01-01T00:00:0${sequence}.000Z`,
+    ...(input.runAttemptId && { runAttemptId: input.runAttemptId }),
     ...(input.metadata && { metadata: input.metadata }),
   };
 }
@@ -154,6 +155,56 @@ test("ActivityLogView routes model API errors through the shared error card", ()
   expect(markup).toContain('class="feed-error-card"');
   expect(markup).toContain("Selected model is at capacity");
   expect(markup).toContain('class="feed-error-card-retry"');
+});
+
+test("Codex Login capacity notice keeps the countdown beside immediate retry", () => {
+  const retryAt = new Date(Date.now() + 300_000).toISOString();
+  const projection: ThreadRunProjectionSnapshot = {
+    thread: {
+      threadId: "thread-codex-capacity",
+      status: "running",
+      generatedAt: new Date().toISOString(),
+    },
+    attempts: [],
+    agents: [],
+    requestSpans: [],
+    timeline: [
+      timelineItem("codex-prompt", 1, {
+        eventType: "thread.status",
+        role: "user",
+        text: "继续实现登录页",
+        metadata: { liveType: "thread.user_prompt" },
+      }),
+      timelineItem("codex-retry", 2, {
+        eventType: "request.retry_scheduled",
+        role: "system",
+        text: "Codex 正在自动重试（1/5）：Selected model is at capacity. Please try a different model.",
+        runAttemptId: "attempt-1",
+        metadata: { retryAt, liveType: "request.retry_scheduled" },
+      }),
+    ],
+    diagnostics: [],
+    sourceEventCount: 2,
+  };
+  const markup = renderToStaticMarkup(
+    createElement(ActivityLogView, {
+      projection,
+      thread: {
+        ...failedThread,
+        id: "thread-codex-capacity",
+        status: "running",
+        coreKind: "codex",
+        runtimeConfig: {
+          mainAgentModelOverride: { providerId: "openai", modelId: "gpt-5" },
+        } as ThreadSummary["runtimeConfig"],
+      },
+      onRetryFailedRequest: () => undefined,
+    }),
+  );
+
+  expect(markup).toContain("约 ");
+  expect(markup).toContain("秒后重试");
+  expect(markup).toContain(">立即重试</button>");
 });
 
 test("ActivityLogView routes upstream final errors through the shared error card", () => {

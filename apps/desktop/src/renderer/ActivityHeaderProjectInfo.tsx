@@ -19,8 +19,6 @@ export interface ActivityHeaderProjectInfoPanelProps {
   onOpenProjectFolder: () => void;
   isCodexLogin?: boolean;
   autoRetryEnabled?: boolean;
-  autoRetryAttempt?: number;
-  autoRetryRemainingSeconds?: number;
   onAutoRetryChange?: (enabled: boolean) => void;
 }
 
@@ -33,8 +31,6 @@ export interface ActivityHeaderProjectInfoProps {
   onError: (message: string) => void;
   isCodexLogin?: boolean;
   autoRetryEnabled?: boolean;
-  autoRetryAttempt?: number;
-  autoRetryRemainingSeconds?: number;
   onAutoRetryChange?: (enabled: boolean) => void;
 }
 
@@ -58,8 +54,6 @@ export function ActivityHeaderProjectInfoPanel({
   onOpenProjectFolder,
   isCodexLogin,
   autoRetryEnabled,
-  autoRetryAttempt,
-  autoRetryRemainingSeconds,
   onAutoRetryChange,
 }: ActivityHeaderProjectInfoPanelProps) {
   const { t } = useTranslation();
@@ -105,15 +99,6 @@ export function ActivityHeaderProjectInfoPanel({
         <section className="activity-header-project-info-codex" aria-label={t("thread.codexRetry.title")}>
           <div className="activity-header-project-info-codex-heading">
             <span>{t("thread.codexRetry.title")}</span>
-            {autoRetryAttempt ? (
-              <span className="activity-header-project-info-codex-status">
-                {t("thread.codexRetry.scheduled", {
-                  attempt: autoRetryAttempt,
-                  limit: 5,
-                  seconds: autoRetryRemainingSeconds ?? 0,
-                })}
-              </span>
-            ) : null}
           </div>
           <button
             type="button"
@@ -145,8 +130,6 @@ export function ActivityHeaderProjectInfo({
   onError,
   isCodexLogin,
   autoRetryEnabled,
-  autoRetryAttempt,
-  autoRetryRemainingSeconds,
   onAutoRetryChange,
 }: ActivityHeaderProjectInfoProps) {
   const { t } = useTranslation();
@@ -262,8 +245,6 @@ export function ActivityHeaderProjectInfo({
                     {...(acpSessionId ? { acpSessionId } : {})}
                     {...(isCodexLogin ? { isCodexLogin } : {})}
                     {...(autoRetryEnabled !== undefined ? { autoRetryEnabled } : {})}
-                    {...(autoRetryAttempt !== undefined ? { autoRetryAttempt } : {})}
-                    {...(autoRetryRemainingSeconds !== undefined ? { autoRetryRemainingSeconds } : {})}
                     {...(onAutoRetryChange ? { onAutoRetryChange } : {})}
                     onOpenProjectFolder={() => {
                       void openProjectFolder();

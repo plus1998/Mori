@@ -856,7 +856,7 @@ export class ConversationStore {
    * usage/context panels on the same durable boundary without hydrating the
    * old projection snapshot.
    */
-  getConversationV2ProjectionExtras(threadId: string): ConversationV2ProjectionExtras | undefined {
+  getConversationV2ProjectionExtras(threadId: string, requestIds?: readonly string[]): ConversationV2ProjectionExtras | undefined {
     const id = threadId.trim();
     if (!id || !this.v2.hasConversation(id)) {
       if (this.isV2OnlyStorage() && id) {
@@ -910,9 +910,15 @@ export class ConversationStore {
     // This keeps streaming state current without a second write for every token
     // delta, and never consults the legacy event/projection tables.
     const derivedRequestSpans = this.requestSpanCache.read(this.v2.head(id), thread.status, agents);
+    const scope = requestIds ? new Set(requestIds) : undefined;
+    const visibleSpans = scope ? derivedRequestSpans.filter(span => scope.has(span.requestId)).slice(-100) : derivedRequestSpans;
+    const ledgerViews = this.listConversationV2UsageLedgerEventViews(ledgerEvents, derivedRequestSpans);
     return {
-      requestSpans: derivedRequestSpans,
-      ledgerEvents: this.listConversationV2UsageLedgerEventViews(ledgerEvents, derivedRequestSpans),
+      requestSpans: visibleSpans,
+      // The billing panel is conversation-wide, just like its total above.
+      // Feed window IDs only scope request timing; they may be Mori run IDs
+      // rather than the provider request IDs carried by ledger observations.
+      ledgerEvents: ledgerViews,
       ...(billing !== undefined
         ? {
             billing: normalizeBillingSnapshotRoles(

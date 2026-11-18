@@ -1,3 +1,9 @@
+import type { ConversationFeedWindowRequest } from "../shared/conversation-feed-window";
+import { boundConversationFeedState } from "./conversation-v2-feed-window-state";
+import { mergeTimelineFeedWindow } from "./conversation-v2-feed-scroll-state";
+import { captureFeedReadingAnchor, captureFeedVisibleEntityKeys, restoreFeedReadingAnchor, type FeedReadingAnchor } from "./feed-scroll-anchor";
+import "./feed-history-scroll.css";
+import { appendFeedEffect } from "./feed-effect-buffer";
 import { WORKSPACE_FILE_DRAG_MIME, readWorkspaceFileDrag } from "./workspace-file-drag";
 import { ThreadWorktreeControl } from "./ThreadWorktreeControl";
 import type { ThreadDevelopmentMode, ThreadWorkLocation, ThreadWorktreeRecord } from "../shared/thread-worktree";
@@ -23,10 +29,9 @@ import { BROWSER_SELECTION_INSERT_EVENT, BROWSER_SELECTION_REVEAL_EVENT } from "
 import { CodexQuotaReminder } from "./CodexQuotaReminder";
 import { isCodexAuthThread, codexAccountIdForThread } from "../shared/codex-auth-thread";
 import {
-  CODEX_CAPACITY_RETRY_DELAY_MS,
-  CODEX_CAPACITY_RETRY_LIMIT,
-  hasCodexCapacityFailure,
+  latestCodexCapacityRetryNotice as readLatestCodexCapacityRetryNotice,
 } from "../shared/codex-capacity-retry";
+import { CodexCapacityAutoRetry } from "./codex-capacity-auto-retry";
 import { assertCodexLoginSubagentPolicy, isCodexLoginProvider } from "../shared/codex-login-subagent-policy";
 import type { CoreKind } from "@eco/runtime/core-runtime";
 import {
@@ -381,9 +386,7 @@ import {
   applyConversationV2Effects,
   type ConversationV2RendererState,
   catchUpConversationV2RendererState,
-  conversationV2ToolRunIdsForHydration,
   installConversationV2Bootstrap,
-  mergeConversationV2OlderPage,
   mergeConversationV2ToolPage,
 } from "./conversation-v2-renderer-state";
 import { FeedStatusDivider } from "./FeedStatusDivider";
@@ -550,11 +553,6 @@ import {
 } from "./thread-follow-up-ui";
 import { resolveLatestThreadActivityAt } from "./thread-idle-cache-warning";
 import {
-  collectProtectedProjectionThreadIds,
-  isProjectionCacheHotThreadStatus,
-  listEvictableProjectionThreadIds,
-  PROJECTION_CACHE_EVICT_DELAY_MS,
-  rememberRecentlyViewedThread,
   removeRecordKeys,
 } from "./thread-projection-cache-policy";
 import {
@@ -600,7 +598,6 @@ import "./styles.css";
 import "./theme-overrides.css";
 
 const TASK_PANEL_WIDTH_STORAGE_KEY = "eco.task-panel.width";
-const CONVERSATION_V2_PENDING_EVENT_LIMIT = 512;
 
 function readTaskPanelWidth(): number {
   try {
@@ -1844,6 +1841,7 @@ function App() {
   const conversationV2LiveFlushTimersRef = useRef(new Map<string, number>());
   const scheduleConversationV2Render = useCallback(
     (threadId: string, state: ConversationV2RendererState, urgent = false) => {
+      const generation = conversationV2LoadGenerationRef.current.get(threadId);
       conversationV2RenderPendingRef.current.set(threadId, state);
       if (urgent) conversationV2RenderUrgentRef.current.add(threadId);
       if (conversationV2RenderFramesRef.current.has(threadId)) {
@@ -1857,7 +1855,9 @@ function App() {
         }
         conversationV2RenderPendingRef.current.delete(threadId);
         const publish = () => {
+          if (selectedThreadIdRef.current !== threadId) return;
           setConversationV2ByThread((current) => {
+            if (selectedThreadIdRef.current !== threadId || conversationV2LoadGenerationRef.current.get(threadId) !== generation) return current;
             const latest = current[threadId];
             if (
               !latest ||
@@ -1933,6 +1933,7 @@ function App() {
   const conversationV2ProjectionExtrasInFlightRef = useRef(new Set<string>());
   const conversationV2ProjectionExtrasPendingRef = useRef(new Set<string>());
   const conversationV2ProjectionExtrasNextAllowedRef = useRef(new Map<string, number>());
+  const conversationV2ProjectionDetailInFlightRef = useRef(new Set<string>());
   useEffect(() => {
     if (!import.meta.env.DEV) return;
     const readSnapshot = () =>
@@ -1946,6 +1947,11 @@ function App() {
             messageCount: state.messages.size,
             runCount: state.runs.size,
             toolCount: state.tools.size,
+            hasOlder:state.hasOlder,
+            hasNewer:state.feedWindow?.hasNewer ?? false,
+            feedMode:state.feedWindow?.mode,
+            oldestEntrySeq:Math.min(...[...state.messages.values(),...state.tools.values()].map(row => row.createdSeq)),
+            newestEntrySeq:Math.max(...[...state.messages.values(),...state.tools.values()].map(row => row.createdSeq)),
             effectHashCount: state.effectHashes.size,
             bufferedEffectSeqs: (conversationV2PendingEventsRef.current.get(threadId) ?? []).map(
               (effect) => effect.seq,
@@ -1965,6 +1971,7 @@ function App() {
   }, []);
   const [conversationV2RecoveryVersion, setConversationV2RecoveryVersion] = useState(0);
   const queueConversationV2Recovery = useCallback((threadId: string) => {
+    if (threadId !== selectedThreadIdRef.current || conversationV2ByThreadRef.current[threadId]?.feedWindow?.mode === "history") return;
     if (conversationV2RecoveryRequestsRef.current.has(threadId)) {
       return;
     }
@@ -1974,8 +1981,7 @@ function App() {
   const bufferConversationV2Event = useCallback(
     (threadId: string, effect: ConversationSyncEffect) => {
       const pending = conversationV2PendingEventsRef.current.get(threadId) ?? [];
-      if (pending.length < CONVERSATION_V2_PENDING_EVENT_LIMIT) {
-        pending.push(effect);
+      if (appendFeedEffect(pending, effect)) {
         conversationV2PendingEventsRef.current.set(threadId, pending);
       } else {
         conversationV2PendingOverflowRef.current.add(threadId);
@@ -1986,19 +1992,22 @@ function App() {
     },
     [queueConversationV2Recovery],
   );
+  const conversationV2GenerationCounterRef = useRef(0);
   const nextConversationV2LoadGeneration = useCallback((threadId: string) => {
-    const next = (conversationV2LoadGenerationRef.current.get(threadId) ?? 0) + 1;
+    const next = ++conversationV2GenerationCounterRef.current;
     conversationV2LoadGenerationRef.current.set(threadId, next);
     return next;
   }, []);
   const mergeConversationV2LoadedState = useCallback(
     (threadId: string, recovered: ConversationV2RendererState): boolean => {
+      if (threadId !== selectedThreadIdRef.current) return false;
+      const generation = conversationV2LoadGenerationRef.current.get(threadId);
       const latest = conversationV2ByThreadRef.current[threadId];
       const base =
         latest && latest.storeEpoch === recovered.storeEpoch && latest.appliedSeq > recovered.appliedSeq
           ? latest
           : recovered;
-      const pending = conversationV2PendingEventsRef.current.get(threadId) ?? [];
+      const pending = recovered.feedWindow?.mode === "history" ? [] : conversationV2PendingEventsRef.current.get(threadId) ?? [];
       let merged = base;
       try {
         merged = applyConversationV2Effects(
@@ -2011,6 +2020,7 @@ function App() {
         return false;
       }
       setConversationV2ByThread((current) => {
+        if (selectedThreadIdRef.current !== threadId || conversationV2LoadGenerationRef.current.get(threadId) !== generation) return current;
         const currentState = current[threadId];
         if (
           currentState &&
@@ -2046,6 +2056,100 @@ function App() {
     },
     [queueConversationV2Recovery],
   );
+  const loadConversationV2ProjectionDetail = useCallback(
+    async (kind: "agent" | "tool" | "main" | "turn", key: string): Promise<void> => {
+      if (kind !== "turn") return;
+      const candidateThreadIds = [
+        feedThreadIdRef.current,
+        selectedThreadIdRef.current,
+        activeThreadIdRef.current,
+        ...Object.keys(conversationV2ByThreadRef.current),
+      ].filter((threadId): threadId is string => Boolean(threadId));
+      const uniqueThreadIds = [...new Set(candidateThreadIds)];
+      const threadId =
+        uniqueThreadIds.find((candidate) => conversationV2ByThreadRef.current[candidate]?.runs.has(key)) ??
+        uniqueThreadIds.find(
+          (candidate) => conversationV2ByThreadRef.current[candidate]?.conversationId === candidate,
+        );
+      const api = window.eco;
+      if (!threadId || !api?.conversationV2ToolsPage) return;
+      const initial = conversationV2ByThreadRef.current[threadId];
+      if (!initial || initial.conversationId !== threadId) {
+        throw new Error(`Conversation V2 renderer state is unavailable for Feed detail: ${threadId}`);
+      }
+      const requestKey = `${threadId}:${key}`;
+      if (conversationV2ProjectionDetailInFlightRef.current.has(requestKey)) return;
+      conversationV2ProjectionDetailInFlightRef.current.add(requestKey);
+      try {
+        let state = initial;
+        let cursor: string | undefined;
+        const seenCursors = new Set<string>();
+        while (true) {
+          const page = await api.conversationV2ToolsPage(threadId, key, {
+            ...(cursor ? { cursor } : {}),
+            limit: 100,
+            maxBytes: 512 * 1024,
+          });
+          state = mergeConversationV2ToolPage(state, page);
+          if (!page.hasMore) break;
+          const next = page.nextCursor?.trim();
+          if (!next || seenCursors.has(next)) {
+            throw new Error(`Conversation V2 tool detail cursor repeated for run ${key}.`);
+          }
+          seenCursors.add(next);
+          cursor = next;
+        }
+        const generation = conversationV2LoadGenerationRef.current.get(threadId);
+        const isCurrentThread = () =>
+          feedThreadIdRef.current === threadId ||
+          selectedThreadIdRef.current === threadId ||
+          activeThreadIdRef.current === threadId;
+        if (!isCurrentThread() || conversationV2LoadGenerationRef.current.get(threadId) !== generation) return;
+        const next = await loadConversationV2ProjectionUpdate(
+          state,
+          api,
+          () => {
+            const latest = conversationV2ByThreadRef.current[threadId];
+            if (!latest) return undefined;
+            const tools = new Map(state.tools);
+            for (const [toolId, tool] of latest.tools) {
+              const loaded = tools.get(toolId);
+              if (!loaded || tool.versionSeq >= loaded.versionSeq) {
+                tools.set(toolId, tool);
+              }
+            }
+            const details = new Map(state.details);
+            for (const [detailId, detail] of latest.details) {
+              const loaded = details.get(detailId);
+              if (!loaded || detail.versionSeq >= loaded.versionSeq) {
+                details.set(detailId, detail);
+              }
+            }
+            const toolSummaryCounts = new Map(state.toolSummaryCounts ?? []);
+            for (const [runId, total] of latest.toolSummaryCounts ?? []) {
+              if (total > (toolSummaryCounts.get(runId) ?? 0)) {
+                toolSummaryCounts.set(runId, total);
+              }
+            }
+            return {
+              ...latest,
+              tools,
+              details,
+              toolSummaryCounts,
+              ...(state.feedWindow ? { feedWindow: state.feedWindow } : {}),
+            };
+          },
+          () => isCurrentThread() && conversationV2LoadGenerationRef.current.get(threadId) === generation,
+        );
+        if (!isCurrentThread() || conversationV2LoadGenerationRef.current.get(threadId) !== generation) return;
+        conversationV2ByThreadRef.current = { ...conversationV2ByThreadRef.current, [threadId]: next };
+        setConversationV2ByThread((current) => ({ ...current, [threadId]: next }));
+      } finally {
+        conversationV2ProjectionDetailInFlightRef.current.delete(requestKey);
+      }
+    },
+    [],
+  );
   /**
    * Refresh the mutable V2 panel facts. Normally effect-driven and throttled: they ride on the
    * event stream, and `getConversationV2ProjectionExtras` re-derives request spans on every call,
@@ -2063,6 +2167,10 @@ function App() {
     (threadId: string, options?: { force?: boolean }): void => {
       const api = window.eco;
       const current = conversationV2ByThreadRef.current[threadId];
+      if (threadId !== selectedThreadIdRef.current || current?.feedWindow?.mode === "history") return;
+      const generation = conversationV2LoadGenerationRef.current.get(threadId);
+      const isCurrent = () => selectedThreadIdRef.current === threadId &&
+        conversationV2LoadGenerationRef.current.get(threadId) === generation;
       const now = Date.now();
       if (options?.force && conversationV2ProjectionExtrasInFlightRef.current.has(threadId)) {
         conversationV2ProjectionExtrasPendingRef.current.add(threadId);
@@ -2084,10 +2192,10 @@ function App() {
       }
       conversationV2ProjectionExtrasNextAllowedRef.current.set(threadId, now + 1000);
       conversationV2ProjectionExtrasInFlightRef.current.add(threadId);
-      void loadConversationV2ProjectionUpdate(current, api, () => conversationV2ByThreadRef.current[threadId])
+      void loadConversationV2ProjectionUpdate(current, api, () => isCurrent() ? conversationV2ByThreadRef.current[threadId] : undefined, isCurrent)
         .then((next) => {
           const latest = conversationV2ByThreadRef.current[threadId];
-          if (!latest || latest.storeEpoch !== current.storeEpoch) {
+          if (!isCurrent() || !latest || latest.storeEpoch !== current.storeEpoch) {
             return;
           }
           // Tool/message rows and the status replacing the old tail commit
@@ -2101,6 +2209,7 @@ function App() {
           console.warn("[eco] conversation V2 projection extras refresh failed:", error);
         })
         .finally(() => {
+          if (!isCurrent()) return;
           conversationV2ProjectionExtrasInFlightRef.current.delete(threadId);
           if (conversationV2ProjectionExtrasPendingRef.current.delete(threadId)) {
             refreshConversationV2ProjectionExtras(threadId, { force: true });
@@ -2109,8 +2218,6 @@ function App() {
     },
     [mergeConversationV2LoadedState, queueConversationV2Recovery],
   );
-  const recentlyViewedThreadIdsRef = useRef<string[]>([]);
-  const projectionEvictTimersRef = useRef(new Map<string, number>());
   const threadsRef = useRef(threads);
   threadsRef.current = threads;
   const syncActivityFeedBootRef = useRef<() => void>(() => {});
@@ -2713,6 +2820,7 @@ function App() {
       if (conversationEvent) {
         const threadId = conversationEvent.conversationId;
         clarificationNotifications.handleSyncEffect(threadId, conversationEvent.effect.effect);
+        if (threadId !== selectedThreadIdRef.current) return;
         const existing = conversationV2ByThreadRef.current[threadId];
         if (!existing || existing.storeEpoch !== conversationEvent.storeEpoch) {
           if (threadId === selectedThreadIdRef.current) {
@@ -2720,6 +2828,11 @@ function App() {
           }
           return;
         }
+        if (conversationV2LoadingThreadsRef.current.has(threadId)) {
+          bufferConversationV2Event(threadId, conversationEvent.effect);
+          return;
+        }
+        if (existing.feedWindow?.mode === "history") return;
         if (
           conversationEvent.effect.seq <= existing.appliedSeq &&
           !existing.effectHashes.has(conversationEvent.effect.seq)
@@ -2772,7 +2885,10 @@ function App() {
           }
           return;
         }
-        pending.push(conversationEvent.effect);
+        if (!appendFeedEffect(pending, conversationEvent.effect)) {
+          bufferConversationV2Event(threadId, conversationEvent.effect);
+          return;
+        }
         conversationV2LiveEffectsRef.current.set(threadId, pending);
         scheduleConversationV2LiveFlush(
           threadId,
@@ -3158,8 +3274,6 @@ function App() {
     };
   }, [revealSidebarAttention]);
 
-  const selectedThreadStatus = threads.find((thread) => thread.id === selectedThreadId)?.status;
-
   useEffect(() => {
     if (conversationV2RecoveryVersion === 0) {
       return;
@@ -3179,7 +3293,9 @@ function App() {
       const loadGeneration = nextConversationV2LoadGeneration(threadId);
       let installed = false;
       let retryAfterLoad = false;
-      void loadConversationV2RendererState(threadId)
+      const isCurrent = () => selectedThreadIdRef.current === threadId &&
+        conversationV2LoadGenerationRef.current.get(threadId) === loadGeneration;
+      void loadConversationV2RendererState(threadId, isCurrent)
         .then((recovered) => {
           if (
             !recovered ||
@@ -3195,6 +3311,7 @@ function App() {
           console.warn("[eco] conversation V2 renderer recovery failed:", recoveryError);
         })
         .finally(() => {
+          if (!isCurrent()) return;
           conversationV2LoadingThreadsRef.current.delete(threadId);
           conversationV2RecoveryInFlightRef.current.delete(threadId);
           if (
@@ -3224,7 +3341,9 @@ function App() {
       const loadGeneration = nextConversationV2LoadGeneration(selectedThreadId);
       let installed = false;
       let retryAfterLoad = false;
-      void loadConversationV2RendererState(selectedThreadId)
+      const isCurrent = () => !cancelled && selectedThreadIdRef.current === selectedThreadId &&
+        conversationV2LoadGenerationRef.current.get(selectedThreadId) === loadGeneration;
+      void loadConversationV2RendererState(selectedThreadId, isCurrent)
         .then((state) => {
           if (
             cancelled ||
@@ -3240,6 +3359,7 @@ function App() {
           );
         })
         .catch((error) => {
+          if (!isCurrent()) return;
           // V2 is the durable renderer boundary. A missing/incompatible stream is
           // surfaced as an explicit failure; it must not silently revive the legacy
           // projection as a page correctness source.
@@ -3267,6 +3387,7 @@ function App() {
           console.error("[eco] conversation V2 renderer bootstrap unavailable:", error);
         })
         .finally(() => {
+          if (!isCurrent()) return;
           conversationV2LoadingThreadsRef.current.delete(selectedThreadId);
           if (
             installed &&
@@ -3342,7 +3463,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [selectedThreadId, selectedThreadStatus]);
+  }, [selectedThreadId]);
 
   useEffect(() => {
     const api = window.eco;
@@ -3356,7 +3477,7 @@ function App() {
         return;
       }
       const local = conversationV2ByThreadRef.current[threadId];
-      if (!local) return;
+      if (!local || local.feedWindow?.mode === "history") return;
       void api
         .conversationV2Head(threadId)
         .then((head) => {
@@ -3386,19 +3507,22 @@ function App() {
     };
   }, [selectedThreadId, queueConversationV2Recovery]);
 
-  const cancelProjectionCacheEviction = useCallback((threadId: string) => {
-    const timer = projectionEvictTimersRef.current.get(threadId);
-    if (timer === undefined) {
-      return;
-    }
-    window.clearTimeout(timer);
-    projectionEvictTimersRef.current.delete(threadId);
-  }, []);
-
   const evictInactiveThreadProjectionCaches = useCallback(
     (threadId: string) => {
-      cancelProjectionCacheEviction(threadId);
       activityFeedRevealedThreadIdsRef.current.delete(threadId);
+      conversationV2ByThreadRef.current = removeRecordKeys(conversationV2ByThreadRef.current, [threadId]);
+      const frame = conversationV2RenderFramesRef.current.get(threadId);
+      if (frame !== undefined) window.cancelAnimationFrame(frame);
+      conversationV2RenderFramesRef.current.delete(threadId);
+      conversationV2RenderPendingRef.current.delete(threadId);
+      conversationV2RenderUrgentRef.current.delete(threadId);
+      const timer = conversationV2LiveFlushTimersRef.current.get(threadId);
+      if (timer !== undefined) window.clearTimeout(timer);
+      conversationV2LiveFlushTimersRef.current.delete(threadId);
+      conversationV2LiveEffectsRef.current.delete(threadId);
+      conversationV2ProjectionExtrasInFlightRef.current.delete(threadId);
+      conversationV2ProjectionExtrasPendingRef.current.delete(threadId);
+      conversationV2ProjectionExtrasNextAllowedRef.current.delete(threadId);
       conversationV2PendingEventsRef.current.delete(threadId);
       conversationV2PendingOverflowRef.current.delete(threadId);
       conversationV2LoadGenerationRef.current.delete(threadId);
@@ -3407,83 +3531,123 @@ function App() {
       conversationV2LoadingThreadsRef.current.delete(threadId);
       setConversationV2ByThread((current) => removeRecordKeys(current, [threadId]));
       setFeedProjectionSettledByThread((current) => removeRecordKeys(current, [threadId]));
+      setTtsArtifactsByThread((current) => removeRecordKeys(current, [threadId]));
       setImageArtifactsByThread((current) => removeRecordKeys(current, [threadId]));
       setImageDisplayArtifactsByThread((current) => removeRecordKeys(current, [threadId]));
       setHtmlHostArtifactsByThread((current) => removeRecordKeys(current, [threadId]));
     },
-    [cancelProjectionCacheEviction],
+    [],
   );
 
-  useEffect(() => {
-    if (selectedThreadId) {
-      recentlyViewedThreadIdsRef.current = rememberRecentlyViewedThread(
-        recentlyViewedThreadIdsRef.current,
-        selectedThreadId,
-      );
+  const [feedWindowLoading, setFeedWindowLoading] = useState(false);
+  const feedReadingAnchorRef = useRef<{threadId:string;anchor:FeedReadingAnchor} | undefined>(undefined);
+  const feedPrefetchedPageRef = useRef<{direction:"older" | "newer";state:ConversationV2RendererState} | undefined>(undefined);
+  const feedFollowLatestRef = useRef(false);
+  const feedScrollIntentRef = useRef<"older" | "newer" | undefined>(undefined);
+  const navigateFeedWindow = useCallback(async (request: ConversationFeedWindowRequest, direction: "older" | "newer" | "latest" = "latest") => {
+    const threadId = request.conversationId;
+    if (selectedThreadIdRef.current !== threadId || conversationV2LoadingThreadsRef.current.has(threadId)) return;
+    if (direction !== "latest") {
+      // Publish the detached state before the paged snapshot can render. The
+      // virtualizer otherwise sees one commit with userDetached=false and its
+      // end-anchor effect moves the reader to the newly expanded bottom.
+      flushSync(() => {
+        userDetachedFromBottomRef.current = true;
+        forceActivityFeedScrollUntilRef.current = 0;
+        setActivityFeedDetachedAnchor(true);
+      });
     }
-  }, [feedThreadId, selectedThreadId]);
-
-  useEffect(() => {
-    const hotThreadIds = threads
-      .filter((thread) => isProjectionCacheHotThreadStatus(thread.status))
-      .map((thread) => thread.id);
-    const protectedIds = collectProtectedProjectionThreadIds({
-      selectedThreadId,
-      feedThreadId,
-      recentlyViewedThreadIds: recentlyViewedThreadIdsRef.current,
-      hotThreadIds,
-    });
-
-    for (const threadId of [...projectionEvictTimersRef.current.keys()]) {
-      if (protectedIds.has(threadId)) {
-        cancelProjectionCacheEviction(threadId);
+    if (feedPrefetchedPageRef.current?.direction !== direction) feedPrefetchedPageRef.current = undefined;
+    const generation = nextConversationV2LoadGeneration(threadId);
+    const isCurrent = () => selectedThreadIdRef.current === threadId &&
+      conversationV2LoadGenerationRef.current.get(threadId) === generation;
+    conversationV2LoadingThreadsRef.current.add(threadId);
+    window.eco?.conversationV2FeedSubscribe(direction === "older" ? undefined : threadId);
+    feedScrollIntentRef.current = undefined;
+    const timer = conversationV2LiveFlushTimersRef.current.get(threadId);
+    if (timer !== undefined) window.clearTimeout(timer);
+    conversationV2LiveFlushTimersRef.current.delete(threadId);
+    conversationV2LiveEffectsRef.current.delete(threadId);
+    const frame = conversationV2RenderFramesRef.current.get(threadId);
+    if (frame !== undefined) window.cancelAnimationFrame(frame);
+    conversationV2RenderFramesRef.current.delete(threadId);
+    conversationV2RenderPendingRef.current.delete(threadId);
+    const loadingIndicator = window.setTimeout(() => { if (isCurrent()) setFeedWindowLoading(true); },250);
+    try {
+      const cached = feedPrefetchedPageRef.current;
+      const currentBeforeLoad = conversationV2ByThreadRef.current[threadId];
+      const reusable = direction !== "older" && cached && cached.direction === direction && cached.state.conversationId === threadId &&
+        cached.state.storeEpoch === currentBeforeLoad?.storeEpoch && cached.state.historyRevision === currentBeforeLoad.historyRevision;
+      const state = reusable
+        ? cached.state.feedWindow?.mode === "latest"
+          ? await loadConversationV2ProjectionUpdate(cached.state,window.eco!,()=>cached.state,isCurrent)
+          : cached.state
+        : await loadConversationV2RendererState(threadId, isCurrent, request);
+      if (!isCurrent()) return;
+      const effects = state.feedWindow?.mode === "latest"
+        ? (conversationV2PendingEventsRef.current.get(threadId) ?? []).filter(effect => effect.seq > state.appliedSeq)
+        : [];
+      const page = effects.length ? applyConversationV2Effects(state, effects) : state;
+      const current = conversationV2ByThreadRef.current[threadId];
+      // While reading upward the bounded range must be allowed to move toward
+      // the newly fetched page. Protecting a late-rendered row from a regrouped
+      // turn can otherwise keep the resident range pinned to the same end and
+      // make additional pages load invisibly. The reading anchor restores the
+      // actual viewport after the merge; keep protection for reverse/downward
+      // paging where the reader's old end must stay in place.
+      const protectedKeys = direction !== "latest" && activityMessagesRef.current
+        ? captureFeedVisibleEntityKeys(activityMessagesRef.current) : undefined;
+      const next = direction !== "latest" && current ? mergeTimelineFeedWindow(current,page,direction,protectedKeys) : page;
+      const pageConsumed = [...page.messages.keys()].every(id=>next.messages.has(id)) && [...page.tools.keys()].every(id=>next.tools.has(id));
+      feedPrefetchedPageRef.current = direction === "newer" && !pageConsumed ? {direction,state:page} : undefined;
+      if (direction !== "latest" && current && current.feedWindow?.olderFeedCursor === next.feedWindow?.olderFeedCursor &&
+        current.feedWindow?.newerFeedCursor === next.feedWindow?.newerFeedCursor && current.appliedSeq === next.appliedSeq) {
+        // A protected viewport can make a prefetched page contribute no resident
+        // rows. Do not keep reusing that same page forever: discard the cache so
+        // the next wheel requests the cursor beyond it.
+        if (reusable) feedPrefetchedPageRef.current = undefined;
+        window.eco?.conversationV2FeedSubscribe(current.feedWindow?.mode === "history" ? undefined : threadId);
+        return;
+      }
+      const anchor = direction !== "latest" && activityMessagesRef.current ? captureFeedReadingAnchor(activityMessagesRef.current) : undefined;
+      feedReadingAnchorRef.current = anchor ? {threadId,anchor} : undefined;
+      feedFollowLatestRef.current = direction === "latest";
+      userDetachedFromBottomRef.current = direction !== "latest";
+      forceActivityFeedScrollUntilRef.current = 0;
+      setActivityFeedDetachedAnchor(direction !== "latest");
+      window.eco?.conversationV2FeedSubscribe(next.feedWindow?.mode === "history" ? undefined : threadId);
+      conversationV2ByThreadRef.current = { [threadId]: next };
+      setConversationV2ByThread({ [threadId]: next });
+      conversationV2PendingEventsRef.current.delete(threadId);
+      if (conversationV2PendingOverflowRef.current.delete(threadId)) queueConversationV2Recovery(threadId);
+    } catch (error) {
+      if (isCurrent()) {
+        const previous = conversationV2ByThreadRef.current[threadId];
+        window.eco?.conversationV2FeedSubscribe(previous?.feedWindow?.mode === "history" ? undefined : threadId);
+        setError(errorMessage(error)); throw error;
+      }
+    } finally {
+      window.clearTimeout(loadingIndicator);
+      if (isCurrent()) {
+        conversationV2LoadingThreadsRef.current.delete(threadId);
+        setFeedWindowLoading(false);
       }
     }
+  }, [nextConversationV2LoadGeneration]);
 
-    const cachedThreadIds = [
-      ...Object.keys(imageArtifactsByThreadRef.current),
-      ...Object.keys(imageDisplayArtifactsByThreadRef.current),
-      ...Object.keys(htmlHostArtifactsByThreadRef.current),
-    ];
-
-    for (const threadId of listEvictableProjectionThreadIds(cachedThreadIds, protectedIds)) {
-      if (projectionEvictTimersRef.current.has(threadId)) {
-        continue;
-      }
-      const timer = window.setTimeout(() => {
-        projectionEvictTimersRef.current.delete(threadId);
-        const hotNow = threadsRef.current
-          .filter((thread) => isProjectionCacheHotThreadStatus(thread.status))
-          .map((thread) => thread.id);
-        const protectedNow = collectProtectedProjectionThreadIds({
-          selectedThreadId: selectedThreadIdRef.current,
-          feedThreadId: feedThreadIdRef.current,
-          recentlyViewedThreadIds: recentlyViewedThreadIdsRef.current,
-          hotThreadIds: hotNow,
-        });
-        if (protectedNow.has(threadId)) {
-          return;
-        }
-        evictInactiveThreadProjectionCaches(threadId);
-      }, PROJECTION_CACHE_EVICT_DELAY_MS);
-      projectionEvictTimersRef.current.set(threadId, timer);
-    }
-  }, [
-    cancelProjectionCacheEviction,
-    evictInactiveThreadProjectionCaches,
-    feedThreadId,
-    selectedThreadId,
-    threads,
-  ]);
-
-  useEffect(() => {
+  useLayoutEffect(() => {
+    setFeedWindowLoading(false);
+    feedReadingAnchorRef.current = undefined;
+    feedPrefetchedPageRef.current = undefined;
+    feedFollowLatestRef.current = false;
+    feedScrollIntentRef.current = undefined;
+    window.eco?.conversationV2FeedSubscribe(selectedThreadId);
     return () => {
-      for (const timer of projectionEvictTimersRef.current.values()) {
-        window.clearTimeout(timer);
-      }
-      projectionEvictTimersRef.current.clear();
+      feedPrefetchedPageRef.current = undefined;
+      window.eco?.conversationV2FeedSubscribe(undefined);
+      if (selectedThreadId) evictInactiveThreadProjectionCaches(selectedThreadId);
     };
-  }, []);
+  }, [selectedThreadId, evictInactiveThreadProjectionCaches]);
 
   useEffect(() => {
     const saved = window.localStorage.getItem(recentProjectsStorageKey);
@@ -3897,6 +4061,7 @@ function App() {
   useEffect(
     () =>
       window.eco?.onTtsArtifactChanged?.((artifact) => {
+        if (artifact.threadId !== selectedThreadIdRef.current) return;
         setTtsArtifactsByThread((current) => ({
           ...current,
           [artifact.threadId]: [
@@ -3973,6 +4138,7 @@ function App() {
   useEffect(() => {
     if (!window.eco?.onImageGenerationArtifactChanged) return;
     return window.eco.onImageGenerationArtifactChanged((artifact) => {
+      if (artifact.threadId !== selectedThreadIdRef.current) return;
       setImageArtifactsByThread((current) => {
         const existing = current[artifact.threadId] ?? [];
         const next = [artifact, ...existing.filter((item) => item.id !== artifact.id)].sort((a, b) =>
@@ -3996,6 +4162,7 @@ function App() {
   useEffect(() => {
     if (!window.eco?.onImageDisplayArtifactChanged) return;
     return window.eco.onImageDisplayArtifactChanged((artifact) => {
+      if (artifact.threadId !== selectedThreadIdRef.current) return;
       if (deletedImageDisplayArtifactIdsRef.current.has(artifact.id)) return;
       setImageDisplayArtifactsByThread((current) => {
         const existing = current[artifact.threadId] ?? [];
@@ -4026,6 +4193,7 @@ function App() {
   useEffect(() => {
     if (!window.eco?.onHtmlHostArtifactChanged) return;
     return window.eco.onHtmlHostArtifactChanged((artifact) => {
+      if (artifact.threadId !== selectedThreadIdRef.current) return;
       setHtmlHostArtifactsByThread((current) => {
         const existing = current[artifact.threadId] ?? [];
         const next = [artifact, ...existing.filter((item) => item.id !== artifact.id)].sort((a, b) =>
@@ -4522,7 +4690,8 @@ function App() {
       return;
     }
     try {
-      setCodexBackgroundTerminals(await window.eco.listCodexBackgroundTerminals());
+      const terminals = await window.eco.listCodexBackgroundTerminals();
+      setCodexBackgroundTerminals(terminals);
       setCodexBackgroundTerminalError(undefined);
     } catch (error) {
       setCodexBackgroundTerminalError(String(error));
@@ -6059,16 +6228,6 @@ function App() {
     }
     return undefined;
   }, [lastRunInterrupted, activeThread, threadAcceptsInput, displayProjection, latestContinueAttempt]);
-  const composerContinueTargetRef = useRef(composerContinueTarget);
-  composerContinueTargetRef.current = composerContinueTarget;
-  const latestCodexUserMessageId = useMemo(() => {
-    const timeline = displayProjection?.timeline ?? [];
-    for (let i = timeline.length - 1; i >= 0; i -= 1) {
-      const target = readUserPromptRetryIdentity(timeline[i]!, { allowEmptyPrompt: true });
-      if (target) return target.activityLineId;
-    }
-    return "";
-  }, [displayProjection?.timeline]);
   const latestCodexForkTarget = useMemo(() => {
     const timeline = displayProjection?.timeline ?? [];
     for (let i = timeline.length - 1; i >= 0; i -= 1) {
@@ -6080,22 +6239,20 @@ function App() {
     return "";
   }, [displayProjection?.timeline]);
 
-  const codexAutoRetryCycleRef = useRef({
-    threadId: "",
-    userMessageId: "",
-    retriesStarted: 0,
-    timeout: undefined as number | undefined,
-    interval: undefined as number | undefined,
-  });
-  const [codexAutoRetryStatus, setCodexAutoRetryStatus] = useState<
-    { attempt: number; remainingSeconds: number } | undefined
-  >();
-  const codexCapacityFailure = Boolean(
-    latestContinueAttempt &&
-      hasCodexCapacityFailure(displayProjection?.timeline ?? [], latestContinueAttempt.attemptId),
-  );
+  const codexAutoRetryRef = useRef(new CodexCapacityAutoRetry());
   const activeThreadIsCodexLogin = Boolean(activeThread && isCodexAuthThread(activeThread));
-
+  const codexCapacityRetryNotice = useMemo(
+    () =>
+      latestContinueAttempt
+        ? readLatestCodexCapacityRetryNotice(
+            displayProjection?.timeline ?? [],
+            latestContinueAttempt.attemptId,
+          )
+        : undefined,
+    [displayProjection?.timeline, latestContinueAttempt?.attemptId],
+  );
+  const codexCapacityRetryNoticeRef = useRef(codexCapacityRetryNotice);
+  codexCapacityRetryNoticeRef.current = codexCapacityRetryNotice;
   // Show only for a settled Codex attempt with an empty composer.
   const composerShowContinue =
     Boolean(composerContinueTarget) &&
@@ -7410,7 +7567,8 @@ function App() {
 
   const syncActivityFeedScrollJump = useCallback(
     (container: HTMLElement) => {
-      const next = resolveActivityFeedScrollJump(
+      const state = selectedThreadIdRef.current ? conversationV2ByThreadRef.current[selectedThreadIdRef.current] : undefined;
+      const next = state?.feedWindow?.mode === "history" ? "bottom" : resolveActivityFeedScrollJump(
         container.scrollTop,
         distanceFromActivityFeedBottom(container),
         activityFeedUserScrollDirectionRef.current,
@@ -7801,6 +7959,11 @@ function App() {
 
   const requestActivityFeedForceScroll = useCallback(() => {
     if (todoMessageRevealRef.current?.threadId === selectedThreadIdRef.current && activityFeedBootReadyRef.current) return;
+    const selected = selectedThreadIdRef.current;
+    if (selected && conversationV2ByThreadRef.current[selected]?.feedWindow?.mode === "history") {
+      void navigateFeedWindow({conversationId:selected,timeline:true},"latest").catch(() => {});
+      return;
+    }
     forceActivityFeedScrollUntilRef.current = Date.now() + ACTIVITY_FEED_FORCE_SCROLL_MS;
     userDetachedFromBottomRef.current = false;
     activityFeedUserScrollDirectionRef.current = null;
@@ -7812,9 +7975,34 @@ function App() {
       scrollActivityFeedToEnd(true);
       requestAnimationFrame(() => scrollActivityFeedToEnd(true));
     });
-  }, [scrollActivityFeedToEnd, setActivityFeedDetachedAnchor]);
+  }, [scrollActivityFeedToEnd, setActivityFeedDetachedAnchor, navigateFeedWindow]);
 
   const activityFeedStickRecoveryFrameRef = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    if (!activityFeedBootReady) return;
+    if (feedFollowLatestRef.current) {
+      feedFollowLatestRef.current = false;
+      requestActivityFeedForceScroll();
+      return;
+    }
+    const pending = feedReadingAnchorRef.current;
+    if (!pending || pending.threadId !== activeThread?.id) return;
+    let frame = 0, attempts = 0;
+    programmaticActivityFeedScrollRef.current = true;
+    const restore = () => {
+      const container = activityMessagesRef.current;
+      if (!container || selectedThreadIdRef.current !== pending.threadId || feedReadingAnchorRef.current !== pending) {
+        programmaticActivityFeedScrollRef.current = false;
+        return;
+      }
+      restoreFeedReadingAnchor(container,pending.anchor);
+      activityFeedScrollTopRef.current = container.scrollTop;
+      if (++attempts < 6) frame = window.requestAnimationFrame(restore);
+      else { feedReadingAnchorRef.current = undefined; programmaticActivityFeedScrollRef.current = false; }
+    };
+    restore();
+    return () => { window.cancelAnimationFrame(frame); programmaticActivityFeedScrollRef.current = false; };
+  }, [activeConversationV2, activityFeedBootReady, activeThread?.id, requestActivityFeedForceScroll]);
   /**
    * The virtualizer swaps a top spacer for a freshly mounted (often heavy,
    * ProseMirror-backed) row inside one commit. A forced layout landing between
@@ -7974,6 +8162,32 @@ function App() {
     let scrollbarDragging = false;
     let userScrollUntil = 0;
     let touchStartY: number | undefined;
+    let edgeLoadFrame: number | undefined;
+    const loadAtReadingEdge = (forcedDirection?: "older" | "newer") => {
+      // A wheel at scrollTop=0 does not have to produce a scroll event. Pass the
+      // physical gesture direction directly instead of relying on the intent ref,
+      // which can be cleared by a completed page request during the same gesture.
+      const direction = forcedDirection ?? feedScrollIntentRef.current;
+      const threadId = selectedThreadIdRef.current;
+      const state = threadId ? conversationV2ByThreadRef.current[threadId] : undefined;
+      if (!threadId || !state?.feedWindow?.request.timeline || !direction || !activityFeedBootReadyRef.current ||
+        conversationV2LoadingThreadsRef.current.has(threadId) || programmaticActivityFeedScrollRef.current) return;
+      if (direction === "older" && container.scrollTop <= Math.max(480,container.clientHeight * 1.5) && state.hasOlder && state.feedWindow.olderFeedCursor) {
+        void navigateFeedWindow({conversationId:threadId,timeline:true,beforeFeedCursor:state.feedWindow.olderFeedCursor},"older").catch(() => {});
+      } else if (direction === "newer" && distanceFromActivityFeedBottom(container) <= Math.max(480,container.clientHeight * 1.5) && state.feedWindow.mode === "history") {
+        void navigateFeedWindow({conversationId:threadId,timeline:true,
+          ...(state.feedWindow.hasNewer && state.feedWindow.newerFeedCursor ? {afterFeedCursor:state.feedWindow.newerFeedCursor} : {})},"newer").catch(() => {});
+      }
+    };
+    const scheduleReadingEdgeLoad = (direction: "older" | "newer") => {
+      if (edgeLoadFrame !== undefined) {
+        cancelAnimationFrame(edgeLoadFrame);
+      }
+      edgeLoadFrame = requestAnimationFrame(() => {
+        edgeLoadFrame = undefined;
+        loadAtReadingEdge(direction);
+      });
+    };
     const onScroll = () => {
       if (programmaticActivityFeedScrollRef.current) {
         return;
@@ -7990,10 +8204,12 @@ function App() {
         // Wheel, touch and keyboard intent detach before scrolling; only a
         // scrollbar drag still needs to infer its direction here.
         if (scrollbarDragging) {
+          feedScrollIntentRef.current = "older";
           markActivityFeedUserDetached("up");
         }
       } else if (scrollTop > activityFeedScrollTopRef.current + ACTIVITY_FEED_USER_SCROLL_DELTA_PX) {
         if (scrollbarDragging || performance.now() < userScrollUntil) {
+          if (scrollbarDragging) feedScrollIntentRef.current = "newer";
           activityFeedUserScrollDirectionRef.current = "down";
         }
         if (
@@ -8022,6 +8238,7 @@ function App() {
       syncActivityFeedBoot(container);
       syncActivityFeedScrollJump(container);
       syncActivityUserMessageNavigator(container);
+      loadAtReadingEdge();
       // No wheel/touch/keyboard intent, yet the follow state is far from the
       // bottom: the browser clamped a transient spacer collapse. Recover it.
       if (
@@ -8033,17 +8250,28 @@ function App() {
         recoverActivityFeedStick();
       }
     };
+    const cancelReadingCorrection = () => {
+      feedReadingAnchorRef.current = undefined;
+      programmaticActivityFeedScrollRef.current = false;
+    };
     const onWheel = (event: WheelEvent) => {
+      if (event.deltaY !== 0) cancelReadingCorrection();
       userScrollUntil = performance.now() + 500;
       if (event.deltaY > 0) {
+        feedScrollIntentRef.current = "newer";
         if (userDetachedFromBottomRef.current) {
           activityFeedUserScrollDirectionRef.current = "down";
         }
+        // Let the browser apply this wheel before taking the reading anchor.
+        // Starting the page request inside the wheel event captures the old
+        // bottom anchor when the request resolves before the native scroll.
+        scheduleReadingEdgeLoad("newer");
         return;
       }
       if (event.deltaY === 0) {
         return;
       }
+      feedScrollIntentRef.current = "older";
       // Detach before virtualization ResizeObserver can snap stick-to-bottom mid-gesture.
       if (userDetachedFromBottomRef.current) {
         markActivityFeedUserDetached("up");
@@ -8053,6 +8281,8 @@ function App() {
         flushSync(() => markActivityFeedUserDetached("up"));
       }
       syncActivityFeedBoot(container);
+      // Let the browser apply this wheel before taking the reading anchor.
+      scheduleReadingEdgeLoad("older");
     };
     const detachForInput = () => flushSync(() => markActivityFeedUserDetached("up"));
     const onKeyDown = (event: KeyboardEvent) => {
@@ -8067,12 +8297,18 @@ function App() {
         requestActivityFeedForceScroll();
         return;
       }
+      if (["ArrowUp","PageUp","Home","ArrowDown","PageDown"," "].includes(event.key)) cancelReadingCorrection();
       userScrollUntil = performance.now() + 500;
       if (["ArrowUp", "PageUp", "Home"].includes(event.key) || (event.key === " " && event.shiftKey)) {
+        feedScrollIntentRef.current = "older";
         detachForInput();
+      } else if (["ArrowDown","PageDown"," "].includes(event.key)) {
+        feedScrollIntentRef.current = "newer";
       }
+      loadAtReadingEdge();
     };
     const onPointerDown = (event: PointerEvent) => {
+      cancelReadingCorrection();
       if (event.pointerType === "touch") {
         touchStartY = event.clientY;
       } else if (
@@ -8087,10 +8323,13 @@ function App() {
       userScrollUntil = performance.now() + 500;
       const deltaY = event.clientY - touchStartY;
       if (deltaY > 2) {
+        feedScrollIntentRef.current = "older";
         detachForInput();
       } else if (deltaY < -2 && userDetachedFromBottomRef.current) {
+        feedScrollIntentRef.current = "newer";
         activityFeedUserScrollDirectionRef.current = "down";
       }
+      loadAtReadingEdge();
     };
     const onPointerUp = () => {
       scrollbarDragging = false;
@@ -8107,6 +8346,9 @@ function App() {
     syncActivityFeedScrollJump(container);
     syncActivityUserMessageNavigator(container);
     return () => {
+      if (edgeLoadFrame !== undefined) {
+        cancelAnimationFrame(edgeLoadFrame);
+      }
       container.removeEventListener("scroll", onScroll);
       container.removeEventListener("wheel", onWheel);
       container.removeEventListener("keydown", onKeyDown);
@@ -8121,6 +8363,7 @@ function App() {
     markActivityFeedUserDetached,
     recoverActivityFeedStick,
     requestActivityFeedForceScroll,
+    navigateFeedWindow,
     setActivityFeedDetachedAnchor,
     syncActivityFeedBoot,
     syncActivityFeedScrollJump,
@@ -8653,12 +8896,6 @@ function App() {
     target: RequestFailureRetryTarget & { sourceAttemptId: string },
   ) {
     if (!activeThread || isStarting || !window.eco) return;
-    const retryCycle = codexAutoRetryCycleRef.current;
-    if (retryCycle.timeout !== undefined) window.clearTimeout(retryCycle.timeout);
-    if (retryCycle.interval !== undefined) window.clearInterval(retryCycle.interval);
-    retryCycle.timeout = undefined;
-    retryCycle.interval = undefined;
-    setCodexAutoRetryStatus(undefined);
     const threadId = activeThread.id;
     setIsStarting(true);
     setError(undefined);
@@ -8684,86 +8921,34 @@ function App() {
     }
   }
 
-  const autoContinueInterruptedCodexTurn = useStableCallback(continueInterruptedCodexTurn);
+  const autoSteerCodexCapacityRetry = useStableCallback(async () => {
+    const accepted = await sendComposerMessage("继续", { followUpDeliveryMode: "steer", attachments: [] });
+    if (!accepted) {
+      setError("Codex 容量重试未能注入当前回合，请使用 Feed 中的“立即重试”。");
+    }
+  });
   useEffect(() => {
-    const cycle = codexAutoRetryCycleRef.current;
-    if (cycle.threadId !== (activeThread?.id ?? "") || cycle.userMessageId !== latestCodexUserMessageId) {
-      cycle.threadId = activeThread?.id ?? "";
-      cycle.userMessageId = latestCodexUserMessageId;
-      cycle.retriesStarted = 0;
-    }
-    if (cycle.timeout !== undefined) window.clearTimeout(cycle.timeout);
-    if (cycle.interval !== undefined) window.clearInterval(cycle.interval);
-    cycle.timeout = undefined;
-    cycle.interval = undefined;
-
-    if (latestContinueAttempt?.status === "completed") {
-      cycle.retriesStarted = 0;
-    }
-    const canSchedule = Boolean(
-      activeThread &&
-        activeThreadIsCodexLogin &&
-        codexAutoRetryEnabled &&
-        codexCapacityFailure &&
-        composerContinueTargetRef.current &&
-        latestContinueAttempt?.status === "failed" &&
-        cycle.retriesStarted < CODEX_CAPACITY_RETRY_LIMIT,
+    codexAutoRetryRef.current.observe(
+      {
+        threadId: activeThread?.id ?? "",
+        attemptId: latestContinueAttempt?.attemptId ?? "",
+        threadStatus: activeThread?.status ?? "",
+        enabled: codexAutoRetryEnabled,
+        isCodexLogin: activeThreadIsCodexLogin,
+        notice: codexCapacityRetryNotice,
+      },
+      () => {
+        void autoSteerCodexCapacityRetry();
+      },
     );
-    if (!canSchedule || !activeThread) {
-      setCodexAutoRetryStatus(undefined);
-      return;
-    }
-    const sourceAttemptId = latestContinueAttempt?.attemptId;
-    if (!sourceAttemptId) {
-      setCodexAutoRetryStatus(undefined);
-      return;
-    }
-
-    const attempt = cycle.retriesStarted + 1;
-    const deadline = Date.now() + CODEX_CAPACITY_RETRY_DELAY_MS;
-    const updateCountdown = () =>
-      setCodexAutoRetryStatus({
-        attempt,
-        remainingSeconds: Math.max(0, Math.ceil((deadline - Date.now()) / 1_000)),
-      });
-    updateCountdown();
-    cycle.interval = window.setInterval(updateCountdown, 1_000);
-    const threadId = activeThread.id;
-    cycle.timeout = window.setTimeout(() => {
-      cycle.timeout = undefined;
-      if (cycle.interval !== undefined) window.clearInterval(cycle.interval);
-      cycle.interval = undefined;
-      if (selectedThreadIdRef.current !== threadId) {
-        setCodexAutoRetryStatus(undefined);
-        return;
-      }
-      const target = composerContinueTargetRef.current;
-      if (!target || target.sourceAttemptId !== sourceAttemptId) {
-        setCodexAutoRetryStatus(undefined);
-        return;
-      }
-      cycle.retriesStarted += 1;
-      setCodexAutoRetryStatus(undefined);
-      void autoContinueInterruptedCodexTurn(target);
-    }, CODEX_CAPACITY_RETRY_DELAY_MS);
-    return () => {
-      if (cycle.timeout !== undefined) window.clearTimeout(cycle.timeout);
-      if (cycle.interval !== undefined) window.clearInterval(cycle.interval);
-      cycle.timeout = undefined;
-      cycle.interval = undefined;
-    };
   }, [
     activeThread?.id,
+    activeThread?.status,
     activeThreadIsCodexLogin,
-    autoContinueInterruptedCodexTurn,
+    autoSteerCodexCapacityRetry,
     codexAutoRetryEnabled,
-    codexCapacityFailure,
-    Boolean(composerContinueTarget),
-    composerContinueTarget?.activityLineId,
-    composerContinueTarget?.sourceAttemptId,
-    latestCodexUserMessageId,
+    codexCapacityRetryNotice?.id,
     latestContinueAttempt?.attemptId,
-    latestContinueAttempt?.status,
   ]);
 
   const setThreadCodexAutoRetry = useCallback(
@@ -8780,6 +8965,14 @@ function App() {
       setError(t("activity.retryUnavailable"));
       return;
     }
+    if (target.codexMidTurnPrompt) {
+      // Codex turn/steer rejects an empty input. Use an explicit continuation
+      // instruction while the provider's capacity retry is still in flight.
+      const notice = codexCapacityRetryNoticeRef.current;
+      if (notice) codexAutoRetryRef.current.markHandled(activeThread.id, notice);
+      await sendComposerMessage(target.codexMidTurnPrompt, { followUpDeliveryMode: "steer", attachments: [] });
+      return;
+    }
     if (typeof window.eco?.retryThreadFromMessage !== "function") {
       setError(t("activity.retryUnavailable"));
       return;
@@ -8788,12 +8981,6 @@ function App() {
       return;
     }
     const threadId = activeThread.id;
-    if (target.codexMidTurnPrompt) {
-      // Codex turn/steer rejects an empty input. Use a short, explicit continuation
-      // instruction while the automatic provider retry is still in flight.
-      await sendComposerMessage(target.codexMidTurnPrompt, { followUpDeliveryMode: "steer" });
-      return;
-    }
     const useRewrite = usesRewindOnRequestRetry(activeThread.coreKind);
     setError(undefined);
     requestActivityFeedForceScroll();
@@ -8977,11 +9164,12 @@ function App() {
 
   async function sendComposerMessage(
     promptOverride?: string,
-    options?: { followUpDeliveryMode?: FollowUpDeliveryMode },
-  ) {
+    options?: { followUpDeliveryMode?: FollowUpDeliveryMode; attachments?: readonly ComposerImageAttachment[] },
+  ): Promise<boolean> {
     const promptForSend = promptOverride ?? prompt;
-    if (!currentProjectPath || !window.eco || (!promptForSend.trim() && composerAttachments.length === 0)) {
-      return;
+    const attachmentsForSend = options?.attachments ?? composerAttachments;
+    if (!currentProjectPath || !window.eco || (!promptForSend.trim() && attachmentsForSend.length === 0)) {
+      return false;
     }
     const canSendWithPrompt = composerFollowUpMode
       ? Boolean(activeThread && !followUpBusy && !isStarting && !planActionBusy)
@@ -8998,43 +9186,44 @@ function App() {
         );
     if (activeThread?.workLocation?.mode === "needs_choice") {
       setError("请先选择后续工作位置，再发送消息。");
-      return;
+      return false;
     }
     if (!activeThread && !draftWorkLocationReady) {
       setError(draftWorktreeError || "正在恢复草稿工作位置，请稍后重试。");
-      return;
+      return false;
     }
-    if (!canSendWithPrompt) return;
+    if (!canSendWithPrompt) return false;
     if (activeThread?.workLocation?.mode === "isolated") {
       try {
         const worktree = await window.eco.getWorktreeStatus(activeThread.id);
         if (worktree.location) updateThreadWorkLocation(activeThread.id, worktree.location);
         if (!worktree.exists || worktree.error || worktree.location?.mode !== "isolated") {
           setError(worktree.error || "隔离工作树不可用，请先选择后续工作位置。");
-          return;
+          return false;
         }
-      } catch (caught) { setError(errorMessage(caught)); return; }
+      } catch (caught) { setError(errorMessage(caught)); return false; }
     }
     if (isStarting || followUpBusy) {
-      return;
+      return false;
     }
     if (contextCompactionInFlight && !composerFollowUpMode) {
       setError(t("app.contextCompacting"));
-      return;
+      return false;
     }
     setError(undefined);
     requestActivityFeedForceScroll();
     const attachments =
-      composerAttachments.length > 0 ? toPromptImageAttachments(composerAttachments) : undefined;
+      attachmentsForSend.length > 0 ? toPromptImageAttachments(attachmentsForSend) : undefined;
     const messagePrompt = promptForSend.trim();
 
     if (composerFollowUpMode && activeThread) {
       if (editingFollowUpId) {
         if (typeof window.eco.updateThreadFollowUp !== "function") {
           setError(t("app.preload.followUpUpdate"));
-          return;
+          return false;
         }
         setFollowUpBusy(true);
+        let updated = false;
         try {
           const result = await window.eco.updateThreadFollowUp(
             await buildV2CommandEnvelope(activeThread.id, "update", {
@@ -9048,17 +9237,18 @@ function App() {
             [activeThread.id]: mergeThreadFollowUps(current[activeThread.id] ?? [], result.followUps),
           }));
           await cancelEditingFollowUp();
+          updated = true;
         } catch (caught) {
           setError(errorMessage(caught));
         } finally {
           setFollowUpBusy(false);
         }
-        return;
+        return updated;
       }
 
       if (typeof window.eco.enqueueThreadFollowUp !== "function") {
         setError(t("app.preload.followUpEnqueue"));
-        return;
+        return false;
       }
       setFollowUpBusy(true);
       // Clear composer immediately so mid-turn waits do not leave text in the input
@@ -9070,6 +9260,7 @@ function App() {
       setComposerRewindTarget(undefined);
       setComposerAttachments([]);
       setComposerImageNotice(undefined);
+      let enqueued = false;
       try {
         const defaultDelivery = workflowSettings.followUpDeliveryMode ?? "steer";
         const deliveryMode = resolveFollowUpDeliveryModeForCore(
@@ -9089,6 +9280,7 @@ function App() {
         }));
         requestActivityFeedForceScroll();
         revokeComposerAttachmentPreviews(restoreAttachments);
+        enqueued = true;
       } catch (caught) {
         setPrompt(restorePrompt);
         setComposerAttachments(restoreAttachments);
@@ -9096,7 +9288,7 @@ function App() {
       } finally {
         setFollowUpBusy(false);
       }
-      return;
+      return enqueued;
     }
 
     setIsStarting(true);
@@ -9104,7 +9296,7 @@ function App() {
     if (!runtimeConfigForSend) {
       setError(t("app.configureOrchestration"));
       setIsStarting(false);
-      return;
+      return false;
     }
     const continuable = Boolean(activeThread && isContinuableThreadStatus(activeThread.status));
     const rewindTarget =
@@ -9128,6 +9320,7 @@ function App() {
     setComposerAttachments([]);
     setComposerImageNotice(undefined);
     requestActivityFeedForceScroll();
+    let sent = false;
     try {
       if (continuable && activeThread) {
         if (rewindTarget) {
@@ -9175,6 +9368,7 @@ function App() {
         }
         requestActivityFeedForceScroll();
       }
+      sent = true;
       revokeComposerAttachmentPreviews(restoreAttachments);
     } catch (caught) {
       setPrompt(restorePrompt);
@@ -9186,6 +9380,7 @@ function App() {
     } finally {
       setIsStarting(false);
     }
+    return sent;
   }
 
   async function refreshFollowUpsAfterMutationError(threadId: string, caught: unknown) {
@@ -11481,7 +11676,7 @@ function App() {
   }
 
   function clearThreadClientState(threadId: string) {
-    cancelProjectionCacheEviction(threadId);
+    evictInactiveThreadProjectionCaches(threadId);
     removeComposerDraft(`thread:${threadId}`);
     setThreads((current) => current.filter((thread) => thread.id !== threadId));
     setUnreadThreadIds((current) => {
@@ -13735,12 +13930,6 @@ function App() {
                         threadId={activeThread.id}
                         isCodexLogin={activeThreadIsCodexLogin}
                         autoRetryEnabled={codexAutoRetryEnabled}
-                        {...(codexAutoRetryStatus
-                          ? {
-                              autoRetryAttempt: codexAutoRetryStatus.attempt,
-                              autoRetryRemainingSeconds: codexAutoRetryStatus.remainingSeconds,
-                            }
-                          : {})}
                         onAutoRetryChange={setThreadCodexAutoRetry}
                         {...(activeThread.coreKind === "acp" && activeThread.externalSessionId
                           ? { acpSessionId: activeThread.externalSessionId }
@@ -13855,6 +14044,7 @@ function App() {
                             .join(" ")}
                         >
                           <div className="activity-messages-shell">
+                            {feedWindowLoading ? <div className="feed-history-loading" role="status"><LoaderCircle size={12} className="is-spinning" /><span>{t("feed.window.loading")}</span></div> : null}
                             <div className="activity-feed-top-mask" aria-hidden />
                             <ActivityUserMessageNavigator
                               items={activityUserMessageNavItems}
@@ -13871,7 +14061,7 @@ function App() {
                               aria-label={activeThread?.title}
                               // biome-ignore lint/a11y/noNoninteractiveTabindex: Scrollable history supports PageUp/PageDown and Home/End.
                               tabIndex={0}
-                              aria-busy={!activityFeedBootReady}
+                              aria-busy={!activityFeedBootReady || feedWindowLoading}
                             >
                               <div ref={activityFeedContentRef} className="activity-feed-content">
                               {activityFeedBootReady ? (
@@ -13882,6 +14072,7 @@ function App() {
                                     value={activeThread ? (ttsArtifactsByThread[activeThread.id] ?? []) : []}
                                   >
                                     <LazyActivityLogView
+                                      key={activeThread?.id}
                                       {...(activeThread && { thread: activeThread })}
                                       {...(activeThread &&
                                         conversationV2ByThread[activeThread.id] && {
@@ -13903,7 +14094,7 @@ function App() {
                                       onPlannerLayoutChange={handleActivityPlannerLayoutChange}
                                       onComposerAgentSilenceChange={setComposerAgentSilenceVisible}
                                       onFeedEndAnchorChange={handleFeedEndAnchorChange}
-                                      feedUserDetached={feedUserDetached}
+                                      feedUserDetached={feedUserDetached || userDetachedFromBottomRef.current}
                                       {...(Object.keys(activityModelByRole).length > 0 && {
                                         modelByRole: activityModelByRole,
                                       })}
@@ -13915,6 +14106,7 @@ function App() {
                                       onOpenImageGenerationTool={openImageGenerationTool}
                                       onOpenImageDisplayTool={openImageDisplayTool}
                                       onOpenImageDisplayArtifact={openImageDisplayArtifact}
+                                      onLoadProjectionDetail={loadConversationV2ProjectionDetail}
                                       thinkingDisplayMode={thinkingDisplayPreferences.mode}
                                       {...(activeSubagentTimings && {
                                         subagentTimings: activeSubagentTimings,
@@ -14810,94 +15002,35 @@ function App() {
 
 async function loadConversationV2RendererState(
   conversationId: string,
-): Promise<ConversationV2RendererState | undefined> {
+  isCurrent: () => boolean,
+  request: ConversationFeedWindowRequest = { conversationId, skeleton: true },
+): Promise<ConversationV2RendererState> {
   const api = window.eco;
-  if (
-    !api ||
-    typeof api.conversationV2Bootstrap !== "function" ||
-    typeof api.conversationV2Projection !== "function"
-  ) {
-    return undefined;
+  if (!api?.conversationV2FeedWindow) throw new Error("Conversation Feed window API is unavailable.");
+  const assertCurrent = () => {
+    if (!isCurrent()) throw new DOMException("Feed view was released.", "AbortError");
+  };
+  assertCurrent();
+  const snapshot = await api.conversationV2FeedWindow(request);
+  assertCurrent();
+  if (snapshot.conversationId !== conversationId) {
+    throw new Error("Conversation Feed window belongs to another conversation.");
   }
-  const capabilities = await api.conversationV2Capabilities();
-  if (
-    capabilities.protocolVersion !== 2 ||
-    capabilities.eventSchemaVersion !== 1 ||
-    capabilities.effectVersion !== 1 ||
-    !Number.isSafeInteger(capabilities.maxEvents) ||
-    capabilities.maxEvents <= 0 ||
-    !Number.isSafeInteger(capabilities.maxBytes) ||
-    capabilities.maxBytes <= 0 ||
-    typeof capabilities.storeEpoch !== "string" ||
-    !capabilities.storeEpoch.trim()
-  ) {
-    throw new Error("Conversation V2 renderer capabilities are unsupported.");
-  }
-  const bootstrap = await api.conversationV2Bootstrap(conversationId, {
-    pageSize: 60,
-    maxBytes: capabilities.maxBytes,
+  const state = boundConversationFeedState({
+    ...installConversationV2Bootstrap(snapshot),
+    feedWindow: {
+      mode: request.skeleton ? "latest" : request.beforeCursor || request.toolRunId || request.beforeFeedCursor || (request.afterFeedCursor && snapshot.hasNewer) ? "history" : "latest",
+      request, toolPages: snapshot.toolPages,
+      ...(snapshot.skeleton ? { skeleton: true } : {}),
+      ...(snapshot.olderFeedCursor ? {olderFeedCursor:snapshot.olderFeedCursor} : {}),
+      ...(snapshot.newerFeedCursor ? {newerFeedCursor:snapshot.newerFeedCursor} : {}),
+      ...(snapshot.hasNewer !== undefined ? {hasNewer:snapshot.hasNewer} : {}),
+    },
   });
-  if (
-    bootstrap.protocolVersion !== 2 ||
-    bootstrap.conversationId !== conversationId ||
-    bootstrap.storeEpoch !== capabilities.storeEpoch
-  ) {
-    throw new Error("Conversation V2 renderer bootstrap belongs to another stream.");
-  }
-  let state = installConversationV2Bootstrap(bootstrap);
-  const syncThrough = (current: ConversationV2RendererState, throughSeq: number) =>
-    catchUpConversationV2RendererState(
-      current,
-      throughSeq,
-      (afterSeq, requestedThroughSeq) =>
-        api.conversationV2Sync({
-          conversationId,
-          storeEpoch: current.storeEpoch,
-          afterSeq,
-          throughSeq: requestedThroughSeq,
-          maxEvents: capabilities.maxEvents,
-          maxBytes: capabilities.maxBytes,
-        }),
-      capabilities.maxEvents,
-    );
-  while (true) {
-    const head = await api.conversationV2Head(conversationId);
-    if (
-      head.protocolVersion !== 2 ||
-      head.conversationId !== conversationId ||
-      head.storeEpoch !== state.storeEpoch ||
-      !Number.isSafeInteger(head.lastSeq) ||
-      !Number.isSafeInteger(head.historyRevision) ||
-      head.lastSeq < 0 ||
-      head.historyRevision < 0 ||
-      head.lastSeq < state.appliedSeq ||
-      head.historyRevision < state.historyRevision
-    ) {
-      throw new Error("Conversation V2 renderer head changed during recovery.");
-    }
-    if (head.lastSeq <= state.appliedSeq) {
-      break;
-    }
-    state = await syncThrough(state, head.lastSeq);
-    if (state.appliedSeq < head.lastSeq) {
-      throw new Error("Conversation V2 renderer did not close the sync range.");
-    }
-  }
-  state = await loadConversationV2OlderHistory(
-    api,
-    state,
-    conversationId,
-    capabilities.maxBytes,
-    syncThrough,
-  );
-  state = await loadConversationV2ToolSummaries(
-    api,
-    state,
-    conversationId,
-    capabilities.maxBytes,
-    syncThrough,
-  );
-  return loadConversationV2ProjectionUpdate(state, api);
+  return loadConversationV2ProjectionUpdate(state, api, () => {
+    assertCurrent();
+    return state;
+  }, isCurrent);
 }
 
 function conversationV2TodosToCoderTodos(state: ConversationV2RendererState): CoderTodoItem[] {
@@ -14913,96 +15046,6 @@ function conversationV2TodosToCoderTodos(state: ConversationV2RendererState): Co
       position: todo.position,
       updatedAt: todo.updatedAt,
     }));
-}
-
-/** Messages per older-history page. The Feed holds the whole conversation, not one window. */
-const CONVERSATION_V2_HISTORY_PAGE_SIZE = 100;
-
-/**
- * Reads the conversation's history backwards until the client holds all of it.
- *
- * `bootstrap()` answers with the newest window and a cursor for the rest. Stopping there
- * leaves a migrated conversation's older turns — their messages, runs and tool calls — out
- * of the Feed entirely: the reader sees the last page of a long conversation as if the rest
- * had never been recorded. The legacy chain it replaces loaded the whole event log, so the
- * V2 read side has to hand over the same history before it can own the Feed.
- */
-async function loadConversationV2OlderHistory(
-  api: NonNullable<Window["eco"]>,
-  initial: ConversationV2RendererState,
-  conversationId: string,
-  maxBytes: number,
-  syncThrough: (
-    state: ConversationV2RendererState,
-    throughSeq: number,
-  ) => Promise<ConversationV2RendererState>,
-): Promise<ConversationV2RendererState> {
-  let state = initial;
-  const seenCursors = new Set<string>();
-  while (state.hasOlder) {
-    const cursor = state.olderCursor;
-    if (!cursor || seenCursors.has(cursor)) {
-      // A store that keeps answering with the same cursor would page forever; the client
-      // cannot invent a cursor to escape it, so the read fails loudly instead of hanging.
-      throw new Error("Conversation V2 renderer history page repeated its cursor.");
-    }
-    seenCursors.add(cursor);
-    const page = await api.conversationV2MessagesPage(conversationId, {
-      beforeCursor: cursor,
-      limit: CONVERSATION_V2_HISTORY_PAGE_SIZE,
-      maxBytes,
-    });
-    state = await syncThrough(state, page.readSeq);
-    state = mergeConversationV2OlderPage(state, page);
-  }
-  return state;
-}
-
-/**
- * Tool summaries are paged independently from messages. Follow each run's
- * opaque cursor so the V2 Feed still contains every durable tool row without
- * making bootstrap carry an unbounded response.
- */
-async function loadConversationV2ToolSummaries(
-  api: NonNullable<Window["eco"]>,
-  initial: ConversationV2RendererState,
-  conversationId: string,
-  maxBytes: number,
-  syncThrough: (
-    state: ConversationV2RendererState,
-    throughSeq: number,
-  ) => Promise<ConversationV2RendererState>,
-): Promise<ConversationV2RendererState> {
-  if (typeof api.conversationV2ToolsPage !== "function") {
-    throw new Error("Conversation V2 tool-summary paging is unavailable.");
-  }
-  let state = initial;
-  // A migrated store can retain a durable tool row whose run read model is
-  // absent (for example after a partial legacy repair). Bootstrap still
-  // returns that orphan row, so page by the union of known runs and tool run
-  // ids instead of silently dropping the rest of an orphan run's pages.
-  const runIds = conversationV2ToolRunIdsForHydration(state);
-  for (const runId of runIds) {
-    let cursor: string | undefined;
-    const seenCursors = new Set<string>();
-    while (true) {
-      const page = await api.conversationV2ToolsPage(conversationId, runId, {
-        ...(cursor ? { cursor } : {}),
-        limit: 100,
-        maxBytes,
-      });
-      state = await syncThrough(state, page.readSeq);
-      state = mergeConversationV2ToolPage(state, page);
-      if (!page.hasMore) break;
-      const nextCursor = page.nextCursor?.trim();
-      if (!nextCursor || seenCursors.has(nextCursor)) {
-        throw new Error(`Conversation V2 tool-summary page repeated its cursor for run ${runId}.`);
-      }
-      seenCursors.add(nextCursor);
-      cursor = nextCursor;
-    }
-  }
-  return state;
 }
 
 async function verifyConversationV2DuplicateEffect(

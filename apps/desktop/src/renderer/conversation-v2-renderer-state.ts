@@ -1,3 +1,5 @@
+import type { ConversationFeedWindow, ConversationFeedWindowRequest } from "../shared/conversation-feed-window";
+import { boundConversationFeedState } from "./conversation-v2-feed-window-state";
 import type {
   ConversationAgent,
   ConversationBootstrap,
@@ -32,6 +34,16 @@ function chooseToolName(existingName: string, incomingName: string): string {
 }
 
 export interface ConversationV2RendererState {
+  feedWindow?: {
+    mode: "latest" | "history";
+    request: ConversationFeedWindowRequest;
+    toolPages: ConversationFeedWindow["toolPages"];
+    skeleton?: boolean;
+    hydratedToolRunIds?: ReadonlySet<string>;
+    olderFeedCursor?: string;
+    newerFeedCursor?: string;
+    hasNewer?: boolean;
+  };
   conversationId: string;
   storeEpoch: string;
   appliedSeq: number;
@@ -199,6 +211,7 @@ export async function catchUpConversationV2RendererState(
 export function installConversationV2Bootstrap(
   bootstrap: ConversationBootstrap,
 ): ConversationV2RendererState {
+  const timeline = bootstrap as Partial<ConversationFeedWindow>;
   if (
     bootstrap.protocolVersion !== 2 ||
     !bootstrap.conversationId.trim() ||
@@ -214,8 +227,8 @@ export function installConversationV2Bootstrap(
     !Array.isArray(bootstrap.tools) ||
     (bootstrap.details !== undefined && !Array.isArray(bootstrap.details)) ||
     typeof bootstrap.hasOlder !== "boolean" ||
-    (bootstrap.hasOlder && typeof bootstrap.olderCursor !== "string") ||
-    (!bootstrap.hasOlder && bootstrap.olderCursor !== undefined)
+    (bootstrap.hasOlder && typeof (timeline.timeline ? timeline.olderFeedCursor : bootstrap.olderCursor) !== "string") ||
+    (!timeline.timeline && !bootstrap.hasOlder && bootstrap.olderCursor !== undefined)
   ) {
     throw new Error("Conversation V2 renderer bootstrap metadata is invalid.");
   }
@@ -509,11 +522,29 @@ export function mergeConversationV2ToolPage(
   if (previousCount === undefined || page.totalCount > previousCount) {
     toolSummaryCounts.set(page.runId, page.totalCount);
   }
+  const feedWindow = state.feedWindow
+    ? {
+        ...state.feedWindow,
+        hydratedToolRunIds: new Set([
+          ...(state.feedWindow.hydratedToolRunIds ?? []),
+          page.runId,
+        ]),
+        toolPages: {
+          ...state.feedWindow.toolPages,
+          [page.runId]: {
+            total: page.totalCount,
+            hasOlder: page.hasMore,
+            ...(page.nextCursor ? { olderCursor: page.nextCursor } : {}),
+          },
+        },
+      }
+    : state.feedWindow;
   return {
     ...state,
     tools,
     toolSummaryCounts,
     details: mergeConversationV2PageDetails(state, page.details, page.readSeq),
+    ...(feedWindow ? { feedWindow } : {}),
   };
 }
 
@@ -560,6 +591,7 @@ export function applyConversationV2Effects(
   const tools = effectMap(state.tools);
   const details = effectMap(state.details);
   const effectHashes = new Map(state.effectHashes);
+  let toolSummaryCounts = state.toolSummaryCounts;
   let appliedSeq = state.appliedSeq;
   let historyRevision = state.historyRevision;
 
@@ -578,7 +610,28 @@ export function applyConversationV2Effects(
     if (envelope.seq !== appliedSeq + 1) {
       throw new ConversationV2RendererGapError(appliedSeq + 1, envelope.seq);
     }
-    applyEffect(
+    if (state.feedWindow && envelope.effect.type === "tool.summary.upsert") {
+      const tool = envelope.effect.toolCall;
+      if (tool.createdSeq > state.appliedSeq && !tools.get(tool.toolCallId)) {
+        toolSummaryCounts = new Map(toolSummaryCounts);
+        (toolSummaryCounts as Map<string, number>).set(tool.runId, (toolSummaryCounts.get(tool.runId) ?? 0) + 1);
+      }
+    }
+    const skeletonLiveMessage =
+      state.feedWindow?.skeleton &&
+      envelope.effect.type === "message.create" &&
+      (
+        (envelope.effect.message.role === "user" && envelope.effect.message.channel === "answer") ||
+        (envelope.effect.message.role === "assistant" && envelope.effect.message.channel === "answer") ||
+        (envelope.effect.message.runId !== undefined &&
+          ["queued", "running"].includes(runs.get(envelope.effect.message.runId)?.status ?? "") ) ||
+        envelope.effect.message.status === "queued" ||
+        envelope.effect.message.status === "streaming"
+      );
+    const outsideWindow = state.feedWindow && "messageId" in envelope.effect &&
+      !messages.get(envelope.effect.messageId) &&
+      !skeletonLiveMessage;
+    if (!outsideWindow) applyEffect(
       envelope.effect,
       envelope.seq,
       state.conversationId,
@@ -600,7 +653,7 @@ export function applyConversationV2Effects(
   }
 
   if (appliedSeq === state.appliedSeq) return state;
-  return {
+  return boundConversationFeedState({
     ...state,
     appliedSeq,
     historyRevision,
@@ -611,7 +664,8 @@ export function applyConversationV2Effects(
     tools: tools.snapshot(),
     details: details.snapshot(),
     effectHashes,
-  };
+    ...(toolSummaryCounts ? { toolSummaryCounts } : {}),
+  });
 }
 
 export function applyConversationV2Effect(

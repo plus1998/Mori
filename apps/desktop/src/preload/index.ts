@@ -1,3 +1,4 @@
+import type { ConversationFeedWindow, ConversationFeedWindowRequest } from "../shared/conversation-feed-window";
 import type { VisionModelTestRequest, VisionModelTestResult } from "../shared/vision-model-test";
 import type { ImageLibraryQuery, ImageLibraryPage, LibraryImage, ImageLibraryReadResult, ImageLibraryBatchResult } from "../shared/image-library";
 import type { KeyboardShortcutsSnapshot, ShortcutBindings } from "../shared/keyboard-shortcuts";
@@ -1837,6 +1838,12 @@ const api = {
   sessionBootstrap(threadId: string): Promise<ThreadSessionBootstrapResult> {
     return ipcRenderer.invoke(IPC_CHANNELS.threadSessionBootstrap, threadId);
   },
+  conversationV2FeedWindow(request: ConversationFeedWindowRequest): Promise<ConversationFeedWindow> {
+    return ipcRenderer.invoke(IPC_CHANNELS.conversationFeedWindow, request);
+  },
+  conversationV2FeedSubscribe(conversationId?: string): void {
+    ipcRenderer.send(IPC_CHANNELS.conversationFeedSubscribe, conversationId);
+  },
   conversationV2Capabilities(): Promise<ConversationCapabilities> {
     return ipcRenderer.invoke(IPC_CHANNELS.conversationCapabilities);
   },
@@ -1849,8 +1856,8 @@ const api = {
       ...options,
     });
   },
-  conversationV2Projection(conversationId: string): Promise<ConversationV2ProjectionExtras> {
-    return ipcRenderer.invoke(IPC_CHANNELS.conversationProjection, { conversationId });
+  conversationV2Projection(conversationId: string, requestIds?: string[]): Promise<ConversationV2ProjectionExtras> {
+    return ipcRenderer.invoke(IPC_CHANNELS.conversationProjection, { conversationId, requestIds });
   },
   conversationV2MessagesPage(
     conversationId: string,

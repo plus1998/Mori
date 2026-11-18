@@ -354,7 +354,7 @@ export interface ConversationTodo {
 }
 
 export interface ConversationCursor {
-  kind: "messages" | "details" | "tools";
+  kind: "messages" | "details" | "tools" | "feed";
   storeEpoch: string;
   historyRevision: number;
   createdSeq: number;
@@ -585,7 +585,7 @@ function isConversationCursor(value: unknown): value is ConversationCursor {
   const historyRevision = cursor.historyRevision;
   const createdSeq = cursor.createdSeq;
   return (
-    (cursor.kind === "messages" || cursor.kind === "details" || cursor.kind === "tools") &&
+    (cursor.kind === "messages" || cursor.kind === "details" || cursor.kind === "tools" || cursor.kind === "feed") &&
     typeof cursor.storeEpoch === "string" &&
     cursor.storeEpoch.length > 0 &&
     typeof historyRevision === "number" &&

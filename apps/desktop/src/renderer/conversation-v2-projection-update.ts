@@ -14,11 +14,22 @@ export async function loadConversationV2ProjectionUpdate(
   initial: ConversationV2RendererState,
   api: ProjectionApi,
   readLatest: () => ConversationV2RendererState | undefined = () => initial,
+  isCurrent: () => boolean = () => true,
 ): Promise<ConversationV2RendererState> {
-  const extras = await api.conversationV2Projection(initial.conversationId);
+  const assertCurrent = () => {
+    if (!isCurrent()) throw new DOMException("Feed view was released.", "AbortError");
+  };
+  assertCurrent();
+  const requestIds = initial.feedWindow ? [...new Set([
+    ...initial.runs.keys(), ...[...initial.messages.values()].map(message => message.turnId),
+  ])] : undefined;
+  const extras = await api.conversationV2Projection(initial.conversationId, requestIds);
+  assertCurrent();
+  if (initial.feedWindow?.mode === "history") return installConversationV2ProjectionExtras(initial, extras);
   // Read AFTER the extras: this head covers every tool/message fact used to
   // derive them, including events whose live batch has not reached React yet.
   const head = await api.conversationV2Head(initial.conversationId);
+  assertCurrent();
   if (
     head.protocolVersion !== 2 ||
     head.conversationId !== initial.conversationId ||
@@ -34,22 +45,26 @@ export async function loadConversationV2ProjectionUpdate(
   }
   if (state.appliedSeq < head.lastSeq) {
     const capabilities = await api.conversationV2Capabilities();
+    assertCurrent();
     state = await catchUpConversationV2RendererState(
       state,
       head.lastSeq,
-      (afterSeq, throughSeq) =>
-        api.conversationV2Sync({
+      (afterSeq, throughSeq) => {
+        assertCurrent();
+        return api.conversationV2Sync({
           conversationId: initial.conversationId,
           storeEpoch: initial.storeEpoch,
           afterSeq,
           throughSeq,
           maxEvents: capabilities.maxEvents,
           maxBytes: capabilities.maxBytes,
-        }),
+        }).then(page => { assertCurrent(); return page; });
+      },
       capabilities.maxEvents,
     );
   }
   const latest = readLatest();
+  assertCurrent();
   if (!latest || latest.storeEpoch !== initial.storeEpoch) {
     throw new Error("Conversation V2 projection stream changed during catch-up.");
   }

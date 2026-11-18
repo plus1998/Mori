@@ -1,4 +1,7 @@
 import type { FeedReplaySession } from "./session";
+import { replayFeedWindow } from "./feed-window";
+import { shouldDeliverFeedEvent } from "../../src/main/renderer-feed-subscription";
+import type { ConversationFeedWindowRequest } from "../../src/shared/conversation-feed-window";
 
 export type ReplayCallKind = "recorded" | "local" | "environment-read" | "blocked";
 export interface ReplayCall {
@@ -74,6 +77,7 @@ export function createReplayApi(
 ): Record<string, unknown> {
   const id = session.fixture.conversationId;
   const drafts = new Map<string, Record<string, unknown>>();
+  let feedSubscription: string | undefined;
   const check = (conversationId: string) => session.assertConversation(conversationId);
   const overrides: Record<string, (...args: any[]) => unknown> = {
     listThreads: () => [{ ...session.thread }],
@@ -101,9 +105,14 @@ export function createReplayApi(
       check(conversationId);
       return session.bootstrap();
     },
-    conversationV2Projection: (conversationId: string) => {
+    conversationV2FeedWindow: (request: ConversationFeedWindowRequest) => replayFeedWindow(session.state, request),
+    conversationV2FeedSubscribe: (conversationId?: string) => {
+      if (conversationId) check(conversationId);
+      feedSubscription = conversationId;
+    },
+    conversationV2Projection: (conversationId: string, requestIds?: string[]) => {
       check(conversationId);
-      return { requestSpans: session.requestSpans };
+      return { requestSpans: requestIds ? session.requestSpans.filter(span => requestIds.includes(span.requestId)).slice(-100) : session.requestSpans };
     },
     conversationV2Head: (conversationId: string) => {
       check(conversationId);
@@ -184,8 +193,9 @@ export function createReplayApi(
       };
     } else if (name === "onThreadEvent") {
       api[name] = (listener: (event: unknown) => void) => {
-        session.listeners.add(listener);
-        return () => session.listeners.delete(listener);
+        const filtered = (event: unknown) => { if (shouldDeliverFeedEvent(feedSubscription, event)) listener(event); };
+        session.listeners.add(filtered);
+        return () => session.listeners.delete(filtered);
       };
     } else if (overrides[name]) {
       api[name] = async (...args: unknown[]) => {

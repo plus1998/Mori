@@ -116,6 +116,9 @@ export function buildRequestFailureRetryTargets(input: {
   if (!supportsOneClickRequestRetry(input.coreKind)) {
     return targets;
   }
+  // A Codex Login capacity notice is emitted while the provider turn remains
+  // active. Keep an immediate action on that scheduled row even though the
+  // ordinary settled-turn retry path is intentionally hidden while running.
   if (input.codexLogin && input.coreKind === "codex") {
     let latestUser: RequestFailureRetryTarget | undefined;
     for (const item of input.items) {

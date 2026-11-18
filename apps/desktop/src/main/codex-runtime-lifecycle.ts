@@ -696,7 +696,7 @@ export async function reapRetiredCodexRuntimes(): Promise<void> {
       // A driver may have reserved this generation while the status RPC was in flight.
       if (client && (clientReservations.get(client) ?? 0) > 0) continue;
       await lifecycle.stop();
-      clientsWithBackgroundTerminals.delete(client);
+      if (client) clientsWithBackgroundTerminals.delete(client);
       retiringLifecycles.delete(lifecycle);
       for (const [id, owner] of threadClients) if (owner === client) threadClients.delete(id);
     } catch (error) {

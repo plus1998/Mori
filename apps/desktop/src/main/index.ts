@@ -1,3 +1,5 @@
+import type { ConversationFeedWindowRequest } from "../shared/conversation-feed-window";
+import { shouldDeliverFeedEvent } from "./renderer-feed-subscription";
 import { AsrMcpGateway } from "./asr-mcp-gateway";
 import { ECO_ASR_MCP_SERVER, buildAsrPromptAppend } from "../shared/asr-tool";
 import { isCompactCommand } from "@eco/shared";
@@ -1479,9 +1481,12 @@ const gitRunner: CommandRunner = {
   run: runGitCommand,
 };
 const desktopEventCenter = new DesktopEventCenter();
+const rendererFeedSubscriptions = new Map<number, string>();
 desktopEventCenter.subscribe(
   createElectronEventSink((channel, payload) => {
     BrowserWindow.getAllWindows().forEach((window) => {
+      if (channel === IPC_CHANNELS.threadEventsSubscribe &&
+          !shouldDeliverFeedEvent(rendererFeedSubscriptions.get(window.webContents.id), payload)) return;
       sendToLiveRenderer(window, channel, payload);
     });
   }),
@@ -2596,6 +2601,8 @@ async function createMainWindow(
     },
   };
   const window = new BrowserWindow(windowOptions);
+  const rendererId = window.webContents.id;
+  window.webContents.once("destroyed", () => rendererFeedSubscriptions.delete(rendererId));
   // Workspace HTML is a static, sandboxed preview. Block frame redirects to external sites too.
   window.webContents.on("will-frame-navigate", (event) => {
     if (
@@ -2608,6 +2615,7 @@ async function createMainWindow(
     }
   });
   window.webContents.on("render-process-gone", (_event, details) => {
+    rendererFeedSubscriptions.delete(window.webContents.id);
     logUpstream("desktop.render-process-gone", {
       webContentsId: window.webContents.id,
       reason: details.reason,
@@ -5286,6 +5294,13 @@ function assertPlanResolutionContextCurrent(threadId: string, frozenContext: Rec
   }
 }
 
+function readConversationFeedRequestIds(value: unknown): string[] {
+  if (!Array.isArray(value) || value.length > 256 || value.some(id => typeof id !== "string" || id.length > 512)) {
+    throw new Error("Invalid Feed request scope.");
+  }
+  return value as string[];
+}
+
 function registerDesktopCommand<Args extends unknown[], Result>(
   channel: IpcChannel,
   handler: (...args: Args) => Result | Promise<Result>,
@@ -7763,6 +7778,33 @@ function registerIpcHandlers(): void {
   // Conversation storage/sync V2. These handlers expose the durable event
   // range and read models directly; retired projection commands are kept only
   // in internal migration/replay helpers and are not exposed to clients.
+  ipcMain.on(IPC_CHANNELS.conversationFeedSubscribe, (event, conversationId: unknown) => {
+    const sender = event.sender;
+    if (!BrowserWindow.fromWebContents(sender)) return;
+    rendererFeedSubscriptions.delete(sender.id);
+    if (typeof conversationId === "string" && conversationId.trim()) {
+      rendererFeedSubscriptions.set(sender.id, conversationId);
+    }
+  });
+
+  registerDesktopCommand(IPC_CHANNELS.conversationFeedWindow, async (payload: unknown) => {
+    const request = parseConversationV2Request(payload, ["conversationId"]);
+    requireConversationV2Thread(request.conversationId);
+    conversationStore.reconcileConversationV2Runs(request.conversationId);
+    const query: ConversationFeedWindowRequest = { conversationId: request.conversationId };
+    for (const key of ["beforeCursor", "toolRunId", "toolCursor", "beforeFeedCursor", "afterFeedCursor"] as const) {
+      const value = readOptionalConversationV2String(request[key], key);
+      if (value !== undefined) query[key] = value;
+    }
+    if (request.skeleton !== undefined && typeof request.skeleton !== "boolean") {
+      throw new Error("Invalid Feed skeleton mode.");
+    }
+    if (request.skeleton === true) query.skeleton = true;
+    if (request.timeline !== undefined && typeof request.timeline !== "boolean") throw new Error("Invalid Feed timeline mode.");
+    if (request.timeline === true) query.timeline = true;
+    return conversationStore.conversationV2().feedWindow(query);
+  });
+
   registerDesktopCommand(IPC_CHANNELS.conversationCapabilities, async () =>
     conversationStore.conversationV2().capabilities(),
   );
@@ -7784,7 +7826,8 @@ function registerIpcHandlers(): void {
     const request = parseConversationV2Request(payload, ["conversationId"]);
     requireConversationV2Thread(request.conversationId);
     return (
-      conversationStore.getConversationV2ProjectionExtras(request.conversationId) ?? {
+      conversationStore.getConversationV2ProjectionExtras(request.conversationId,
+        request.requestIds === undefined ? undefined : readConversationFeedRequestIds(request.requestIds)) ?? {
         requestSpans: [],
       }
     );

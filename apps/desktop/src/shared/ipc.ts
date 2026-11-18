@@ -212,6 +212,8 @@ export const IPC_CHANNELS = {
   promptImageUploadFinish: "prompt-image:upload-finish",
   promptImageReadChunk: "prompt-image:read-chunk",
   threadSessionBootstrap: "thread:session-bootstrap",
+  conversationFeedWindow: "conversation:feed-window",
+  conversationFeedSubscribe: "conversation:feed-subscribe",
   conversationCapabilities: "conversation:capabilities",
   conversationBootstrap: "conversation:bootstrap",
   conversationProjection: "conversation:projection",

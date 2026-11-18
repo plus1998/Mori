@@ -90,6 +90,86 @@ for (const storageMode of ["legacy_compat", "v2_only"] as const) {
   });
 }
 
+test("Feed request scopes preserve the complete ledger behind conversation billing totals", () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    const store = new ConversationStore(db, { freshStorageMode: "v2_only" });
+    store.initialize();
+    store.saveThread({
+      id: "windowed-billing",
+      title: "Windowed billing",
+      prompt: "hello",
+      workspacePath: "/tmp/project",
+      status: "completed",
+      message: "",
+      coreKind: "codex",
+      createdAt: "2026-11-18T00:00:00.000Z",
+      updatedAt: "2026-11-18T00:00:00.000Z",
+    });
+    store.conversationV2().appendRuntime({
+      conversationId: "windowed-billing",
+      eventId: "run-start",
+      runId: "mori-attempt",
+      turnId: "mori-attempt",
+      type: "run.started",
+      occurredAt: "2026-11-18T00:00:00.000Z",
+      payload: { status: "running" },
+    });
+    store.appendConversationRuntimeEvent({
+      id: "native-request",
+      threadId: "windowed-billing",
+      eventType: "request.started",
+      scope: "main",
+      role: "main",
+      streamState: "none",
+      message: "",
+      requestId: "codex-turn",
+      runAttemptId: "mori-attempt",
+      observedAt: "2026-11-18T00:00:00.000Z",
+    });
+    for (let index = 0; index < 105; index++) {
+      const id = `usage-${index}`;
+      store.appendUsageLedgerEvent({
+        id,
+        idempotencyKey: id,
+        threadId: "windowed-billing",
+        source: "codex",
+        sourceEventId: id,
+        requestKey: `codex-gateway:${id}`,
+        runAttemptId: "mori-attempt",
+        usageKind: "request_final",
+        role: "main",
+        modelId: "gpt-6.1-sol",
+        inputTokens: 100 + index,
+        outputTokens: 10,
+        cacheReadTokens: 50,
+        cacheCreationTokens: 0,
+        attribution: { status: "unattributed", reason: "test" },
+        observedAt: new Date(Date.UTC(2026, 10, 18, 0, 0, index)).toISOString(),
+        metadata: {
+          logicalRequestId: index === 0 ? "codex-turn" : `codex-turn-${index}`,
+          computedBilling: { ecoCostUsd: 0.25, plannerTokenCostUsd: 0.25, pricingResolved: true },
+        },
+      });
+    }
+    const full = store.getConversationV2ProjectionExtras("windowed-billing")!;
+    expect(full.requestSpans).toHaveLength(1);
+    expect(full.ledgerEvents).toHaveLength(105);
+    expect(full.billing?.ecoCostUsd).toBe(26.25);
+    // Empty windows, Mori run IDs and provider IDs all share one complete bill.
+    for (const scope of [[], ["mori-attempt"], ["codex-turn"]]) {
+      const scoped = store.getConversationV2ProjectionExtras("windowed-billing", scope)!;
+      expect(scoped.requestSpans).toHaveLength(scope.includes("codex-turn") ? 1 : 0);
+      expect(scoped.ledgerEvents).toEqual(full.ledgerEvents);
+      expect(scoped.billing).toEqual(full.billing);
+      expect(scoped.ledgerEvents!.reduce((sum, event) => sum + event.ecoCostUsd!, 0))
+        .toBe(scoped.billing!.ecoCostUsd);
+    }
+  } finally {
+    db.close();
+  }
+});
+
 test("historical planner reads as main without rewriting ledger identities or snapshots", () => {
   const db = new DatabaseSync(":memory:");
   try {

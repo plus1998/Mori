@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { FEED_RESTORE_READING_SECTION_EVENT } from "./feed-scroll-anchor";
 import { isProjectionUserPromptItem } from "./conversation-v2-projection-view";
 import type { ThreadRunTurnFeedSection } from "./conversation-v2-turn-feed";
 
@@ -549,6 +550,19 @@ export function useFeedSectionVirtualizer(input: {
     return () => observer.disconnect();
   }, [enabled, headerRef]);
 
+  useLayoutEffect(() => {
+    const runLog = runLogRef.current;
+    if (!enabled || !runLog) return;
+    const restoreSection = (event: Event) => {
+      const detail = (event as CustomEvent<{sectionKey:string;entryKey:string}>).detail;
+      const byEntry = detail?.entryKey ? findFeedSectionIndexForAnchor(sections,detail.entryKey) : -1;
+      const index = byEntry >= 0 ? byEntry : sections.findIndex(section => section.key === detail?.sectionKey);
+      if (index >= 0) virtualizer.scrollToIndex(index, {align:"start"});
+    };
+    runLog.addEventListener(FEED_RESTORE_READING_SECTION_EVENT,restoreSection);
+    return () => runLog.removeEventListener(FEED_RESTORE_READING_SECTION_EVENT,restoreSection);
+  }, [enabled,runLogRef,sections,virtualizer]);
+
   const scrollToAnchor = useCallback(
     async (anchorId: string) => {
       if (isThreadPromptAnchorId(anchorId)) {
@@ -655,6 +669,7 @@ export function FeedVirtualSectionWindow(props: {
         <div
           key={item.key}
           data-index={item.index}
+          data-feed-section-key={sections[item.index]?.key}
           data-previous-section-kind={sections[item.index - 1]?.kind}
           ref={measureElement}
           className="run-log-virtual-row"
