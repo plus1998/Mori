@@ -7,7 +7,8 @@ import {
 import { isSkillActivityLabel } from "@eco/runtime/skill-display";
 import { isReadToolName } from "@eco/runtime/tool-target";
 import { isAcpSubagentAgentId } from "../shared/acp-subagent";
-import { isClarificationAnswerSummary } from "./clarification-history";
+import { isClarificationAnswerSummary, parseClarificationAnswersSummary, type ClarificationHistoryRow } from "./clarification-history";
+import { buildCodexAsyncQuestionItemId, parseCodexAsyncQuestionReplyText } from "../shared/codex-async-questions";
 import {
   bashApprovalPhaseToLifecycle,
   clampActivityPreviewLine,
@@ -1363,6 +1364,20 @@ function isMainTimelineNoiseItem(
   if (isSpuriousClarificationAnsweredItem(item)) {
     return true;
   }
+  // Async questions also persist a normal user reply. Keep that bubble as the
+  // answer's owner instead of repeating the resolution receipt in the process.
+  // Match the upstream question address, never just the displayed question text.
+  const clarificationType = projectionLiveType(item);
+  if (clarificationType === "clarification.answered" || clarificationType === "clarification.requested") {
+    const toolUseId = readProjectionToolMetadata(item)?.toolUseId;
+    const rows = (item.metadata?.clarificationRows as ClarificationHistoryRow[] | undefined)
+      ?? parseClarificationAnswersSummary(item.text);
+    const answered = toolUseId ? asyncAnswerToolIds(timeline).get(toolUseId) : undefined;
+    if (rows?.length && rows.every((row, index) => {
+      const reply = answered?.get(index);
+      return reply?.question === row.question && (row.answer === undefined || reply.answer === row.answer);
+    })) return true;
+  }
   const clarificationToolUseId = projectionLiveType(item) === "clarification.requested"
     ? readProjectionToolMetadata(item)?.toolUseId : undefined;
   if (clarificationToolUseId && timeline.some(candidate =>
@@ -1416,6 +1431,41 @@ function isMainTimelineNoiseItem(
   return (
     !text || text === "状态已更新" || isProjectionLifecycleText(text) || isProjectionUsageNoiseText(text)
   );
+}
+
+type AsyncAnswerIndex = Map<string, Map<number, { question: string; answer: string }>>;
+const asyncAnswerToolsByTimeline = new WeakMap<readonly ThreadRunProjectionTimelineItem[], AsyncAnswerIndex>();
+
+function asyncAnswerToolIds(timeline: readonly ThreadRunProjectionTimelineItem[]): AsyncAnswerIndex {
+  const cached = asyncAnswerToolsByTimeline.get(timeline);
+  if (cached) return cached;
+  const toolIds: AsyncAnswerIndex = new Map();
+  for (const item of timeline) {
+    if (!isProjectionUserPromptItem(item)) continue;
+    const status = item.metadata?.conversationV2Status;
+    if (status === "queued" || status === "failed" || status === "cancelled") continue;
+    const replies = parseCodexAsyncQuestionReplyText(item.text);
+    for (const reply of replies ?? []) {
+      let address: unknown;
+      try {
+        address = JSON.parse(reply.questionItemId);
+      } catch {
+        continue;
+      }
+      if (
+        Array.isArray(address) && address.length === 3 &&
+        typeof address[1] === "string" && address[1].trim() &&
+        Number.isSafeInteger(address[2]) && address[2] >= 0 &&
+        reply.questionItemId === buildCodexAsyncQuestionItemId(address[1], address[2])
+      ) {
+        const answers = toolIds.get(address[1]) ?? new Map();
+        answers.set(address[2], reply);
+        toolIds.set(address[1], answers);
+      }
+    }
+  }
+  asyncAnswerToolsByTimeline.set(timeline, toolIds);
+  return toolIds;
 }
 
 function isSpuriousClarificationAnsweredItem(item: ThreadRunProjectionTimelineItem): boolean {

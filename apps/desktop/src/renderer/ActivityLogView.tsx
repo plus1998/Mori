@@ -2659,6 +2659,7 @@ function ProjectionTurnFeedSection({
       // after that prompt. Every visible segment gets its own disclosure so its
       // process rows cannot be revealed by a control in another segment.
       showHeading
+      continuation={Boolean(section.continuation)}
       expanded={expanded}
       onExpandedChange={onExpandedChange}
       stopping={Boolean(entryProps.stopping) && section.running}
@@ -2689,6 +2690,7 @@ function RunLogTurnSection({
   turnKey,
   running,
   showHeading = true,
+  continuation = false,
   expanded: controlledExpanded,
   onExpandedChange,
   stopping = false,
@@ -2707,6 +2709,7 @@ function RunLogTurnSection({
   turnKey: string;
   running: boolean;
   showHeading?: boolean;
+  continuation?: boolean;
   expanded?: boolean;
   onExpandedChange?: (expanded: boolean) => void;
   stopping?: boolean;
@@ -2731,7 +2734,9 @@ function RunLogTurnSection({
   const [detailLoadedLocally, setDetailLoadedLocally] = useState(false);
   const measuredDurationMs = useTurnDurationMs(startedAt, endedAt, running);
   const durationMs = Math.max(measuredDurationMs, projectedDurationMs);
-  const headingLabel = formatRunLogTurnHeading(running, status, durationMs, stopping);
+  const headingLabel = continuation && !running
+    ? i18n.t("activity.process")
+    : formatRunLogTurnHeading(running, status, durationMs, stopping);
   const contentId = `turn-process-${turnKey.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
 
   useLayoutEffect(() => {

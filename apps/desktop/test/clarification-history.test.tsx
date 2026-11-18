@@ -12,6 +12,7 @@ import {
   mergeConversationV2ToolPage,
 } from "../src/renderer/conversation-v2-renderer-state";
 import { clarificationHistoryRows } from "../src/renderer/clarification-history";
+import { buildCodexAsyncQuestionItemId, buildCodexAsyncQuestionReplyText } from "../src/shared/codex-async-questions";
 import "../src/renderer/i18n";
 
 const questions = ["原型在哪里？（在线链接或本地路径）", "包含哪些履约形态？"];
@@ -67,7 +68,7 @@ function fixture() {
       { toolCallId: "ask" },
     );
   };
-  return { db, store, answer };
+  return { db, store, answer, append };
 }
 
 function assertAnswers(state: ReturnType<typeof installConversationV2Bootstrap>) {
@@ -111,4 +112,46 @@ test("structured answers retain punctuation and multiple selections without pars
     { question: questions[0], answer: "A；B、C → D" },
     { question: questions[1], answer: "多行\n回答" },
   ]);
+});
+
+test("Codex async reply owns the answer card across live updates, reload and detail paging", () => {
+  const { db, store, answer, append } = fixture();
+  try {
+    const pending = installConversationV2Bootstrap(store.bootstrap("questions"));
+    append("message.created", {
+      role: "user", channel: "answer", status: "final",
+      body: buildCodexAsyncQuestionReplyText(questions.map((question, index) => ({
+        questionItemId: buildCodexAsyncQuestionItemId("ask", index),
+        question, answer: selections[index]!,
+      }))),
+    }, { messageId: "async-reply" });
+    answer();
+    const live = applyConversationV2Effects(pending, store.sync("questions", pending.storeEpoch, pending.appliedSeq).effects);
+    const reloaded = installConversationV2Bootstrap(store.bootstrap("questions"));
+    const paged = mergeConversationV2ToolPage({ ...live, tools: new Map(), details: new Map() }, store.toolsPage("questions", "run"));
+    for (const state of [live, reloaded, paged]) {
+      const html = renderToStaticMarkup(createElement(ActivityLogView, { conversationV2: state }));
+      expect(html.match(/class="clarification-answer-card clarification-answer-card--user"/g)).toHaveLength(1);
+      expect(html).not.toContain('class="clarification-answer-card"');
+      expect(html).toContain("虚拟卡券、线下核销");
+    }
+  } finally { db.close(); }
+});
+
+test("failed, unrelated and partial async replies do not hide recorded answers", () => {
+  for (const scenario of ["failed", "unrelated", "partial", "different-answer"] as const) {
+    const { db, store, answer, append } = fixture();
+    try {
+      const replies = questions.map((question, index) => ({
+        questionItemId: buildCodexAsyncQuestionItemId(scenario === "unrelated" ? "other-ask" : "ask", index),
+        question, answer: scenario === "different-answer" ? "different" : selections[index]!,
+      }));
+      append("message.created", {
+        role: "user", channel: "answer", status: scenario === "failed" ? "failed" : "final",
+        body: buildCodexAsyncQuestionReplyText(scenario === "partial" ? replies.slice(0, 1) : replies),
+      }, { messageId: "async-reply" });
+      answer();
+      assertAnswers(installConversationV2Bootstrap(store.bootstrap("questions")));
+    } finally { db.close(); }
+  }
 });
