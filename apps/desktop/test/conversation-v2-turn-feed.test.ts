@@ -577,6 +577,44 @@ test("mid-turn output remains a continuation of a completed turn", () => {
   expect(turns[1]?.finalEntry?.key).toBe(output.key);
 });
 
+test("mid-turn sections keep distinct keys for independent disclosures", () => {
+  const user = entry(
+    item("user", "开始", {
+      role: "user",
+      sequence: 1,
+      at: "2026-01-01T00:00:00.500Z",
+      metadata: { liveType: "thread.user_prompt" },
+    }),
+  );
+  const midturnUser = entry(
+    item("midturn-user", "补充要求", {
+      role: "user",
+      sequence: 10,
+      at: "2026-01-01T00:00:03.000Z",
+      metadata: { liveType: "thread.user_prompt" },
+    }),
+  );
+  const firstOutput = entry(item("first-output", "原始要求的过程", { runAttemptId: "attempt-1", sequence: 3 }));
+  const secondOutput = entry(
+    item("second-output", "补充要求的过程", {
+      runAttemptId: "attempt-1",
+      sequence: 12,
+      at: "2026-01-01T00:00:05.000Z",
+    }),
+  );
+  const sections = buildThreadRunTurnFeedSections([user, firstOutput, midturnUser, secondOutput], {
+    attempts: [attempt("completed")],
+    timeline: [],
+  });
+  const turns = sections.filter(
+    (section): section is Extract<ThreadRunTurnFeedSection, { kind: "turn" }> => section.kind === "turn",
+  );
+  expect(turns).toHaveLength(2);
+  expect(turns[0]?.key).not.toBe(turns[1]?.key);
+  expect(turns[0]?.continuation).toBe(false);
+  expect(turns[1]?.continuation).toBe(true);
+});
+
 test("legacy entries recover turn ownership from the attempt time window", () => {
   const sections = buildThreadRunTurnFeedSections(
     [entry(item("legacy-final", "旧会话结果。", { at: "2026-01-01T00:00:07.000Z" }))],

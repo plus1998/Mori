@@ -3,7 +3,6 @@ import path from "node:path";
 import {
   CodexAppServerClient,
   type CodexAppServerClientOptions,
-  type CodexAppServerNotificationHandler,
   type CodexRetryLogNotice,
   CodexRetryLogObserver,
   readCodexThreadStatus,
@@ -33,7 +32,8 @@ export interface CodexRuntimeLifecycleOptions {
   modelProvider?: string;
   codexExecutable?: string;
   clientOptions?: Omit<CodexAppServerClientOptions, "onNotification">;
-  onNotification?: CodexAppServerNotificationHandler;
+  /** The client that emitted this notification, including after an idle restart. */
+  onNotification?: (method: string, params: unknown, client: CodexAppServerClient) => void;
   onRetryNotice?: (notice: CodexRetryLogNotice) => void;
   onAccountRateLimitsUpdated?: (accountId: string, chatgptAccountId: string, params: unknown) => void;
   onStderr?: (chunk: string) => void;
@@ -290,10 +290,11 @@ export class CodexRuntimeLifecycle {
       } } : {}),
       diagnosticGeneration: nextDiagnosticGeneration++,
       onNotification: (method: string, params: unknown) => {
+        if (generation !== this.generation || this.client !== client) return;
         if (method === "account/rateLimits/updated" && boundAuth) {
           this.options.onAccountRateLimitsUpdated?.(boundAuth.accountId, boundAuth.chatgptAccountId, params);
         }
-        this.options.onNotification?.(method, params);
+        this.options.onNotification?.(method, params, client);
         retryLogs.observeNotification(method, params);
       },
     };
@@ -558,10 +559,16 @@ export function getCodexRuntimeClientForThread(
   threadId: string,
   defaultClient = globalLifecycle?.getClient(),
 ): CodexAppServerClient | undefined {
-  const owner = threadClients.get(threadId);
+  const owner = getOwnedCodexRuntimeClientForThread(threadId);
   const clients = getCodexRuntimeClients();
-  if (owner && clients.includes(owner)) return owner;
+  if (owner) return owner;
   return defaultClient && clients.includes(defaultClient) ? defaultClient : globalLifecycle?.getClient();
+}
+
+/** Live-turn operations require the actual owner; a control-plane client cannot steer them. */
+export function getOwnedCodexRuntimeClientForThread(threadId: string): CodexAppServerClient | undefined {
+  const owner = threadClients.get(threadId);
+  return owner && getCodexRuntimeClients().includes(owner) ? owner : undefined;
 }
 
 /** Unload an idle thread before another generation tries to acquire its disk writer lock. */

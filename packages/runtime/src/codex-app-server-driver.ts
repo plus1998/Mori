@@ -127,7 +127,12 @@ export interface CodexAppServerDriverOptions {
   }) => void;
   onThreadName?: (ecoThreadId: string, codexThreadId: string, name: string) => void;
   /** Fires as soon as turn/start returns a turn id (before tools run). */
-  onTurnBound?: (input: { ecoThreadId: string; codexThreadId: string; turnId: string }) => void;
+  onTurnBound?: (input: {
+    ecoThreadId: string;
+    codexThreadId: string;
+    turnId: string;
+    client: CodexAppServerClient;
+  }) => void;
   /**
    * Mid-turn lifecycle: closeIngress should run before the driver drops the active turn
    * so in-flight turn/steer can finish; onTurnClosed clears product ports afterward.
@@ -194,9 +199,7 @@ export class CodexAppServerDriver implements AgentRuntimeDriver {
   private readonly onThreadMapped: ((ecoThreadId: string, codexThreadId: string) => void) | undefined;
   private readonly onThreadRolloutPath: CodexAppServerDriverOptions["onThreadRolloutPath"];
   private readonly onThreadName: CodexAppServerDriverOptions["onThreadName"];
-  private readonly onTurnBound:
-    | ((input: { ecoThreadId: string; codexThreadId: string; turnId: string }) => void)
-    | undefined;
+  private readonly onTurnBound: CodexAppServerDriverOptions["onTurnBound"];
   private readonly onTurnClosing:
     | ((input: { ecoThreadId: string; codexThreadId: string; turnId?: string }) => void | Promise<void>)
     | undefined;
@@ -561,6 +564,7 @@ export class CodexAppServerDriver implements AgentRuntimeDriver {
               ecoThreadId: input.threadId,
               codexThreadId,
               turnId,
+              client: this.client,
             });
           },
         },

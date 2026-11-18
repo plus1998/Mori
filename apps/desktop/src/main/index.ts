@@ -715,6 +715,7 @@ import {
   getCodexRuntimeProcesses,
   stopCodexRuntimeProcess,
   getCodexRuntimeClientForThread,
+  getOwnedCodexRuntimeClientForThread,
   getCodexRuntimeClients,
   setCodexRuntimeBackgroundTerminalWork,
   parseElectronProxyResolution,
@@ -729,7 +730,6 @@ import {
   configureCodexRuntimeRun,
   createCodexRuntimeDriver,
   ensureCodexControlPlaneClient,
-  getCodexRuntimeClientForEcoThread,
   forkCodexThreadForEcoThread,
   isCodexThreadForkPrepared,
   getCodexTurnRouteRegistry,
@@ -4077,9 +4077,9 @@ app
         if (phase === "closing" || phase === "closed") {
           throw new Error(`Codex approval feedback arrived after turn ingress closed (${phase}).`);
         }
-        const client = getCodexRuntimeClientForThread(codexThreadId);
+        const client = getOwnedCodexRuntimeClientForThread(codexThreadId);
         if (!client) {
-          throw new Error("Codex approval feedback cannot be delivered because Codex is not running.");
+          throw new Error("Codex approval feedback cannot be delivered because the active thread has no live runtime owner.");
         }
         await steerCodexTurn(client, {
           threadId: codexThreadId,
@@ -13913,13 +13913,9 @@ async function startCodexThreadRun(
             const createDriver = () =>
               createCodexRuntimeDriver(input.thread.id, mode, {
                 enableMidTurnPort: true,
-                onTurnBound: ({ ecoThreadId, codexThreadId, turnId }) => {
+                onTurnBound: ({ ecoThreadId, codexThreadId, turnId, client }) => {
                   codexTurnStarted = true;
                   if (!activeRunRuntimeState.bindCodexTurn(ecoThreadId, controller, turnId)) {
-                    return;
-                  }
-                  const client = getCodexRuntimeClientForEcoThread(ecoThreadId);
-                  if (!client) {
                     return;
                   }
                   codexMidTurnPorts.open(ecoThreadId, {

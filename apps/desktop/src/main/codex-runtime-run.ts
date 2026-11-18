@@ -82,6 +82,7 @@ import {
   ensureCodexProviderRuntimeLifecycle,
   ensureGlobalCodexRuntimeLifecycle,
   getCodexRuntimeClientForThread,
+  getOwnedCodexRuntimeClientForThread,
   getGlobalCodexRuntimeLifecycle,
   handoffCodexRuntimeThread,
   recordCodexRuntimeThreadOwner,
@@ -680,10 +681,7 @@ export function getCodexThreadId(ecoThreadId: string): string | undefined {
 
 export function getCodexRuntimeClientForEcoThread(ecoThreadId: string): CodexAppServerClient | undefined {
   const codexThreadId = deps?.threadMap.getCodexThreadId(ecoThreadId);
-  return codexThreadId
-    ? getCodexRuntimeClientForThread(codexThreadId)
-    : (preparedRuntimeByThread.get(ecoThreadId)?.runtimeClient ??
-        getGlobalCodexRuntimeLifecycle()?.getClient());
+  return codexThreadId ? getOwnedCodexRuntimeClientForThread(codexThreadId) : undefined;
 }
 
 /**
@@ -1910,7 +1908,6 @@ async function startSharedCodexRuntimeLifecycle(
   accountId?: string,
   modelProvider?: string,
 ): Promise<CodexAppServerClient> {
-  let notificationClient: CodexAppServerClient | undefined;
   const revision = JSON.stringify([
     loadedGlobalRuntimeRevision, lastPreparedModelCatalogFingerprint, lastPreparedGlobalConfigFingerprint,
   ]);
@@ -1933,8 +1930,8 @@ async function startSharedCodexRuntimeLifecycle(
     clientOptions: {
       onServerRequest: (method, params) => approvalBridge?.handleServerRequest(method, params),
     },
-    onNotification: (method, params) => {
-      if (notificationClient && params && typeof params === "object") {
+    onNotification: (method, params, notificationClient) => {
+      if (params && typeof params === "object") {
         const payload = params as { threadId?: string; thread?: { id?: string } };
         const id = payload.threadId ?? payload.thread?.id;
         if (id) recordCodexRuntimeThreadOwner(id, notificationClient);
@@ -1950,7 +1947,6 @@ async function startSharedCodexRuntimeLifecycle(
       runtimeDeps.onStderr?.(`[codex app-server] ${chunk}`);
     },
   });
-  notificationClient = client;
   const clientIdentity = client as CodexAppServerClient & {
     diagnosticInstanceId?: number;
     diagnosticGeneration?: number;
@@ -2138,7 +2134,12 @@ export function createCodexRuntimeDriver(
      * Subagent spawn paths must leave this false — shared ecoThreadId would clobber ports.
      */
     enableMidTurnPort?: boolean;
-    onTurnBound?: (input: { ecoThreadId: string; codexThreadId: string; turnId: string }) => void;
+    onTurnBound?: (input: {
+      ecoThreadId: string;
+      codexThreadId: string;
+      turnId: string;
+      client: CodexAppServerClient;
+    }) => void;
     onTurnClosing?: (input: {
       ecoThreadId: string;
       codexThreadId: string;

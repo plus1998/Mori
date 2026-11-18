@@ -103,6 +103,20 @@ test("feed error card renders a model error and text retry action", () => {
   expect(markup).not.toContain("refresh-cw");
 });
 
+test("failed queued user prompt is visibly marked as not delivered", () => {
+  const projection = failedProjection(
+    timelineItem("failure", 2, {
+      eventType: "thread.status",
+      role: "user",
+      text: "补充要求",
+      metadata: { liveType: "thread.user_prompt", conversationV2Status: "failed" },
+    }),
+  );
+  const markup = renderToStaticMarkup(createElement(ActivityLogView, { projection }));
+  expect(markup).toContain("未送达");
+  expect(markup).toContain("补充要求");
+});
+
 test("feed error card keeps optional request context and expandable detail", () => {
   const markup = renderToStaticMarkup(
     createElement(FeedErrorCard, {

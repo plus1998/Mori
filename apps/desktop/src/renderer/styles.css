@@ -14269,6 +14269,15 @@ button.default-agent-option:focus-visible {
   color: var(--run-log-user-prompt-fg);
 }
 
+.run-log-user-prompt-delivery-failed {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: 8px 10px 0;
+  color: #ffb4ab;
+  font-size: 12px;
+}
+
 .run-log-user-prompt-images {
   display: flex;
   max-width: min(520px, 72vw);

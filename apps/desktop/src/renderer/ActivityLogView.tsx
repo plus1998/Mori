@@ -2128,12 +2128,15 @@ function ConversationV2ProjectionActivityLogViewImpl({
     () => reconcileFeedSections(buildThreadRunTurnFeedSections(viewModel.mainFeedEntries, projection)),
     [projection, viewModel.mainFeedEntries, reconcileFeedSections],
   );
-  // Mid-turn segments share one disclosure, including when virtualization
-  // unmounts a segment. The attempt owns expansion, not each inserted prompt.
+  // Mid-turn segments are separate disclosures. Keep expansion with the visible
+  // section so a later prompt cannot reveal tools from the earlier segment.
   const [expandedTurns, setExpandedTurns] = useState<ReadonlySet<string>>(() => new Set());
-  const turnExpansionKey = (attemptId: string) => `${projection.thread.threadId}:${attemptId}`;
-  const setTurnExpanded = (attemptId: string, expanded: boolean) => {
-    const key = turnExpansionKey(attemptId);
+  // A mid-turn attempt is rendered as several visible sections. Expansion belongs
+  // to the section key, otherwise opening a later segment also reveals earlier
+  // tools that sit above the inserted user prompt.
+  const turnExpansionKey = (sectionKey: string) => `${projection.thread.threadId}:${sectionKey}`;
+  const setTurnExpanded = (sectionKey: string, expanded: boolean) => {
+    const key = turnExpansionKey(sectionKey);
     setExpandedTurns((previous) => {
       const next = new Set(previous);
       if (expanded) next.add(key);
@@ -2478,9 +2481,9 @@ function ConversationV2ProjectionActivityLogViewImpl({
       return (
         <ProjectionTurnFeedSection
           section={section}
-          expanded={expandedTurns.has(turnExpansionKey(section.attempt.attemptId))}
+          expanded={expandedTurns.has(turnExpansionKey(section.key))}
           onExpandedChange={(expanded) => {
-            setTurnExpanded(section.attempt.attemptId, expanded);
+            setTurnExpanded(section.key, expanded);
             // Keep detail hydration at the section owner as well as inside the
             // disclosure component. The final answer belongs to the skeleton,
             // so the disclosure can be mounted with no process rows at all;
@@ -2653,9 +2656,9 @@ function ProjectionTurnFeedSection({
       turnKey={section.key}
       running={section.running}
       // A mid-turn prompt splits the feed segment so the following output stays
-      // after that prompt, but it does not start a new turn. Keep one elapsed
-      // heading for the attempt after it settles as well as while it is running.
-      showHeading={!section.continuation}
+      // after that prompt. Every visible segment gets its own disclosure so its
+      // process rows cannot be revealed by a control in another segment.
+      showHeading
       expanded={expanded}
       onExpandedChange={onExpandedChange}
       stopping={Boolean(entryProps.stopping) && section.running}
@@ -4992,6 +4995,7 @@ function ProjectionTimelineEntry({
     return wrapRunLogFeedEntry(
       <UserPromptBlock
         text={item.text}
+        deliveryFailed={item.metadata?.conversationV2Status === "failed"}
         {...(isConversationMessageOrigin(item.metadata?.messageOrigin)
           ? { origin: item.metadata.messageOrigin }
           : {})}
@@ -6369,6 +6373,7 @@ function UnknownItemBlock({
 
 function UserPromptBlock({
   text,
+  deliveryFailed = false,
   origin,
   images = [],
   className,
@@ -6384,6 +6389,7 @@ function UserPromptBlock({
   allowUserMessageRewrite = false,
 }: {
   text: string;
+  deliveryFailed?: boolean;
   origin?: ConversationMessageOrigin;
   images?: readonly PromptImagePreview[];
   className?: string;
@@ -6781,6 +6787,12 @@ function UserPromptBlock({
       ) : (
         <div className={contentClassName}>
           <div className="run-log-user-prompt-bubble">
+            {deliveryFailed ? (
+              <div className="run-log-user-prompt-delivery-failed" role="status">
+                <CircleAlert size={14} aria-hidden />
+                {i18n.t("activity.userPromptNotDelivered")}
+              </div>
+            ) : null}
             {images.length > 0 ? (
               <div className="run-log-user-prompt-images">
                 {images.map((image, index) => {
