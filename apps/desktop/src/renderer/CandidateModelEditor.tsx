@@ -11,6 +11,7 @@ import type {
   RoutePricingHint,
   RuntimeRoleRouteConfig,
 } from "../shared/ipc";
+import { resolveProviderBrandLogo } from "../shared/provider-brand-logo";
 import {
   isRateFormValueValid,
   isTokenFormValueValid,
@@ -101,14 +102,21 @@ export const CandidateModelEditor = forwardRef<CandidateModelEditorHandle, Candi
 
     const cascadeOptions = useMemo(
       () =>
-        modelsDevOptions.map((option) => ({
-          key: `${option.providerKey}::${option.modelId}`,
-          providerId: option.providerKey,
-          providerName: option.providerKey,
-          modelId: option.modelId,
-          label: option.displayName,
-          description: option.modelId,
-        })),
+        modelsDevOptions.map((option) => {
+          const providerIcon = resolveProviderBrandLogo({
+            name: option.providerKey,
+            model: option.modelId,
+          })?.iconSrc;
+          return {
+            key: `${option.providerKey}::${option.modelId}`,
+            providerId: option.providerKey,
+            providerName: option.providerKey,
+            ...(providerIcon ? { providerIcon } : {}),
+            modelId: option.modelId,
+            label: option.displayName,
+            description: option.modelId,
+          };
+        }),
       [modelsDevOptions],
     );
 
