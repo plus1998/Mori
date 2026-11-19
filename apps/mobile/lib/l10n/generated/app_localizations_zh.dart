@@ -644,7 +644,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get composerPlusImageHint => '上传设计稿、截图或本地图片';
 
   @override
-  String get composerPlusFileHint => '从手机或云盘上传文件，并把桌面端临时路径放入输入框';
+  String get composerPlusFileHint => '从手机上传文件';
 
   @override
   String get composerPlusScheduleHint => '延时发送或按周期发送到当前对话';

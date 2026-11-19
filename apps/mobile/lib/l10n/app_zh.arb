@@ -223,7 +223,7 @@
   "composerPlusPlanHint": "先制定计划，再执行修改",
   "composerPlusAskHint": "问答与分析，不直接修改文件",
   "composerPlusImageHint": "上传设计稿、截图或本地图片",
-  "composerPlusFileHint": "从手机或云盘上传文件，并把桌面端临时路径放入输入框",
+  "composerPlusFileHint": "从手机上传文件",
   "composerPlusScheduleHint": "延时发送或按周期发送到当前对话",
   "composerPlusFirstMessageHint": "让第一条消息在指定时间发送",
   "composerPlusConfigHint": "主 Agent、提示词、子代理与模型设置",
