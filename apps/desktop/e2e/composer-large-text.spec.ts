@@ -143,6 +143,8 @@ test("line boundaries remain editable, including blank lines and a single pasted
   const value = page.getByTestId("draft-value");
   await paste(editor, "\n");
   expect(await value.evaluate((node) => node.textContent)).toBe("\n");
+  await editor.press("x");
+  expect(await value.evaluate((node) => node.textContent)).toBe("\nx");
   await editor.press("ControlOrMeta+a");
   const text = `${"log line\n".repeat(3000)}\nend\n`;
   await paste(editor, text);

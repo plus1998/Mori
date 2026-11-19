@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
 import { ComposerReferenceService, type ComposerReferenceDeps } from "../src/main/composer-reference-service";
 import { composerReferenceToken } from "../src/shared/composer-references";
+import { buildCodexAsyncQuestionReplyText, parseCodexAsyncQuestionReplyText } from "../src/shared/codex-async-questions";
+import { resolveCodexAsyncAnswerPrompt } from "../src/shared/prompt-image-reference";
 import type { ThreadSummary } from "../src/shared/ipc";
 import type { ConversationMessage } from "@eco/shared";
 import { browserPersonalScopeId, type BrowserInstanceView } from "../src/shared/browser";
@@ -38,6 +40,30 @@ function setup(overrides: Partial<ComposerReferenceDeps> = {}) {
   };
   return new ComposerReferenceService(deps);
 }
+
+test("async replies resolve user references and images without breaking question identity", async () => {
+  const service = setup();
+  const token = composerReferenceToken({ kind: "conversation", id: "b", label: '验证 "记录"', detail: "" });
+  const question = `哪份记录？ ${composerReferenceToken({ kind: "conversation", id: "missing", label: "问题里的文字", detail: "" })}`;
+  const secondAnswer = "照旧\n保留换行";
+  const prompt = buildCodexAsyncQuestionReplyText([
+    { questionItemId: "q1", question, answer: `参考 ${token}\n［附图 1］` },
+    { questionItemId: "q2", question: "如何处理？", answer: secondAnswer },
+  ]);
+  const contentRef = `sha256:${"b".repeat(64)}`;
+  const runtimePrompt = await resolveCodexAsyncAnswerPrompt(
+    prompt, answer => service.resolvePrompt("a", answer), answer => answer,
+    [{ mediaType: "image/png", contentRef }],
+  );
+  const replies = parseCodexAsyncQuestionReplyText(runtimePrompt!);
+  expect(replies).toHaveLength(2);
+  expect(replies?.[0]).toMatchObject({ questionItemId: "q1", question });
+  expect(replies?.[0]?.answer).toContain('参考 [conversation: 验证 "记录"]\n［附图 1］');
+  expect(replies?.[0]?.answer).toContain('"conversationId":"b"');
+  expect(replies?.[0]?.answer).toContain(`- image 1: ref="${contentRef}"`);
+  expect(replies?.[1]).toEqual({ questionItemId: "q2", question: "如何处理？", answer: secondAnswer });
+});
+
 test("picker searches conversations across projects and bounds each category", () => {
   const service = setup();
   expect(service.search({ query: "订单", kind: "conversation" }).items.map((item) => item.id)).toEqual([

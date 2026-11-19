@@ -7,11 +7,16 @@ import {
   executeClarificationResolutionCommand,
   recoverAsyncClarificationCommands,
 } from "../src/main/conversation-interaction-command";
+import { buildAcceptedConversationMessageSchedule } from "../src/main/conversation-v2-request";
 import { ConversationV2Store } from "../src/main/conversation-v2-store";
+import type { PromptImageAttachment } from "../src/shared/ipc";
 import { removeTempDirectorySync } from "./helpers/temp-directory";
 
 const text =
   '<send_user_message_question_reply>[{"questionItemId":"q1","question":"选哪项？","answer":"A"}]</send_user_message_question_reply>';
+const attachments: PromptImageAttachment[] = [
+  { mediaType: "image/png", contentRef: `sha256:${"a".repeat(64)}`, byteLength: 283 },
+];
 const input = {
   principalId: "desktop-local",
   conversationId: "recovery-thread",
@@ -33,7 +38,7 @@ test("an async answer is durably accepted before its clarification command compl
     return complete(...args);
   };
   try {
-    const result = executeClarificationResolutionCommand(input, {
+    const result = executeClarificationResolutionCommand({ ...input, attachments }, {
       v2,
       getPending: () => ({
         threadId: input.conversationId,
@@ -48,6 +53,8 @@ test("an async answer is durably accepted before its clarification command compl
     expect(result.asyncMessage?.text).toBe(text);
     if (!result.asyncMessage) throw new Error("Async answer acceptance is missing.");
     expect(v2.isAsyncClarificationAnswer(input.conversationId, result.asyncMessage.messageId)).toBe(true);
+    expect(result.asyncMessage.attachments).toEqual(attachments);
+    expect(v2.getMessage(input.conversationId, result.asyncMessage.messageId)?.attachments).toEqual(attachments);
     expect(v2.getCommandJob(input.principalId, input.conversationId, input.clientCommandId)?.status).toBe(
       "completed",
     );
@@ -73,6 +80,7 @@ for (const boundary of ["accepted", "running", "message-accepted"] as const) {
           resolution: "submit",
           answers: input.answers,
           asyncReplyText: text,
+          asyncReplyAttachments: attachments,
         },
       });
       if (boundary !== "accepted")
@@ -83,6 +91,7 @@ for (const boundary of ["accepted", "running", "message-accepted"] as const) {
           conversationId: input.conversationId,
           clientCommandId: `async-clarification:${input.clientCommandId}`,
           text,
+          attachments,
         });
       }
       db.close();
@@ -94,13 +103,15 @@ for (const boundary of ["accepted", "running", "message-accepted"] as const) {
       const queued = v2.listQueuedUserMessages();
       expect(queued).toHaveLength(1);
       expect(queued[0]?.body).toBe(text);
-      const replay = executeClarificationResolutionCommand(input, {
+      expect(buildAcceptedConversationMessageSchedule(queued[0]!).attachments).toEqual(attachments);
+      const replay = executeClarificationResolutionCommand({ ...input, attachments }, {
         v2,
         getPending: () => undefined,
         buildDismissAnswers: () => input.answers,
         errorMessage: String,
       });
       expect(replay.asyncMessage?.messageId).toBe(queued[0]?.messageId);
+      expect(replay.asyncMessage?.attachments).toEqual(attachments);
       if (!replay.asyncMessage) throw new Error("Recovered async answer acceptance is missing.");
       expect(v2.isAsyncClarificationAnswer(input.conversationId, replay.asyncMessage.messageId)).toBe(true);
       expect(replay.answers).toEqual(input.answers);

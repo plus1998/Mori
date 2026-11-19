@@ -2609,6 +2609,8 @@ export interface ClarificationSubmitPayload {
   toolUseId: string;
   selections: string[][];
   customInputIndices?: number[];
+  /** Only async clarifications are delivered as conversation messages with attachments. */
+  attachments?: PromptImageAttachment[];
   expectedHistoryRevision: number;
 }
 

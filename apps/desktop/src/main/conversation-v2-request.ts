@@ -161,7 +161,7 @@ export function buildAcceptedConversationMessageSchedule(
   };
 }
 
-function parseConversationV2PromptImageAttachments(
+export function parseConversationV2PromptImageAttachments(
   value: unknown,
   errorCode: ConversationV2ErrorCode,
   source: string,

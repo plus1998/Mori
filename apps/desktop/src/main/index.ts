@@ -481,7 +481,7 @@ import {
   resolvePromptCacheRuntimeSignature,
 } from "../shared/prompt-cache-config";
 import { PROMPT_IMAGE_PREVIEWS_METADATA_KEY, type PromptImagePreview } from "../shared/prompt-image-metadata";
-import { buildPromptWithImageReferences } from "../shared/prompt-image-reference";
+import { buildPromptWithImageReferences, resolveCodexAsyncAnswerPrompt } from "../shared/prompt-image-reference";
 import { usesChatGptLogin, usesCodexNativeTitle } from "../shared/codex-native-capabilities";
 import { BUILTIN_VISION_AGENT_ROLE } from "../shared/prompt-image-vision";
 import { computeRouteFingerprint, routesMatchFingerprint } from "../shared/route-fingerprint";
@@ -507,7 +507,7 @@ import {
 import {
   activityLinesBeforeRewindTarget,
   buildAgentPromptWithContext,
-  buildThreadTurnPrompt,
+  buildCodexThreadTurnPrompt,
   resolveCodexContinueStrategy,
   resolveThreadContinueAction,
   type ThreadContinueAction,
@@ -11155,6 +11155,32 @@ function registerIpcHandlers(): void {
       throw new Error("Invalid clarification payload.");
     }
     requireConversationV2Thread(payload.threadId);
+    const attachments = parsePromptImageAttachments(payload.attachments);
+    let replyAttachments: PromptImageAttachment[] | undefined;
+    if (attachments.length) {
+      const pending = getPendingClarificationByToolUseId(payload.toolUseId);
+      const existing = conversationStore.conversationV2().getCommandJob(
+        payload.principalId, payload.threadId, payload.clientCommandId,
+      );
+      if (
+        !(pending?.threadId === payload.threadId && pending.delivery === "async") &&
+        !(existing?.commandType === "clarification.resolve" && existing.request.toolUseId === payload.toolUseId &&
+          typeof existing.request.asyncReplyText === "string")
+      ) {
+        throw new Error("Only async clarification answers support images.");
+      }
+      const persisted = await promptImageFileStore.persistMessageAttachments(
+        payload.threadId,
+        `clarification:${stableHash([payload.principalId, payload.clientCommandId])}`,
+        attachments.map(({ path, ...attachment }) =>
+          attachment.contentRef || !path ? attachment : { ...attachment, path },
+        ),
+      );
+      replyAttachments = persisted.map(({ mediaType, contentRef, byteLength }) => {
+        if (!contentRef || byteLength === undefined) throw new Error("Missing persisted clarification image.");
+        return { mediaType, contentRef, byteLength };
+      });
+    }
     const resolution = executeClarificationResolutionCommand(
       {
         principalId: payload.principalId,
@@ -11167,6 +11193,7 @@ function registerIpcHandlers(): void {
           selections: payload.selections,
           ...(payload.customInputIndices ? { customInputIndices: payload.customInputIndices } : {}),
         },
+        ...(replyAttachments ? { attachments: replyAttachments } : {}),
         expectedHistoryRevision: payload.expectedHistoryRevision,
       },
       {
@@ -13530,7 +13557,7 @@ async function startCodexThreadContinuation(
   const runPrompt = input.codexEmptyInput
     ? ""
     : strategy.kind === "cold_start"
-      ? buildThreadTurnPrompt(activeThread.prompt, prompt)
+      ? buildCodexThreadTurnPrompt(activeThread.prompt, prompt)
       : prompt;
 
   input.preparationSignal?.throwIfAborted();
@@ -14070,7 +14097,7 @@ async function startCodexThreadRun(
                     driver,
                     {
                       ...runInput,
-                      prompt: buildThreadTurnPrompt(input.thread.prompt, runInput.prompt),
+                      prompt: buildCodexThreadTurnPrompt(input.thread.prompt, runInput.prompt),
                     },
                     false,
                   );
@@ -21976,15 +22003,22 @@ async function resolvePromptImagesForMainContext(input: {
   if (loginImages && attachments?.some((attachment) => !attachment.path?.trim())) {
     throw new Error("Codex 原生看图需要本地图片路径，请重新添加图片。");
   }
-  if (thread?.workLocation) {
+  function withWorkLocation(prompt: string): string {
+    if (!thread?.workLocation) return prompt;
     const hasRuntimeSession = Boolean(conversationStore.getThreadCoreSession(input.threadId));
     const rebuildContext = thread.workLocation.contextResetPending && !hasRuntimeSession;
     const cwd = resolveWorktreePlan(thread.workspacePath, thread.id).worktreePath;
-    input = { ...input, prompt: buildThreadWorkLocationPrompt({ thread, prompt: input.prompt, cwd,
-      history: rebuildContext ? conversationStore.listActivityLines(input.threadId) : [], hasRuntimeSession }) };
+    return buildThreadWorkLocationPrompt({
+      thread, prompt, cwd,
+      history: rebuildContext ? conversationStore.listActivityLines(input.threadId) : [],
+      hasRuntimeSession,
+    });
   }
+  const resolveReferences = (prompt: string) => composerReferenceService.resolvePrompt(input.threadId, prompt);
+  const answerPrompt = await resolveCodexAsyncAnswerPrompt(input.prompt, resolveReferences, withWorkLocation, attachments);
+  if (answerPrompt !== undefined) return answerPrompt;
   return buildPromptWithImageReferences({
-    prompt: await composerReferenceService.resolvePrompt(input.threadId, input.prompt),
+    prompt: await resolveReferences(withWorkLocation(input.prompt)),
     ...(attachments ? { attachments } : {}),
   });
 }
@@ -23216,6 +23250,8 @@ function isClarificationSubmitPayload(value: unknown): value is ClarificationSub
     typeof payload.toolUseId === "string" &&
     payload.toolUseId.trim().length > 0 &&
     Array.isArray(payload.selections) &&
+    (payload.attachments === undefined ||
+      (Array.isArray(payload.attachments) && payload.attachments.every(isPromptImageAttachmentRecord))) &&
     Number.isSafeInteger(payload.expectedHistoryRevision) &&
     payload.expectedHistoryRevision >= 0
   );

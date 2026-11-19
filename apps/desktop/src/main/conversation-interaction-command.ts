@@ -1,13 +1,17 @@
-import { CONVERSATION_V2_ERROR, ConversationV2Error } from "@eco/shared";
+import { CONVERSATION_V2_ERROR, ConversationV2Error, stableHash } from "@eco/shared";
 import type {
   BashApprovalDecision,
   BashApprovalRequest,
   ClarificationAnswers,
   ClarificationRequest,
+  PromptImageAttachment,
 } from "../shared/ipc";
 import type { BashApprovalResolution } from "./bash-approval-bridge";
 import { assertBashApprovalResolutionAllowed } from "./bash-approval-bridge";
-import type { AcceptedConversationMessageSchedule } from "./conversation-v2-request";
+import {
+  parseConversationV2PromptImageAttachments,
+  type AcceptedConversationMessageSchedule,
+} from "./conversation-v2-request";
 import type { ConversationCommandJob, ConversationV2Store } from "./conversation-v2-store";
 
 export interface ClarificationResolutionCommandInput {
@@ -17,6 +21,7 @@ export interface ClarificationResolutionCommandInput {
   toolUseId: string;
   resolution: "submit" | "dismiss";
   answers?: ClarificationAnswers;
+  attachments?: PromptImageAttachment[];
   expectedHistoryRevision: number;
 }
 
@@ -95,6 +100,12 @@ export function executeClarificationResolutionCommand(
           answers,
         })
       : undefined;
+  if (input.attachments?.length && !asyncReplyText) {
+    throw new ConversationV2Error(
+      CONVERSATION_V2_ERROR.invalidParams,
+      "Only async clarification answers support images.",
+    );
+  }
   const accepted = deps.v2.acceptCommand({
     principalId: input.principalId,
     conversationId: input.conversationId,
@@ -105,6 +116,7 @@ export function executeClarificationResolutionCommand(
       resolution: input.resolution,
       answers,
       ...(asyncReplyText ? { asyncReplyText } : {}),
+      ...(input.attachments?.length ? { asyncReplyAttachments: input.attachments } : {}),
     },
     expectedHistoryRevision: input.expectedHistoryRevision,
   });
@@ -156,18 +168,34 @@ function readAsyncReplyText(job: ConversationCommandJob): string | undefined {
   return typeof text === "string" && text.trim() ? text : undefined;
 }
 
+function readAsyncReplyAttachments(job: ConversationCommandJob): PromptImageAttachment[] {
+  return parseConversationV2PromptImageAttachments(
+    job.request.asyncReplyAttachments,
+    CONVERSATION_V2_ERROR.integrityFailure,
+    "Stored async clarification",
+  );
+}
+
 function acceptAsyncClarificationMessage(
   v2: ConversationV2Store,
   job: ConversationCommandJob,
   text: string,
 ): AcceptedConversationMessageSchedule {
+  const attachments = readAsyncReplyAttachments(job);
   const accepted = v2.sendMessage({
     principalId: job.principalId,
     conversationId: job.conversationId,
     clientCommandId: `async-clarification:${job.clientCommandId}`,
     text,
+    ...(attachments.length ? { attachments } : {}),
   });
-  return { conversationId: job.conversationId, messageId: accepted.messageId, turnId: accepted.turnId, text };
+  return {
+    conversationId: job.conversationId,
+    messageId: accepted.messageId,
+    turnId: accepted.turnId,
+    text,
+    ...(attachments.length ? { attachments } : {}),
+  };
 }
 
 /** Recover only message acceptance, never replay a possibly delivered RPC or steer. */
@@ -332,7 +360,8 @@ function terminalResult(
         message.conversationId !== job.conversationId ||
         typeof message.messageId !== "string" ||
         typeof message.turnId !== "string" ||
-        message.text !== readAsyncReplyText(job)
+        message.text !== readAsyncReplyText(job) ||
+        stableHash(message.attachments ?? []) !== stableHash(readAsyncReplyAttachments(job))
       ) {
         throw new ConversationV2Error(
           CONVERSATION_V2_ERROR.integrityFailure,

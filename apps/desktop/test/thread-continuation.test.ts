@@ -1,8 +1,10 @@
 import { expect, test } from "bun:test";
+import { buildCodexAsyncQuestionReplyText, parseCodexAsyncQuestionReplyText } from "../src/shared/codex-async-questions";
 import {
   activityLinesBeforeRewindTarget,
   buildActivityContextForPrompt,
   buildAgentPromptWithContext,
+  buildCodexThreadTurnPrompt,
   buildThreadTurnPrompt,
   isContinuableThreadStatus,
   pickDisplayContextTokens,
@@ -25,6 +27,14 @@ test("isContinuableThreadStatus", () => {
 test("buildThreadTurnPrompt preserves original task", () => {
   expect(buildThreadTurnPrompt("实现导出按钮", "再加个筛选")).toContain("实现导出按钮");
   expect(buildThreadTurnPrompt("实现导出按钮", "再加个筛选")).toContain("再加个筛选");
+});
+
+test("a cold Codex continuation retains task context inside the complete question reply", () => {
+  const reply = { questionItemId: "q1", question: "颜色？", answer: '选 "蓝色"\n［附图 1］' };
+  const prompt = buildCodexThreadTurnPrompt('原任务 "插图"', buildCodexAsyncQuestionReplyText([reply]));
+  expect(parseCodexAsyncQuestionReplyText(prompt)).toEqual([
+    { ...reply, answer: '原任务 "插图"\n\n---\n\n后续消息：\n选 "蓝色"\n［附图 1］' },
+  ]);
 });
 
 test("native compact commands stay standalone when there is task and conversation history", () => {

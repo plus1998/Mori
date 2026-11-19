@@ -92,6 +92,7 @@ import {
   type WheelEvent,
 } from "react";
 import { useTranslation } from "react-i18next";
+import { UserPromptBodyContent } from "./UserPromptBodyContent";
 import {
   activityLabelIncludesAgentRole,
   clampActivityPreviewLine,
@@ -6927,7 +6928,11 @@ function ClarificationAnswersCard({
         {rows.map((row, index) => (
           <div key={index} className="clarification-answer-row">
             <div className="clarification-answer-question">{row.question}</div>
-            {row.answer !== undefined ? <div className="clarification-answer-answer">{row.answer}</div> : null}
+            {row.answer !== undefined ? (
+              <div className="clarification-answer-answer">
+                <UserPromptBodyContent text={row.answer} />
+              </div>
+            ) : null}
           </div>
         ))}
       </div>

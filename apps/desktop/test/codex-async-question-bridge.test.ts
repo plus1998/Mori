@@ -16,6 +16,7 @@ import type {
   ThreadStatus,
 } from "../src/shared/ipc";
 import { terminalAcceptedMessageDelivery } from "../src/shared/conversation-message-delivery";
+import type { AcceptedConversationMessageSchedule } from "../src/main/conversation-v2-request";
 
 interface HarnessInput {
   status?: ThreadStatus;
@@ -37,7 +38,7 @@ function harness(input: HarnessInput = {}) {
   const enqueued: ThreadFollowUpEnqueueRequest[] = [];
   let threadMissing = Boolean(input.threadMissing);
   const sent: Array<{ clientCommandId: string; text: string }> = [];
-  const scheduled: Array<{ conversationId: string; messageId: string; turnId: string; text: string }> = [];
+  const scheduled: AcceptedConversationMessageSchedule[] = [];
   const resolvers = new Map<string, (answers: ClarificationAnswers) => void>();
   let messageCounter = 0;
   let scheduleAttempts = 0;
@@ -456,6 +457,34 @@ test("delivery is skipped for toolUseIds that are not async questions", async ()
   expect(state.enqueued).toEqual([]);
   expect(state.sent).toEqual([]);
 });
+
+for (const status of ["running", "completed"] as const) {
+  test(`the ${status} delivery path preserves attachments from the accepted reply`, async () => {
+    const state = harness({ status });
+    const attachments = [{ mediaType: "image/png" as const, contentRef: `sha256:${"a".repeat(64)}` }];
+    const acceptedMessage = {
+      conversationId: ASYNC_INPUT.ecoThreadId,
+      messageId: "accepted-answer",
+      turnId: "accepted-turn",
+      text: '<send_user_message_question_reply>[{"questionItemId":"q1","question":"哪张图？","answer":"［附图 1］"}]</send_user_message_question_reply>',
+      attachments,
+    };
+    const delivery = await deliverAsyncClarificationAnswers({
+      threadId: ASYNC_INPUT.ecoThreadId,
+      toolUseId: ASYNC_INPUT.itemId,
+      answers: { toolUseId: ASYNC_INPUT.itemId, selections: [["［附图 1］"]] },
+      commandIdempotencyKey: "answer-with-image",
+      acceptedMessage,
+    });
+    expect(state.sent).toEqual([]);
+    expect(delivery?.state).toBe(status === "running" ? "queued" : "delivered");
+    if (status === "running") {
+      expect(state.enqueued[0]).toMatchObject({ prompt: acceptedMessage.text, attachments, followUpDeliveryMode: "steer" });
+    } else {
+      expect(state.scheduled).toEqual([acceptedMessage]);
+    }
+  });
+}
 
 test("answering closes the question; dismissing silently clears it without sending an answer", async () => {
   const state = harness();

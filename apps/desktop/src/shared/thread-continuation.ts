@@ -1,5 +1,6 @@
 import { isCompactCommand } from "@eco/shared";
 import { stripSubagentBracketPrefix } from "./activity-display";
+import { buildCodexAsyncQuestionReplyText, parseCodexAsyncQuestionReplyText } from "./codex-async-questions";
 import type { ThreadActivityLine, ThreadActivityRewindTarget, ThreadStatus } from "./ipc";
 
 export interface ActivityContextLine {
@@ -182,6 +183,10 @@ export function continueStatusMessage(action: ThreadContinueAction): string {
 /** Agent turn prompt: keep the original task and add the latest user message. */
 export function buildThreadTurnPrompt(threadPrompt: string, followUp: string): string {
   if (isCompactCommand(followUp)) return "/compact";
+  return combineThreadPrompt(threadPrompt, followUp);
+}
+
+function combineThreadPrompt(threadPrompt: string, followUp: string): string {
   const original = threadPrompt.trim();
   const next = followUp.trim();
   if (!original) {
@@ -191,6 +196,15 @@ export function buildThreadTurnPrompt(threadPrompt: string, followUp: string): s
     return original;
   }
   return `${original}\n\n---\n\n后续消息：\n${next}`;
+}
+
+/** A cold Codex continuation needs the task context without breaking an async reply. */
+export function buildCodexThreadTurnPrompt(threadPrompt: string, followUp: string): string {
+  const replies = parseCodexAsyncQuestionReplyText(followUp);
+  if (!replies) return buildThreadTurnPrompt(threadPrompt, followUp);
+  return buildCodexAsyncQuestionReplyText(replies.map((reply, index) =>
+    index === 0 ? { ...reply, answer: combineThreadPrompt(threadPrompt, reply.answer) } : reply,
+  ));
 }
 
 /** Return only the transcript before the selected user node. */

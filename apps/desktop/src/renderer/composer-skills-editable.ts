@@ -9,6 +9,7 @@ import { fileAttachmentToken, workspaceFileReferenceBasename } from "./workspace
 const SKILL_SELECTOR = "[data-skill]";
 const FILE_SELECTOR = "[data-file-path]";
 const REFERENCE_SELECTOR = "[data-reference-token]";
+const TRAILING_BREAK_ATTR = "data-composer-trailing-break";
 function isReferenceElement(node: ChildNode): boolean { return node instanceof HTMLElement && node.matches(REFERENCE_SELECTOR); }
 function isReferenceOrFileElement(node: ChildNode): node is HTMLElement { return isFileElement(node) || isReferenceElement(node); }
 
@@ -75,7 +76,11 @@ function fileTokenLength(node: HTMLElement): number {
 }
 
 function needsBlockSeparator(prev: ChildNode, next: ChildNode): boolean {
-  return isBlockElement(prev) || isBlockElement(next);
+  return (isBlockElement(prev) || isBlockElement(next)) && !isTrailingBreak(next) && !isTrailingBreak(prev);
+}
+
+function isTrailingBreak(node: ChildNode): boolean {
+  return node instanceof HTMLElement && node.tagName === "BR" && node.hasAttribute(TRAILING_BREAK_ATTR);
 }
 
 function serializeChildren(parent: Node): string {
@@ -113,7 +118,7 @@ function serializeNode(node: ChildNode): string {
     return "";
   }
   if (node.tagName === "BR") {
-    return "\n";
+    return isTrailingBreak(node) ? "" : "\n";
   }
   if (isReferenceElement(node)) return node.dataset.referenceToken ?? "";
   if (isSkillElement(node)) {
@@ -137,7 +142,7 @@ function serializedLength(node: ChildNode): number {
     return 0;
   }
   if (node.tagName === "BR") {
-    return 1;
+    return isTrailingBreak(node) ? 0 : 1;
   }
   if (isReferenceElement(node)) return (node.dataset.referenceToken ?? "").length;
   if (isSkillElement(node)) {
@@ -523,5 +528,12 @@ export function renderEditablePrompt(
     }
     if (segment.type === "reference") appendReferenceChip(parent, segment.reference, segment.sourceToken);
     else appendFileChip(parent, segment.path);
+  }
+  if (!useLines && text.endsWith("\n")) {
+    // Give Chromium a line box after the last newline so typing at the end stays there.
+    // The break only positions the caret; the newline in the text node owns serialization.
+    const trailingBreak = document.createElement("br");
+    trailingBreak.setAttribute(TRAILING_BREAK_ATTR, "");
+    root.appendChild(trailingBreak);
   }
 }

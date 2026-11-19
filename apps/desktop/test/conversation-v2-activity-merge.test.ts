@@ -31,6 +31,7 @@ import {
 } from "../src/renderer/request-failure-retry";
 import type { ThreadRunProjectionSnapshot, ThreadRunProjectionTimelineItem } from "../src/shared/ipc";
 import { buildCodexAsyncQuestionReplyText } from "../src/shared/codex-async-questions";
+import { composerReferenceToken } from "../src/shared/composer-references";
 
 function message(messageId: string, createdSeq: number): ConversationMessage {
   return {
@@ -249,9 +250,12 @@ test("native history and V2 approval feedback render a card while retaining the 
 });
 
 test("native history and V2 async answer messages render answer cards without showing the wire envelope", () => {
+  const reference = composerReferenceToken({
+    kind: "conversation", id: "reference-thread", label: "验收记录", detail: "",
+  });
   const wireText = buildCodexAsyncQuestionReplyText([
     { questionItemId: "q1", question: "处理方式？", answer: "保留记录\n保留 <原始内容> & 换行" },
-    { questionItemId: "q2", question: "何时执行？", answer: "下周" },
+    { questionItemId: "q2", question: "何时执行？", answer: `下周，参考 ${reference}` },
   ]);
   const state = v2State([{ ...message("async-answer", 1), body: wireText }]);
   const native = projection([{ ...legacyUserItem("sdk:async-answer", 1), text: wireText }]);
@@ -265,6 +269,8 @@ test("native history and V2 async answer messages render answer cards without sh
     expect(html).toContain("保留记录\n保留 &lt;原始内容&gt; &amp; 换行");
     expect(html).toContain("何时执行？");
     expect(html).toContain("下周");
+    expect(html).toContain("@验收记录");
+    expect(html).not.toContain("@conversation{");
     expect(html).not.toContain("send_user_message_question_reply");
     expect(html).not.toContain("questionItemId");
   }

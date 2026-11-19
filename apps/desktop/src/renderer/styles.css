@@ -8090,6 +8090,27 @@ button.sidebar-settings-meta {
   width: 100%;
 }
 
+.composer-clarification {
+  margin-bottom: 10px;
+  padding: 0 0 8px;
+  border-bottom: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+}
+
+.composer-clarification .clarification-top {
+  gap: 8px;
+  margin-bottom: 0;
+}
+
+.composer-clarification .clarification-title {
+  overflow-wrap: anywhere;
+}
+
+.composer-clarification .clarification-option-list {
+  max-height: 140px;
+  overflow-y: auto;
+  margin: 6px 0 0;
+}
+
 .clarification-dock-shell .composer-primary.clarification-dock-inner {
   margin-bottom: 0;
   min-height: 0;

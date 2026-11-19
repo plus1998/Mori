@@ -53,12 +53,7 @@ export interface CodexAsyncQuestionBridgeDeps {
     clientCommandId: string;
     text: string;
   }): { messageId: string; turnId: string };
-  scheduleAcceptedMessage(input: {
-    conversationId: string;
-    messageId: string;
-    turnId: string;
-    text: string;
-  }): Promise<ClarificationAsyncDelivery>;
+  scheduleAcceptedMessage(input: AcceptedConversationMessageSchedule): Promise<ClarificationAsyncDelivery>;
   errorMessage(error: unknown): string;
   logDiag?(event: string, payload: Record<string, unknown>): void;
 }
@@ -278,6 +273,7 @@ export async function deliverAsyncClarificationAnswers(input: {
       buildCodexAsyncQuestionReplies({ refs: refs!.refs, answers: input.answers }),
     );
   const principalId = input.principalId ?? "desktop-local";
+  const attachments = input.acceptedMessage?.attachments;
 
   try {
     if (shouldDeliverAsyncAnswerThroughFollowUpQueue(thread)) {
@@ -286,6 +282,7 @@ export async function deliverAsyncClarificationAnswers(input: {
         clientCommandId: commandId,
         threadId: thread.id,
         prompt: replyText,
+        ...(attachments?.length ? { attachments } : {}),
         // Live turn: the answer must reach it mid-turn; the row otherwise falls back to
         // the ordinary drain once the run ends instead of being dropped.
         followUpDeliveryMode: "steer",
@@ -307,6 +304,7 @@ export async function deliverAsyncClarificationAnswers(input: {
       messageId: accepted.messageId,
       turnId: accepted.turnId,
       text: replyText,
+      ...(attachments?.length ? { attachments } : {}),
     });
     return remember({ ...delivery, followUpMessageId: accepted.messageId });
   } catch (error) {

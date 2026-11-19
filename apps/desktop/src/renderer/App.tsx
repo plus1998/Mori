@@ -49,6 +49,7 @@ import {
   BookOpen,
   ChevronDown,
   ChevronLeft,
+  ChevronRight,
   ChevronUp,
   Clock3,
   ClipboardList,
@@ -61,6 +62,7 @@ import {
   Globe,
   Globe2,
   HardDrive,
+  ImagePlus,
   Images,
   Keyboard,
   KeyRound,
@@ -154,6 +156,7 @@ import {
   type CenterServerSignInRequest,
   type CenterServerSignUpRequest,
   type CenterServerSyncDomain,
+  type ClarificationAnswers,
   type ClarificationRequest,
   type CoderTodoItem,
   type PiBashTask,
@@ -317,6 +320,8 @@ import {
   useBrowserTaskInstances,
 } from "./browser-state-store";
 import { ClarificationPanel } from "./ClarificationPanel";
+import { ComposerClarification } from "./ComposerClarification";
+import { useClarificationComposer } from "./use-clarification-composer";
 import { ComposerAcpModelTrigger } from "./ComposerAcpModelTrigger";
 import { ComposerAgentModels } from "./ComposerAgentModels";
 import { ComposerBashReviewToggle } from "./ComposerBashReviewToggle";
@@ -1741,13 +1746,6 @@ function App() {
   const [composerRewindTarget, setComposerRewindTarget] = useState<ComposerRewindTarget>();
   const [composerAttachments, setComposerAttachments] = useState<ComposerImageAttachment[]>([]);
   const [composerLightboxId, setComposerLightboxId] = useState<string | null>(null);
-  const composerPreviewAttachments = composerAttachments.filter((attachment) => attachment.previewUrl);
-  const composerLightboxIndex = composerPreviewAttachments.findIndex(
-    (attachment) => attachment.id === composerLightboxId,
-  );
-  const composerLightbox = composerPreviewAttachments[composerLightboxIndex];
-  const composerLightboxNumber = composerLightbox ? composerAttachments.indexOf(composerLightbox) + 1 : 0;
-  const composerLightboxAlt = `${t("app.pastedImages")} ${composerLightboxNumber}`;
   const closeComposerLightbox = useCallback(() => setComposerLightboxId(null), []);
   const [plannerCapability, setPlannerCapability] = useState<RouteCapabilityHint>();
   const [composerImageNotice, setComposerImageNotice] = useState<string>();
@@ -1781,6 +1779,7 @@ function App() {
     }),
   );
   const [clarificationBusy, setClarificationBusy] = useState(false);
+  const clarificationBusyRef = useRef(false);
   const [pendingBashApprovalsByThread, setPendingBashApprovalsByThread] = useState<
     Record<string, BashApprovalRequest>
   >({});
@@ -4315,6 +4314,29 @@ function App() {
   const taskPanelPlan = pendingPlan ?? approvedPlan;
   const pendingClarification = activeThread ? pendingClarificationsByThread[activeThread.id] : undefined;
   const pendingBashApproval = activeThread ? pendingBashApprovalsByThread[activeThread.id] : undefined;
+  // Forced delegation retains the plan for retry until the child finishes.
+  // That retained record must not keep the approval dock open during execution.
+  const showPlanApproval = Boolean(
+    activeThread && pendingPlan && activeThread.status !== "running" && activeThread.status !== "queued",
+  );
+  const answerRequest = pendingClarification?.delivery === "async" && pendingClarification.questions.length &&
+    !pendingBashApproval && !showPlanApproval ? pendingClarification : undefined;
+  const clarificationComposer = useClarificationComposer(pendingClarificationsByThread, answerRequest);
+  const composerEditorText = answerRequest ? clarificationComposer.text : prompt;
+  const composerEditorImages = answerRequest ? clarificationComposer.images : composerAttachments;
+  const composerEditorNotice = answerRequest ? clarificationComposer.notice : composerImageNotice;
+  const composerEditorKey = answerRequest
+    ? JSON.stringify([answerRequest.threadId, answerRequest.toolUseId, clarificationComposer.index])
+    : undefined;
+  const composerEditorKeyRef = useRef(composerEditorKey);
+  composerEditorKeyRef.current = composerEditorKey;
+  const composerEditorTextRef = useRef(composerEditorText);
+  composerEditorTextRef.current = composerEditorText;
+  const composerPreviewAttachments = composerEditorImages.filter(attachment => attachment.previewUrl);
+  const composerLightboxIndex = composerPreviewAttachments.findIndex(attachment => attachment.id === composerLightboxId);
+  const composerLightbox = composerPreviewAttachments[composerLightboxIndex];
+  const composerLightboxNumber = composerLightbox ? composerEditorImages.indexOf(composerLightbox) + 1 : 0;
+  const composerLightboxAlt = `${t("app.pastedImages")} ${composerLightboxNumber}`;
   const attentionItems = useMemo(
     () =>
       visibleSidebarAttentionItems(
@@ -4438,6 +4460,16 @@ function App() {
   composerPromptRef.current = prompt;
   composerAttachmentsRef.current = composerAttachments;
   composerRewindTargetRef.current = composerRewindTarget;
+  const setAnswerText = clarificationComposer.setText;
+  const setComposerEditorText = useCallback((value: string) => {
+    composerEditorTextRef.current = value;
+    if (composerEditorKey) {
+      setAnswerText(value);
+    } else {
+      composerPromptRef.current = value;
+      setPrompt(value);
+    }
+  }, [composerEditorKey, setAnswerText]);
   useEffect(() => {
     if (projectTodosOpen || settingsOpen || !projectTodoComposerFocusRef.current) return;
     projectTodoComposerFocusRef.current = false;
@@ -5335,7 +5367,7 @@ function App() {
     return filterSkillsForSlash(composerSkillSlash.query, slashPickerSkills, referencedSkillNames);
   }, [composerSkillSlash, slashPickerSkills, referencedSkillNames]);
   const composerSkillPopoverOpen =
-    composerSupportsSkills && Boolean(composerSkillSlash) && slashPickerSkills.length > 0;
+    !answerRequest && composerSupportsSkills && Boolean(composerSkillSlash) && slashPickerSkills.length > 0;
 
   useEffect(() => {
     setComposerSkillActiveIndex(Math.max(0, composerSkillMatches.length - 1));
@@ -5962,13 +5994,9 @@ function App() {
     (!composerContextKey || !draftWorktreeBindingsRef.current[composerContextKey] ||
       newThreadWorktree?.id === draftWorktreeBindingsRef.current[composerContextKey]);
   const canSend = (Boolean(activeThread) || draftWorkLocationReady) && activeThread?.workLocation?.mode !== "needs_choice" && (composerFollowUpMode ? canSendFollowUp : canSendThreadMessage);
-  // Forced delegation retains the plan for retry until the child finishes.
-  // That retained record must not keep the approval dock open during execution.
-  const showPlanApproval = Boolean(
-    activeThread && pendingPlan && activeThread.status !== "running" && activeThread.status !== "queued",
-  );
   const showClarification = Boolean(pendingClarification);
   const showComposerDockApproval = showBashApproval || showPlanApproval || showClarification;
+  const showBlockingComposerDockApproval = showBashApproval || showPlanApproval || (showClarification && !answerRequest);
   const composerDockSurfaceKey = showBashApproval
     ? `bash-${pendingBashApproval!.toolUseId}`
     : showPlanApproval
@@ -7506,10 +7534,10 @@ function App() {
   );
   const composerReferencesMenu = useComposerReferences({
     browserScopeId,
-    prompt,
+    prompt: composerEditorText,
     cursor: composerCursor,
     inputRef: composerRef,
-    onChange: setPrompt,
+    onChange: setComposerEditorText,
     capabilities: composerCapabilityReferences,
     projects,
   });
@@ -9636,8 +9664,10 @@ function App() {
     }
   }
 
-  async function submitClarificationAnswers(answers: { toolUseId: string; selections: string[][] }) {
-    if (!window.eco || !activeThread) return;
+  async function submitClarificationAnswers(answers: ClarificationAnswers, attachments?: PromptImageAttachment[]) {
+    if (!window.eco || !activeThread || clarificationBusyRef.current ||
+      pendingClarification?.toolUseId !== answers.toolUseId) return;
+    clarificationBusyRef.current = true;
     setClarificationBusy(true);
     setError(undefined);
     try {
@@ -9649,10 +9679,12 @@ function App() {
           toolUseId: answers.toolUseId,
           resolution: "submit",
           selections: answers.selections,
+          ...(attachments?.length ? { attachments } : {}),
           expectedHistoryRevision,
         })}`,
         threadId: activeThread.id,
         ...answers,
+        ...(attachments?.length ? { attachments } : {}),
         expectedHistoryRevision,
       });
       // An async Codex question is answered by a message into the run, not by the RPC
@@ -9675,12 +9707,31 @@ function App() {
     } catch (caught) {
       setError(errorMessage(caught));
     } finally {
+      clarificationBusyRef.current = false;
       setClarificationBusy(false);
     }
   }
 
+  function advanceComposerAnswer() {
+    if (!answerRequest || clarificationBusyRef.current || clarificationComposer.loadingImages || !clarificationComposer.ready) return;
+    if (!clarificationComposer.last) {
+      clarificationComposer.setIndex(clarificationComposer.index + 1);
+      return;
+    }
+    try {
+      const submission = clarificationComposer.buildSubmission();
+      if (submission) {
+        void submitClarificationAnswers({ toolUseId: answerRequest.toolUseId, selections: submission.selections },
+          submission.attachments);
+      }
+    } catch (caught) {
+      setError(errorMessage(caught));
+    }
+  }
+
   async function dismissPendingClarification() {
-    if (!pendingClarification || !window.eco) return;
+    if (!pendingClarification || !window.eco || clarificationBusyRef.current) return;
+    clarificationBusyRef.current = true;
     setClarificationBusy(true);
     setError(undefined);
     try {
@@ -9701,6 +9752,7 @@ function App() {
     } catch (caught) {
       setError(errorMessage(caught));
     } finally {
+      clarificationBusyRef.current = false;
       setClarificationBusy(false);
     }
   }
@@ -12002,6 +12054,10 @@ function App() {
   }
 
   async function addComposerImageFiles(files: FileList | File[]) {
+    if (answerRequest) {
+      if (!clarificationBusyRef.current) await clarificationComposer.addImages(Array.from(files));
+      return;
+    }
     if (plannerCapability && !plannerCapability.capabilitiesResolved) {
       setComposerImageNotice(t("app.imageCapabilityUnknown"));
     } else {
@@ -12087,7 +12143,7 @@ function App() {
       if (composerDisabled) return;
       const reference = readConversationReferenceDrag(event.dataTransfer);
       if (!reference) return;
-      if (composerReferences(composerPromptRef.current).some(item => item.kind === "conversation" && item.id === reference.id)) {
+      if (composerReferences(composerEditorTextRef.current).some(item => item.kind === "conversation" && item.id === reference.id)) {
         composerRef.current?.focus();
         return;
       }
@@ -12118,24 +12174,24 @@ function App() {
       }
       resolvedPaths.push(rawPath);
     }
+    const setImageNotice = answerRequest ? clarificationComposer.setNotice : setComposerImageNotice;
     if (resolvedPaths.length === 0) {
-      setComposerImageNotice(t("app.fileDropNoPath"));
+      setImageNotice(t("app.fileDropNoPath"));
       return;
     }
     if (failed > 0) {
-      setComposerImageNotice(t("app.fileDropPartial", { ok: resolvedPaths.length, failed }));
+      setImageNotice(t("app.fileDropPartial", { ok: resolvedPaths.length, failed }));
     } else {
-      setComposerImageNotice(undefined);
+      setImageNotice(undefined);
     }
 
     const composer = composerRef.current;
-    const selectionStart = composer?.getSelectionStart() ?? prompt.length;
-    const selectionEnd = composer?.getSelectionEnd() ?? prompt.length;
+    const selectionStart = composer?.getSelectionStart() ?? composerEditorText.length;
+    const selectionEnd = composer?.getSelectionEnd() ?? composerEditorText.length;
     const insertion = resolvedPaths.map((path) => `${fileAttachmentToken(path)} `).join("");
-    const next = `${prompt.slice(0, selectionStart)}${insertion}${prompt.slice(selectionEnd)}`;
+    const next = `${composerEditorText.slice(0, selectionStart)}${insertion}${composerEditorText.slice(selectionEnd)}`;
     const cursor = selectionStart + insertion.length;
-    composerPromptRef.current = next;
-    setPrompt(next);
+    setComposerEditorText(next);
     queueMicrotask(() => {
       composer?.setCursor(cursor);
       composer?.focus();
@@ -12145,6 +12201,10 @@ function App() {
   }
 
   function removeComposerAttachment(id: string) {
+    if (answerRequest) {
+      if (!clarificationBusyRef.current) clarificationComposer.removeImage(id);
+      return;
+    }
     setComposerAttachments((current) => {
       const target = current.find((attachment) => attachment.id === id);
       if (target) {
@@ -12234,6 +12294,13 @@ function App() {
     if (shortcutMatches(event, "composer-newline")) {
       event.preventDefault();
       insertComposerNewline();
+      return;
+    }
+    if (answerRequest) {
+      if (shortcutMatches(event, "composer-send")) {
+        event.preventDefault();
+        advanceComposerAnswer();
+      }
       return;
     }
     // Follow-up mode: ⌘↩ does the opposite of the default delivery (queue ↔ steer).
@@ -12742,8 +12809,8 @@ function App() {
   ]
     .filter(Boolean)
     .join(" ");
-  const composerPlaceholder = showClarification
-    ? t("thread.composer.answerQuestion")
+  const composerPlaceholder = answerRequest
+    ? t("approval.clarification.composerPlaceholder")
     : showBashApproval
       ? t("thread.composer.approveTool")
       : showPlanApproval
@@ -12761,22 +12828,25 @@ function App() {
                 : activeThread
                   ? t("thread.composer.unavailable")
                   : t("thread.composer.placeholder");
-  const composerDisabled = Boolean(activeThread && !threadAcceptsInput && !composerFollowUpMode);
+  const composerDisabled = answerRequest
+    ? clarificationBusy
+    : Boolean(activeThread && !threadAcceptsInput && !composerFollowUpMode);
 
   useEffect(() => {
     const insert = (event: Event) => {
       const selection = (event as CustomEvent<BrowserSelection>).detail;
       if (!selection || selection.scopeId !== browserScopeIdRef.current) return;
       if (composerDisabled) { showAppMessageError(t("browser.selection.composerDisabled")); return; }
-      const current = composerPromptRef.current;
+      const editorKey = composerEditorKeyRef.current;
+      const current = composerEditorTextRef.current;
       const offset = Math.max(0, Math.min(composerCursor, current.length));
       const token = `${composerReferenceToken(browserSelectionReference(selection))} `;
       const next = current.slice(0, offset) + token + current.slice(offset);
-      composerPromptRef.current = next;
-      setPrompt(next);
+      setComposerEditorText(next);
       const cursor = offset + token.length;
       window.requestAnimationFrame(() => {
-        if (browserScopeIdRef.current !== selection.scopeId || composerPromptRef.current !== next) return;
+        if (browserScopeIdRef.current !== selection.scopeId ||
+          composerEditorKeyRef.current !== editorKey || composerEditorTextRef.current !== next) return;
         composerRef.current?.focus();
         composerRef.current?.setCursor(cursor);
         composerRef.current?.fitHeight();
@@ -12799,16 +12869,18 @@ function App() {
       window.removeEventListener(BROWSER_SELECTION_INSERT_EVENT, insert);
       window.removeEventListener(BROWSER_SELECTION_REVEAL_EVENT, reveal);
     };
-  }, [composerCursor, composerDisabled, revealTaskPanel, showAppMessageError, t]);
-  const composerActionMode = editingFollowUpId
-    ? "save-follow-up"
-    : canStopThread
-      ? composerHasContent
-        ? "queue"
-        : "stop"
-      : composerShowContinue
-        ? "continue"
-        : "send";
+  }, [composerCursor, composerDisabled, revealTaskPanel, setComposerEditorText, showAppMessageError, t]);
+  const composerActionMode = answerRequest
+    ? "answer"
+    : editingFollowUpId
+      ? "save-follow-up"
+      : canStopThread
+        ? composerHasContent
+          ? "queue"
+          : "stop"
+        : composerShowContinue
+          ? "continue"
+          : "send";
   // The follow-up delivery mode actually applied when sending while the thread is running
   // (steer = 调整方向, queue = 排队); used to pick the composer action icon/label.
   const composerFollowUpDeliveryMode: FollowUpDeliveryMode = resolveFollowUpDeliveryModeForCore(
@@ -12816,29 +12888,35 @@ function App() {
     workflowSettings.followUpDeliveryMode ?? "steer",
   );
   const composerActionBusy =
-    composerActionMode === "stop"
-      ? cancelBusy || Boolean(activeThread?.cancelling)
-      : isStarting || followUpBusy;
+    composerActionMode === "answer"
+      ? clarificationBusy || clarificationComposer.loadingImages
+      : composerActionMode === "stop"
+        ? cancelBusy || Boolean(activeThread?.cancelling)
+        : isStarting || followUpBusy;
   const composerActionDisabled =
-    composerActionMode === "stop"
-      ? cancelBusy || Boolean(activeThread?.cancelling)
-      : composerActionMode === "continue"
-        ? isStarting || followUpBusy
-        : !canSend;
+    composerActionMode === "answer"
+      ? composerActionBusy || !clarificationComposer.ready
+      : composerActionMode === "stop"
+        ? cancelBusy || Boolean(activeThread?.cancelling)
+        : composerActionMode === "continue"
+          ? isStarting || followUpBusy
+          : !canSend;
   const composerActionLabel =
-    composerActionMode === "stop"
-      ? activeThread?.cancelling || cancelBusy
-        ? t("thread.action.stopping")
-        : t("thread.action.stop")
-      : composerActionMode === "continue"
-        ? t("thread.action.continue")
-        : composerActionMode === "queue"
-          ? composerFollowUpDeliveryMode === "steer"
-            ? t("thread.action.steer")
-            : t("thread.action.queue")
-          : composerActionMode === "save-follow-up"
-            ? t("thread.action.saveFollowUp")
-            : t("thread.action.send");
+    composerActionMode === "answer"
+      ? t(clarificationComposer.last ? "approval.clarification.sendAnswer" : "approval.clarification.next")
+      : composerActionMode === "stop"
+        ? activeThread?.cancelling || cancelBusy
+          ? t("thread.action.stopping")
+          : t("thread.action.stop")
+        : composerActionMode === "continue"
+          ? t("thread.action.continue")
+          : composerActionMode === "queue"
+            ? composerFollowUpDeliveryMode === "steer"
+              ? t("thread.action.steer")
+              : t("thread.action.queue")
+            : composerActionMode === "save-follow-up"
+              ? t("thread.action.saveFollowUp")
+              : t("thread.action.send");
   const composerActionClassName = ["send-button", composerActionMode].filter(Boolean).join(" ");
   const scheduledMessageEditorOnComposer = Boolean(scheduledMessageEditor && (
     scheduledMessageEditor.threadId === activeThread?.id || scheduledMessageEditor.draft?.contextKey === composerContextKey
@@ -12896,11 +12974,19 @@ function App() {
   const asrSession = useAsrRecorder({
     ...(asrProfiles.activeProfileId ? { activeProfileId: asrProfiles.activeProfileId } : {}),
     selectedInputDeviceId: asrProfiles.inputDeviceId ?? "",
-    disabled: composerDisabled,
+    disabled: composerDisabled || Boolean(answerRequest),
     onText: handleAsrText,
     onSendText: handleAsrSend,
     onError: handleAsrError,
   });
+
+  useLayoutEffect(() => {
+    if (!composerEditorKey || asrSession.active || settingsOpen) return;
+    const end = composerEditorTextRef.current.length;
+    composerRef.current?.focus();
+    composerRef.current?.setCursor(end);
+    setComposerCursor(end);
+  }, [composerEditorKey, asrSession.active, settingsOpen]);
 
   useEffect(() => {
     if (!asrSession.active) return;
@@ -13068,7 +13154,7 @@ function App() {
       }
     >
 
-      {composerImageNotice && <p className="composer-image-notice">{composerImageNotice}</p>}
+      {composerEditorNotice && <p className="composer-image-notice" role="status">{composerEditorNotice}</p>}
       <div className="composer-feed-notices">
         {composerPromptCacheHint ? <FeedStatusDivider message={composerPromptCacheHint} /> : null}
         {composerRuntimeConfig ? (
@@ -13121,10 +13207,10 @@ function App() {
         ) : null}
         {/* The overlay band is shared: a queued follow-up panel or the landing context bar
             already owns it, and stacking the dots under either would just collide. */}
-        {composerAgentSilenceVisible && !showComposerInputOverlays ? <ComposerFloatingLoading /> : null}
+        {composerAgentSilenceVisible && !showComposerInputOverlays && !answerRequest ? <ComposerFloatingLoading /> : null}
         <MultiAgentsRunPanel runs={multiAgents.snapshot.runs.filter(run => run.sourceThreadId === selectedThreadId)} loadError={multiAgents.error} onNavigate={id => void navigatePlanConversation(id)} />
         <ComposerDockMorph
-          showApproval={showComposerDockApproval}
+          showApproval={showBlockingComposerDockApproval}
           surfaceKey={composerDockSurfaceKey}
           approval={
             showBashApproval && pendingBashApproval ? (
@@ -13172,8 +13258,9 @@ function App() {
                 onDismiss={() => void dismissPendingPlan()}
                 onOpenInPanel={openPlanTaskDrawer}
               />
-            ) : showClarification && pendingClarification ? (
+            ) : showBlockingComposerDockApproval && pendingClarification ? (
               <ClarificationPanel
+                key={`${pendingClarification.threadId}:${pendingClarification.toolUseId}`}
                 request={pendingClarification}
                 busy={clarificationBusy}
                 variant="dock"
@@ -13235,9 +13322,28 @@ function App() {
                   onClose={() => syncComposerCursor()}
                 />
                 <div className="composer-primary">
-                  {composerAttachments.length > 0 ? (
+                  {answerRequest ? (
+                    <ComposerClarification
+                      request={answerRequest}
+                      index={clarificationComposer.index}
+                      text={clarificationComposer.text}
+                      busy={composerActionBusy}
+                      onPage={clarificationComposer.setIndex}
+                      onSelect={(text) => {
+                        setComposerEditorText(text);
+                        window.requestAnimationFrame(() => {
+                          if (composerEditorKeyRef.current !== composerEditorKey || composerEditorTextRef.current !== text) return;
+                          composerRef.current?.focus();
+                          composerRef.current?.setCursor(text.length);
+                          setComposerCursor(text.length);
+                        });
+                      }}
+                      onDismiss={() => void dismissPendingClarification()}
+                    />
+                  ) : null}
+                  {composerEditorImages.length > 0 ? (
                     <ul className="composer-attachments" aria-label={t("app.pastedImages")}>
-                      {composerAttachments.map((attachment, index) => {
+                      {composerEditorImages.map((attachment, index) => {
                         const alt = `${t("app.pastedImages")} ${index + 1}`;
                         const openLabel = t("app.openPastedImage", { count: index + 1 });
                         return (
@@ -13264,6 +13370,7 @@ function App() {
                               type="button"
                               className="composer-attachment-remove"
                               aria-label={t("app.removeImage")}
+                              disabled={Boolean(answerRequest && clarificationBusy)}
                               onClick={() => removeComposerAttachment(attachment.id)}
                             >
                               <X size={14} />
@@ -13297,12 +13404,12 @@ function App() {
                     />
                   ) : null}
                   <ComposerSkillsInput
+                    key={composerEditorKey}
                     ref={composerRef}
                     referencePopup={composerReferencesMenu.open ? { activeIndex: composerReferencesMenu.items.length ? composerReferencesMenu.activeIndex : -1 } : undefined}
-                    value={prompt}
+                    value={composerEditorText}
                     onChange={(next) => {
-                      composerPromptRef.current = next;
-                      setPrompt(next);
+                      setComposerEditorText(next);
                       if (composerRoutePopoverOpen) {
                         setComposerRoutePopoverOpen(false);
                       }
@@ -13321,6 +13428,14 @@ function App() {
                   />
                   <div className="composer-footer">
                     <div className="composer-footer-row composer-footer-config-row">
+                      {answerRequest ? (
+                        <button type="button" className="composer-plus-trigger"
+                          disabled={composerActionBusy}
+                          onClick={() => composerImageInputRef.current?.click()}
+                          title={t("composer.plus.image")} aria-label={t("composer.plus.image")}>
+                          <ImagePlus size={18} strokeWidth={ICON_STROKE} aria-hidden />
+                        </button>
+                      ) : <>
                       <ComposerPlusMenu
                         buttonRef={composerPlusButtonRef}
                         anchorRef={composerAnchorRef}
@@ -13370,9 +13485,10 @@ function App() {
                           onToggle={(mode) => void toggleComposerBashReviewMode(mode)}
                         />
                       ) : null}
+                      </>}
                     </div>
                     <div className="composer-footer-spacer" aria-hidden />
-                    {renderComposerRouteControl()}
+                    {!answerRequest ? renderComposerRouteControl() : null}
                     <input
                       ref={composerImageInputRef}
                       type="file"
@@ -13390,7 +13506,7 @@ function App() {
                       }}
                     />
                     <div className="composer-footer-actions">
-                      {!taskPanelFullscreenOpen ? <ComposerThreadUsagePills
+                      {!answerRequest && !taskPanelFullscreenOpen ? <ComposerThreadUsagePills
                         accountQuota={
                           composerUsesCodexAccount ? (
                             <CodexQuotaReminder
@@ -13417,7 +13533,7 @@ function App() {
                         agentThemes={activeRuntimeAgentThemes}
                         agentModelLabels={agentModelLabels}
                       /> : null}
-                      {taskPanelFullscreenOpen ? (
+                      {!answerRequest && (taskPanelFullscreenOpen ? (
                         <ComposerFloatingSettings>
                           {renderComposerModelControl(composerAnchorRef, false, true)}
                           {composerRuntimeConfig ? (
@@ -13430,14 +13546,18 @@ function App() {
                             />
                           ) : null}
                         </ComposerFloatingSettings>
-                      ) : renderComposerModelControl()}
-                      {asrComposerConfigured ? (
+                      ) : renderComposerModelControl())}
+                      {!answerRequest && asrComposerConfigured ? (
                         <AsrMicButton session={asrSession} disabled={composerDisabled} />
                       ) : null}
                       <button
                         type="button"
                         className={composerActionClassName}
                         onClick={() => {
+                          if (composerActionMode === "answer") {
+                            advanceComposerAnswer();
+                            return;
+                          }
                           if (composerActionMode === "stop") {
                             void requestStopThread();
                             return;
@@ -13462,6 +13582,8 @@ function App() {
                           <Square size={COMPOSER_SEND_ICON_PX} strokeWidth={ICON_STROKE} />
                         ) : composerActionMode === "continue" ? (
                           <Play size={COMPOSER_SEND_ICON_PX} strokeWidth={ICON_STROKE} />
+                        ) : composerActionMode === "answer" && !clarificationComposer.last ? (
+                          <ChevronRight size={COMPOSER_SEND_ICON_PX} strokeWidth={ICON_STROKE} />
                         ) : composerActionMode === "queue" ? (
                           // Steer = 立即注入当前回合，与“发送”同义，复用发送图标；排队用折线入队图标。
                           composerFollowUpDeliveryMode === "steer" ? (
@@ -13475,7 +13597,8 @@ function App() {
                       </button>
                     </div>
                   </div>
-                  {!composerRoutesReady &&
+                  {!answerRequest &&
+                  !composerRoutesReady &&
                   !composerFollowUpMode &&
                   composerModelAvailability !== "no-orchestration" && (
                     <p className="composer-hint">
@@ -13994,7 +14117,7 @@ function App() {
                     requiresApproval={showComposerDockApproval}
                     onViewResult={requestActivityFeedForceScroll}
                     onRestore={() => {
-                      if (showComposerDockApproval) {
+                      if (showBlockingComposerDockApproval) {
                         composerAnchorRef.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus({ preventScroll: true });
                       } else {
                         composerRef.current?.focus();
