@@ -23,7 +23,7 @@ test("BackgroundTerminalTaskRegistry starts, lists, exits, and stops tasks", asy
       onSessionCreated?.(sessionId);
       return { sessionId };
     },
-    kill: (sessionId: string) => {
+    killProcessGroup: (sessionId: string) => {
       killed.push(sessionId);
       return true;
     },
@@ -63,8 +63,30 @@ test("BackgroundTerminalTaskRegistry starts, lists, exits, and stops tasks", asy
     workspacePath: PROJECT,
     command: ["sleep", "10"],
   });
+  const tabStop = registry.stopForSession(runningTask.sessionId);
+  expect(tabStop).toBeDefined();
+  expect(registry.stop(runningTask.taskId)).toBe(tabStop);
   const stopped = await registry.stop(runningTask.taskId);
   expect(stopped.stopped).toBe(true);
   expect(stopped.task?.status).toBe("stopped");
   expect(killed).toEqual([runningTask.sessionId]);
+  expect(registry.stopForSession("interactive-shell")).toBeUndefined();
+});
+
+test("an exit racing a stop clears the running task even if the PTY is already gone", async () => {
+  const manager = {
+    spawnCommand(_workspace: string, _command: string[], _descriptor: unknown, _size: unknown,
+      onSessionCreated: (sessionId: string) => void) {
+      onSessionCreated("exiting-pty");
+    },
+    killProcessGroup: () => false,
+  } as unknown as InteractiveTerminalManager;
+  const registry = new BackgroundTerminalTaskRegistry(manager);
+  const task = registry.start({ workspacePath: PROJECT, command: ["echo", "done"] });
+
+  const stop = registry.stop(task.taskId);
+  registry.handleTerminalEvent({ type: "exit", sessionId: task.sessionId, exitCode: 0 });
+
+  expect(await stop).toMatchObject({ stopped: false, task: { status: "exited", exitCode: 0 } });
+  expect(registry.countRunning()).toBe(0);
 });

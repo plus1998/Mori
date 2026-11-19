@@ -709,7 +709,6 @@ import {
   resolveCodexModelCatalogCachePath,
 } from "./codex-model-catalog-remote";
 import {
-  getGlobalCodexRuntimeLifecycle,
   invalidateCodexAccountRuntimeLifecycle,
   revokeCodexAccountRuntimeLifecycle,
   getCodexRuntimeProcesses,
@@ -1608,9 +1607,7 @@ backgroundTerminalTaskRegistry = new BackgroundTerminalTaskRegistry(
 
 function getCodexBackgroundTerminalService(): CodexBackgroundTerminalService {
   return (codexBackgroundTerminalService ??= new CodexBackgroundTerminalService({
-    getClient: () => getGlobalCodexRuntimeLifecycle()?.getClient(),
     getClients: getCodexRuntimeClients,
-    getClientForThread: getCodexRuntimeClientForThread,
     setClientBackgroundTerminalWork: (client, hasWork) =>
       setCodexRuntimeBackgroundTerminalWork(client as Parameters<typeof setCodexRuntimeBackgroundTerminalWork>[0], hasWork),
     resolveEcoThreadId: (codexThreadId) => {
@@ -7382,7 +7379,8 @@ function registerIpcHandlers(): void {
     if (!isTerminalKillRequest(payload)) {
       throw new Error("Invalid terminal kill request.");
     }
-    return { killed: interactiveTerminalManager.kill(payload.sessionId) };
+    const stopTask = backgroundTerminalTaskRegistry.stopForSession(payload.sessionId);
+    return { killed: stopTask ? (await stopTask).stopped : interactiveTerminalManager.kill(payload.sessionId) };
   });
 
   registerDesktopCommand(IPC_CHANNELS.workspacePrepareGit, async (payload: unknown) => {

@@ -16,6 +16,11 @@ function nowIso(): string {
 
 const MAX_CAPTURED_OUTPUT_LENGTH = 128 * 1024;
 
+interface StopAttempt {
+  promise: Promise<BackgroundTerminalStopResult>;
+  exit?: Extract<TerminalStreamEvent, { type: "exit" | "error" }>;
+}
+
 function normalizeOptionalText(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
   return trimmed ? trimmed : undefined;
@@ -49,7 +54,7 @@ function toTaskSummary(task: BackgroundTerminalTask): BackgroundTerminalTask {
 
 export class BackgroundTerminalTaskRegistry {
   private readonly tasks = new Map<string, BackgroundTerminalTask>();
-  private readonly stopping = new Map<string, Promise<BackgroundTerminalStopResult>>();
+  private readonly stopping = new Map<string, StopAttempt>();
 
   constructor(
     private readonly terminalManager: InteractiveTerminalManager,
@@ -85,7 +90,7 @@ export class BackgroundTerminalTaskRegistry {
       this.terminalManager.spawnCommand(
         workspacePath,
         command,
-        { kind: "command", ...(startupScriptId ? { trackProcessGroup: true } : {}) },
+        { kind: "command", trackProcessGroup: true },
         undefined,
         onSessionCreated,
       );
@@ -119,9 +124,14 @@ export class BackgroundTerminalTaskRegistry {
     return task ? { ...task } : undefined;
   }
 
+  stopForSession(sessionId: string): Promise<BackgroundTerminalStopResult> | undefined {
+    const task = [...this.tasks.values()].find((entry) => entry.sessionId === sessionId);
+    return task ? this.stop(task.taskId) : undefined;
+  }
+
   stop(taskId: string): Promise<BackgroundTerminalStopResult> {
     const inFlight = this.stopping.get(taskId);
-    if (inFlight) return inFlight;
+    if (inFlight) return inFlight.promise;
 
     const current = this.tasks.get(taskId);
     if (!current) {
@@ -131,33 +141,34 @@ export class BackgroundTerminalTaskRegistry {
       return Promise.resolve({ stopped: false, task: { ...current } });
     }
 
-    let operation: Promise<BackgroundTerminalStopResult>;
-    operation = Promise.resolve()
-      .then(() => this.stopTask(current))
-      .finally(() => {
-        if (this.stopping.get(taskId) === operation) this.stopping.delete(taskId);
-      });
-    this.stopping.set(taskId, operation);
-    return operation;
+    const attempt: StopAttempt = {
+      promise: Promise.resolve().then(() => this.stopTask(current)),
+    };
+    this.stopping.set(taskId, attempt);
+    return attempt.promise;
   }
 
   private async stopTask(current: BackgroundTerminalTask): Promise<BackgroundTerminalStopResult> {
-    const killed = current.startupScriptId
-      ? await this.terminalManager.killProcessGroup(current.sessionId)
-      : this.terminalManager.kill(current.sessionId);
-    if (!killed) {
-      const latest = this.tasks.get(current.taskId) ?? current;
-      return { stopped: false, task: { ...latest } };
+    let killed: boolean;
+    try {
+      killed = await this.terminalManager.killProcessGroup(current.sessionId);
+      if (killed) {
+        const latest = this.tasks.get(current.taskId) ?? current;
+        this.tasks.set(current.taskId, {
+          ...latest,
+          status: "stopped",
+          endedAt: latest.endedAt ?? nowIso(),
+        });
+        this.onRunningChanged?.();
+      }
+    } finally {
+      const exit = this.stopping.get(current.taskId)?.exit;
+      this.stopping.delete(current.taskId);
+      // Apply a natural exit observed during a stop that did not succeed.
+      if (exit) this.handleTerminalEvent(exit);
     }
     const latest = this.tasks.get(current.taskId) ?? current;
-    const next: BackgroundTerminalTask = {
-      ...latest,
-      status: "stopped",
-      endedAt: latest.endedAt ?? nowIso(),
-    };
-    this.tasks.set(current.taskId, next);
-    this.onRunningChanged?.();
-    return { stopped: killed, task: { ...next } };
+    return { stopped: killed, task: { ...latest } };
   }
 
   countRunning(): number {
@@ -200,7 +211,11 @@ export class BackgroundTerminalTaskRegistry {
     if ((event.type !== "exit" && event.type !== "error") || match.status === "stopped") {
       return;
     }
-    if (this.stopping.has(match.taskId)) return;
+    const attempt = this.stopping.get(match.taskId);
+    if (attempt) {
+      attempt.exit = event;
+      return;
+    }
     const next: BackgroundTerminalTask =
       event.type === "exit"
         ? {

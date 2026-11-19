@@ -9,7 +9,7 @@ import type {
 } from "../shared/ipc";
 import { buildRunCommand, joinPrefixedCommand, normalizeCommandPrefix } from "../shared/package-script-run";
 import type { BackgroundTerminalTaskRegistry } from "./background-terminal-tasks";
-import { buildShellCommandInvocation, type InteractiveTerminalManager } from "./interactive-terminal-manager";
+import { buildBackgroundScriptCommandInvocation, type InteractiveTerminalManager } from "./interactive-terminal-manager";
 import { buildShellCommandLine, resolveCommandExecutable } from "./resolve-command-executable";
 import { detectPackageManager } from "./workspace-inspect";
 
@@ -122,7 +122,7 @@ export async function preparePackageScriptRun(
   const args = request.args?.trim() || saved?.args?.[scriptName] || undefined;
   const prefix = request.prefix?.trim() || saved?.prefixes?.[scriptName] || undefined;
   const argv = buildRunCommand(listing.packageManager, scriptName, args);
-  const command = prefix ? buildShellCommandInvocation(buildPrefixedShellLine(prefix, argv)) : argv;
+  const command = prefix ? buildBackgroundScriptCommandInvocation(buildPrefixedShellLine(prefix, argv)) : argv;
 
   return {
     workspacePath: resolvedPath,

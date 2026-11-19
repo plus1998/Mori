@@ -6,6 +6,16 @@ interface RequestCall {
   params: unknown;
 }
 
+const terminalRow = {
+  itemId: "item-bash",
+  processId: "process-bash",
+  command: "bun run dev",
+  cwd: "/workspace/eco",
+  osPid: 56282,
+  cpuPercent: 1.5,
+  rssKb: 208320,
+};
+
 function createClient(handler: (call: RequestCall) => unknown) {
   const calls: RequestCall[] = [];
   return {
@@ -31,24 +41,14 @@ test("lists Codex Unified Exec processes from loaded threads and maps Eco owners
     }
     if (method === "thread/backgroundTerminals/list") {
       return {
-        data: [
-          {
-            itemId: "item-bash",
-            processId: "process-bash",
-            command: "bun run dev",
-            cwd: "/workspace/eco",
-            osPid: 56282,
-            cpuPercent: 1.5,
-            rssKb: 208320,
-          },
-        ],
+        data: [terminalRow],
         nextCursor: null,
       };
     }
     throw new Error(`Unexpected method: ${method}`);
   });
   const service = new CodexBackgroundTerminalService({
-    getClient: () => client,
+    getClients: () => [client],
     resolveEcoThreadId: (codexThreadId) => (codexThreadId === "codex-child" ? "thr_parent" : "thr_main"),
   });
 
@@ -86,16 +86,21 @@ test("lists Codex Unified Exec processes from loaded threads and maps Eco owners
 });
 
 test("terminates by Codex thread and process identity", async () => {
-  const { calls, client } = createClient(() => ({ terminated: true }));
+  const { calls, client } = createClient(({ method }) => {
+    if (method === "thread/loaded/list") return { data: ["codex-main"] };
+    if (method === "thread/backgroundTerminals/list") return { data: [terminalRow] };
+    return { terminated: true };
+  });
   const service = new CodexBackgroundTerminalService({
-    getClient: () => client,
+    getClients: () => [client],
     resolveEcoThreadId: () => "thr_main",
   });
+  await service.list();
 
   await expect(
     service.terminate({ codexThreadId: "codex-main", processId: "process-bash" }),
   ).resolves.toEqual({ terminated: true });
-  expect(calls).toEqual([
+  expect(calls.slice(-1)).toEqual([
     {
       method: "thread/backgroundTerminals/terminate",
       params: {
@@ -106,18 +111,28 @@ test("terminates by Codex thread and process identity", async () => {
   ]);
 });
 
-test("reports an unavailable app-server instead of pretending termination succeeded", async () => {
+test("does not send a termination request to a replacement after the listed owner exits", async () => {
+  const owner = createClient(({ method }) => {
+    if (method === "thread/loaded/list") return { data: ["codex-main"] };
+    if (method === "thread/backgroundTerminals/list") return { data: [terminalRow] };
+    throw new Error(`Unexpected owner method: ${method}`);
+  });
+  const replacement = createClient(() => ({ terminated: true }));
+  let clients = [owner.client];
   const service = new CodexBackgroundTerminalService({
-    getClient: () => undefined,
+    getClients: () => clients,
     resolveEcoThreadId: () => "thr_main",
   });
+  await service.list();
+  clients = [replacement.client];
 
   await expect(service.terminate({ codexThreadId: "codex-main", processId: "process-bash" })).rejects.toThrow(
-    "Codex app-server is not running",
+    "no longer available",
   );
+  expect(replacement.calls).toEqual([]);
 });
 
-test("background terminals remain visible and controllable on a retiring generation", async () => {
+test("stops a listed terminal on its retiring generation even when the thread routes elsewhere", async () => {
   const old = createClient(({ method }) => {
     if (method === "thread/loaded/list") return { data: ["old-thread"], nextCursor: null };
     if (method === "thread/backgroundTerminals/list")
@@ -143,9 +158,7 @@ test("background terminals remain visible and controllable on a retiring generat
     throw new Error(`Wrong generation for ${method}`);
   });
   const service = new CodexBackgroundTerminalService({
-    getClient: () => current.client,
     getClients: () => [current.client, old.client],
-    getClientForThread: () => old.client,
     resolveEcoThreadId: () => "eco-thread",
   });
   expect((await service.list()).map((terminal) => terminal.processId)).toEqual(["old-process"]);
@@ -153,4 +166,22 @@ test("background terminals remain visible and controllable on a retiring generat
     terminated: true,
   });
   expect(current.calls.map((call) => call.method)).toEqual(["thread/loaded/list"]);
+});
+
+test("refuses to stop a terminal identifier reported by more than one app-server", async () => {
+  const handler = ({ method }: RequestCall) => {
+    if (method === "thread/loaded/list") return { data: ["codex-main"] };
+    if (method === "thread/backgroundTerminals/list") return { data: [terminalRow] };
+    throw new Error(`Unexpected method: ${method}`);
+  };
+  const first = createClient(handler);
+  const second = createClient(handler);
+  const service = new CodexBackgroundTerminalService({
+    getClients: () => [first.client, second.client],
+    resolveEcoThreadId: () => "thr_main",
+  });
+  await service.list();
+
+  await expect(service.terminate({ codexThreadId: "codex-main", processId: "process-bash" }))
+    .rejects.toThrow("owner is ambiguous");
 });

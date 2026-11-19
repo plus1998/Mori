@@ -1,6 +1,7 @@
 import {
   ChevronRight,
   Folder,
+  FolderOpen,
   Home,
   LoaderCircle,
   MessageCirclePlus,
@@ -68,6 +69,7 @@ interface ProjectSidebarTreeProps {
   onExpandProjectThreads: (path: string) => void;
   onReorderProjects: (draggedPath: string, targetPath: string, position: ProjectReorderPosition) => void;
   onOpenProjectPath: (path: string) => Promise<void>;
+  onOpenProjectFolder?: ((path: string) => void) | undefined;
   onPinProject: (path: string) => void;
   onUnpinProject: (path: string) => void;
   onRemoveProject: (path: string) => void;
@@ -114,6 +116,9 @@ export function ProjectSidebarTree(props: ProjectSidebarTreeProps) {
     onReorderProjects: (from: string, to: string, position: ProjectReorderPosition) =>
       latest.current.onReorderProjects(from, to, position),
     onOpenProjectPath: (path: string) => latest.current.onOpenProjectPath(path),
+    onOpenProjectFolder: (path: string) => {
+      latest.current.onOpenProjectFolder?.(path);
+    },
     onPinProject: (path: string) => latest.current.onPinProject(path),
     onUnpinProject: (path: string) => latest.current.onUnpinProject(path),
     onRemoveProject: (path: string) => latest.current.onRemoveProject(path),
@@ -130,6 +135,7 @@ export function ProjectSidebarTree(props: ProjectSidebarTreeProps) {
       {...props}
       {...actions}
       onOpenTerminalSettings={props.onOpenTerminalSettings ? actions.onOpenTerminalSettings : undefined}
+      onOpenProjectFolder={props.onOpenProjectFolder ? actions.onOpenProjectFolder : undefined}
     />
   );
 }
@@ -152,6 +158,7 @@ function ProjectSidebarTreeView({
   onExpandProjectThreads,
   onReorderProjects,
   onOpenProjectPath,
+  onOpenProjectFolder,
   onPinProject,
   onUnpinProject,
   onRemoveProject,
@@ -598,6 +605,14 @@ function ProjectSidebarTreeView({
                           onResetProjectName(project.path);
                           setOpenMenuPath(undefined);
                         }}
+                        {...(onOpenProjectFolder
+                          ? {
+                              onOpenProjectFolder: () => {
+                                setOpenMenuPath(undefined);
+                                onOpenProjectFolder(project.path);
+                              },
+                            }
+                          : {})}
                         onRemove={() => {
                           onRemoveProject(project.path);
                           setOpenMenuPath(undefined);
@@ -988,6 +1003,7 @@ export interface ProjectActionMenuProps {
   onStartRename: () => void;
   onResetName: () => void;
   onRemove: () => void;
+  onOpenProjectFolder?: (() => void) | undefined;
   onOpenTerminalSettings?: () => void;
 }
 
@@ -998,11 +1014,18 @@ export function ProjectActionMenu({
   onStartRename,
   onResetName,
   onRemove,
+  onOpenProjectFolder,
   onOpenTerminalSettings,
 }: ProjectActionMenuProps) {
   const { t } = useTranslation();
   return (
     <>
+      {onOpenProjectFolder ? (
+        <button type="button" className="project-menu-item" role="menuitem" onClick={onOpenProjectFolder}>
+          <FolderOpen size={ICON_SIZE.md} strokeWidth={ICON_STROKE} aria-hidden />
+          <span>{t("projectTree.openFolder")}</span>
+        </button>
+      ) : null}
       <button
         type="button"
         className="project-menu-item"

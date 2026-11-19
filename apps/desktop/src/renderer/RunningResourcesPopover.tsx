@@ -1,10 +1,16 @@
 import { Activity, Folder, Globe, Loader2, MessageSquare, Server, Square, Terminal, X } from "lucide-react";
-import { type CSSProperties, type RefObject, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type CSSProperties, type RefObject, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { type BrowserInstanceView, isPersonalBrowserScopeId } from "../shared/browser";
 import { pathToName } from "../shared/home-project";
-import type { PiBashTask, ClaudeBackgroundTask, CodexBackgroundTerminal } from "../shared/ipc";
+import type {
+  BackgroundTerminalTask,
+  ClaudeBackgroundTask,
+  CodexBackgroundTerminal,
+  PiBashTask,
+  TerminalSessionView,
+} from "../shared/ipc";
 import { AgentBrowserProcessesSection } from "./AgentBrowserProcessesSection";
 import { CodexAppServerProcessesSection } from "./CodexAppServerProcessesSection";
 import { DisplayControlsSection } from "./DisplayControlsSection";
@@ -36,6 +42,7 @@ interface RunningResourcesPopoverProps {
 }
 
 const EMPTY_PAGES: BrowserInstanceView[] = [];
+const EMPTY_PTY_SNAPSHOT = { sessions: [], tasks: [] };
 
 function requireDesktopApi() {
   if (!window.eco) throw new Error("Desktop API unavailable");
@@ -64,9 +71,12 @@ export function RunningResourcesPopover({
   const closeRef = useRef<HTMLButtonElement>(null);
   const [style, setStyle] = useState<CSSProperties>({ visibility: "hidden" });
   const pages = useBrowserStateSelector((state) => state?.allInstances ?? EMPTY_PAGES);
-  const [terminals, setTerminals] = useState<RunningTerminal[]>([]);
+  const [ptySnapshot, setPtySnapshot] = useState<{
+    sessions: TerminalSessionView[];
+    tasks: BackgroundTerminalTask[];
+  }>(EMPTY_PTY_SNAPSHOT);
   const [loading, setLoading] = useState(true);
-  const [terminalError, setTerminalError] = useState("");
+  const [ptyError, setPtyError] = useState("");
   const [browserError, setBrowserError] = useState("");
   const [actionError, setActionError] = useState("");
   const [closing, setClosing] = useState<Set<string>>(() => new Set());
@@ -74,6 +84,11 @@ export function RunningResourcesPopover({
   const [refreshEpoch, setRefreshEpoch] = useState(0);
   const [agentProcessCount, setAgentProcessCount] = useState(0);
   const [codexAppServerCount, setCodexAppServerCount] = useState(0);
+  const terminals = useMemo(
+    () => collectRunningTerminals(ptySnapshot.sessions, ptySnapshot.tasks, codexTerminals, claudeTasks, piTasks),
+    [ptySnapshot, codexTerminals, claudeTasks, piTasks],
+  );
+  const terminalError = [ptyError, codexTerminalError, claudeTaskError, piTaskError].filter(Boolean).join("\n");
 
   useLayoutEffect(() => {
     const update = () => {
@@ -129,7 +144,7 @@ export function RunningResourcesPopover({
     };
   }, []);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: A successful close invalidates the terminal snapshot via refreshEpoch.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: A stop attempt invalidates the PTY snapshot via refreshEpoch.
   useEffect(() => {
     let cancelled = false;
     let fetching = false;
@@ -143,11 +158,11 @@ export function RunningResourcesPopover({
           api.listBackgroundTerminalTasks(),
         ]);
         if (!cancelled) {
-          setTerminals(collectRunningTerminals(sessions, tasks, codexTerminals, claudeTasks, piTasks));
-          setTerminalError([codexTerminalError, claudeTaskError, piTaskError].filter(Boolean).join("\n"));
+          setPtySnapshot({ sessions, tasks });
+          setPtyError("");
         }
       } catch (error) {
-        if (!cancelled) setTerminalError(String(error));
+        if (!cancelled) setPtyError(String(error));
       } finally {
         fetching = false;
         if (!cancelled) setLoading(false);
@@ -156,14 +171,14 @@ export function RunningResourcesPopover({
     const unsubscribe = window.eco?.onTerminalEvent((event) => {
       if (event.type !== "output") void refresh();
     });
-    // Explicit kills do not emit an exit event; reconcile while the list is active.
+    void refresh();
     const stopPolling = startResourcePanelPolling(refresh, 2000);
     return () => {
       cancelled = true;
       unsubscribe?.();
       stopPolling();
     };
-  }, [claudeTaskError, claudeTasks, piTaskError, piTasks, codexTerminalError, codexTerminals, refreshEpoch]);
+  }, [refreshEpoch]);
 
   const threadLabel = (threadId: string) =>
     isPersonalBrowserScopeId(threadId)
@@ -196,9 +211,8 @@ export function RunningResourcesPopover({
     void closeResource(page.id, page.title || page.url, async () => {
       browserStateStore.setState(await requireDesktopApi().browserCloseInstance({ browserId: page.id }));
     });
-  const closeTerminal = (terminal: RunningTerminal) =>
-    void closeResource(terminal.sessionId, terminal.label || terminal.sessionId, async () => {
-      const api = requireDesktopApi();
+  const closeTerminal = (terminal: RunningTerminal, label: string) =>
+    void closeResource(terminal.sessionId, label, async () => {
       if (terminal.codexThreadId && terminal.codexProcessId) {
         await onTerminateCodexTerminal({
           codexThreadId: terminal.codexThreadId,
@@ -211,13 +225,18 @@ export function RunningResourcesPopover({
         });
       } else if (terminal.piTaskId && terminal.threadId) {
         await onStopPiTask({ threadId: terminal.threadId, taskId: terminal.piTaskId });
-      } else if (terminal.taskId) {
-        await api.stopBackgroundTerminalTask({ taskId: terminal.taskId });
       } else {
-        await api.killTerminal(terminal.sessionId);
+        try {
+          const api = requireDesktopApi();
+          const stopped = terminal.taskId
+            ? (await api.stopBackgroundTerminalTask({ taskId: terminal.taskId })).stopped
+            : (await api.killTerminal(terminal.sessionId)).killed;
+          if (!stopped) throw new Error(t("app.running.stopNotConfirmed"));
+          onTerminalClosed(terminal);
+        } finally {
+          setRefreshEpoch((epoch) => epoch + 1);
+        }
       }
-      onTerminalClosed(terminal);
-      setRefreshEpoch((epoch) => epoch + 1);
     });
 
   return createPortal(
@@ -424,7 +443,7 @@ export function RunningResourcesPopover({
                     type="button"
                     className="running-resources-icon-button is-destructive"
                     disabled={closing.has(terminal.sessionId)}
-                    onClick={() => closeTerminal(terminal)}
+                    onClick={() => closeTerminal(terminal, label)}
                     title={t("app.running.closeTerminal")}
                     aria-label={t("app.running.closeNamed", { title: label })}
                   >

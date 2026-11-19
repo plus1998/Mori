@@ -2397,6 +2397,7 @@ function App() {
   const [backgroundTerminalTasks, setBackgroundTerminalTasks] = useState<BackgroundTerminalTask[]>([]);
   const [codexBackgroundTerminals, setCodexBackgroundTerminals] = useState<CodexBackgroundTerminal[]>([]);
   const [codexBackgroundTerminalError, setCodexBackgroundTerminalError] = useState<string>();
+  const codexTerminalListSequence = useRef({ requested: 0, applied: 0 });
   const [piBashTasks, setPiBashTasks] = useState<PiBashTask[]>([]);
   const [piBashTaskError, setPiBashTaskError] = useState<string>();
   const [claudeBackgroundTasks, setClaudeBackgroundTasks] = useState<ClaudeBackgroundTask[]>([]);
@@ -4722,11 +4723,16 @@ function App() {
       setCodexBackgroundTerminalError(undefined);
       return;
     }
+    const sequence = ++codexTerminalListSequence.current.requested;
     try {
       const terminals = await window.eco.listCodexBackgroundTerminals();
+      if (sequence < codexTerminalListSequence.current.applied) return;
+      codexTerminalListSequence.current.applied = sequence;
       setCodexBackgroundTerminals(terminals);
       setCodexBackgroundTerminalError(undefined);
     } catch (error) {
+      if (sequence < codexTerminalListSequence.current.applied) return;
+      codexTerminalListSequence.current.applied = sequence;
       setCodexBackgroundTerminalError(String(error));
     }
   }, []);
@@ -4736,14 +4742,24 @@ function App() {
       if (!window.eco?.terminateCodexBackgroundTerminal) {
         throw new Error(t("app.running.terminateUnavailable"));
       }
-      const result = await window.eco.terminateCodexBackgroundTerminal({
-        codexThreadId: terminal.codexThreadId,
-        processId: terminal.processId,
-      });
-      if (!result.terminated) {
-        throw new Error(t("app.running.terminateUnavailable"));
+      try {
+        const result = await window.eco.terminateCodexBackgroundTerminal({
+          codexThreadId: terminal.codexThreadId,
+          processId: terminal.processId,
+        });
+        if (!result.terminated) {
+          throw new Error(t("app.running.terminateUnavailable"));
+        }
+        // A poll started before the stop may still return the terminated process.
+        codexTerminalListSequence.current.applied = ++codexTerminalListSequence.current.requested;
+        setCodexBackgroundTerminals((current) =>
+          current.filter((entry) =>
+            entry.codexThreadId !== terminal.codexThreadId || entry.processId !== terminal.processId,
+          ),
+        );
+      } finally {
+        await refreshCodexBackgroundTerminals();
       }
-      await refreshCodexBackgroundTerminals();
     },
     [refreshCodexBackgroundTerminals, t],
   );
@@ -8653,6 +8669,21 @@ function App() {
       throw caught;
     } finally {
       setIsOpening(false);
+    }
+  }
+
+  async function handleOpenProjectFolder(path: string) {
+    try {
+      if (!window.eco?.openWorkspaceInFileManager) {
+        throw new Error(t("app.preload.openWorkspaceInFileManager"));
+      }
+      await window.eco.openWorkspaceInFileManager(path);
+    } catch (error) {
+      showAppMessageError(
+        error instanceof Error
+          ? error.message
+          : t("thread.openProjectFolderFailed", { detail: String(error) }),
+      );
     }
   }
 
@@ -13849,6 +13880,7 @@ function App() {
                 onExpandProjectThreads={expandProjectThreads}
                 onReorderProjects={reorderProjects}
                 onOpenProjectPath={handleOpenProjectFromDrop}
+                onOpenProjectFolder={(path) => void handleOpenProjectFolder(path)}
                 onPinProject={pinProject}
                 onUnpinProject={unpinProject}
                 onRemoveProject={removeProject}

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
+import { promisify } from "node:util";
 import type { IPty } from "node-pty";
 import * as pty from "node-pty";
 import type { TerminalSessionKind, TerminalSessionView, TerminalStreamEvent } from "../shared/ipc";
@@ -52,6 +53,7 @@ interface PendingOutput {
 const DEFAULT_COLS = 120;
 const DEFAULT_ROWS = 30;
 const DEFAULT_OUTPUT_COALESCE_MS = 32;
+const execFileAsync = promisify(execFile);
 
 function resolveInteractiveShell(): { executable: string; args: string[] } {
   if (process.platform === "win32") {
@@ -71,31 +73,14 @@ function resolveInteractiveShell(): { executable: string; args: string[] } {
 }
 
 /**
- * argv that runs a one-line shell command in the user's login+interactive shell,
- * so rc-file setup (nvm as a shell function, PATH, aliases) is available for
- * `&&`-chained prefixes. Only used when a script has a leading command.
+ * Keep shell initialization (PATH, nvm, aliases) without moving foreground jobs
+ * out of the PTY's process group. Interactive Bash and Zsh enable job control by
+ * default, which would put those jobs outside the group used to stop the task.
  */
-export function buildShellCommandInvocation(line: string): string[] {
+export function buildBackgroundScriptCommandInvocation(line: string): string[] {
   if (process.platform === "win32") {
     const comspec = process.env.ComSpec?.trim() || "cmd.exe";
     return [comspec, "/d", "/s", "/c", line];
-  }
-  const { executable, args } = resolveInteractiveShell();
-  if (args.includes("-l")) {
-    return [executable, "-l", "-i", "-c", line];
-  }
-  return [executable, "-c", line];
-}
-
-/**
- * Run a tracked startup service in the user's initialized shell while keeping
- * foreground commands in the PTY process group. Interactive Bash and Zsh enable
- * job control by default, which moves foreground jobs into a separate group
- * that the terminal manager cannot stop by signaling the PTY leader's group.
- */
-export function buildStartupScriptCommandInvocation(line: string): string[] {
-  if (process.platform === "win32") {
-    return buildShellCommandInvocation(line);
   }
 
   const { executable } = resolveInteractiveShell();
@@ -317,13 +302,12 @@ export class InteractiveTerminalManager {
     if (!session) return false;
     if (process.platform === "win32") {
       try {
-        execFileSync("taskkill.exe", ["/PID", String(session.pty.pid), "/T", "/F"], {
-          stdio: "ignore",
+        await execFileAsync("taskkill.exe", ["/PID", String(session.pty.pid), "/T", "/F"], {
           windowsHide: true,
         });
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
-        throw new Error(`Failed to stop startup script process tree: ${detail}`);
+        throw new Error(`Failed to stop terminal process tree: ${detail}`);
       }
       this.forgetSession(sessionId, session);
       return true;
@@ -351,7 +335,7 @@ export class InteractiveTerminalManager {
       }
 
       if (!(await this.waitForProcessGroupExit(processGroupId, 10_000))) {
-        throw new Error(`Startup script process group ${processGroupId} is still running after SIGKILL.`);
+        throw new Error(`Terminal process group ${processGroupId} is still running after SIGKILL.`);
       }
     }
 

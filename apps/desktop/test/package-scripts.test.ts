@@ -225,7 +225,7 @@ test("preparePackageScriptRun wraps argv in a login shell when a prefix is saved
 
   const shellLine = prepared.command.at(-1);
   expect(prepared.command[0]).not.toBe("npm");
-  // POSIX 用登录 shell 的 `-c`，Windows 用 `cmd.exe /d /s /c`（见 buildShellCommandInvocation）。
+  // POSIX 用登录 shell 的 `-c`，Windows 用 `cmd.exe /d /s /c`。
   expect(prepared.command).toContain(process.platform === "win32" ? "/c" : "-c");
   expect(shellLine).toContain("nvm use 20 && ");
   expect(shellLine).toContain("npm run dev");

@@ -5,7 +5,7 @@ import type {
   StartupScriptSaveInput,
 } from "../shared/ipc";
 import { BackgroundTerminalTaskRegistry } from "./background-terminal-tasks";
-import { buildStartupScriptCommandInvocation } from "./interactive-terminal-manager";
+import { buildBackgroundScriptCommandInvocation } from "./interactive-terminal-manager";
 import type { StartupScriptStore } from "./startup-script-store";
 
 export class StartupScriptService {
@@ -55,7 +55,7 @@ export class StartupScriptService {
       return this.tasks.start(
         {
           workspacePath: script.workspacePath,
-          command: buildStartupScriptCommandInvocation(script.command),
+          command: buildBackgroundScriptCommandInvocation(script.command),
           label: script.name,
         },
         { startupScriptId: script.id },

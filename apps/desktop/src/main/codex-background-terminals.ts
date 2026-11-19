@@ -21,9 +21,7 @@ interface CodexBackgroundTerminalRow {
 }
 
 export interface CodexBackgroundTerminalServiceDeps {
-  getClient(): CodexBackgroundTerminalClient | undefined;
-  getClients?(): CodexBackgroundTerminalClient[];
-  getClientForThread?(codexThreadId: string): CodexBackgroundTerminalClient | undefined;
+  getClients(): readonly CodexBackgroundTerminalClient[];
   resolveEcoThreadId(codexThreadId: string): string | undefined;
   setClientBackgroundTerminalWork?(client: CodexBackgroundTerminalClient, hasWork: boolean): void;
 }
@@ -37,13 +35,19 @@ const BACKGROUND_TERMINAL_PAGE_SIZE = 100;
  * the producer can prove which Codex thread owns a processId.
  */
 export class CodexBackgroundTerminalService {
+  // This is process ownership, which can outlive a change to the thread's runtime binding.
+  private listedOwners = new Map<string, CodexBackgroundTerminalClient | null>();
+  private listSequence = 0;
+  private appliedListSequence = 0;
+
   constructor(private readonly deps: CodexBackgroundTerminalServiceDeps) {}
 
   async list(): Promise<CodexBackgroundTerminal[]> {
+    const sequence = ++this.listSequence;
     const terminalsByKey = new Map<string, CodexBackgroundTerminal>();
-    const clients = this.deps.getClients?.() ?? [this.deps.getClient()];
-    for (const client of clients) {
-      if (!client?.isInitialized) continue;
+    const owners = new Map<string, CodexBackgroundTerminalClient | null>();
+    for (const client of new Set(this.deps.getClients())) {
+      if (!client.isInitialized) continue;
       let clientHasWork = false;
       const codexThreadIds = await this.listLoadedThreadIds(client);
       for (const codexThreadId of codexThreadIds) {
@@ -51,6 +55,11 @@ export class CodexBackgroundTerminalService {
         clientHasWork ||= rows.length > 0;
         for (const row of rows) {
           const key = `${codexThreadId}\0${row.processId}`;
+          if (owners.has(key) && owners.get(key) !== client) {
+            owners.set(key, null);
+            continue;
+          }
+          owners.set(key, client);
           terminalsByKey.set(key, {
             codexThreadId,
             threadId: this.deps.resolveEcoThreadId(codexThreadId)?.trim() || codexThreadId,
@@ -65,6 +74,10 @@ export class CodexBackgroundTerminalService {
         }
       }
       this.deps.setClientBackgroundTerminalWork?.(client, clientHasWork);
+    }
+    if (sequence > this.appliedListSequence) {
+      this.listedOwners = owners;
+      this.appliedListSequence = sequence;
     }
     return [...terminalsByKey.values()].sort(
       (left, right) =>
@@ -82,9 +95,12 @@ export class CodexBackgroundTerminalService {
     if (!codexThreadId || !processId) {
       throw new Error("Codex thread id and process id are required.");
     }
-    const client = this.deps.getClientForThread?.(codexThreadId) ?? this.requireClient();
-    if (!client) {
-      throw new Error("Codex app-server is not running; cannot terminate the Agent Bash process.");
+    const client = this.listedOwners.get(`${codexThreadId}\0${processId}`);
+    if (client === null) {
+      throw new Error("Multiple Codex app-servers reported this terminal; its owner is ambiguous.");
+    }
+    if (!client?.isInitialized || !this.deps.getClients().includes(client)) {
+      throw new Error("The Codex app-server that listed this terminal is no longer available, or the terminal has already exited.");
     }
     const result = await client.request<unknown>("thread/backgroundTerminals/terminate", {
       threadId: codexThreadId,
@@ -94,11 +110,6 @@ export class CodexBackgroundTerminalService {
       throw new Error("Codex app-server returned an invalid background terminal termination result.");
     }
     return { terminated: result.terminated };
-  }
-
-  private requireClient(): CodexBackgroundTerminalClient | undefined {
-    const client = this.deps.getClient();
-    return client?.isInitialized ? client : undefined;
   }
 
   private async listLoadedThreadIds(client: CodexBackgroundTerminalClient): Promise<string[]> {

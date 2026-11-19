@@ -12,6 +12,7 @@ function renderMenu(locale: "zh-CN" | "en-US", props: Partial<Parameters<typeof 
       onStartRename: () => undefined,
       onResetName: () => undefined,
       onRemove: () => undefined,
+      onOpenProjectFolder: () => undefined,
       ...props,
     }),
     locale,
@@ -40,4 +41,9 @@ test("reset default name action appears only when the project has a custom name"
 test("pin action toggles its label", () => {
   expect(renderMenu("zh-CN", { pinned: false })).toContain(">置顶<");
   expect(renderMenu("zh-CN", { pinned: true })).toContain(">取消置顶<");
+});
+
+test("open folder action appears in the project menu", () => {
+  expect(renderMenu("zh-CN")).toContain("在文件夹中打开");
+  expect(renderMenu("en-US")).toContain("Open in folder");
 });
