@@ -3017,7 +3017,7 @@ export const i18nCatalogs = {
       "thread.action.steer": "调整方向（运行中注入后续消息）",
       "thread.action.saveFollowUp": "保存修改",
       "thread.action.send": "发送",
-      "thread.action.continue": "继续中断的请求",
+      "thread.action.continue": "立即继续",
       "app.terminalFallback": "终端",
       "app.userMessage": "用户消息 {{count}}",
       "app.jumpToMessage": "跳到{{message}}",

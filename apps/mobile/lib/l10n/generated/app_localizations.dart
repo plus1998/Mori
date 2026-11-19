@@ -824,6 +824,12 @@ abstract class AppLocalizations {
   /// **'This conversation has no file directory'**
   String get filePreviewNoContext;
 
+  /// No description provided for @filePreviewDirectoryEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'Folder is empty'**
+  String get filePreviewDirectoryEmpty;
+
   /// No description provided for @commonOnline.
   ///
   /// In en, this message translates to:
@@ -1268,6 +1274,12 @@ abstract class AppLocalizations {
   /// **'Image'**
   String get composerImage;
 
+  /// No description provided for @composerFile.
+  ///
+  /// In en, this message translates to:
+  /// **'File'**
+  String get composerFile;
+
   /// No description provided for @composerPlusModeSection.
   ///
   /// In en, this message translates to:
@@ -1303,6 +1315,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Attach designs, screenshots or local images'**
   String get composerPlusImageHint;
+
+  /// No description provided for @composerPlusFileHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Upload a file from this device or a cloud drive'**
+  String get composerPlusFileHint;
 
   /// No description provided for @composerPlusScheduleHint.
   ///
@@ -2077,6 +2095,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Images must be 20 MB or smaller'**
   String get composerImageTooLarge;
+
+  /// No description provided for @composerFilePickFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'File selection or upload failed: {error}'**
+  String composerFilePickFailed(String error);
 
   /// No description provided for @composerOrchestrationSelection.
   ///
@@ -6763,12 +6787,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'The original draft was sent, cleared, or deleted'**
   String get conversationDraftMissing;
-
-  /// No description provided for @filePreviewDirectoryEmpty.
-  ///
-  /// In en, this message translates to:
-  /// **'Folder is empty'**
-  String get filePreviewDirectoryEmpty;
 }
 
 class _AppLocalizationsDelegate

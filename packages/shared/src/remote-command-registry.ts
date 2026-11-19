@@ -89,6 +89,15 @@ export const REMOTE_COMMAND_DEFINITIONS = [
   command("prompt-image:upload-finish", "Finish chunked prompt image upload", "write_safe", RPC_INVOKE, [
     objectArg(["contextKey", "imageId", "mediaType", "totalBytes"]),
   ]),
+  command("composer-file:upload-begin", "Begin temporary Composer file upload", "write_safe", RPC_INVOKE, [
+    objectArg(["uploadId", "fileName", "totalBytes"]),
+  ]),
+  command("composer-file:upload-chunk", "Append temporary Composer file upload chunk", "write_safe", RPC_INVOKE, [
+    objectArg(["uploadId", "fileName", "offset", "data"]),
+  ]),
+  command("composer-file:upload-finish", "Finish temporary Composer file upload", "write_safe", RPC_INVOKE, [
+    objectArg(["uploadId", "fileName", "totalBytes"]),
+  ]),
   command("prompt-image:read-chunk", "Read a durable prompt image chunk", "read", RPC_INVOKE, [
     objectArg(["contextKey", "contentRef", "mediaType", "offset"]),
   ]),

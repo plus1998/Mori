@@ -452,6 +452,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get filePreviewNoContext => 'This conversation has no file directory';
 
   @override
+  String get filePreviewDirectoryEmpty => 'Folder is empty';
+
+  @override
   String get commonOnline => 'Online';
 
   @override
@@ -678,6 +681,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get composerImage => 'Image';
 
   @override
+  String get composerFile => 'File';
+
+  @override
   String get composerPlusModeSection => 'Modes and session';
 
   @override
@@ -696,6 +702,10 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get composerPlusImageHint =>
       'Attach designs, screenshots or local images';
+
+  @override
+  String get composerPlusFileHint =>
+      'Upload a file from this device or a cloud drive';
 
   @override
   String get composerPlusScheduleHint =>
@@ -1143,6 +1153,11 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get composerImageTooLarge => 'Images must be 20 MB or smaller';
+
+  @override
+  String composerFilePickFailed(String error) {
+    return 'File selection or upload failed: $error';
+  }
 
   @override
   String get composerOrchestrationSelection => 'Orchestration';
@@ -3861,7 +3876,4 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get conversationDraftMissing =>
       'The original draft was sent, cleared, or deleted';
-
-  @override
-  String get filePreviewDirectoryEmpty => 'Folder is empty';
 }

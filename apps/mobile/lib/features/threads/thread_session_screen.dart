@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../core/locale/app_localizations_ext.dart';
@@ -881,6 +882,7 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
                                 thread?.hostUiFeatures ??
                                 AcpHostUiFeatures.showAll,
                             onPickImage: _pickImage,
+                            onPickFile: _pickFile,
                             onRemoveAttachment: (index) =>
                                 setState(() => _attachments.removeAt(index)),
                             onSend: () => _sendMessage(runtimeConfig),
@@ -1057,6 +1059,7 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
                             coreKind: _coreKind,
                             onCoreKindChanged: _handleLandingCoreKindChanged,
                             onPickImage: _pickImage,
+                            onPickFile: _pickFile,
                             onRemoveAttachment: (index) =>
                                 setState(() => _attachments.removeAt(index)),
                             onSend: _startNewThread,
@@ -1330,6 +1333,50 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
     setState(() {
       _attachments.add(attachment);
     });
+  }
+
+  Future<void> _pickFile() async {
+    final rpc = ref.read(desktopRpcProvider);
+    if (rpc == null) return;
+    try {
+      final result = await FilePicker.pickFiles(
+        type: FileType.any,
+        allowMultiple: false,
+        withData: false,
+      );
+      if (result == null || result.files.isEmpty) return;
+      final selected = result.files.single;
+      final sourcePath = selected.path?.trim();
+      if (sourcePath == null || sourcePath.isEmpty) {
+        throw StateError(
+          'The selected file did not provide a temporary local path.',
+        );
+      }
+      final uploaded = await rpc.uploadComposerFile(
+        sourcePath: sourcePath,
+        fileName: selected.name,
+      );
+      if (!mounted) return;
+      final current = _promptController.value;
+      final separator = current.text.trim().isEmpty ? '' : '\n';
+      final insertion = '$separator${uploaded.path}';
+      final offset = current.selection.isValid
+          ? current.selection.end
+          : current.text.length;
+      final nextText = current.text.replaceRange(offset, offset, insertion);
+      _promptController.value = current.copyWith(
+        text: nextText,
+        selection: TextSelection.collapsed(offset: offset + insertion.length),
+        composing: TextRange.empty,
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(context.l10n.composerFilePickFailed(error.toString())),
+        ),
+      );
+    }
   }
 
   Future<void> _submitClarification(

@@ -246,12 +246,14 @@
   "approvalAutoReviewErrorHint": "The reviewer did not return a valid result; escalated to a human. Raw error below.",
   "composerAddImage": "Add image",
   "composerImage": "Image",
+  "composerFile": "File",
   "composerPlusModeSection": "Modes and session",
   "composerPlusActionSection": "Add and actions",
   "composerPlusConfigSection": "Configuration",
   "composerPlusPlanHint": "Plan the steps before making changes",
   "composerPlusAskHint": "Ask questions and analyze without editing files",
   "composerPlusImageHint": "Attach designs, screenshots or local images",
+  "composerPlusFileHint": "Upload a file from this device or a cloud drive",
   "composerPlusScheduleHint": "Send later or repeat in this conversation",
   "composerPlusFirstMessageHint": "Send the first message at a scheduled time",
   "composerPlusConfigHint": "Main agent, prompt, subagents and models",
@@ -401,6 +403,12 @@
   "composerSettings": "Composer settings",
   "composerUnsupportedImage": "Only JPEG, PNG, GIF, and WebP images are supported",
   "composerImageTooLarge": "Images must be 20 MB or smaller",
+  "composerFilePickFailed": "File selection or upload failed: {error}",
+  "@composerFilePickFailed": {
+    "placeholders": {
+      "error": {"type": "String"}
+    }
+  },
   "composerOrchestrationSelection": "Orchestration",
   "activityToolIncomplete": "Tool incomplete · {text}",
   "activityReadFiles": "Read {count} files",

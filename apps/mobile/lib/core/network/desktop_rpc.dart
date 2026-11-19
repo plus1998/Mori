@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:uuid/uuid.dart';
@@ -40,6 +41,16 @@ class PromptImageUploadResult {
 
   final String path;
   final String contentRef;
+  final int byteLength;
+}
+
+class ComposerFileUploadResult {
+  const ComposerFileUploadResult({
+    required this.path,
+    required this.byteLength,
+  });
+
+  final String path;
   final int byteLength;
 }
 
@@ -1501,6 +1512,137 @@ class DesktopRpc implements ReadAloudRemote {
     return PromptImageUploadResult(
       path: finish['path'] as String,
       contentRef: finish['contentRef'] as String,
+      byteLength: (finish['byteLength'] as num).toInt(),
+    );
+  }
+
+  /// Uploads an arbitrary mobile file to the Desktop's temporary Composer
+  /// directory and returns the path that can be passed to the agent.
+  Future<ComposerFileUploadResult> uploadComposerFile({
+    required String sourcePath,
+    required String fileName,
+    void Function(int sentBytes, int totalBytes)? onProgress,
+    int maxChunkAttempts = 3,
+  }) async {
+    final file = File(sourcePath);
+    final totalBytes = await file.length();
+    if (totalBytes <= 0) {
+      throw StateError('Selected file is empty.');
+    }
+    if (totalBytes > 100 * 1024 * 1024) {
+      throw StateError('Selected file exceeds 100 MB.');
+    }
+    final uploadId = 'file_${const Uuid().v4()}';
+    const chunkBytes = 64 * 1024;
+    var offset = 0;
+
+    Future<Map<String, dynamic>> begin() async {
+      final result = await _client.invoke<dynamic>(
+        desktopDeviceId,
+        'composer-file:upload-begin',
+        [
+          {
+            'uploadId': uploadId,
+            'fileName': fileName,
+            'totalBytes': totalBytes,
+          },
+        ],
+        deadlineMs: 60000,
+      );
+      if (result is! Map) {
+        throw StateError('Invalid Composer file upload begin response.');
+      }
+      return Map<String, dynamic>.from(result);
+    }
+
+    final beginResult = await begin();
+    if (beginResult['complete'] == true && beginResult['path'] is String) {
+      onProgress?.call(totalBytes, totalBytes);
+      return ComposerFileUploadResult(
+        path: beginResult['path'] as String,
+        byteLength: totalBytes,
+      );
+    }
+    final received = beginResult['receivedBytes'];
+    if (received is num) offset = received.toInt();
+    if (offset < 0 || offset > totalBytes) {
+      throw StateError('Invalid Composer file upload resume offset.');
+    }
+    onProgress?.call(offset, totalBytes);
+
+    final input = await file.open();
+    try {
+      while (offset < totalBytes) {
+        await input.setPosition(offset);
+        final end = (offset + chunkBytes).clamp(0, totalBytes);
+        final chunk = await input.read(end - offset);
+        if (chunk.isEmpty) {
+          throw StateError('Selected file changed while uploading.');
+        }
+        final chunkB64 = base64Encode(chunk);
+        var attempt = 0;
+        while (true) {
+          attempt += 1;
+          try {
+            final result = await _client.invoke<dynamic>(
+              desktopDeviceId,
+              'composer-file:upload-chunk',
+              [
+                {
+                  'uploadId': uploadId,
+                  'fileName': fileName,
+                  'offset': offset,
+                  'data': chunkB64,
+                },
+              ],
+              deadlineMs: 60000,
+            );
+            if (result is! Map || result['receivedBytes'] is! num) {
+              throw StateError('Invalid Composer file upload chunk response.');
+            }
+            offset = (result['receivedBytes'] as num).toInt();
+            onProgress?.call(offset, totalBytes);
+            break;
+          } catch (_) {
+            if (attempt >= maxChunkAttempts) rethrow;
+            final retry = await begin();
+            if (retry['complete'] == true && retry['path'] is String) {
+              offset = totalBytes;
+              onProgress?.call(offset, totalBytes);
+              break;
+            }
+            final retryOffset = retry['receivedBytes'];
+            if (retryOffset is num) offset = retryOffset.toInt();
+            if (offset < 0 || offset > totalBytes) {
+              throw StateError('Invalid Composer file upload resume offset.');
+            }
+            onProgress?.call(offset, totalBytes);
+            if (offset != end - chunk.length) {
+              break;
+            }
+          }
+        }
+      }
+    } finally {
+      await input.close();
+    }
+
+    final finish = await _client.invoke<dynamic>(
+      desktopDeviceId,
+      'composer-file:upload-finish',
+      [
+        {'uploadId': uploadId, 'fileName': fileName, 'totalBytes': totalBytes},
+      ],
+      deadlineMs: 60000,
+    );
+    if (finish is! Map ||
+        finish['path'] is! String ||
+        finish['byteLength'] is! num) {
+      throw StateError('Invalid Composer file upload finish response.');
+    }
+    onProgress?.call(totalBytes, totalBytes);
+    return ComposerFileUploadResult(
+      path: finish['path'] as String,
       byteLength: (finish['byteLength'] as num).toInt(),
     );
   }

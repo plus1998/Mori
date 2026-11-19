@@ -211,6 +211,9 @@ export const IPC_CHANNELS = {
   promptImageUploadChunk: "prompt-image:upload-chunk",
   promptImageUploadFinish: "prompt-image:upload-finish",
   promptImageReadChunk: "prompt-image:read-chunk",
+  composerFileUploadBegin: "composer-file:upload-begin",
+  composerFileUploadChunk: "composer-file:upload-chunk",
+  composerFileUploadFinish: "composer-file:upload-finish",
   threadSessionBootstrap: "thread:session-bootstrap",
   conversationFeedWindow: "conversation:feed-window",
   conversationFeedSubscribe: "conversation:feed-subscribe",
@@ -1998,6 +2001,40 @@ export interface PromptImageReadChunkResult {
   totalBytes: number;
   complete: boolean;
   data: string;
+}
+
+export interface ComposerFileUploadBeginRequest {
+  uploadId: string;
+  fileName: string;
+  totalBytes: number;
+}
+
+export interface ComposerFileUploadBeginResult {
+  path: string;
+  receivedBytes: number;
+  complete: boolean;
+}
+
+export interface ComposerFileUploadChunkRequest {
+  uploadId: string;
+  fileName: string;
+  offset: number;
+  data: string;
+}
+
+export interface ComposerFileUploadChunkResult {
+  receivedBytes: number;
+}
+
+export interface ComposerFileUploadFinishRequest {
+  uploadId: string;
+  fileName: string;
+  totalBytes: number;
+}
+
+export interface ComposerFileUploadFinishResult {
+  path: string;
+  byteLength: number;
 }
 
 export interface ModelSettingsSnapshot {

@@ -984,6 +984,7 @@ import {
   isPromptImageContentRef,
   PromptImageFileStore,
 } from "./prompt-image-file-store";
+import { ComposerFileStore } from "./composer-file-store";
 import { collectProviderDeleteReferences, partitionProviderDeleteReferences } from "./provider-deletion";
 import { listProviderUpstreamModels, testProviderConnection, testRoleRoutes } from "./provider-models";
 import { createProviderStore, type ProviderStore } from "./provider-store";
@@ -1804,6 +1805,7 @@ let modelManagementGateway: ModelManagementMcpGateway;
 let modelManagementService: ModelManagementService;
 let integratedWebSearchGateway: IntegratedWebSearchMcpGateway;
 let promptImageFileStore: PromptImageFileStore;
+let composerFileStore: ComposerFileStore;
 
 function requireBrowserHost(): BrowserHost {
   if (!browserHost) {
@@ -2866,6 +2868,7 @@ app
     // opening a legacy thread may need to materialize an attachment during its
     // lazy V2 migration.
     promptImageFileStore = new PromptImageFileStore(app.getPath("userData"));
+    composerFileStore = new ComposerFileStore(app.getPath("userData"));
     conversationStore = await createConversationStore(dbPath, {
       freshStorageMode: "v2_only",
       requiredStorageMode: null,
@@ -7698,6 +7701,77 @@ function registerIpcHandlers(): void {
       contextKey,
       imageId,
       mediaType: record.mediaType,
+      totalBytes: record.totalBytes,
+    });
+  });
+
+  registerDesktopCommand(IPC_CHANNELS.composerFileUploadBegin, async (payload: unknown) => {
+    if (!payload || typeof payload !== "object") {
+      throw new Error("Invalid Composer file upload begin request.");
+    }
+    const record = payload as {
+      uploadId?: unknown;
+      fileName?: unknown;
+      totalBytes?: unknown;
+    };
+    if (typeof record.uploadId !== "string" || typeof record.fileName !== "string") {
+      throw new Error("Composer file upload id and file name are required.");
+    }
+    if (typeof record.totalBytes !== "number" || !Number.isFinite(record.totalBytes)) {
+      throw new Error("Composer file upload totalBytes is required.");
+    }
+    return composerFileStore.beginUpload({
+      uploadId: record.uploadId,
+      fileName: record.fileName,
+      totalBytes: record.totalBytes,
+    });
+  });
+
+  registerDesktopCommand(IPC_CHANNELS.composerFileUploadChunk, async (payload: unknown) => {
+    if (!payload || typeof payload !== "object") {
+      throw new Error("Invalid Composer file upload chunk request.");
+    }
+    const record = payload as {
+      uploadId?: unknown;
+      fileName?: unknown;
+      offset?: unknown;
+      data?: unknown;
+    };
+    if (typeof record.uploadId !== "string" || typeof record.fileName !== "string") {
+      throw new Error("Composer file upload id and file name are required.");
+    }
+    if (typeof record.offset !== "number" || !Number.isFinite(record.offset)) {
+      throw new Error("Composer file upload offset is required.");
+    }
+    if (typeof record.data !== "string" || record.data.trim().length === 0) {
+      throw new Error("Composer file upload chunk data is required.");
+    }
+    return composerFileStore.writeChunk({
+      uploadId: record.uploadId,
+      fileName: record.fileName,
+      offset: record.offset,
+      dataBase64: record.data,
+    });
+  });
+
+  registerDesktopCommand(IPC_CHANNELS.composerFileUploadFinish, async (payload: unknown) => {
+    if (!payload || typeof payload !== "object") {
+      throw new Error("Invalid Composer file upload finish request.");
+    }
+    const record = payload as {
+      uploadId?: unknown;
+      fileName?: unknown;
+      totalBytes?: unknown;
+    };
+    if (typeof record.uploadId !== "string" || typeof record.fileName !== "string") {
+      throw new Error("Composer file upload id and file name are required.");
+    }
+    if (typeof record.totalBytes !== "number" || !Number.isFinite(record.totalBytes)) {
+      throw new Error("Composer file upload totalBytes is required.");
+    }
+    return composerFileStore.finishUpload({
+      uploadId: record.uploadId,
+      fileName: record.fileName,
       totalBytes: record.totalBytes,
     });
   });

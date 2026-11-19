@@ -22,6 +22,8 @@ dependencies:
   # 7.x uses Apple Vision on iOS; 6.x excludes arm64 Apple Silicon simulators.
   mobile_scanner: ^7.4.2
   image_picker: ^1.1.2
+  # 12+ pulls win32 6.x, which conflicts with network_info_plus 6.x.
+  file_picker: ^11.0.3
   intl: ^0.20.2
   uuid: ^4.5.1
   device_info_plus: ^11.5.0

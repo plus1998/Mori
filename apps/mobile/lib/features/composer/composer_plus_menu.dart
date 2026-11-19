@@ -16,7 +16,7 @@ import '../threads/thread_providers.dart';
 import 'composer_controls.dart';
 import 'composer_toolbar_icon.dart';
 
-enum ComposerPlusMenuAction { plan, ask, image, schedule, reference }
+enum ComposerPlusMenuAction { plan, ask, image, file, schedule, reference }
 
 /// One route for the menu and runtime configuration, anchored to the input card.
 class ComposerPlusMenuRoute extends PopupRoute<ComposerPlusMenuAction> {
@@ -180,6 +180,7 @@ class ComposerPlusMenuPanel extends ConsumerStatefulWidget {
     required this.workspacePath,
     required this.canSchedule,
     required this.canReference,
+    this.onPickFile,
     this.coreKind,
     this.onCoreKindChanged,
   });
@@ -192,6 +193,7 @@ class ComposerPlusMenuPanel extends ConsumerStatefulWidget {
   final String workspacePath;
   final bool canSchedule;
   final bool canReference;
+  final Future<void> Function()? onPickFile;
   final String? coreKind;
   final ValueChanged<String>? onCoreKindChanged;
 
@@ -347,6 +349,13 @@ class _ComposerPlusMenuPanelState extends ConsumerState<ComposerPlusMenuPanel> {
           description: l10n.composerPlusImageHint,
           onTap: () => _select(ComposerPlusMenuAction.image),
         ),
+        if (widget.onPickFile != null)
+          _PlusMenuRow(
+            icon: EcoIcons.file,
+            label: l10n.composerFile,
+            description: l10n.composerPlusFileHint,
+            onTap: () => _select(ComposerPlusMenuAction.file),
+          ),
         _PlusMenuRow(
           icon: EcoIcons.schedule,
           label: l10n.schedulingNewMessage,

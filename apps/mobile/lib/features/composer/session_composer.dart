@@ -53,6 +53,7 @@ class SessionComposer extends ConsumerStatefulWidget {
     this.stopBusy = false,
     required this.hasActivity,
     required this.onPickImage,
+    this.onPickFile,
     required this.onRemoveAttachment,
     required this.onSend,
     this.onSendWithMode,
@@ -82,6 +83,7 @@ class SessionComposer extends ConsumerStatefulWidget {
   final bool stopBusy;
   final bool hasActivity;
   final VoidCallback onPickImage;
+  final Future<void> Function()? onPickFile;
   final void Function(int index) onRemoveAttachment;
   final VoidCallback onSend;
   final ValueChanged<FollowUpDeliveryMode>? onSendWithMode;
@@ -209,6 +211,7 @@ class _SessionComposerState extends ConsumerState<SessionComposer> {
         onCoreKindChanged: widget.onCoreKindChanged,
         canSchedule: _canSchedule,
         canReference: widget.controller is ComposerPromptEditingController,
+        onPickFile: widget.onPickFile,
       ),
     );
     setState(() => _plusMenuRoute = route);
@@ -236,6 +239,8 @@ class _SessionComposerState extends ConsumerState<SessionComposer> {
         );
       case ComposerPlusMenuAction.image:
         widget.onPickImage();
+      case ComposerPlusMenuAction.file:
+        await widget.onPickFile?.call();
       case ComposerPlusMenuAction.reference:
         final controller = widget.controller;
         if (controller is ComposerPromptEditingController) {

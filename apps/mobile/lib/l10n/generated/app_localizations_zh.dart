@@ -398,6 +398,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get filePreviewNoContext => '当前会话没有可用的文件目录';
 
   @override
+  String get filePreviewDirectoryEmpty => '文件夹为空';
+
+  @override
   String get commonOnline => '在线';
 
   @override
@@ -620,6 +623,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get composerImage => '图片';
 
   @override
+  String get composerFile => '文件';
+
+  @override
   String get composerPlusModeSection => '对话模式';
 
   @override
@@ -636,6 +642,9 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get composerPlusImageHint => '上传设计稿、截图或本地图片';
+
+  @override
+  String get composerPlusFileHint => '从手机或云盘上传文件，并把桌面端临时路径放入输入框';
 
   @override
   String get composerPlusScheduleHint => '延时发送或按周期发送到当前对话';
@@ -1052,6 +1061,11 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get composerImageTooLarge => '图片不能超过 20 MB';
+
+  @override
+  String composerFilePickFailed(String error) {
+    return '文件选择或上传失败：$error';
+  }
 
   @override
   String get composerOrchestrationSelection => '协作配置';
@@ -3634,7 +3648,4 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get conversationDraftMissing => '原草稿已发送、清空或删除';
-
-  @override
-  String get filePreviewDirectoryEmpty => '文件夹为空';
 }
