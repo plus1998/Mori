@@ -14,7 +14,13 @@ import {
   collectDiffLineTexts,
   diffFilePath,
 } from "../src/renderer/prosemirror/diff-from-patch";
-import { buildDiffTree } from "../src/renderer/WorkspaceDiffFileTree";
+import { WorkspaceDiffPanel } from "../src/renderer/WorkspaceDiffDrawer";
+import { buildDiffTree, filterDiffTreeItems } from "../src/renderer/WorkspaceDiffFileTree";
+import {
+  resolveWorkspaceDiffSelection,
+  summarizeWorkspaceDiffFolder,
+} from "../src/renderer/workspace-diff-paths";
+import type { WorkspaceDiffResult } from "../src/shared/ipc";
 
 const typescriptPatch = [
   "diff --git a/src/example.ts b/src/example.ts",
@@ -136,6 +142,7 @@ test("buildDiffTree includes only changed files and expands every directory", ()
   ]);
 
   expect(tree.items["file:src/app/main.ts"]?.filePath).toBe("src/app/main.ts");
+  expect(tree.items["directory:src"]?.changedFileCount).toBe(2);
   expect(tree.items["file:README.md"]).toBeUndefined();
   expect(tree.expandedItems).toEqual(["__workspace-diff-root__", "directory:src", "directory:src/app"]);
 });
@@ -154,6 +161,96 @@ test("buildDiffTree collapses single-child directories", () => {
 
   expect(tree.items["directory:apps"]?.data).toBe("apps/desktop/src");
   expect(tree.items["directory:apps"]?.filePath).toBe("apps/desktop/src");
+  expect(tree.items["directory:apps"]?.changedFileCount).toBe(1);
   expect(tree.items["directory:apps/desktop"]).toBeUndefined();
   expect(tree.items["directory:apps"]?.children).toEqual(["file:apps/desktop/src/a.ts"]);
+  expect(tree.folderItemIds.get("apps/desktop")).toBe("directory:apps");
+});
+
+function changedFile(path: string, stats: Partial<WorkspaceDiffResult["files"][number]> = {}) {
+  return {
+    path,
+    additions: 0,
+    deletions: 0,
+    status: "modified" as const,
+    originalContent: "",
+    currentContent: "",
+    ...stats,
+  };
+}
+
+test("a deleted file and a new directory at the same path select different rows and previews", () => {
+  const files = [
+    changedFile("src", { status: "deleted", deletions: 1 }),
+    changedFile("src/main.ts", { status: "untracked", additions: 2 }),
+  ];
+  const diff: WorkspaceDiffResult = {
+    workspacePath: "/repo",
+    patch: "",
+    patchTruncated: false,
+    fileCount: 2,
+    totalAdditions: 2,
+    totalDeletions: 1,
+    files,
+  };
+  const render = (kind: "directory" | "file") =>
+    renderToStaticMarkup(createElement(WorkspaceDiffPanel, {
+      diff,
+      loading: false,
+      selection: { kind, path: "src" },
+      onSelectItem: () => undefined,
+    }));
+
+  const directory = render("directory");
+  expect(directory).toMatch(/aria-selected="true"[^>]*data-tree-index="directory:src"/);
+  expect(directory).toContain("workspace-diff-folder-summary__stats");
+
+  const file = render("file");
+  expect(file).toMatch(/aria-selected="true"[^>]*data-tree-index="file:src"/);
+  expect(file).not.toContain("workspace-diff-folder-summary__stats");
+});
+
+test("search keeps the selected folder row and its total change count", () => {
+  const files = [
+    changedFile("src/app/main.ts", { additions: 2, deletions: 1 }),
+    changedFile("src/styles.css", { additions: 1 }),
+  ];
+  const tree = buildDiffTree(files);
+  const filteredItems = filterDiffTreeItems(tree.items, "main.ts");
+  const folderId = tree.folderItemIds.get("src")!;
+
+  expect(filteredItems[folderId]).toMatchObject({
+    data: "src",
+    changedFileCount: 2,
+    children: ["directory:src/app"],
+  });
+  expect(filteredItems["file:src/styles.css"]).toBeUndefined();
+  expect(summarizeWorkspaceDiffFolder(files, "src")).toEqual({ fileCount: 2, additions: 3, deletions: 1 });
+});
+
+test("Git paths preserve literal backslashes in folder totals and selection", () => {
+  const files = [
+    changedFile("src\\main.ts", { additions: 10, deletions: 3 }),
+    changedFile("src/main.ts", { additions: 2 }),
+    changedFile("src\\lib/utils.ts", { deletions: 1 }),
+  ];
+
+  expect(summarizeWorkspaceDiffFolder(files, "src")).toEqual({ fileCount: 1, additions: 2, deletions: 0 });
+  expect(summarizeWorkspaceDiffFolder(files, "src\\lib")).toEqual({ fileCount: 1, additions: 0, deletions: 1 });
+  expect(resolveWorkspaceDiffSelection(files, { kind: "file", path: "src\\main.ts" })).toEqual({
+    kind: "file", path: "src\\main.ts",
+  });
+});
+
+test("refresh keeps an existing folder selection even if the folder becomes part of a compact row", () => {
+  const selection = { kind: "directory", path: "src" } as const;
+  const files = [changedFile("src/app/main.ts")];
+  const nextSelection = resolveWorkspaceDiffSelection(files, selection);
+  const refreshedTree = buildDiffTree(files);
+
+  expect(nextSelection).toEqual(selection);
+  expect(refreshedTree.items[refreshedTree.folderItemIds.get(selection.path)!]?.data).toBe("src/app");
+  expect(resolveWorkspaceDiffSelection([changedFile("src", { status: "deleted" })], selection)).toEqual({
+    kind: "file", path: "src",
+  });
 });

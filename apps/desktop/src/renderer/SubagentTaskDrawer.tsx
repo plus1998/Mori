@@ -67,6 +67,7 @@ import { type RuntimeAgentThemes, resolveSubagentRowThemeStyle } from "./runtime
 import { SshBookmarksPanel } from "./SshBookmarksPanel";
 import { StartupScriptsPanel } from "./StartupScriptsPanel";
 import type { ThreadRunProjectionSubagentCard } from "./conversation-v2-projection-view";
+import type { WorkspaceDiffSelection } from "./workspace-diff-paths";
 import { useEcoWorkspaceFileDiffLoader, WorkspaceDiffPanel } from "./WorkspaceDiffDrawer";
 import { WorkspaceFileBrowser } from "./WorkspaceFileBrowser";
 import { WorkspaceFileViewer } from "./WorkspaceFileViewer";
@@ -617,7 +618,7 @@ export function SubagentTaskDrawer({
   reviewDiff,
   reviewLoading,
   reviewError,
-  reviewSelectedPath,
+  reviewSelection,
   reviewRevision,
   onRefreshReview,
   reviewDiscardBusy,
@@ -649,7 +650,7 @@ export function SubagentTaskDrawer({
   onNavigateNewTab,
   onSelectNewTab,
   onNewBrowserTab,
-  onSelectReviewPath,
+  onSelectReviewItem,
   onOpenTerminalTask,
   onStopTerminalTask,
   onSelectImageArtifact,
@@ -689,7 +690,7 @@ export function SubagentTaskDrawer({
   reviewDiff?: WorkspaceDiffResult;
   reviewLoading?: boolean;
   reviewError?: string;
-  reviewSelectedPath?: string;
+  reviewSelection?: WorkspaceDiffSelection;
   /** Bumped when the reviewer refreshes manually, to drop cached per-file diffs. */
   reviewRevision?: number;
   onRefreshReview?: () => void;
@@ -722,7 +723,7 @@ export function SubagentTaskDrawer({
   onNavigateNewTab: (tabId: string, url: string) => Promise<void>;
   onSelectNewTab: (tabId: string) => void;
   onNewBrowserTab: () => void;
-  onSelectReviewPath: (path: string) => void;
+  onSelectReviewItem: (selection: WorkspaceDiffSelection) => void;
   onOpenTerminalTask: (task: BackgroundTerminalTask) => void;
   onStopTerminalTask: (task: BackgroundTerminalTask) => void;
   onSelectImageArtifact: (artifactId: string) => void;
@@ -1385,10 +1386,10 @@ export function SubagentTaskDrawer({
               refreshing={reviewLoading ?? false}
               {...(reviewError && { error: reviewError })}
               {...(reviewDiff && { diff: reviewDiff })}
-              {...(reviewSelectedPath && { selectedPath: reviewSelectedPath })}
+              {...(reviewSelection && { selection: reviewSelection })}
               loadFileDiff={loadFileDiff}
               revision={reviewRevision ?? 0}
-              onSelectPath={onSelectReviewPath}
+              onSelectItem={onSelectReviewItem}
               {...(onDiscardReviewPath && { onDiscardPath: onDiscardReviewPath })}
               {...(onDeleteReviewPath && { onDeletePath: onDeleteReviewPath })}
               {...(onOpenReviewContainingFolder && { onOpenContainingFolder: onOpenReviewContainingFolder })}

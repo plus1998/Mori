@@ -6511,6 +6511,41 @@ button.sidebar-settings-meta {
   line-height: 1.45;
 }
 
+.workspace-diff-folder-summary__icon {
+  flex-shrink: 0;
+  margin-bottom: 4px;
+  color: color-mix(in srgb, var(--accent) 68%, var(--text-muted));
+}
+
+.workspace-diff-folder-summary__path {
+  max-width: min(100%, 42ch);
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-diff-folder-summary__file-count {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.workspace-diff-folder-summary__stats {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
 .workspace-diff-viewer {
   flex: 1 1 auto;
   min-height: 0;
@@ -6821,6 +6856,14 @@ button.sidebar-settings-meta {
   flex: 0 0 6px;
   border-radius: 50%;
   background: #b8956e;
+}
+
+.workspace-diff-tree__folder-count {
+  min-width: 1.4em;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
 }
 
 .workspace-diff-tree__git-mark {

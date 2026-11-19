@@ -14,6 +14,7 @@ import type { WorkspaceDiffFileStatus, WorkspaceDiffResult } from "../shared/ipc
 import { type ContextMenuBox, contextMenuBoxForPoint } from "./context-menu-layout";
 import { MaterialFileIcon } from "./MaterialFileIcon";
 import { type ExplorerTreeItem, WorkspaceExplorerTree } from "./WorkspaceExplorerTree";
+import type { WorkspaceDiffSelection } from "./workspace-diff-paths";
 import { startWorkspaceFileDrag } from "./workspace-file-drag";
 
 const ROOT_ID = "__workspace-diff-root__";
@@ -23,14 +24,15 @@ type DiffFile = WorkspaceDiffResult["files"][number];
 interface DiffTreeItem extends ExplorerTreeItem {
   filePath?: string;
   file?: DiffFile;
+  changedFileCount?: number;
 }
 
 interface WorkspaceDiffFileTreeProps {
   files: DiffFile[];
   rootLabel?: string;
-  activePath?: string;
+  selection?: WorkspaceDiffSelection;
   discardBusy: boolean;
-  onSelectPath: (path: string) => void;
+  onSelectItem: (selection: WorkspaceDiffSelection) => void;
   onDiscardPath?: (path: string) => void | Promise<void>;
   workspacePath?: string;
   onDeletePath?: (path: string) => void | Promise<void>;
@@ -47,31 +49,31 @@ function absoluteWorkspaceFilePath(workspacePath: string, filePath: string): str
   return `${root}${separator}${relativePath.replace(/[\\/]/g, separator)}`;
 }
 
-function compactSingleChildDirectories(items: Record<string, DiffTreeItem>, rootId: string): void {
+function compactSingleChildDirectories(items: Record<string, DiffTreeItem>, rootId: string) {
+  const folderItemIds = new Map<string, string>();
   const visit = (id: string) => {
     const item = items[id];
     if (!item?.isFolder || !item.children) return;
 
-    for (const childId of [...item.children]) {
-      if (items[childId]?.isFolder) visit(childId);
-    }
-
-    while (item.children && item.children.length === 1) {
+    if (item.filePath) folderItemIds.set(item.filePath, id);
+    while (item.children.length === 1) {
       const childId: string = item.children[0]!;
       const child: DiffTreeItem | undefined = items[childId];
       if (!child?.isFolder) break;
       item.data = `${item.data}/${child.data}`;
       item.children = child.children ?? [];
-      if (child.filePath) item.filePath = child.filePath;
+      if (child.filePath) {
+        item.filePath = child.filePath;
+        // A refresh can merge a previously selected folder into this row.
+        folderItemIds.set(child.filePath, id);
+      }
       delete items[childId];
     }
+    for (const childId of item.children) visit(childId);
   };
 
-  const root = items[rootId];
-  if (!root?.children) return;
-  for (const childId of [...root.children]) {
-    if (items[childId]?.isFolder) visit(childId);
-  }
+  for (const childId of items[rootId]?.children ?? []) visit(childId);
+  return folderItemIds;
 }
 
 export function buildDiffTree(
@@ -80,7 +82,7 @@ export function buildDiffTree(
 ): {
   items: Record<string, DiffTreeItem>;
   expandedItems: string[];
-  fileItemIds: Record<string, string>;
+  folderItemIds: ReadonlyMap<string, string>;
 } {
   const items: Record<string, DiffTreeItem> = {
     [ROOT_ID]: {
@@ -91,7 +93,6 @@ export function buildDiffTree(
     },
   };
   const expandedItems = [ROOT_ID];
-  const fileItemIds: Record<string, string> = {};
   const childrenByParent = new Map<string, Set<string>>();
 
   for (const file of files) {
@@ -118,8 +119,15 @@ export function buildDiffTree(
               isFolder: true,
               children: [],
               filePath: currentPath,
+              changedFileCount: 0,
             };
         if (!isFile) expandedItems.push(itemId);
+      }
+      if (!isFile) {
+        const folder = items[itemId];
+        if (folder) {
+          folder.changedFileCount = (folder.changedFileCount ?? 0) + 1;
+        }
       }
       const parent = items[parentId]!;
       let children = childrenByParent.get(parentId);
@@ -134,11 +142,37 @@ export function buildDiffTree(
       parentId = itemId;
       parentPath = currentPath;
     });
-    fileItemIds[file.path] = `file:${file.path}`;
   }
 
-  compactSingleChildDirectories(items, ROOT_ID);
-  return { items, expandedItems: expandedItems.filter((index) => items[index] !== undefined), fileItemIds };
+  const folderItemIds = compactSingleChildDirectories(items, ROOT_ID);
+  return {
+    items,
+    expandedItems: expandedItems.filter((index) => items[index] !== undefined),
+    folderItemIds,
+  };
+}
+
+export function filterDiffTreeItems(items: Record<string, DiffTreeItem>, query: string) {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) return items;
+
+  // Keep the full tree's folder rows and counts. Search only hides nonmatching branches.
+  const filtered: Record<string, DiffTreeItem> = {};
+  const visit = (id: string): boolean => {
+    const item = items[id];
+    if (!item) return false;
+    if (item.isFolder) {
+      const children = item.children?.filter(visit) ?? [];
+      if (id !== ROOT_ID && children.length === 0) return false;
+      filtered[id] = { ...item, children };
+    } else {
+      if (!item.filePath?.toLowerCase().includes(normalizedQuery)) return false;
+      filtered[id] = item;
+    }
+    return true;
+  };
+  visit(ROOT_ID);
+  return filtered;
 }
 
 function resolveFileStatus(file?: DiffFile): WorkspaceDiffFileStatus {
@@ -168,9 +202,9 @@ function statusMark(status: WorkspaceDiffFileStatus, isFolder: boolean): ReactNo
 export function WorkspaceDiffFileTree({
   files,
   rootLabel,
-  activePath,
+  selection,
   discardBusy,
-  onSelectPath,
+  onSelectItem,
   onDiscardPath,
   workspacePath,
   onDeletePath,
@@ -192,18 +226,18 @@ export function WorkspaceDiffFileTree({
   }>();
   const menuRef = useRef<HTMLDivElement>(null);
   const [menuBox, setMenuBox] = useState<ContextMenuBox>();
-  const filteredFiles = useMemo(() => {
-    const normalizedQuery = deferredQuery.trim().toLowerCase();
-    if (!normalizedQuery) return files;
-    return files.filter((file) => file.path.toLowerCase().includes(normalizedQuery));
-  }, [files, deferredQuery]);
-  const tree = useMemo(() => buildDiffTree(filteredFiles, rootLabel), [filteredFiles, rootLabel]);
+  const tree = useMemo(() => buildDiffTree(files, rootLabel), [files, rootLabel]);
+  const visibleItems = useMemo(
+    () => filterDiffTreeItems(tree.items, deferredQuery),
+    [tree.items, deferredQuery],
+  );
   const expandedItems = useMemo(
     () => tree.expandedItems.filter((index) => !collapsedItems.includes(index)),
     [collapsedItems, tree.expandedItems],
   );
-  const selectedItemId = activePath ? tree.fileItemIds[activePath] : undefined;
-  const selectedItems = selectedItemId ? [selectedItemId] : [];
+  const selectedItemId =
+    selection?.kind === "directory" ? tree.folderItemIds.get(selection.path) : selection && `file:${selection.path}`;
+  const selectedItems = selectedItemId && visibleItems[selectedItemId] ? [selectedItemId] : [];
 
   useLayoutEffect(() => {
     if (!contextMenu || !menuRef.current) return;
@@ -286,12 +320,12 @@ export function WorkspaceDiffFileTree({
           </button>
         ) : null}
       </div>
-      {files.length === 0 || filteredFiles.length === 0 ? (
+      {!visibleItems[ROOT_ID]?.children?.length ? (
         <p className="workspace-diff-drawer-files-empty">{t("workspace.diff.noMatchingFiles")}</p>
       ) : (
         <div className="workspace-diff-tree__scroll" ref={scrollRef}>
           <WorkspaceExplorerTree
-            items={tree.items}
+            items={visibleItems}
             rootItem={ROOT_ID}
             expandedItems={expandedItems}
             selectedItems={selectedItems}
@@ -301,7 +335,9 @@ export function WorkspaceDiffFileTree({
               event.preventDefault();
               const treeItem = item as DiffTreeItem;
               setFocusedItem(item.index);
-              if (!treeItem.isFolder && treeItem.filePath) onSelectPath(treeItem.filePath);
+              if (!treeItem.isFolder && treeItem.filePath) {
+                onSelectItem({ kind: "file", path: treeItem.filePath });
+              }
               setContextMenu({
                 item: treeItem,
                 x: event.clientX,
@@ -342,6 +378,14 @@ export function WorkspaceDiffFileTree({
               return (
                 <>
                   {statusMark(status, Boolean(treeItem.isFolder))}
+                  {treeItem.isFolder && treeItem.changedFileCount ? (
+                    <span
+                      className="workspace-diff-tree__folder-count"
+                      title={t("workspace.diff.fileCount", { count: treeItem.changedFileCount })}
+                    >
+                      {treeItem.changedFileCount}
+                    </span>
+                  ) : null}
                   {treeItem.filePath && !treeItem.isFolder && onDiscardPath ? (
                     <button
                       type="button"
@@ -369,7 +413,12 @@ export function WorkspaceDiffFileTree({
             }}
             onSelectItem={(index) => {
               const selectedItem = tree.items[index];
-              if (selectedItem?.filePath) onSelectPath(selectedItem.filePath);
+              if (selectedItem?.filePath) {
+                onSelectItem({
+                  kind: selectedItem.isFolder ? "directory" : "file",
+                  path: selectedItem.filePath,
+                });
+              }
             }}
           />
         </div>

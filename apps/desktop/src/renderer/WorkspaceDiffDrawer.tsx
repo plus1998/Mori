@@ -1,4 +1,4 @@
-import { Diff, X } from "lucide-react";
+import { Diff, FolderOpen, X } from "lucide-react";
 import { Component, lazy, type ReactNode, Suspense, useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
@@ -6,6 +6,11 @@ import type { WorkspaceDiffResult, WorkspaceFileDiffResult } from "../shared/ipc
 import { i18n } from "./i18n";
 import { clearVitePreloadRecovery } from "./vite-preload-recovery";
 import { WorkspaceDiffFileTree } from "./WorkspaceDiffFileTree";
+import {
+  resolveWorkspaceDiffSelection,
+  summarizeWorkspaceDiffFolder,
+  type WorkspaceDiffSelection,
+} from "./workspace-diff-paths";
 import { loadCachedWorkspaceFileDiff, readCachedWorkspaceFileDiff } from "./workspace-review-cache";
 
 const GitDiffViewer = lazy(() =>
@@ -67,10 +72,10 @@ interface WorkspaceDiffDrawerProps {
   discardBusy?: boolean;
   error?: string;
   diff?: WorkspaceDiffResult;
-  selectedPath?: string;
+  selection?: WorkspaceDiffSelection;
   loadFileDiff?: LoadWorkspaceFileDiff;
   revision?: number;
-  onSelectPath: (path: string) => void;
+  onSelectItem: (selection: WorkspaceDiffSelection) => void;
   onDiscardPath?: (path: string) => void | Promise<void>;
   onDeletePath?: (path: string) => void | Promise<void>;
   onOpenContainingFolder?: (absolutePath: string) => void | Promise<void>;
@@ -85,12 +90,12 @@ export interface WorkspaceDiffPanelProps {
   discardBusy?: boolean;
   error?: string;
   diff?: WorkspaceDiffResult;
-  selectedPath?: string;
+  selection?: WorkspaceDiffSelection;
   loadFileDiff?: LoadWorkspaceFileDiff;
   showHeader?: boolean;
   /** Bump to drop the per-file diff cache (e.g. after a manual refresh). */
   revision?: number;
-  onSelectPath: (path: string) => void;
+  onSelectItem: (selection: WorkspaceDiffSelection) => void;
   onDiscardPath?: (path: string) => void | Promise<void>;
   onDeletePath?: (path: string) => void | Promise<void>;
   onOpenContainingFolder?: (absolutePath: string) => void | Promise<void>;
@@ -209,16 +214,43 @@ function WorkspaceDiffFilePreview({
   );
 }
 
+function WorkspaceDiffFolderPreview({
+  path,
+  summary: { fileCount, additions, deletions },
+}: {
+  path: string;
+  summary: ReturnType<typeof summarizeWorkspaceDiffFolder>;
+}) {
+  const { t } = useTranslation();
+  return (
+    <div className="workspace-diff-empty-state workspace-diff-folder-summary" role="status">
+      <FolderOpen className="workspace-diff-folder-summary__icon" size={48} strokeWidth={1.25} aria-hidden />
+      <p className="workspace-diff-empty-state__title">{t("workspace.diff.folderChanges")}</p>
+      <p className="workspace-diff-folder-summary__path" title={path}>
+        {path}
+      </p>
+      <p className="workspace-diff-folder-summary__file-count">
+        {t("workspace.diff.fileCount", { count: fileCount })}
+      </p>
+      <div className="workspace-diff-folder-summary__stats" title={t("git.commit.changedLines")}>
+        <span className="diff-stat-add">+{formatDiffStat(additions)}</span>
+        <span className="diff-stat-del">-{formatDiffStat(deletions)}</span>
+      </div>
+      <p className="workspace-diff-empty-state__hint">{t("workspace.diff.folderChangesHint")}</p>
+    </div>
+  );
+}
+
 export function WorkspaceDiffPanel({
   loading,
   discardBusy = false,
   error,
   diff,
-  selectedPath,
+  selection,
   loadFileDiff,
   showHeader = false,
   revision = 0,
-  onSelectPath,
+  onSelectItem,
   onDiscardPath,
   onDeletePath,
   onOpenContainingFolder,
@@ -229,11 +261,13 @@ export function WorkspaceDiffPanel({
 }: WorkspaceDiffPanelProps) {
   const { t } = useTranslation();
   const files = diff?.files ?? [];
-  const activePath = selectedPath ?? files[0]?.path;
-  const activeFile = files.find((file) => file.path === activePath);
-  const listRevision = `${revision}|${files
-    .map((file) => `${file.path}:${file.additions}:${file.deletions}:${file.status}`)
-    .join("|")}`;
+  const activeSelection = selection ?? resolveWorkspaceDiffSelection(files);
+  const activeFile =
+    activeSelection?.kind === "file" ? files.find((file) => file.path === activeSelection.path) : undefined;
+  const activeFolder =
+    activeSelection?.kind === "directory"
+      ? { path: activeSelection.path, summary: summarizeWorkspaceDiffFolder(files, activeSelection.path) }
+      : undefined;
 
   return (
     <>
@@ -296,9 +330,9 @@ export function WorkspaceDiffPanel({
                 {...(diff?.workspacePath && {
                   rootLabel: diff.workspacePath.split(/[\\/]/).filter(Boolean).slice(-2).join(" / "),
                 })}
-                {...(activePath && { activePath })}
+                {...(activeSelection && { selection: activeSelection })}
                 discardBusy={discardBusy}
-                onSelectPath={onSelectPath}
+                onSelectItem={onSelectItem}
                 {...(diff?.workspacePath && { workspacePath: diff.workspacePath })}
                 {...(onDiscardPath && { onDiscardPath })}
                 {...(onDeletePath && { onDeletePath })}
@@ -319,16 +353,22 @@ export function WorkspaceDiffPanel({
                   <p className="workspace-diff-empty-state__title">{t("workspace.diff.emptyTitle")}</p>
                   <p className="workspace-diff-empty-state__hint">{t("workspace.diff.emptyHint")}</p>
                 </div>
-              ) : activePath ? (
+              ) : activeFile ? (
                 <WorkspaceDiffFilePreview
                   {...(diff?.workspacePath && { workspacePath: diff.workspacePath })}
                   listRevision={
-                    activeFile?.revision !== undefined ? `${revision}:${activeFile.revision}` : listRevision
+                    activeFile.revision !== undefined
+                      ? `${revision}:${activeFile.revision}`
+                      : `${revision}|${files
+                          .map((file) => `${file.path}:${file.additions}:${file.deletions}:${file.status}`)
+                          .join("|")}`
                   }
-                  activePath={activePath}
-                  {...(activeFile && { activeFile })}
+                  activePath={activeFile.path}
+                  activeFile={activeFile}
                   {...(loadFileDiff && { loadFileDiff })}
                 />
+              ) : activeFolder?.summary.fileCount ? (
+                <WorkspaceDiffFolderPreview {...activeFolder} />
               ) : (
                 <p className="workspace-diff-empty">{t("workspace.diff.selectFile")}</p>
               )}
@@ -346,10 +386,10 @@ export function WorkspaceDiffDrawer({
   discardBusy = false,
   error,
   diff,
-  selectedPath,
+  selection,
   loadFileDiff,
   revision = 0,
-  onSelectPath,
+  onSelectItem,
   onDiscardPath,
   onDeletePath,
   onOpenContainingFolder,
@@ -390,11 +430,11 @@ export function WorkspaceDiffDrawer({
           discardBusy={discardBusy}
           {...(error && { error })}
           {...(diff && { diff })}
-          {...(selectedPath && { selectedPath })}
+          {...(selection && { selection })}
           {...(loadFileDiff && { loadFileDiff })}
           showHeader
           revision={revision}
-          onSelectPath={onSelectPath}
+          onSelectItem={onSelectItem}
           {...(onDeletePath && { onDeletePath })}
           {...(onOpenContainingFolder && { onOpenContainingFolder })}
           {...(onDiscardPath && { onDiscardPath })}

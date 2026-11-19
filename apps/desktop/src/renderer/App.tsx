@@ -588,6 +588,7 @@ import {
   shouldRefreshWorkspaceGitStatus,
   type WorkspaceGitStatusCache,
 } from "./workspace-git-status-cache";
+import { resolveWorkspaceDiffSelection, type WorkspaceDiffSelection } from "./workspace-diff-paths";
 import {
   cacheWorkspaceReviewSummary,
   invalidateWorkspaceReviewSummary,
@@ -2494,7 +2495,7 @@ function App() {
   const [reviewDiff, setReviewDiff] = useState<WorkspaceDiffResult>();
   const [reviewDiffLoading, setReviewDiffLoading] = useState(false);
   const [reviewDiffError, setReviewDiffError] = useState<string>();
-  const [reviewSelectedPath, setReviewSelectedPath] = useState<string>();
+  const [reviewSelection, setReviewSelection] = useState<WorkspaceDiffSelection>();
   const [reviewDiffRevision, setReviewDiffRevision] = useState(0);
   const [reviewDiscardBusy, setReviewDiscardBusy] = useState(false);
   const reviewDiffRequestRef = useRef(0);
@@ -4258,7 +4259,7 @@ function App() {
     setReviewDiff(activeWorkspacePath ? readWorkspaceReviewSummary(activeWorkspacePath) : undefined);
     setReviewDiffLoading(false);
     setReviewDiffError(undefined);
-    setReviewSelectedPath(undefined);
+    setReviewSelection(undefined);
   }, [activeWorkspacePath]);
   const updateProjectTerminal = useCallback((workspacePath: string, next: ProjectTerminalState) => {
     setTerminalByProject((current) => ({
@@ -10185,9 +10186,7 @@ function App() {
         setReviewDiffRevision((current) => current + 1);
       }
       setReviewDiffError(diff.watchError);
-      setReviewSelectedPath((current) =>
-        current && diff.files.some((file) => file.path === current) ? current : diff.files[0]?.path,
-      );
+      setReviewSelection((current) => resolveWorkspaceDiffSelection(diff.files, current));
       if (!activeWorkspacePath || !window.eco) {
         return;
       }
@@ -10224,7 +10223,7 @@ function App() {
       return;
     }
     setReviewDiff(undefined);
-    setReviewSelectedPath(undefined);
+    setReviewSelection(undefined);
   }, []);
 
   const refreshReviewDiff = useCallback(async () => {
@@ -12549,7 +12548,7 @@ function App() {
             {...(reviewDiff && { reviewDiff })}
             reviewLoading={reviewDiffLoading}
             {...(reviewDiffError && { reviewError: reviewDiffError })}
-            {...(reviewSelectedPath && { reviewSelectedPath })}
+            {...(reviewSelection && { reviewSelection })}
             reviewRevision={reviewDiffRevision}
             onRefreshReview={requestReviewDiffRefresh}
             reviewDiscardBusy={reviewDiscardBusy}
@@ -12625,7 +12624,7 @@ function App() {
               setSelectedSubagentAgentId(undefined);
             }}
             onNewBrowserTab={openBrowserTaskPanel}
-            onSelectReviewPath={setReviewSelectedPath}
+            onSelectReviewItem={setReviewSelection}
             onOpenTerminalTask={(task) => void openBackgroundTerminalTask(task)}
             onStopTerminalTask={(task) => void stopBackgroundTerminalTask(task)}
             sshBookmarks={sshBookmarks}

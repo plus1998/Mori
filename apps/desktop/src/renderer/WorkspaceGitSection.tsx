@@ -29,6 +29,7 @@ import { GitPullConflictDialog } from "./GitPullConflictDialog";
 import { ICON_SIZE, ICON_STROKE } from "./icon-metrics";
 import { OverflowFadeText } from "./OverflowFadeText";
 import { useEcoWorkspaceFileDiffLoader, WorkspaceDiffDrawer } from "./WorkspaceDiffDrawer";
+import { resolveWorkspaceDiffSelection, type WorkspaceDiffSelection } from "./workspace-diff-paths";
 import { getWorkspaceGitCommitEntryLabel, useWorkspaceGitAction } from "./workspace-git-action-store";
 
 export interface WorkspaceGitSectionProps {
@@ -129,7 +130,7 @@ export function WorkspaceGitSection({
   const changesRequestRef = useRef(0);
   const reloadChangesDiffRef = useRef<() => Promise<void>>(async () => undefined);
   changesDiffRef.current = changesDiff;
-  const [selectedChangePath, setSelectedChangePath] = useState<string | undefined>();
+  const [changeSelection, setChangeSelection] = useState<WorkspaceDiffSelection>();
   const [discardBusy, setDiscardBusy] = useState(false);
   const [remoteSyncOperation, setRemoteSyncOperation] = useState<"fetch" | "pull">();
   const [pullConflict, setPullConflict] = useState<string[] | undefined>();
@@ -292,7 +293,7 @@ export function WorkspaceGitSection({
     };
   }, [branchMenuOpen, closeBranchMenu]);
 
-  async function reloadChangesDiff(preferredPath?: string, options?: { manual?: boolean }) {
+  async function reloadChangesDiff(options?: { manual?: boolean }) {
     if (!workspacePath || !window.eco) {
       return;
     }
@@ -310,11 +311,7 @@ export function WorkspaceGitSection({
         // A manual refresh must also drop the cached per-file diffs.
         setChangesRevision((current) => current + 1);
       }
-      const nextPath =
-        preferredPath && result.files.some((file) => file.path === preferredPath)
-          ? preferredPath
-          : result.files[0]?.path;
-      setSelectedChangePath(nextPath);
+      setChangeSelection((current) => resolveWorkspaceDiffSelection(result.files, current));
       await onChangesDiffLoaded?.(result);
     } catch (caught) {
       if (requestId !== changesRequestRef.current || latestWorkspacePathRef.current !== currentWorkspace) return;
@@ -323,7 +320,7 @@ export function WorkspaceGitSection({
       onChangesDiffError?.(message);
       if (!changesDiffRef.current) {
         setChangesDiff(undefined);
-        setSelectedChangePath(undefined);
+        setChangeSelection(undefined);
       }
     } finally {
       if (requestId === changesRequestRef.current && latestWorkspacePathRef.current === currentWorkspace) {
@@ -332,7 +329,7 @@ export function WorkspaceGitSection({
       }
     }
   }
-  reloadChangesDiffRef.current = () => reloadChangesDiff(selectedChangePath);
+  reloadChangesDiffRef.current = () => reloadChangesDiff();
 
   useEffect(() => {
     if (!workspacePath || !changesDrawerOpen || !window.eco?.onGitDiffChanged) return;
@@ -345,11 +342,11 @@ export function WorkspaceGitSection({
 
   async function syncWorkspaceChangesState() {
     if (changesDrawerOpen) {
-      await reloadChangesDiff(selectedChangePath);
+      await reloadChangesDiff();
       return;
     }
     setChangesDiff(undefined);
-    setSelectedChangePath(undefined);
+    setChangeSelection(undefined);
   }
 
   async function handleCommitSuccess(operationWorkspacePath: string) {
@@ -422,7 +419,7 @@ export function WorkspaceGitSection({
     }
     setChangesDrawerOpen(true);
     if (!changesLoading) {
-      await reloadChangesDiff(selectedChangePath);
+      await reloadChangesDiff();
     }
   }
 
@@ -778,13 +775,13 @@ export function WorkspaceGitSection({
         discardBusy={discardBusy}
         {...(changesError && { error: changesError })}
         {...(changesDiff && { diff: changesDiff })}
-        {...(selectedChangePath && { selectedPath: selectedChangePath })}
+        {...(changeSelection && { selection: changeSelection })}
         loadFileDiff={loadFileDiff}
         revision={changesRevision}
-        onSelectPath={setSelectedChangePath}
+        onSelectItem={setChangeSelection}
         onDiscardPath={(path) => void handleDiscardChange(path)}
         onDiscardAll={() => void handleDiscardAllChanges()}
-        onRefresh={() => void reloadChangesDiff(selectedChangePath, { manual: true })}
+        onRefresh={() => void reloadChangesDiff({ manual: true })}
         onClose={closeChangesDrawer}
       />
 
