@@ -11,9 +11,10 @@ import {
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import type { WorkspaceDiffFileStatus, WorkspaceDiffResult } from "../shared/ipc";
+import { type ContextMenuBox, contextMenuBoxForPoint } from "./context-menu-layout";
 import { MaterialFileIcon } from "./MaterialFileIcon";
 import { type ExplorerTreeItem, WorkspaceExplorerTree } from "./WorkspaceExplorerTree";
-import { type ContextMenuBox, contextMenuBoxForPoint } from "./context-menu-layout";
+import { startWorkspaceFileDrag } from "./workspace-file-drag";
 
 const ROOT_ID = "__workspace-diff-root__";
 
@@ -37,6 +38,13 @@ interface WorkspaceDiffFileTreeProps {
   /** Manual reload of the changed-file list; omit to hide the refresh button. */
   onRefresh?: () => void | Promise<void>;
   refreshing?: boolean;
+}
+
+function absoluteWorkspaceFilePath(workspacePath: string, filePath: string): string {
+  const root = workspacePath.replace(/[\\/]+$/, "");
+  const relativePath = filePath.replace(/^[/\\]+/, "");
+  const separator = root.includes("\\") ? "\\" : "/";
+  return `${root}${separator}${relativePath.replace(/[\\/]/g, separator)}`;
 }
 
 function compactSingleChildDirectories(items: Record<string, DiffTreeItem>, rootId: string): void {
@@ -316,6 +324,18 @@ export function WorkspaceDiffFileTree({
                 />
               );
             }}
+            {...(workspacePath
+              ? {
+                  onDragFile: (event, item) => {
+                    const treeItem = item as DiffTreeItem;
+                    if (!treeItem.filePath || treeItem.isFolder) return;
+                    startWorkspaceFileDrag(
+                      event.dataTransfer,
+                      absoluteWorkspaceFilePath(workspacePath, treeItem.filePath),
+                    );
+                  },
+                }
+              : {})}
             renderTrailing={(item) => {
               const treeItem = item as DiffTreeItem;
               const status = resolveFileStatus(treeItem.file);
