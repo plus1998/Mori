@@ -49,10 +49,34 @@
           "callId": null
         },
         {
+          "text": "<text#e76d4ea9ad:len96>",
+          "role": "thinking",
+          "at": null,
+          "callId": null
+        },
+        {
+          "text": "<text#164c560edb:len16>",
+          "role": "coder",
+          "at": null,
+          "callId": null
+        },
+        {
           "role": "coder",
           "at": null,
           "callId": "call_781dea30831648c2b73bd04d|item_004f70bb9b186b028ea18e87",
           "status": "tool.failed"
+        },
+        {
+          "text": "<text#472396c53f:len348>",
+          "role": "thinking",
+          "at": null,
+          "callId": null
+        },
+        {
+          "text": "<text#335e4d3f0f:len63>",
+          "role": "coder",
+          "at": null,
+          "callId": null
         },
         {
           "role": "tool",
@@ -61,16 +85,46 @@
           "status": "tool.completed"
         },
         {
+          "text": "<text#8144ae580d:len65>",
+          "role": "thinking",
+          "at": null,
+          "callId": null
+        },
+        {
+          "text": "<text#013d4c622c:len19>",
+          "role": "coder",
+          "at": null,
+          "callId": null
+        },
+        {
           "role": "tool",
           "at": null,
           "callId": "call_73e26d118e1743c0bdb55da7|item_da1a3ef07a4ec468cdaa98c0",
           "status": "tool.completed"
         },
         {
+          "text": "<text#1b903e88e4:len34>",
+          "role": "thinking",
+          "at": null,
+          "callId": null
+        },
+        {
           "role": "tool",
           "at": null,
           "callId": "call_fbddd553af0f4ef591f6c90d|item_107e95d1f860440d1318d954",
           "status": "tool.completed"
+        },
+        {
+          "text": "<text#82d61d6bc9:len457>",
+          "role": "thinking",
+          "at": null,
+          "callId": null
+        },
+        {
+          "text": "<text#521fb50b89:len452>",
+          "role": "coder",
+          "at": null,
+          "callId": null
         }
       ]
     },
@@ -90,16 +144,40 @@
           "callId": null
         },
         {
+          "text": "<text#91a74fcb86:len109>",
+          "role": "thinking",
+          "at": null,
+          "callId": null
+        },
+        {
           "role": "tool",
           "at": null,
           "callId": "call_a5bb9642f4cb4203b1b8fcd2|item_78cde3c45fb2bc184a2a85dc",
           "status": "tool.completed"
         },
         {
+          "text": "<text#4e1600995c:len318>",
+          "role": "thinking",
+          "at": null,
+          "callId": null
+        },
+        {
           "role": "tool",
           "at": null,
           "callId": "call_a3e3864e3fcf4cc8abfdbf3c|item_3e4ba74e464fda504c58f5e3",
           "status": "tool.completed"
+        },
+        {
+          "text": "<text#cc669f38c1:len86>",
+          "role": "thinking",
+          "at": null,
+          "callId": null
+        },
+        {
+          "text": "<text#20531308f2:len387>",
+          "role": "coder",
+          "at": null,
+          "callId": null
         }
       ]
     }

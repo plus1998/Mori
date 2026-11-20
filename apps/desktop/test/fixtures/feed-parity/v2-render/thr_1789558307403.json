@@ -97,10 +97,28 @@
           "callId": null
         },
         {
+          "text": "<text#ae3c4dd2f6:len308>",
+          "role": "thinking",
+          "at": null,
+          "callId": null
+        },
+        {
           "role": "coder",
           "at": null,
           "callId": "call_59c6f399cc694688864f108c",
           "status": "tool.completed"
+        },
+        {
+          "text": "<text#4a1228cfe3:len999>",
+          "role": "thinking",
+          "at": null,
+          "callId": null
+        },
+        {
+          "text": "<text#b49e3d7e9a:len493>",
+          "role": "coder",
+          "at": null,
+          "callId": null
         }
       ]
     },
@@ -120,10 +138,28 @@
           "callId": null
         },
         {
+          "text": "<text#b03c6897d4:len118>",
+          "role": "thinking",
+          "at": null,
+          "callId": null
+        },
+        {
           "role": "coder",
           "at": null,
           "callId": "call_c7f18aafe002459ab3f0c1c2",
           "status": "tool.completed"
+        },
+        {
+          "text": "<text#87cc93f5c9:len69>",
+          "role": "thinking",
+          "at": null,
+          "callId": null
+        },
+        {
+          "text": "<text#09cf315a88:len302>",
+          "role": "coder",
+          "at": null,
+          "callId": null
         }
       ]
     },

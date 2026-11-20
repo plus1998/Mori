@@ -1015,7 +1015,6 @@ export function buildConversationV2OnlyProjection(
 
   const messagesByAgent = new Map<string, ThreadRunProjectionTimelineItem[]>();
   const mainTimeline: ThreadRunProjectionTimelineItem[] = [];
-  const renderedAgentNarration = new Set<string>();
   for (const message of orderedConversationV2Messages(conversationV2)) {
     // `message.accepted` is the durable acknowledgement of a user send. The
     // queue panel owns this row until the runtime finalizes it; otherwise the
@@ -1025,23 +1024,6 @@ export function buildConversationV2OnlyProjection(
     }
     const ownerAgentId = message.agentId?.trim();
     const agentId = ownerAgentId && cardAgentIds.has(ownerAgentId) ? ownerAgentId : undefined;
-    const agentRecord = agentId ? registry.get(agentId) : undefined;
-    // Subagent thinking is represented by the card's live state and is not part of
-    // the durable card transcript. The legacy Feed keeps the first agent narration
-    // as the card's narrative and renders the rest of the work through tool rows.
-    if (
-      agentId &&
-      message.channel === "thinking" &&
-      (agentRecord?.role === "coder" || agentRecord?.role === "explore")
-    ) {
-      continue;
-    }
-    if (agentId && message.channel !== "thinking" && renderedAgentNarration.has(agentId)) {
-      continue;
-    }
-    if (agentId && message.channel !== "thinking") {
-      renderedAgentNarration.add(agentId);
-    }
     const item = conversationV2MessageToTimelineItem(message, message.occurredAt ?? at);
     if (!agentId) {
       mainTimeline.push(item);

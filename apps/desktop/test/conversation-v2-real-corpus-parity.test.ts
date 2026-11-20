@@ -37,7 +37,8 @@ import { type Corpus, corpusChainShapes, loadCorpus } from "./support/v2-corpus"
  *    it was working for), and it does not depend on either chain's placement heuristics.
  * 2. **The main feed matches, row for row, in order.** Reportedly the hardest thing to get
  *    right and the thing a reader notices first.
- * 3. **The cards hold the same rows**, as a multiset per card, and **V2 is coherent on its
+ * 3. **Cards retain the old rows and ground any extra text in the owner’s recorded events**,
+ *    and **V2 is coherent on its
  *    own terms**: an agent-owned row is in that agent's card and not in the main feed;
  *    every rendered row carries the time it happened; sections and cards are in
  *    non-decreasing time order; a prompt the reader typed appears once.
@@ -54,6 +55,9 @@ import { type Corpus, corpusChainShapes, loadCorpus } from "./support/v2-corpus"
  *   prompt exactly once.
  * - **Agent-owned rows overflow into the main feed** in the old chain (the reported bug).
  *   They stay compared — as card rows — so a row that moved is never a row that vanished.
+ * - **Subagent transcript rows**: the legacy projection can omit agent-owned messages and
+ *   thinking. Extra V2 card rows are checked against the original events for that same agent,
+ *   rather than treating the legacy rendering as the complete log.
  * - **Times of tool rows**: the old chain positions read-model rows by "nearest surviving
  *   sibling", an approximation by construction. Tool rows are therefore compared by call
  *   identity and order, and V2's own rows are checked against the clock. Message rows are
@@ -145,6 +149,27 @@ function difference(left: readonly string[], right: readonly string[]): string[]
   return out;
 }
 
+/** Recorded message/thinking content owned by exactly this agent, including finalized streams. */
+function recordedAgentContent(conversation: Corpus["conversations"][number], agentId: string): string[] {
+  return dedupe((conversation.events as LegacyRow[])
+    .filter((row) => row.scope === "agent" && row.agent_id === agentId &&
+      /^(message|thinking)\.(delta|final)$/.test(row.event_type) && Boolean(row.message?.trim()))
+    .flatMap((row) => {
+      const role = normalizeAgentRole(row.role ?? "");
+      const text = row.message!.trim();
+      return role === "thinking"
+        ? text.split("\n\n").map((block) => `thinking|${block.trim()}`).filter((token) => token !== "thinking|")
+        : [`${role}|${text}`];
+    }));
+}
+
+test("recorded subagent content is tied to its owner and message event", () => {
+  const conversation = corpus.conversations.find((entry) => entry.conversationId === "thr_1789559384838")!;
+  expect(recordedAgentContent(conversation, "pi_coder_d3512353")).toContain("thinking|<text#e76d4ea9ad:len96>");
+  expect(recordedAgentContent(conversation, "pi_coder_d3512353")).toContain("coder|<text#013d4c622c:len19>");
+  expect(recordedAgentContent(conversation, "unrelated-agent")).toEqual([]);
+});
+
 // A conversation of a thousand rows is migrated, paged and rendered twice per test; the
 // default five seconds is a property of the machine, not of the record being compared.
 const CORPUS_TEST_TIMEOUT_MS = 60_000;
@@ -159,9 +184,10 @@ for (const conversation of corpus.conversations) {
 
   corpusTest(`${label}: V2 invents nothing`, () => {
     const { old, current } = corpusChainShapes(conversation);
-    // This direction has no explanation available at all: a row V2 draws that the log never
-    // had is fabricated. The other direction is checked row by row, below.
-    expect(difference(contentTokens(allRows(current)), contentTokens(allRows(old)))).toEqual([]);
+    // The legacy renderer can omit subagent text. Extra V2 content must still be present
+    // in that card owner's original message or thinking events; it cannot be fabricated.
+    const recorded = current.cards.flatMap((card) => recordedAgentContent(conversation, card.key));
+    expect(difference(contentTokens(allRows(current)), [...contentTokens(allRows(old)), ...recorded])).toEqual([]);
   });
 
   corpusTest(`${label}: every row V2 does not draw is recorded as something else`, () => {
@@ -274,7 +300,7 @@ for (const conversation of corpus.conversations) {
     expect(misplaced).toEqual([]);
   });
 
-  corpusTest(`${label}: the cards hold the same rows`, () => {
+  corpusTest(`${label}: the cards preserve recorded rows`, () => {
     const { old, current } = corpusChainShapes(conversation);
     // Cards are matched by the agent they are for, not by the order the projection lists
     // them in: the Feed sorts cards by their spawn anchor, which is a separate concern.
@@ -287,8 +313,8 @@ for (const conversation of corpus.conversations) {
       const oldCard = oldByKey.get(key);
       expect(`${card.role}:${card.status}`).toBe(`${oldCard?.role}:${oldCard?.status}`);
       const oldTokens = contentTokens(oldCard?.timeline ?? []);
-      // The card must not invent a row either.
-      expect(difference(contentTokens(card.timeline), oldTokens)).toEqual([]);
+      // Additional card text must belong to this agent in the original event log.
+      expect(difference(contentTokens(card.timeline), [...oldTokens, ...recordedAgentContent(conversation, key)])).toEqual([]);
       for (const token of difference(oldTokens, contentTokens(card.timeline))) {
         const explained = explainToken(conversation, token);
         if (!explained) {
