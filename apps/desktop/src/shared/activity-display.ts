@@ -373,7 +373,11 @@ export interface WebSearchCardDisplay {
 }
 
 export function isNetworkToolName(toolName: string | undefined): boolean {
-  return toolName === "WebSearch" || toolName === "WebFetch" || isEcoWebSearchToolName(normalizeStoredMoriMcpName(toolName));
+  return (
+    toolName === "WebSearch" ||
+    toolName === "WebFetch" ||
+    (toolName !== undefined && isEcoWebSearchToolName(normalizeStoredMoriMcpName(toolName)))
+  );
 }
 
 export function resolveWebSearchCardDisplay(
