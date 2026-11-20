@@ -1345,7 +1345,7 @@ test("ActivityLogView keeps a running attempt process expanded without final out
   expect(html).not.toContain('class="run-log-turn-final"');
 });
 
-test("mid-turn prompts share one heading while only running turns stay expanded", () => {
+test("mid-turn prompts share one status heading and keep their tool history accessible", () => {
   for (const status of ["running", "completed", "cancelled", "failed"] as const) {
     const timeline = [
       item({
@@ -1375,8 +1375,17 @@ test("mid-turn prompts share one heading while only running turns stay expanded"
         metadata: { liveType: "thread.user_prompt" },
       }),
       item({
-        id: "output-mid",
+        id: "tool-mid",
         sequence: 5,
+        eventType: "tool.completed",
+        text: "Tool: Bash",
+        runAttemptId: "attempt-midturn",
+        at: "2026-01-01T00:00:03.500Z",
+        metadata: { tool: { name: "Bash", toolUseId: "bash-mid", status: "completed" } },
+      }),
+      item({
+        id: "output-mid",
+        sequence: 6,
         eventType: "message.final",
         text: "继续检查第一条要求。",
         runAttemptId: "attempt-midturn",
@@ -1385,7 +1394,7 @@ test("mid-turn prompts share one heading while only running turns stay expanded"
       item({
         id: "user-mid-2",
         eventType: "thread.status",
-        sequence: 6,
+        sequence: 7,
         role: "user",
         text: "补充第二条要求",
         at: "2026-01-01T00:00:05.000Z",
@@ -1393,7 +1402,7 @@ test("mid-turn prompts share one heading while only running turns stay expanded"
       }),
       item({
         id: "output-mid-2",
-        sequence: 7,
+        sequence: 8,
         eventType: "message.final",
         text: "继续检查第二条要求。",
         runAttemptId: "attempt-midturn",
@@ -1417,24 +1426,23 @@ test("mid-turn prompts share one heading while only running turns stay expanded"
       }),
     );
 
-    // Mid-turn prompts keep the output ordered after the inserted user bubble,
-    // but all segments belong to one attempt and therefore share one heading.
-    expect(html.match(/class="run-log-turn-toggle"/g)?.length).toBe(1);
     if (status === "running") {
+      expect(html.match(/class="run-log-turn-toggle"/g)?.length).toBe(1);
       expect(html.match(/run-log-turn-status">处理中/g)?.length).toBe(1);
       expect(html.match(/is-expanded is-continuation/g)?.length).toBe(2);
       expect(html).toContain("先检查代码。");
       expect(html).toContain("继续检查第一条要求。");
       expect(html).toContain("继续检查第二条要求。");
-      expect(html.indexOf("补充第一条要求")).toBeLessThan(html.indexOf("继续检查第一条要求。"));
-      expect(html.indexOf("补充第二条要求")).toBeLessThan(html.indexOf("继续检查第二条要求。"));
     } else {
+      expect(html.match(/class="run-log-turn-toggle"/g)?.length).toBe(2);
       if (status === "completed") {
         expect(html.match(/run-log-turn-status">已处理/g)?.length).toBe(1);
       } else {
         expect(html.match(/run-log-turn-status">.*?停止/g)?.length).toBe(1);
       }
-      expect(html.match(/is-continuation/g)?.length).toBe(2);
+      const continuationToggle = 'aria-expanded="false" aria-controls="turn-process-turn-attempt-midturn-after-4"';
+      expect(html).toContain(`${continuationToggle}><span class="run-log-turn-heading"><span class="run-log-turn-status">执行过程</span>`);
+      expect(html).not.toContain('aria-controls="turn-process-turn-attempt-midturn-after-7"');
       expect(html.match(/aria-label="执行过程" aria-hidden="true"/g)?.length).toBe(3);
     }
     expect(html.indexOf("补充第一条要求")).toBeLessThan(html.indexOf("继续检查第一条要求。"));

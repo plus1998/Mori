@@ -2147,8 +2147,6 @@ function ConversationV2ProjectionActivityLogViewImpl({
     () => reconcileFeedSections(buildThreadRunTurnFeedSections(viewModel.mainFeedEntries, projection)),
     [projection, viewModel.mainFeedEntries, reconcileFeedSections],
   );
-  // Mid-turn segments are separate disclosures. Keep expansion with the visible
-  // section so a later prompt cannot reveal tools from the earlier segment.
   const [expandedTurns, setExpandedTurns] = useState<ReadonlySet<string>>(() => new Set());
   // A mid-turn attempt is rendered as several visible sections. Expansion belongs
   // to the section key, otherwise opening a later segment also reveals earlier
@@ -2674,10 +2672,6 @@ function ProjectionTurnFeedSection({
     <RunLogTurnSection
       turnKey={section.key}
       running={section.running}
-      // A mid-turn prompt splits the feed segment so the following output stays
-      // after that prompt. The segments still belong to one attempt, so only the
-      // first segment owns the disclosure heading.
-      showHeading={!section.continuation}
       continuation={Boolean(section.continuation)}
       expanded={expanded}
       onExpandedChange={onExpandedChange}
@@ -2708,7 +2702,6 @@ function ProjectionTurnFeedSection({
 function RunLogTurnSection({
   turnKey,
   running,
-  showHeading = true,
   continuation = false,
   expanded: controlledExpanded,
   onExpandedChange,
@@ -2727,7 +2720,6 @@ function RunLogTurnSection({
 }: {
   turnKey: string;
   running: boolean;
-  showHeading?: boolean;
   continuation?: boolean;
   expanded?: boolean;
   onExpandedChange?: (expanded: boolean) => void;
@@ -2751,9 +2743,12 @@ function RunLogTurnSection({
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | undefined>();
   const [detailLoadedLocally, setDetailLoadedLocally] = useState(false);
-  const measuredDurationMs = useTurnDurationMs(startedAt, endedAt, running);
+  // Only the first segment owns the attempt's status and timer. Once the run
+  // settles, each continuation can disclose its own process rows.
+  const showHeading = !continuation || (!running && !processEmpty);
+  const measuredDurationMs = useTurnDurationMs(startedAt, endedAt, running && !continuation);
   const durationMs = Math.max(measuredDurationMs, projectedDurationMs);
-  const headingLabel = continuation && !running
+  const headingLabel = continuation
     ? i18n.t("activity.process")
     : formatRunLogTurnHeading(running, status, durationMs, stopping);
   const contentId = `turn-process-${turnKey.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
