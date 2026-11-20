@@ -2070,7 +2070,7 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .thread-info-workspac
   top: calc(100% + 6px);
   right: 0;
   z-index: 240;
-  min-width: 148px;
+  min-width: 180px;
   padding: 6px;
   border: 1px solid #4a4a4a;
   border-radius: 12px;
@@ -2091,6 +2091,7 @@ html[data-platform="win32"][data-windows-backdrop="win11"] .thread-info-workspac
   font-size: 13px;
   font-weight: 500;
   text-align: left;
+  white-space: nowrap;
 }
 
 .project-menu-item svg {
