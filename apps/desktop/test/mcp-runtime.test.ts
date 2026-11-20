@@ -61,7 +61,7 @@ test("prepareMcpSdkConfigForRuntime enriches http MCP servers", () => {
 test("prepareMcpSdkConfigForRuntime preserves explicit Claude tool-call timeout", () => {
   const prepared = prepareMcpSdkConfigForRuntime({
     mcpServers: {
-      eco_image_generation: {
+      mori_image_generation: {
         type: "stdio",
         command: process.execPath,
         args: ["stdio.mjs"],
@@ -71,7 +71,7 @@ test("prepareMcpSdkConfigForRuntime preserves explicit Claude tool-call timeout"
     },
     allowedTools: [],
   });
-  const entry = prepared.mcpServers.eco_image_generation as Record<string, unknown>;
+  const entry = prepared.mcpServers.mori_image_generation as Record<string, unknown>;
   expect(entry.timeout).toBe(600_000);
   expect(entry.requestTimeoutMs).toBe(600_000);
 });
@@ -81,7 +81,7 @@ test("prepareCodexGlobalMcpServerPool preserves toolTimeoutSec from builtins", a
     configuredServers: [],
     builtinServerResolvers: [
       () => ({
-        name: "eco_image_generation",
+        name: "mori_image_generation",
         transport: "stdio",
         command: process.execPath,
         startupTimeoutSec: 60,
@@ -97,7 +97,7 @@ test("global Codex MCP pool includes built-ins and lets trusted definitions win"
     configuredServers: [
       { name: "docs", transport: "http", url: "https://example.com/mcp" },
       {
-        name: "eco_agent_browser",
+        name: "mori_agent_browser",
         transport: "stdio",
         command: process.execPath,
         env: { SOURCE: "user" },
@@ -105,13 +105,13 @@ test("global Codex MCP pool includes built-ins and lets trusted definitions win"
     ],
     builtinServerResolvers: [
       () => ({
-        name: "eco_agent_browser",
+        name: "mori_agent_browser",
         transport: "stdio",
         command: process.execPath,
         env: { SOURCE: "builtin" },
       }),
       async () => ({
-        name: "eco_image_generation",
+        name: "mori_image_generation",
         transport: "stdio",
         command: process.execPath,
       }),
@@ -120,8 +120,8 @@ test("global Codex MCP pool includes built-ins and lets trusted definitions win"
 
   expect(prepared.map((server) => server.name)).toEqual([
     "docs",
-    "eco_agent_browser",
-    "eco_image_generation",
+    "mori_agent_browser",
+    "mori_image_generation",
   ]);
-  expect(prepared.find((server) => server.name === "eco_agent_browser")?.env?.SOURCE).toBe("builtin");
+  expect(prepared.find((server) => server.name === "mori_agent_browser")?.env?.SOURCE).toBe("builtin");
 });

@@ -1,4 +1,5 @@
-import { isEcoImageViewToolName } from "@eco/runtime/eco-image-view-names";
+import { isEcoImageViewToolName } from "@eco/runtime/mori-image-view-names";
+import { normalizeStoredMoriMcpName } from "@eco/shared";
 import { createToolOutputPreview } from "@eco/runtime/tool-output-preview";
 import {
   parseThreadRunCodemodeMetadata,
@@ -16,7 +17,9 @@ import {
  */
 export function keepsOutputPreview(name: string): boolean {
   return (
-    name === "Bash" || isEcoImageViewToolName(name) || name.trim().toLowerCase() === PI_CODEMODE_TOOL_NAME
+    name === "Bash" ||
+    isEcoImageViewToolName(normalizeStoredMoriMcpName(name)) ||
+    name.trim().toLowerCase() === PI_CODEMODE_TOOL_NAME
   );
 }
 

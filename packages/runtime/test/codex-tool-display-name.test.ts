@@ -25,7 +25,7 @@ test("the announced name matches the card Codex opens for that call", () => {
 });
 
 test("a name Codex never sends is shown as it is, not guessed at", () => {
-  expect(codexToolDisplayName("mcp__eco_mcp__search_tools")).toBe("mcp__eco_mcp__search_tools");
+  expect(codexToolDisplayName("mcp__mori_mcp__search_tools")).toBe("mcp__mori_mcp__search_tools");
   expect(codexToolDisplayName("some_future_tool")).toBe("some_future_tool");
   expect(codexToolDisplayName("  shell  ")).toBe("Bash");
 });

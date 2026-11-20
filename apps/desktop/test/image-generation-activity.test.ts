@@ -17,11 +17,11 @@ function item(tool: Record<string, unknown>): ThreadRunProjectionTimelineItem {
 test("activity image tool resolves only a reliable toolUseId", () => {
   expect(
     readImageGenerationToolUseId(
-      item({ name: "mcp__eco_image_generation__create_image", toolUseId: " tool-1 " }),
+      item({ name: "mcp__mori_image_generation__create_image", toolUseId: " tool-1 " }),
     ),
   ).toBe("tool-1");
   expect(readImageGenerationToolUseId(item({ name: "Read", toolUseId: "tool-1" }))).toBeUndefined();
   expect(
-    readImageGenerationToolUseId(item({ name: "mcp__eco_image_generation__create_image" })),
+    readImageGenerationToolUseId(item({ name: "mcp__mori_image_generation__create_image" })),
   ).toBeUndefined();
 });

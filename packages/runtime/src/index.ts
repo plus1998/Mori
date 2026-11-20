@@ -451,12 +451,12 @@ export {
   listCursorAgentModels,
   parseCursorAgentModelsOutput,
 } from "./cursor-agent-models";
-export * from "./eco-html-host-tool.js";
-export * from "./eco-image-display-tool.js";
-export * from "./eco-image-view-tool.js";
-export * from "./eco-mcp-hub-tool.js";
+export * from "./mori-html-host-tool.js";
+export * from "./mori-image-display-tool.js";
+export * from "./mori-image-view-tool.js";
+export * from "./mori-mcp-hub-tool.js";
 export * from "./eco-sdk-hooks";
-export * from "./eco-web-search-tool.js";
+export * from "./mori-web-search-tool.js";
 export * from "./filesystem-scope-policy.js";
 export * from "./forced-plan-delegation.js";
 export * from "./managed-process.js";

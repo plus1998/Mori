@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 import readline from "node:readline";
 
-const controlUrl = (process.env.ECO_IMAGE_DISPLAY_CONTROL_URL || "").replace(/\/$/, "");
-const controlSecret = process.env.ECO_IMAGE_DISPLAY_CONTROL_SECRET || "";
-const authToken = process.env.ECO_IMAGE_DISPLAY_AUTH_TOKEN || "";
+const controlUrl = (process.env.ECO_IMAGE_CONTROL_URL || "").replace(/\/$/, "");
+const controlSecret = process.env.ECO_IMAGE_CONTROL_SECRET || "";
+const authToken = process.env.ECO_IMAGE_AUTH_TOKEN || "";
 
 if (!controlUrl || !controlSecret) {
-  process.stderr.write("[eco-image-display-mcp] missing control URL or secret\n");
+  process.stderr.write("[eco-image-generation-mcp] missing control URL or secret\n");
   process.exit(1);
 }
 
@@ -15,7 +15,7 @@ async function control(route, body) {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "X-Eco-Image-Display-Control-Secret": controlSecret,
+      "X-Eco-Image-Control-Secret": controlSecret,
       ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
     },
     body: JSON.stringify({ ...(body || {}), ...(authToken ? { authToken } : {}) }),
@@ -48,9 +48,9 @@ lines.on("line", (line) => {
           result: {
             protocolVersion: params?.protocolVersion || "2024-11-05",
             capabilities: { tools: {} },
-            serverInfo: { name: "eco_image_display", version: "1.0.0" },
+            serverInfo: { name: "mori_image_generation", version: "1.0.0" },
             instructions:
-              "Show images, video and audio to the user as playable workspace artifacts. This tool does not analyze media.",
+              "Mori image generation. Every call requires user approval and returns saved file paths.",
           },
         });
       } else if (method === "ping") {

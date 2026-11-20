@@ -108,7 +108,7 @@ test("MCP streamable HTTP initialize tools/list tools/call round-trip", async ()
 
 test("Codex handshake: notifications/initialized returns 202 empty; GET is 405", async () => {
   const { port, secret } = await listenTestServer({
-    serverName: "eco_agent_browser",
+    serverName: "mori_agent_browser",
     listTools: async () => ({
       tools: [
         {

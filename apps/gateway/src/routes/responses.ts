@@ -9,7 +9,7 @@ import {
   enrichResolvedRouteWithCodexTurnIdentity,
   parseCodexTurnMetadataHeader,
 } from "../codex-turn-metadata.js";
-import { resolveEcoMcpHubNamespace } from "../eco-mcp-hub-fixup.js";
+import { resolveEcoMcpHubNamespace } from "../mori-mcp-hub-fixup.js";
 import { rejectDisabledModelImageInput } from "../image-input-policy.js";
 import { applyModelOutputLimit, withDynamicOutputBudget } from "../model-output-limit.js";
 import {

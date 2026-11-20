@@ -1320,14 +1320,14 @@ test("token-only MCP env change reuses registry session", async () => {
   ];
 
   const serversA = {
-    eco_agent_browser: {
+    mori_agent_browser: {
       command: "node",
       args: ["b.mjs"],
       env: { ECO_BROWSER_AUTH_TOKEN: "a", ELECTRON_RUN_AS_NODE: "1" },
     },
   };
   const serversB = {
-    eco_agent_browser: {
+    mori_agent_browser: {
       command: "node",
       args: ["b.mjs"],
       env: { ECO_BROWSER_AUTH_TOKEN: "b", ELECTRON_RUN_AS_NODE: "1" },
@@ -1448,7 +1448,7 @@ test("inherited spawn env in live MCP config does not recreate or clear JSONL", 
   ];
 
   const parentEnv = {
-    eco_image_view: {
+    mori_image_view: {
       command: "Electron",
       args: ["stdio.mjs"],
       env: {
@@ -1459,7 +1459,7 @@ test("inherited spawn env in live MCP config does not recreate or clear JSONL", 
     },
   };
   const subagentPoisonedEnv = {
-    eco_image_view: {
+    mori_image_view: {
       command: "Electron",
       args: ["stdio.mjs"],
       env: {
@@ -1585,14 +1585,14 @@ test("legacy resumeMcpFingerprint with embedded token still disk-resumes", async
   ];
 
   const serversA = {
-    eco_agent_browser: {
+    mori_agent_browser: {
       command: "node",
       args: ["b.mjs"],
       env: { ECO_BROWSER_AUTH_TOKEN: "a", ELECTRON_RUN_AS_NODE: "1" },
     },
   };
   const serversB = {
-    eco_agent_browser: {
+    mori_agent_browser: {
       command: "node",
       args: ["b.mjs"],
       env: { ECO_BROWSER_AUTH_TOKEN: "b", ELECTRON_RUN_AS_NODE: "1" },
@@ -1609,7 +1609,7 @@ test("legacy resumeMcpFingerprint with embedded token still disk-resumes", async
     routes,
   });
   // Legacy fingerprint: raw JSON with embedded auth token (pre-strip era).
-  const legacyMcpFp = JSON.stringify([["eco_agent_browser", serversA.eco_agent_browser]]);
+  const legacyMcpFp = JSON.stringify([["mori_agent_browser", serversA.mori_agent_browser]]);
   const resumePath = "/tmp/pi-resume-t_token.jsonl";
 
   for await (const _ of driver.run({

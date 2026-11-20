@@ -25,7 +25,7 @@ export interface FinalizePlanSubmission {
   plan: string;
 }
 
-export const FINALIZE_PLAN_MCP_SERVER_NAME = "eco_plan";
+export const FINALIZE_PLAN_MCP_SERVER_NAME = "mori_plan";
 export const FINALIZE_PLAN_MCP_TOOL_NAME = "finalize_plan";
 export const FINALIZE_PLAN_ALLOWED_TOOL = `mcp__${FINALIZE_PLAN_MCP_SERVER_NAME}__${FINALIZE_PLAN_MCP_TOOL_NAME}`;
 

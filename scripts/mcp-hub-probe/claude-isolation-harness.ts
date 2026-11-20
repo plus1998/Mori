@@ -32,8 +32,8 @@ function input(
     signal: new AbortController().signal,
     sdkSession: {
       settingSources: [],
-      mcpServers: { eco_mcp: { type: "http", url: hub.url, headers: { Authorization: `Bearer ${token}` } } },
-      mcpAllowedTools: ["mcp__eco_mcp__*"],
+      mcpServers: { mori_mcp: { type: "http", url: hub.url, headers: { Authorization: `Bearer ${token}` } } },
+      mcpAllowedTools: ["mcp__mori_mcp__*"],
     },
   };
 }

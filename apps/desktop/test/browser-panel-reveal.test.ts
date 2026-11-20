@@ -37,11 +37,11 @@ test("agent_browser_open vs tab_new semantics are split in BrowserHost", () => {
 });
 
 test("browser MCP logical name stays fixed (no eco_ab multi-name)", () => {
-  expect(ecoAgentBrowserRuntimeServerName("thr_1786166513794")).toBe("eco_agent_browser");
-  expect(ecoAgentBrowserRuntimeServerName("thr_1786166511000")).toBe("eco_agent_browser");
-  expect(isEcoAgentBrowserRuntimeServerName("eco_agent_browser")).toBe(true);
+  expect(ecoAgentBrowserRuntimeServerName("thr_1786166513794")).toBe("mori_agent_browser");
+  expect(ecoAgentBrowserRuntimeServerName("thr_1786166511000")).toBe("mori_agent_browser");
+  expect(isEcoAgentBrowserRuntimeServerName("mori_agent_browser")).toBe(true);
   expect(isEcoAgentBrowserRuntimeServerName("github")).toBe(false);
-  expect(ecoAgentBrowserAllowedToolPatternForThread("thr_x")).toBe("mcp__eco_agent_browser__*");
+  expect(ecoAgentBrowserAllowedToolPatternForThread("thr_x")).toBe("mcp__mori_agent_browser__*");
 });
 
 test("MCP/CDP handshake and non-open tools do not reveal browser panel", () => {
@@ -93,19 +93,19 @@ test("placeholder about:blank is not a user-facing browser tab", () => {
 });
 
 test("detects any eco agent browser tool name", () => {
-  expect(isEcoAgentBrowserToolName("mcp__eco_agent_browser__agent_browser_click")).toBe(true);
-  expect(isEcoAgentBrowserToolName("mcp__eco_agent_browser__agent_browser_open")).toBe(true);
+  expect(isEcoAgentBrowserToolName("mcp__mori_agent_browser__agent_browser_click")).toBe(true);
+  expect(isEcoAgentBrowserToolName("mcp__mori_agent_browser__agent_browser_open")).toBe(true);
   expect(isEcoAgentBrowserToolName("agent_browser_snapshot")).toBe(true);
   expect(isEcoAgentBrowserToolName("mcp__eco_ab_ea4a60abe66__agent_browser_fill")).toBe(true);
-  expect(isEcoAgentBrowserToolName("mcp__eco_image_generation__create_image")).toBe(false);
+  expect(isEcoAgentBrowserToolName("mcp__mori_image_generation__create_image")).toBe(false);
   expect(isEcoAgentBrowserToolName("Bash")).toBe(false);
 });
 
 test("detects eco agent browser open tool names and urls", () => {
-  expect(isEcoAgentBrowserOpenToolName("mcp__eco_agent_browser__agent_browser_open")).toBe(true);
+  expect(isEcoAgentBrowserOpenToolName("mcp__mori_agent_browser__agent_browser_open")).toBe(true);
   expect(isEcoAgentBrowserOpenToolName("agent_browser_open")).toBe(true);
-  expect(isEcoAgentBrowserOpenToolName("mcp__eco_agent_browser__agent_browser_snapshot")).toBe(false);
-  expect(isEcoAgentBrowserOpenToolName("mcp__eco_agent_browser__agent_browser_click")).toBe(false);
+  expect(isEcoAgentBrowserOpenToolName("mcp__mori_agent_browser__agent_browser_snapshot")).toBe(false);
+  expect(isEcoAgentBrowserOpenToolName("mcp__mori_agent_browser__agent_browser_click")).toBe(false);
   expect(isEcoAgentBrowserOpenToolName("Bash")).toBe(false);
   expect(extractUrlFromBrowserOpenToolPayload({ input: { url: "https://google.com" } })).toBe(
     "https://google.com",
@@ -120,7 +120,7 @@ test("does not treat tool.started / tool.completed event labels as browser URLs"
     extractUrlFromBrowserOpenToolPayload({
       liveType: "tool.started",
       detail: "tool.completed",
-      name: "mcp__eco_agent_browser__agent_browser_snapshot",
+      name: "mcp__mori_agent_browser__agent_browser_snapshot",
     }),
   ).toBeUndefined();
   expect(

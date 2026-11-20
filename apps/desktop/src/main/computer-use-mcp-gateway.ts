@@ -514,20 +514,20 @@ export function stopOpenComputerUseOnboarding(): void {
 
 function resolveStdioScriptPath(): string {
   const candidates = [
-    path.join(path.dirname(fileURLToPath(import.meta.url)), "../../packaging/eco-computer-use-mcp-stdio.mjs"),
-    path.join(process.cwd(), "apps/desktop/packaging/eco-computer-use-mcp-stdio.mjs"),
-    path.join(process.cwd(), "packaging/eco-computer-use-mcp-stdio.mjs"),
+    path.join(path.dirname(fileURLToPath(import.meta.url)), "../../packaging/mori-computer-use-mcp-stdio.mjs"),
+    path.join(process.cwd(), "apps/desktop/packaging/mori-computer-use-mcp-stdio.mjs"),
+    path.join(process.cwd(), "packaging/mori-computer-use-mcp-stdio.mjs"),
   ];
   try {
     const electron = require("electron") as {
       app?: { getAppPath?: () => string };
     };
     if (electron.app?.getAppPath) {
-      candidates.unshift(path.join(electron.app.getAppPath(), "packaging/eco-computer-use-mcp-stdio.mjs"));
+      candidates.unshift(path.join(electron.app.getAppPath(), "packaging/mori-computer-use-mcp-stdio.mjs"));
     }
     if (typeof process.resourcesPath === "string") {
-      candidates.unshift(path.join(process.resourcesPath, "packaging/eco-computer-use-mcp-stdio.mjs"));
-      candidates.unshift(path.join(process.resourcesPath, "eco-computer-use-mcp-stdio.mjs"));
+      candidates.unshift(path.join(process.resourcesPath, "packaging/mori-computer-use-mcp-stdio.mjs"));
+      candidates.unshift(path.join(process.resourcesPath, "mori-computer-use-mcp-stdio.mjs"));
     }
   } catch {
     // non-electron

@@ -41,9 +41,6 @@ test("saving browser, computer, image, and speech settings never queues a runtim
 });
 
 test("Codex system prompt rewrites fixed Hub tool names to the per-thread registered server", () => {
-  expect(source).toContain(
-    'import { rewriteEcoMcpHubPromptForCodexServer } from "../shared/mcp-hub-tool-usage"',
-  );
   // The rewrite must wrap the resolved append so every Hub usage line
   // (image view / display / web search / ...) uses the registered name. Line breaks are the
   // formatter's business, so the call is matched on its arguments alone.

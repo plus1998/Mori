@@ -69,7 +69,7 @@ test("disabling built-in imagegen preserves user skill switches on repeated conf
 test("native image viewing follows the selected provider without changing other thread features", () => {
   const config = {
     features: { multi_agent: true, hooks: true, multi_agent_v2: false },
-    mcp_servers: { eco_image_view: { enabled: true } },
+    mcp_servers: { mori_image_view: { enabled: true } },
   };
   expect(withCodexNativeImageView(config, "custom")).toEqual({
     ...config,
@@ -343,7 +343,7 @@ test("role TOML carries an explicit apiCompat override in the V1 gateway alias",
 });
 
 test("thread remote compaction changes do not mutate other threads or MCP policy", () => {
-  const config = { mcp_servers: { eco_mcp: { enabled: true } } };
+  const config = { mcp_servers: { mori_mcp: { enabled: true } } };
   const remote = withCodexRemoteCompaction(config, "vendor", "v2");
   const local = withCodexRemoteCompaction(remote, "vendor", "unsupported");
   expect(remote.model_providers?.eco_vendor?.capabilities.remote_compaction).toBe("v2");
@@ -749,7 +749,7 @@ test("concurrent threads keep independent thread MCP definitions", async () => {
         templates: [],
         mcpServers: [
           {
-            name: `eco_mcp_${suffix}`,
+            name: `mori_mcp_${suffix}`,
             transport: "http" as const,
             url: `http://127.0.0.1:19${suffix === "a" ? 1 : 2}/mcp`,
             httpHeaders: { Authorization: `Bearer ${suffix}` },
@@ -762,14 +762,14 @@ test("concurrent threads keep independent thread MCP definitions", async () => {
   // Each thread carries only its own Hub descriptor, so one thread's cache
   // refresh can never redirect another thread's MCP calls.
   expect(first.threadConfig.mcp_servers).toEqual({
-    eco_mcp_a: {
+    mori_mcp_a: {
       url: "http://127.0.0.1:191/mcp",
       http_headers: { Authorization: "Bearer a" },
       enabled: true,
     },
   });
   expect(second.threadConfig.mcp_servers).toEqual({
-    eco_mcp_b: {
+    mori_mcp_b: {
       url: "http://127.0.0.1:192/mcp",
       http_headers: { Authorization: "Bearer b" },
       enabled: true,

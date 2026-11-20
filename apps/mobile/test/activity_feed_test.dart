@@ -1117,7 +1117,7 @@ void main() {
       final l10n = lookupAppLocalizations(const Locale('zh'));
       expect(
         formatToolDisplayLabel(
-          'mcp__eco_agent_browser__agent_browser_click',
+          'mcp__mori_agent_browser__agent_browser_click',
           null,
           l10n,
         ),
@@ -1125,7 +1125,7 @@ void main() {
       );
       expect(
         formatToolDisplayLabel(
-          'mcp__eco_image_generation__create_image',
+          'mcp__mori_image_generation__create_image',
           null,
           l10n,
         ),
@@ -1140,11 +1140,11 @@ void main() {
         '打开网页',
       );
       expect(
-        iconForToolName('mcp__eco_agent_browser__agent_browser_click'),
+        iconForToolName('mcp__mori_agent_browser__agent_browser_click'),
         ActivityActionIcon.browser,
       );
       expect(
-        iconForToolName('mcp__eco_image_generation__create_image'),
+        iconForToolName('mcp__mori_image_generation__create_image'),
         ActivityActionIcon.image,
       );
     },
@@ -3712,7 +3712,7 @@ void main() {
     expect(feed.single.text, isNot(contains('调用了 MCP 工具')));
   });
 
-  test('projects eco_image_view MCP imageView into the tool group', () {
+  test('projects mori_image_view MCP imageView into the tool group', () {
     final feed = buildActivityFeed(
       threadPrompt: '',
       threadId: 't1',
@@ -3729,11 +3729,11 @@ void main() {
             sequence: 1,
             eventType: 'tool.completed',
             scope: 'main',
-            text: 'Tool: mcp__eco_image_view__view_image · /tmp/preview.png',
+            text: 'Tool: mcp__mori_image_view__view_image · /tmp/preview.png',
             at: '2026-01-01T00:00:01.000Z',
             metadata: {
               'tool': {
-                'name': 'mcp__eco_image_view__view_image',
+                'name': 'mcp__mori_image_view__view_image',
                 'toolUseId': 'eco-image-tool-1',
                 'status': 'completed',
                 'imageView': {'path': '/tmp/preview.png'},

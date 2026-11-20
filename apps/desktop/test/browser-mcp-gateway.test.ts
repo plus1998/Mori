@@ -102,10 +102,10 @@ test("claim router preserves toolUseId and isolates authenticated thread claims"
   expect(router.claimDetails("create_image", "thr_a")).toBeUndefined();
 });
 
-test("logical MCP server name is always eco_agent_browser", () => {
-  expect(ECO_AGENT_BROWSER_MCP_SERVER).toBe("eco_agent_browser");
-  expect(isEcoAgentBrowserRuntimeServerName("eco_agent_browser")).toBe(true);
-  expect(buildEcoAgentBrowserPromptAppend("thr_x")).toContain("Hub target: `eco_agent_browser`");
+test("logical MCP server name is always mori_agent_browser", () => {
+  expect(ECO_AGENT_BROWSER_MCP_SERVER).toBe("mori_agent_browser");
+  expect(isEcoAgentBrowserRuntimeServerName("mori_agent_browser")).toBe(true);
+  expect(buildEcoAgentBrowserPromptAppend("thr_x")).toContain("Hub target: `mori_agent_browser`");
   expect(buildEcoAgentBrowserPromptAppend("thr_x")).toContain("auth");
   expect(buildEcoAgentBrowserPromptAppend("thr_x")).toContain("this server exposes tools only");
 });
@@ -119,7 +119,7 @@ test("merge eco browser SDK config keeps fixed server name", () => {
       sdkEntry: { type: "stdio", command: "node", args: ["x.mjs"] },
     },
   );
-  expect(merged.mcpServers.eco_agent_browser).toBeDefined();
+  expect(merged.mcpServers.mori_agent_browser).toBeDefined();
   expect(merged.mcpServers.eco_ab_ea4a60abe66).toBeUndefined();
   expect(merged.allowedTools).toContain(ECO_AGENT_BROWSER_ALLOWED_TOOL);
 });

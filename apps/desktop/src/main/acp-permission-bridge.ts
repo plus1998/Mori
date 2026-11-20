@@ -68,7 +68,7 @@ export interface AcpPermissionBridgeDeps {
 }
 
 /**
- * Whether ACP should auto-allow an eco_agent_browser tool without bash/aux review.
+ * Whether ACP should auto-allow an mori_agent_browser tool without bash/aux review.
  * Mirrors Codex MCP elicitation: always_allow → all tools; always_ask → non-open only.
  */
 export function shouldAutoAllowAcpEcoBrowserTool(input: {
@@ -85,7 +85,7 @@ export function shouldAutoAllowAcpEcoBrowserTool(input: {
 }
 
 /**
- * Whether ACP should auto-allow an eco_computer_use tool without bash/aux review.
+ * Whether ACP should auto-allow an mori_computer_use tool without bash/aux review.
  * Mirrors Codex: always_allow → all; always_ask → read tools only.
  */
 export function shouldAutoAllowAcpEcoComputerUseTool(input: {
@@ -101,7 +101,7 @@ export function shouldAutoAllowAcpEcoComputerUseTool(input: {
   if (requiresComputerUseActionApproval(input.toolName)) {
     return false;
   }
-  // ACP titles look like `eco_computer_use-click: click` (not mcp__…__leaf).
+  // ACP titles look like `mori_computer_use-click: click` (not mcp__…__leaf).
   const lower = input.toolName.trim().toLowerCase();
   for (const action of ECO_COMPUTER_USE_ACTION_TOOLS) {
     if (

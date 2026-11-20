@@ -15,7 +15,7 @@ test("spillOrTruncateMcpToolOutput writes artifact when over budget", async () =
     const result = await spillOrTruncateMcpToolOutput({
       text: big,
       spillDir: dir,
-      serverName: "eco_agent_browser",
+      serverName: "mori_agent_browser",
       toolName: "snapshot",
       tokenLimit: 100,
     });
@@ -37,7 +37,7 @@ test("spillOrTruncateMcpToolOutput leaves small payloads untouched", async () =>
     const result = await spillOrTruncateMcpToolOutput({
       text: "ok",
       spillDir: dir,
-      serverName: "eco_agent_browser",
+      serverName: "mori_agent_browser",
       toolName: "get_url",
       tokenLimit: 1000,
     });

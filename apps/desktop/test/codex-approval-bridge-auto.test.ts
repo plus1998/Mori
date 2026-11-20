@@ -318,7 +318,7 @@ test("image generation MCP approval accepts only a one-time approval", async () 
     const result = await handleCodexServerRequest(deps, CODEX_MCP_SERVER_ELICITATION_REQUEST, {
       threadId: "codex-thread-image",
       turnId: "turn-image",
-      serverName: "eco_image_generation",
+      serverName: "mori_image_generation",
       mode: "form",
       message: 'Allow the MCP server to run tool "create_image"',
       requestedSchema: {},
@@ -341,7 +341,7 @@ test("image generation MCP approval accepts only a one-time approval", async () 
   expect(feedback[0]).toContain("image generation");
 });
 
-test("auto-accepts eco_image_view view_image elicitation without a bash card", async () => {
+test("auto-accepts mori_image_view view_image elicitation without a bash card", async () => {
   const events: Array<{ type: string }> = [];
   const deps: CodexApprovalBridgeDeps = {
     resolveEcoThreadId: () => "codex-thread-view",
@@ -357,7 +357,7 @@ test("auto-accepts eco_image_view view_image elicitation without a bash card", a
   const result = await handleCodexServerRequest(deps, CODEX_MCP_SERVER_ELICITATION_REQUEST, {
     threadId: "codex-thread-view",
     turnId: "turn-view",
-    serverName: "eco_image_view",
+    serverName: "mori_image_view",
     mode: "form",
     message: 'Allow the MCP server to run tool "view_image"',
     requestedSchema: {},

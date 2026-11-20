@@ -212,8 +212,8 @@ export async function runClaudeRealProbe(mode: Mode): Promise<Record<string, unk
     signal: controller.signal,
     sdkSession: {
       settingSources: [],
-      mcpServers: { eco_mcp: { type: "http", url: hub.url, headers: { Authorization: `Bearer ${session.token}` } } },
-      ...(mode === "write" || mode === "write-runtime-deny" ? {} : { mcpAllowedTools: ["mcp__eco_mcp__*"] }),
+      mcpServers: { mori_mcp: { type: "http", url: hub.url, headers: { Authorization: `Bearer ${session.token}` } } },
+      ...(mode === "write" || mode === "write-runtime-deny" ? {} : { mcpAllowedTools: ["mcp__mori_mcp__*"] }),
     },
   };
   let events: unknown[] = [];

@@ -47,9 +47,9 @@ test("resolveThreadWebSearchPlan mirrors cross-core decision table", () => {
   ).toBe("none");
 });
 
-test("isEcoWebSearchToolName only matches eco_web_search server", () => {
+test("isEcoWebSearchToolName only matches mori_web_search server", () => {
   expect(isEcoWebSearchToolName(ECO_WEB_SEARCH_FULL_TOOL)).toBe(true);
-  expect(isEcoWebSearchToolName("mcp__eco_web_search__search")).toBe(true);
+  expect(isEcoWebSearchToolName("mcp__mori_web_search__search")).toBe(true);
   expect(isEcoWebSearchToolName("mcp__other__search")).toBe(false);
   expect(isEcoWebSearchToolName("search")).toBe(false);
   expect(isEcoWebSearchToolName("WebSearch")).toBe(false);

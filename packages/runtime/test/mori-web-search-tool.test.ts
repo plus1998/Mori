@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { parseEcoWebSearchToolOutput, readEcoWebSearchQuery } from "../src/eco-web-search-tool.ts";
+import { parseEcoWebSearchToolOutput, readEcoWebSearchQuery } from "../src/mori-web-search-tool.ts";
 import { formatIntegratedWebSearchResults } from "../src/pi-integrated-web-search.ts";
 
 test("DeepSeek formatted search results round-trip for the conversation feed", () => {

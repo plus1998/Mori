@@ -879,17 +879,17 @@ test("imageView projects into a tool group", () => {
   }
 });
 
-test("eco_image_view MCP tool projects into a tool group", () => {
+test("mori_image_view MCP tool projects into a tool group", () => {
   const imageStarted = item({
     id: "eco-image-view-started",
     sequence: 1,
     eventType: "tool.started",
     role: "tool",
-    text: "Tool: mcp__eco_image_view__view_image · /tmp/feed-preview.png",
+    text: "Tool: mcp__mori_image_view__view_image · /tmp/feed-preview.png",
     metadata: {
       itemType: "mcpToolCall",
       tool: {
-        name: "mcp__eco_image_view__view_image",
+        name: "mcp__mori_image_view__view_image",
         detail: "/tmp/feed-preview.png",
         toolUseId: "item_mcp_view_1",
         status: "started",
@@ -902,11 +902,11 @@ test("eco_image_view MCP tool projects into a tool group", () => {
     sequence: 2,
     eventType: "tool.completed",
     role: "tool",
-    text: "Tool: mcp__eco_image_view__view_image · /tmp/feed-preview.png",
+    text: "Tool: mcp__mori_image_view__view_image · /tmp/feed-preview.png",
     metadata: {
       itemType: "mcpToolCall",
       tool: {
-        name: "mcp__eco_image_view__view_image",
+        name: "mcp__mori_image_view__view_image",
         detail: "/tmp/feed-preview.png",
         toolUseId: "item_mcp_view_1",
         status: "completed",
@@ -918,7 +918,7 @@ test("eco_image_view MCP tool projects into a tool group", () => {
   expect(projectionItemToDetailBlock(imageCompleted)).toMatchObject({
     kind: "action",
     icon: "images",
-    toolName: "mcp__eco_image_view__view_image",
+    toolName: "mcp__mori_image_view__view_image",
     lifecycle: "completed",
     imageView: {
       path: "/tmp/feed-preview.png",
@@ -934,17 +934,17 @@ test("eco_image_view MCP tool projects into a tool group", () => {
   }
 });
 
-test("eco_image_view result and prompt reach the image preview block", () => {
+test("mori_image_view result and prompt reach the image preview block", () => {
   const block = projectionItemToDetailBlock(
     item({
       id: "eco-image-view-answered",
       eventType: "tool.completed",
       role: "tool",
-      text: "Tool: mcp__eco_image_view__view_image · /tmp/feed-preview.png",
+      text: "Tool: mcp__mori_image_view__view_image · /tmp/feed-preview.png",
       metadata: {
         itemType: "mcpToolCall",
         tool: {
-          name: "mcp__eco_image_view__view_image",
+          name: "mcp__mori_image_view__view_image",
           detail: "/tmp/feed-preview.png",
           toolUseId: "item_mcp_view_1",
           status: "completed",
@@ -4618,11 +4618,11 @@ test("buildProjectionDisplayTimelineItems collapses duplicate tool rows by toolU
       item({
         id: "tool-start",
         eventType: "tool.started",
-        text: "Tool: mcp__eco_plan__finalize_plan",
+        text: "Tool: mcp__mori_plan__finalize_plan",
         sequence: 1,
         metadata: {
           tool: {
-            name: "mcp__eco_plan__finalize_plan",
+            name: "mcp__mori_plan__finalize_plan",
             toolUseId: "toolu_plan",
           },
         },
@@ -4630,11 +4630,11 @@ test("buildProjectionDisplayTimelineItems collapses duplicate tool rows by toolU
       item({
         id: "tool-input-complete",
         eventType: "tool.started",
-        text: "Tool: mcp__eco_plan__finalize_plan",
+        text: "Tool: mcp__mori_plan__finalize_plan",
         sequence: 2,
         metadata: {
           tool: {
-            name: "mcp__eco_plan__finalize_plan",
+            name: "mcp__mori_plan__finalize_plan",
             detail: "提交计划",
             toolUseId: "toolu_plan",
           },
@@ -6418,11 +6418,11 @@ test("projectionItemToDetailBlock formats MCP tool metadata", () => {
       eventType: "tool.started",
       scope: "main",
       role: "main",
-      text: "Tool: mcp__eco_plan__finalize_plan",
+      text: "Tool: mcp__mori_plan__finalize_plan",
       metadata: {
         liveType: "tool.started",
         tool: {
-          name: "mcp__eco_plan__finalize_plan",
+          name: "mcp__mori_plan__finalize_plan",
           toolUseId: "toolu_plan",
         },
       },
@@ -6440,12 +6440,12 @@ test("projectionItemToDetailBlock formats MCP tool metadata", () => {
       eventType: "tool.completed",
       scope: "main",
       role: "main",
-      text: "Tool: mcp_tool · mcp__eco_plan__finalize_plan (0.0s)",
+      text: "Tool: mcp_tool · mcp__mori_plan__finalize_plan (0.0s)",
       metadata: {
         liveType: "tool.completed",
         tool: {
           name: "mcp_tool",
-          detail: "mcp__eco_plan__finalize_plan",
+          detail: "mcp__mori_plan__finalize_plan",
           durationMs: 0,
         },
       },

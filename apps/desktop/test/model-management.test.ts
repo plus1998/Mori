@@ -299,20 +299,20 @@ test("real HTTP Hub discovers and calls model tools; failures remain errors and 
   cleanup.push(() => gateway.close());
   cleanup.push(() => hub.close());
   const injection = await gateway.resolveInjection("thread-a");
-  hub.registerThreadServerEntry({ name: "eco_models", threadId: "thread-a", sdkEntry: injection.sdkEntry });
-  const prepared = await hub.prepareThread({ threadId: "thread-a", allowedServers: ["eco_models"] });
-  const search = await rpc(prepared.sdkEntry, "search_tools", { query: "eco_models" });
+  hub.registerThreadServerEntry({ name: "mori_models", threadId: "thread-a", sdkEntry: injection.sdkEntry });
+  const prepared = await hub.prepareThread({ threadId: "thread-a", allowedServers: ["mori_models"] });
+  const search = await rpc(prepared.sdkEntry, "search_tools", { query: "mori_models" });
   expect(search.result.structuredContent.tools.map((tool) => tool.name)).toContain(
-    "eco_models:save_provider",
+    "mori_models:save_provider",
   );
   const updated = await rpc(prepared.sdkEntry, "call_tool", {
-    name: "eco_models:save_provider",
+    name: "mori_models:save_provider",
     arguments: { id: provider.id, enabled: false },
   });
   expect(updated.result.isError).not.toBe(true);
   expect(store.listProviders()[0]?.enabled).toBe(false);
   const denied = await rpc(prepared.sdkEntry, "call_tool", {
-    name: "eco_models:delete_provider",
+    name: "mori_models:delete_provider",
     arguments: { providerId: provider.id },
   });
   expect(denied.result.isError).toBe(true);

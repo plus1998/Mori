@@ -263,7 +263,8 @@ class ThreadRuntimeConfig {
         rawMcp.map((key, value) => MapEntry(key.toString(), value)),
       );
     }
-    final legacyBrowserEnabled = parsedMcp?['eco_agent_browser'];
+    final legacyBrowserEnabled =
+        parsedMcp?.remove('mori_agent_browser') ?? parsedMcp?['eco_agent_browser'];
     parsedMcp?.remove('eco_agent_browser');
     final parsedIntegrations =
         normalizeIntegrationsEnabled(json['integrationsEnabled']) ??

@@ -6,7 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/eco_types.dart';
 import '../network/eco_center_client.dart';
 import '../network/desktop_rpc.dart';
-import '../services/eco_tts_service.dart';
+import '../services/mori_tts_service.dart';
 import '../storage/credential_store.dart';
 import '../utils/center_server_auth.dart';
 import '../utils/device_display.dart';

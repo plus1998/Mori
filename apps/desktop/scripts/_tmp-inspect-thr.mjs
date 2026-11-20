@@ -22,7 +22,7 @@ const tools = db
          OR event_type LIKE '%mcp%'
          OR message LIKE '%agent_browser%'
          OR message LIKE '%mcp__%'
-         OR message LIKE '%eco_agent_browser%'
+         OR message LIKE '%mori_agent_browser%'
        )
      ORDER BY sequence
      LIMIT 50`,

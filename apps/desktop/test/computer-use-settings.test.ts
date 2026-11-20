@@ -57,22 +57,22 @@ test("isComputerUseSettingsSnapshot validates shape", () => {
   expect(isComputerUseSettingsSnapshot(null)).toBe(false);
 });
 
-test("requiresComputerUseActionApproval only for mutating eco_computer_use tools", () => {
-  expect(requiresComputerUseActionApproval("mcp__eco_computer_use__click")).toBe(true);
-  expect(requiresComputerUseActionApproval("mcp__eco_computer_use__type_text")).toBe(true);
-  expect(requiresComputerUseActionApproval("mcp__eco_computer_use__list_apps")).toBe(false);
-  expect(requiresComputerUseActionApproval("mcp__eco_computer_use__get_app_state")).toBe(false);
-  expect(requiresComputerUseActionApproval("mcp__eco_agent_browser__agent_browser_click")).toBe(false);
+test("requiresComputerUseActionApproval only for mutating mori_computer_use tools", () => {
+  expect(requiresComputerUseActionApproval("mcp__mori_computer_use__click")).toBe(true);
+  expect(requiresComputerUseActionApproval("mcp__mori_computer_use__type_text")).toBe(true);
+  expect(requiresComputerUseActionApproval("mcp__mori_computer_use__list_apps")).toBe(false);
+  expect(requiresComputerUseActionApproval("mcp__mori_computer_use__get_app_state")).toBe(false);
+  expect(requiresComputerUseActionApproval("mcp__mori_agent_browser__agent_browser_click")).toBe(false);
   expect(requiresComputerUseActionApproval("click")).toBe(false);
   expect(requiresComputerUseActionApproval("Bash")).toBe(false);
 });
 
 test("isEcoComputerUseToolName matches eco server tools only", () => {
-  expect(isEcoComputerUseToolName("mcp__eco_computer_use__click")).toBe(true);
-  expect(isEcoComputerUseToolName("eco_computer_use")).toBe(true);
+  expect(isEcoComputerUseToolName("mcp__mori_computer_use__click")).toBe(true);
+  expect(isEcoComputerUseToolName("mori_computer_use")).toBe(true);
   expect(isEcoComputerUseToolName("mcp__eco-computer-use__click")).toBe(true);
   expect(isEcoComputerUseToolName("open-computer-use")).toBe(true);
-  expect(isEcoComputerUseToolName("mcp__eco_agent_browser__agent_browser_click")).toBe(false);
+  expect(isEcoComputerUseToolName("mcp__mori_agent_browser__agent_browser_click")).toBe(false);
   expect(isEcoComputerUseToolName("click")).toBe(false);
   expect(isEcoComputerUseToolName(undefined)).toBe(false);
 });
@@ -84,13 +84,13 @@ test("shouldAutoApproveEcoComputerUseTools follows actionApprovalMode", () => {
 
 test("ECO_COMPUTER_USE_TOOLS lists the nine upstream tools", () => {
   expect(ECO_COMPUTER_USE_TOOLS).toHaveLength(9);
-  expect(ECO_COMPUTER_USE_MCP_SERVER).toBe("eco_computer_use");
-  expect(ECO_COMPUTER_USE_ALLOWED_TOOL).toBe("mcp__eco_computer_use__*");
+  expect(ECO_COMPUTER_USE_MCP_SERVER).toBe("mori_computer_use");
+  expect(ECO_COMPUTER_USE_ALLOWED_TOOL).toBe("mcp__mori_computer_use__*");
 });
 
 test("buildEcoComputerUsePromptAppend mentions shared desktop and MCP server", () => {
   const append = buildEcoComputerUsePromptAppend();
-  expect(append).toContain("eco_computer_use");
+  expect(append).toContain("mori_computer_use");
   expect(append).toContain("shared across conversations");
   expect(append).toContain("do not launch substitute MCP servers or CLIs");
 });

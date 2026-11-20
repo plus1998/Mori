@@ -92,7 +92,7 @@ void main() {
       session.emit(
         ConversationV2SessionState(
           tools: [
-            _tool('display', 'mcp__eco_image_display__show_media_to_user', 2),
+            _tool('display', 'mcp__mori_image_display__show_media_to_user', 2),
           ],
         ),
       );
@@ -102,7 +102,7 @@ void main() {
       session.emit(
         ConversationV2SessionState(
           tools: [
-            _tool('display', 'mcp__eco_image_display__show_media_to_user', 2),
+            _tool('display', 'mcp__mori_image_display__show_media_to_user', 2),
             _tool('shell', 'exec_command', 3),
           ],
         ),
@@ -127,7 +127,7 @@ void main() {
       session.emit(
         ConversationV2SessionState(
           syncState: ConversationV2SyncState.live,
-          tools: [_tool('display', 'mcp__eco_image_display__display_image', 2)],
+          tools: [_tool('display', 'mcp__mori_image_display__display_image', 2)],
         ),
       );
       expect((await container.read(provider.future)).map((image) => image.id), [

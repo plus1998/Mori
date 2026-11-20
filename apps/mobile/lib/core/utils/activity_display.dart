@@ -88,24 +88,35 @@ final _toolLinePattern = RegExp(
 
 final _mcpToolLinePattern = RegExp(r'^mcp__([^_]+(?:_[^_]+)*)__(.+)$');
 
+// Normalize tool names from activity saved before the namespace rename.
+final _legacyMoriToolName = RegExp(
+  r'^(mcp__)?eco_(agent_browser|computer_use|html_host|image_display|image_generation|image_view|mcp|plan|web_search)(?=$|[_.:-])',
+  caseSensitive: false,
+);
+
+String _normalizeStoredMoriToolName(String name) => name.replaceFirstMapped(
+  _legacyMoriToolName,
+  (match) => '${match[1] ?? ''}mori_${match[2]!.toLowerCase()}',
+);
+
 const _mcpToolDisplayLabels = <String, String>{
-  'mcp__eco_plan__finalize_plan': 'finalize_plan',
-  'mcp__eco_image_generation__create_image': 'create_image',
-  'mcp__eco_image_display__display_image': 'display_image',
-  'mcp__eco_image_display__show_media_to_user': 'show_media_to_user',
-  'mcp__eco_html_host__publish_html': 'publish_html',
-  'mcp__eco_image_view__view_image': 'view_image',
-  'mcp__eco_computer_use__click': 'computer_use',
-  'mcp__eco_agent_browser__agent_browser_open': 'agent_browser_open',
-  'mcp__eco_agent_browser__agent_browser_snapshot': 'agent_browser_snapshot',
-  'mcp__eco_agent_browser__agent_browser_click': 'agent_browser_click',
-  'mcp__eco_agent_browser__agent_browser_fill': 'agent_browser_fill',
-  'mcp__eco_agent_browser__agent_browser_screenshot':
+  'mcp__mori_plan__finalize_plan': 'finalize_plan',
+  'mcp__mori_image_generation__create_image': 'create_image',
+  'mcp__mori_image_display__display_image': 'display_image',
+  'mcp__mori_image_display__show_media_to_user': 'show_media_to_user',
+  'mcp__mori_html_host__publish_html': 'publish_html',
+  'mcp__mori_image_view__view_image': 'view_image',
+  'mcp__mori_computer_use__click': 'computer_use',
+  'mcp__mori_agent_browser__agent_browser_open': 'agent_browser_open',
+  'mcp__mori_agent_browser__agent_browser_snapshot': 'agent_browser_snapshot',
+  'mcp__mori_agent_browser__agent_browser_click': 'agent_browser_click',
+  'mcp__mori_agent_browser__agent_browser_fill': 'agent_browser_fill',
+  'mcp__mori_agent_browser__agent_browser_screenshot':
       'agent_browser_screenshot',
-  'mcp__eco_agent_browser__agent_browser_get_url': 'agent_browser_get_url',
-  'mcp__eco_agent_browser__agent_browser_tab_list': 'agent_browser_tab_list',
-  'mcp__eco_agent_browser__agent_browser_tab_new': 'agent_browser_tab_new',
-  'mcp__eco_agent_browser__agent_browser_tab_switch':
+  'mcp__mori_agent_browser__agent_browser_get_url': 'agent_browser_get_url',
+  'mcp__mori_agent_browser__agent_browser_tab_list': 'agent_browser_tab_list',
+  'mcp__mori_agent_browser__agent_browser_tab_new': 'agent_browser_tab_new',
+  'mcp__mori_agent_browser__agent_browser_tab_switch':
       'agent_browser_tab_switch',
 };
 
@@ -134,22 +145,22 @@ bool isMcpToolName(String tool) {
 }
 
 bool isEcoImageGenerationToolName(String? value) {
-  final name = value?.trim().toLowerCase() ?? '';
-  return name.contains('eco_image_generation') || name.endsWith('create_image');
+  final name = _normalizeStoredMoriToolName(value?.trim().toLowerCase() ?? '');
+  return name.contains('mori_image_generation') || name.endsWith('create_image');
 }
 
 bool isEcoImageViewToolName(String? value) {
-  final name = value?.trim().toLowerCase() ?? '';
+  final name = _normalizeStoredMoriToolName(value?.trim().toLowerCase() ?? '');
   if (name.isEmpty) return false;
-  return name.contains('eco_image_view') ||
+  return name.contains('mori_image_view') ||
       name == 'view_image' ||
       name.endsWith('__view_image');
 }
 
 bool isEcoImageDisplayToolName(String? value) {
-  final name = value?.trim().toLowerCase() ?? '';
+  final name = _normalizeStoredMoriToolName(value?.trim().toLowerCase() ?? '');
   if (name.isEmpty) return false;
-  return name.contains('eco_image_display') ||
+  return name.contains('mori_image_display') ||
       name == 'show_media_to_user' ||
       name.endsWith('__show_media_to_user') ||
       name == 'display_image' ||
@@ -157,49 +168,49 @@ bool isEcoImageDisplayToolName(String? value) {
 }
 
 bool isEcoHtmlHostToolName(String? value) {
-  final name = value?.trim().toLowerCase() ?? '';
+  final name = _normalizeStoredMoriToolName(value?.trim().toLowerCase() ?? '');
   if (name.isEmpty) return false;
-  return name.contains('eco_html_host') ||
+  return name.contains('mori_html_host') ||
       name == 'publish_html' ||
       name.endsWith('__publish_html');
 }
 
 bool isEcoWebSearchToolName(String? value) {
-  final name = value?.trim().toLowerCase() ?? '';
+  final name = _normalizeStoredMoriToolName(value?.trim().toLowerCase() ?? '');
   if (name.isEmpty) return false;
-  return name.contains('eco_web_search');
+  return name.contains('mori_web_search');
 }
 
 bool isEcoAgentBrowserToolName(String? toolName) {
-  final name = toolName?.trim().toLowerCase() ?? '';
+  final name = _normalizeStoredMoriToolName(toolName?.trim().toLowerCase() ?? '');
   if (name.isEmpty) return false;
-  return name.contains('eco_agent_browser') ||
-      name.contains('mcp__eco_agent_browser') ||
+  return name.contains('mori_agent_browser') ||
+      name.contains('mcp__mori_agent_browser') ||
       name.contains('mcp__eco_ab_') ||
       name.contains('agent_browser_');
 }
 
 bool isEcoComputerUseToolName(String? value) {
-  final name = value?.trim().toLowerCase() ?? '';
+  final name = _normalizeStoredMoriToolName(value?.trim().toLowerCase() ?? '');
   if (name.isEmpty) return false;
-  return name.contains('eco_computer_use') ||
+  return name.contains('mori_computer_use') ||
       name.contains('open_computer_use') ||
-      name.contains('mcp__eco_computer_use') ||
+      name.contains('mcp__mori_computer_use') ||
       name.contains('mcp__eco-computer-use');
 }
 
 String? ecoAgentBrowserToolSuffix(String toolName) {
-  final name = toolName.trim();
+  final name = _normalizeStoredMoriToolName(toolName.trim());
   if (name.isEmpty) return null;
   final match = RegExp(
     r'^mcp__(?:[^_]+(?:_[^_]+)*)__(.+)$',
     caseSensitive: false,
   ).firstMatch(name);
   var suffix = (match?.group(1) ?? name).trim().toLowerCase();
-  // Pi proxy form `eco_agent_browser_agent_browser_open` → short tool name.
+  // Pi proxy form `mori_agent_browser_agent_browser_open` → short tool name.
   if (!suffix.startsWith('agent_browser') &&
-      suffix.startsWith('eco_agent_browser_')) {
-    suffix = suffix.substring('eco_agent_browser_'.length);
+      suffix.startsWith('mori_agent_browser_')) {
+    suffix = suffix.substring('mori_agent_browser_'.length);
   }
   if (!suffix.contains('agent_browser')) return null;
   return suffix;
@@ -257,7 +268,8 @@ String _namedEcoToolLabel(String suffix, AppLocalizations l10n) {
   };
 }
 
-String formatMcpToolDisplayName(String tool, AppLocalizations l10n) {
+String formatMcpToolDisplayName(String rawTool, AppLocalizations l10n) {
+  final tool = _normalizeStoredMoriToolName(rawTool);
   final named = resolveNamedEcoToolSuffix(tool);
   if (named != null) return _namedEcoToolLabel(named, l10n);
   final lower = tool.trim().toLowerCase();

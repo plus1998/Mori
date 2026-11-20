@@ -1,7 +1,7 @@
 import { buildEcoMcpHubToolUsage } from "./mcp-hub-tool-usage";
 
 /** Built-in Eco Computer Use MCP server name (must stay sanitizable for MCP tool prefixes). */
-export const ECO_COMPUTER_USE_MCP_SERVER = "eco_computer_use";
+export const ECO_COMPUTER_USE_MCP_SERVER = "mori_computer_use";
 
 export {
   PACKAGED_SCREEN_RECORDING_APP_LABEL,
@@ -55,7 +55,7 @@ export function isComputerUseActionApprovalMode(
 
 export interface ComputerUseSettingsSnapshot {
   /**
-   * When true, `eco_computer_use` may appear in Composer integrations.
+   * When true, `mori_computer_use` may appear in Composer integrations.
    * Does not inject into sessions; each thread enables via integrationsEnabled.computerUse.
    */
   agentIntegrationEnabled: boolean;
@@ -131,11 +131,11 @@ export function isEcoComputerUseToolName(toolName: string | undefined): boolean 
   const name = toolName?.trim().toLowerCase() ?? "";
   if (!name) return false;
   return (
-    name.includes("eco_computer_use") ||
+    name.includes("mori_computer_use") ||
     name.includes("eco-computer-use") ||
     name.includes("open_computer_use") ||
     name.includes("open-computer-use") ||
-    name.includes("mcp__eco_computer_use") ||
+    name.includes("mcp__mori_computer_use") ||
     name.includes("mcp__eco-computer-use")
   );
 }
@@ -154,7 +154,7 @@ export function requiresComputerUseActionApproval(toolName: string): boolean {
 }
 
 /**
- * Short system append when this thread enabled eco_computer_use MCP.
+ * Short system append when this thread enabled mori_computer_use MCP.
  * Desktop automation is OS-global — not isolated per conversation.
  */
 export function buildEcoComputerUsePromptAppend(): string {
@@ -163,7 +163,7 @@ export function buildEcoComputerUsePromptAppend(): string {
     buildEcoMcpHubToolUsage({ server: ECO_COMPUTER_USE_MCP_SERVER }),
     "Desktop state is shared across conversations; actions affect the same OS UI. Action approvals follow the current Mori settings.",
     "Act on current accessibility state; refresh it after navigation or failed actions. Prefer element indices, using coordinates only when no accessibility element matches.",
-    "Screenshots are always returned as local file paths, never inline images. To analyze a screenshot, call eco_image_view:view_image with its path and a specific prompt.",
+    "Screenshots are always returned as local file paths, never inline images. To analyze a screenshot, call mori_image_view:view_image with its path and a specific prompt.",
   ].join("\n");
 }
 

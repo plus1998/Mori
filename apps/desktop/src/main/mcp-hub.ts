@@ -1,5 +1,5 @@
 import type { McpStreamableHttpHandlers, McpToolCallResult, McpToolDefinition } from "./mcp-streamable-http";
-import { ECO_MCP_HUB_SEARCH_QUERY_DESCRIPTION, type McpHubServiceDirectoryEntry } from "../shared/mcp-hub-tool-usage";
+import { ECO_MCP_HUB_MCP_SERVER, ECO_MCP_HUB_SEARCH_QUERY_DESCRIPTION, type McpHubServiceDirectoryEntry } from "../shared/mcp-hub-tool-usage";
 
 export type McpHubSession = {
   sessionId: string;
@@ -365,7 +365,7 @@ export class McpHub {
   /** Adapter for Eco's Streamable HTTP transport. */
   createStreamableHttpHandlers(): McpStreamableHttpHandlers {
     return {
-      serverName: "eco_mcp",
+      serverName: ECO_MCP_HUB_MCP_SERVER,
       instructions: "Search the session-authorized MCP catalog, then call a returned tool id.",
       listTools: async () => ({
         tools: [

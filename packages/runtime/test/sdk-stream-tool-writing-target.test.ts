@@ -97,7 +97,7 @@ test("the next call is announced on its own account", () => {
 
 test("arguments that name nothing say nothing", () => {
   const ctx = createSdkStreamContext();
-  startOf(ctx, "mcp__eco_plan__finalize_plan", "toolu_plan");
+  startOf(ctx, "mcp__mori_plan__finalize_plan", "toolu_plan");
   // A tool whose arguments have no path or command gets the plain placeholder and no more.
   expect(delta(ctx, '{"analysis":"done"')).toEqual([]);
   expect(delta(ctx, ',"plan":"ship it"}')).toEqual([]);

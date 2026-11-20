@@ -657,8 +657,8 @@ test("removes Plan Mode submission tools from SDK auto-approved tools", () => {
       "Read",
       "ExitPlanMode",
       "EnterPlanMode",
-      "mcp__eco_plan__finalize_plan",
-      "mcp__eco_plan__*",
+      "mcp__mori_plan__finalize_plan",
+      "mcp__mori_plan__*",
       "mcp__github__*",
       "Exit*",
       "*",
@@ -3240,7 +3240,7 @@ test("ClaudeAgentSdkDriver planning uses official plan mode and captures ExitPla
   expect(capturedOptions[0]?.allowedTools).toContain("WebSearch");
   expect(capturedOptions[0]?.allowedTools).toContain("WebFetch");
   expect(capturedOptions[0]?.allowedTools).not.toContain("ExitPlanMode");
-  expect(capturedOptions[0]?.allowedTools).not.toContain("mcp__eco_plan__finalize_plan");
+  expect(capturedOptions[0]?.allowedTools).not.toContain("mcp__mori_plan__finalize_plan");
   expect(capturedOptions[0]?.agents).toBeUndefined();
   const systemPrompt = capturedOptions[0]?.systemPrompt as { append?: string } | undefined;
   expect(systemPrompt).toEqual({ type: "preset", preset: "claude_code", snapshot: false });
@@ -3672,11 +3672,11 @@ test("ClaudeAgentSdkDriver autonomous does not register plan submission tools", 
     events.push({ type: event.type });
   }
 
-  expect(capturedOptions[0]?.allowedTools).not.toContain("mcp__eco_plan__finalize_plan");
+  expect(capturedOptions[0]?.allowedTools).not.toContain("mcp__mori_plan__finalize_plan");
   expect(capturedOptions[0]?.allowedTools).not.toContain("ExitPlanMode");
   expect(capturedOptions[0]?.allowedTools).toContain("AskUserQuestion");
   expect(capturedOptions[0]?.disallowedTools).toEqual(
-    expect.arrayContaining(["ExitPlanMode", "EnterPlanMode", "mcp__eco_plan__finalize_plan"]),
+    expect.arrayContaining(["ExitPlanMode", "EnterPlanMode", "mcp__mori_plan__finalize_plan"]),
   );
   expect(capturedOptions[0]?.mcpServers).toBeUndefined();
   const systemPrompt = capturedOptions[0]?.systemPrompt as { append?: string } | undefined;

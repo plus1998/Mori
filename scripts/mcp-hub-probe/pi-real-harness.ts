@@ -52,7 +52,7 @@ function sse(
         type: "tool_use",
         id: payload.id ?? "pi_probe",
         // Real wire name: the official PI MCP extension namespaces Hub tools as
-        // `mcp__eco_mcp__<tool>`. The pre-1.0.3 `mcp` proxy tool no longer exists.
+        // `mcp__mori_mcp__<tool>`. The pre-1.0.3 `mcp` proxy tool no longer exists.
         name: payload.tool ?? PI_MCP_HUB_SEARCH_TOOL_NAME,
         input: payload.input ?? {},
       };
@@ -245,7 +245,7 @@ export async function runPiRealProbe(): Promise<Record<string, unknown>> {
     piSession: {
       sessionMode: "agent",
       mcpServers: {
-        eco_mcp: {
+        mori_mcp: {
           type: "http",
           url: hub.url,
           headers: { Authorization: `Bearer ${(identity === "A" ? a : b).token}` },

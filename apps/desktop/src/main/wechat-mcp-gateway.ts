@@ -7,7 +7,7 @@ import { handleMcpStreamableHttpRequest, type McpToolDefinition } from "./mcp-st
 import type { WechatNotification } from "./mori-assistant-wechat";
 import { wechatNotificationId } from "./wechat-notification-policy";
 
-export const ECO_WECHAT_MCP_SERVER = "eco_wechat";
+export const ECO_WECHAT_MCP_SERVER = "mori_wechat";
 export const ECO_WECHAT_TOOL = "send_wechat_message";
 export const ECO_WECHAT_FULL_TOOL = `mcp__${ECO_WECHAT_MCP_SERVER}__${ECO_WECHAT_TOOL}`;
 const CONTROL_SECRET_HEADER = "X-Eco-Wechat-Control-Secret";
@@ -75,7 +75,7 @@ export class WechatMcpGateway {
       enabled: true,
       sdkEntry: httpEntry.sdkEntry,
       promptAppend:
-        "用户已明确要求微信通知。本轮可使用 eco_wechat 的 send_wechat_message 工具发送文字或图片；只在确有结果时调用，调用成功才可向用户确认已发送。",
+        "用户已明确要求微信通知。本轮可使用 mori_wechat 的 send_wechat_message 工具发送文字或图片；只在确有结果时调用，调用成功才可向用户确认已发送。",
     };
   }
 

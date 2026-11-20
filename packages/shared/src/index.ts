@@ -60,9 +60,11 @@ export {
 export { definedProps } from "./defined-props";
 export {
   ECO_MCP_HUB_TOOL_NAMES,
+  MORI_MCP_HUB_SERVER,
   ecoMcpHubNamespace,
   ecoMcpHubServerName,
-} from "./eco-mcp-hub";
+} from "./mori-mcp-hub";
+export { normalizeStoredMoriMcpName, normalizeStoredMoriMcpServer } from "./legacy-mori-mcp";
 export type {
   EcoCommandRisk,
   EcoDeviceCapability,

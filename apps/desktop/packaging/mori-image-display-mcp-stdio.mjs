@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 import readline from "node:readline";
 
-const controlUrl = (process.env.ECO_HTML_HOST_CONTROL_URL || "").replace(/\/$/, "");
-const controlSecret = process.env.ECO_HTML_HOST_CONTROL_SECRET || "";
-const authToken = process.env.ECO_HTML_HOST_AUTH_TOKEN || "";
+const controlUrl = (process.env.ECO_IMAGE_DISPLAY_CONTROL_URL || "").replace(/\/$/, "");
+const controlSecret = process.env.ECO_IMAGE_DISPLAY_CONTROL_SECRET || "";
+const authToken = process.env.ECO_IMAGE_DISPLAY_AUTH_TOKEN || "";
 
 if (!controlUrl || !controlSecret) {
-  process.stderr.write("[eco-html-host-mcp] missing control URL or secret\n");
+  process.stderr.write("[eco-image-display-mcp] missing control URL or secret\n");
   process.exit(1);
 }
 
@@ -15,7 +15,7 @@ async function control(route, body) {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "X-Eco-Html-Host-Control-Secret": controlSecret,
+      "X-Eco-Image-Display-Control-Secret": controlSecret,
       ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
     },
     body: JSON.stringify({ ...(body || {}), ...(authToken ? { authToken } : {}) }),
@@ -48,9 +48,9 @@ lines.on("line", (line) => {
           result: {
             protocolVersion: params?.protocolVersion || "2024-11-05",
             capabilities: { tools: {} },
-            serverInfo: { name: "eco_html_host", version: "1.0.0" },
+            serverInfo: { name: "mori_image_display", version: "1.0.0" },
             instructions:
-              "Mori HTML hosting for progress/report pages. Publish single-file HTML; Mori wraps chrome and returns a publicUrl.",
+              "Show images, video and audio to the user as playable workspace artifacts. This tool does not analyze media.",
           },
         });
       } else if (method === "ping") {

@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:eco_mobile/core/services/eco_tts_service.dart';
+import 'package:eco_mobile/core/services/mori_tts_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 

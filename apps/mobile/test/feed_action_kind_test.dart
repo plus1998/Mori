@@ -80,7 +80,7 @@ void main() {
 
   test('eco browser and image tools classify', () {
     final click = resolveActionKind(
-      toolName: 'mcp__eco_agent_browser__agent_browser_click',
+      toolName: 'mcp__mori_agent_browser__agent_browser_click',
     );
     expect(click.kind, ActionKind.browser);
     expect(click.namedSuffix, 'agent_browser_click');
@@ -92,82 +92,82 @@ void main() {
     );
     expect(
       resolveActionKind(
-        toolName: 'eco_agent_browser_agent_browser_open',
+        toolName: 'mori_agent_browser_agent_browser_open',
       ).namedSuffix,
       'agent_browser_open',
     );
     expect(
       resolveActionKind(
-        toolName: 'mcp__eco_image_generation__create_image',
+        toolName: 'mcp__mori_image_generation__create_image',
       ).kind,
       ActionKind.imageCreate,
     );
     expect(resolveActionKind(toolName: 'ViewImage').kind, ActionKind.imageView);
     expect(resolveActionKind(toolName: 'ViewImage').icon, ActivityActionIcon.images);
     expect(
-      resolveActionKind(toolName: 'mcp__eco_image_view__view_image').kind,
+      resolveActionKind(toolName: 'mcp__mori_image_view__view_image').kind,
       ActionKind.imageView,
     );
     expect(
-      resolveActionKind(toolName: 'mcp__eco_image_view__view_image').icon,
+      resolveActionKind(toolName: 'mcp__mori_image_view__view_image').icon,
       ActivityActionIcon.images,
     );
     expect(
-      resolveActionKind(toolName: 'mcp__eco_image_display__display_image').kind,
+      resolveActionKind(toolName: 'mcp__mori_image_display__display_image').kind,
       ActionKind.imageDisplay,
     );
     expect(
-      resolveActionKind(toolName: 'mcp__eco_image_display__display_image').icon,
+      resolveActionKind(toolName: 'mcp__mori_image_display__display_image').icon,
       ActivityActionIcon.images,
     );
     expect(
-      resolveActionKind(toolName: 'mcp__eco_html_host__publish_html').kind,
+      resolveActionKind(toolName: 'mcp__mori_html_host__publish_html').kind,
       ActionKind.htmlHost,
     );
     expect(
-      resolveActionKind(toolName: 'mcp__eco_html_host__publish_html').icon,
+      resolveActionKind(toolName: 'mcp__mori_html_host__publish_html').icon,
       ActivityActionIcon.browser,
     );
     expect(
-      resolveActionKind(toolName: 'mcp__eco_web_search__search').kind,
+      resolveActionKind(toolName: 'mcp__mori_web_search__search').kind,
       ActionKind.webSearch,
     );
     expect(
-      resolveActionKind(toolName: 'mcp__eco_web_search__search').icon,
+      resolveActionKind(toolName: 'mcp__mori_web_search__search').icon,
       ActivityActionIcon.network,
     );
   });
 
   test('formatMcpToolDisplayName maps built-in eco tools', () {
     expect(
-      formatMcpToolDisplayName('mcp__eco_image_display__show_media_to_user', l10n),
+      formatMcpToolDisplayName('mcp__mori_image_display__show_media_to_user', l10n),
       '向用户展示媒体',
     );
     expect(
-      formatMcpToolDisplayName('mcp__eco_image_display__display_image', l10n),
+      formatMcpToolDisplayName('mcp__mori_image_display__display_image', l10n),
       '向用户展示媒体',
     );
     expect(
-      formatMcpToolDisplayName('mcp__eco_html_host__publish_html', l10n),
+      formatMcpToolDisplayName('mcp__mori_html_host__publish_html', l10n),
       '发布 HTML 页面',
     );
     expect(
-      formatMcpToolDisplayName('mcp__eco_computer_use__click', l10n),
+      formatMcpToolDisplayName('mcp__mori_computer_use__click', l10n),
       '电脑操作',
     );
     expect(
-      formatMcpToolDisplayName('mcp__eco_web_search__search', l10n),
+      formatMcpToolDisplayName('mcp__mori_web_search__search', l10n),
       '联网搜索',
     );
     expect(
-      formatMcpToolDisplayName('mcp__eco_image_view__view_image', l10n),
+      formatMcpToolDisplayName('mcp__mori_image_view__view_image', l10n),
       '查看图像',
     );
   });
 
   test('imageDisplay and htmlHost action lines', () {
     final display = resolveActionKind(
-      toolName: 'mcp__eco_image_display__display_image',
+      toolName: 'mcp__mori_image_display__display_image',
     );
     expect(
       formatActionLine(
@@ -186,7 +186,7 @@ void main() {
       '已向你展示媒体',
     );
     final html = resolveActionKind(
-      toolName: 'mcp__eco_html_host__publish_html',
+      toolName: 'mcp__mori_html_host__publish_html',
     );
     expect(
       formatActionLine(
@@ -216,7 +216,7 @@ void main() {
 
   test('eco computer use tools classify', () {
     final resolved = resolveActionKind(
-      toolName: 'mcp__eco_computer_use__click',
+      toolName: 'mcp__mori_computer_use__click',
     );
     expect(resolved.kind, ActionKind.computerUse);
     expect(resolved.icon, ActivityActionIcon.computer);
@@ -341,7 +341,7 @@ void main() {
       expect(
         summarizeActionGroup([
           resolveActionKind(
-            toolName: 'mcp__eco_agent_browser__agent_browser_click',
+            toolName: 'mcp__mori_agent_browser__agent_browser_click',
           ),
         ], l10n).icon,
         ActivityActionIcon.browser,

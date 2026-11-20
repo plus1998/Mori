@@ -27,7 +27,7 @@ test("image view injection is always-on and not an integration switch", () => {
   expect(indexSource).not.toMatch(/integrationEnabled\([^)]*["']imageView["']/);
 });
 
-test("Claude MCP merge always includes eco_image_view after image generation", () => {
+test("Claude MCP merge always includes mori_image_view after image generation", () => {
   const start = indexSource.indexOf("const withImageMcp = imageGenerationGateway.mergeIntoSdkConfig");
   expect(start).toBeGreaterThanOrEqual(0);
   const slice = indexSource.slice(start, start + 2200);

@@ -42,7 +42,7 @@ test("Claude plugin, Codex and PI resolve the same packaged skill in development
   expect(`${manifest.name}:${MORI_AGENT_BROWSER_SKILL_NAME}`).toBe(plugin.skillName);
   const body = await fs.readFile(skillFile, "utf8");
   expect(body).toContain("name: mori-agent-browser");
-  expect(body).toContain("mcp__eco_agent_browser__");
+  expect(body).toContain("mcp__mori_agent_browser__");
   const codex = buildMoriAgentBrowserCodexSkillInfo(skillFile);
   expect(codex.name).toBe("mori-agent-browser");
   expect(codex.settingsKey).toBe(`builtin:mori-agent-browser:${skillFile}`);
@@ -134,7 +134,7 @@ test("browser prompts select the runtime skill name and retain session routing r
   for (const prompt of [claudePrompt, ECO_AGENT_BROWSER_PROMPT_APPEND]) {
     expect(prompt).toContain("do not pass a custom `session`");
     expect(prompt).toContain("binds the browser session automatically");
-    expect(prompt).toContain("eco_agent_browser");
+    expect(prompt).toContain("mori_agent_browser");
     expect(prompt).not.toContain(LEGACY_ECO_AGENT_BROWSER_SKILL_NAME);
     expect(prompt.length).toBeLessThan(1600);
   }

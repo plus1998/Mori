@@ -1018,7 +1018,7 @@ test("approved plan reuses the mapped thread and switches to the built-in Defaul
   const runPromise = (async () => {
     for await (const _event of driver.runContinuation!(
       {
-        threadId: "thr_eco_plan",
+        threadId: "thr_mori_plan",
         prompt: "original prompt",
         workspacePath: "/repo",
         worktreePath: "/repo",

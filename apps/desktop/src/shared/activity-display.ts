@@ -1,3 +1,4 @@
+import { normalizeStoredMoriMcpName } from "@eco/shared";
 export type { FileChangeCardDisplay, FileChangePreviewLine } from "./file-change";
 export { resolveFileChangeCardDisplay } from "./file-change";
 
@@ -204,7 +205,8 @@ function resolveNamedToolSuffix(tool: string): string | undefined {
   return undefined;
 }
 
-export function formatMcpToolDisplayName(tool: string, t: ActionKindTranslate): string {
+export function formatMcpToolDisplayName(rawTool: string, t: ActionKindTranslate): string {
+  const tool = normalizeStoredMoriMcpName(rawTool);
   const named = resolveNamedToolSuffix(tool);
   if (named) {
     return t(`activity.named.${named}`);
@@ -371,7 +373,7 @@ export interface WebSearchCardDisplay {
 }
 
 export function isNetworkToolName(toolName: string | undefined): boolean {
-  return toolName === "WebSearch" || toolName === "WebFetch" || isEcoWebSearchToolName(toolName);
+  return toolName === "WebSearch" || toolName === "WebFetch" || isEcoWebSearchToolName(normalizeStoredMoriMcpName(toolName));
 }
 
 export function resolveWebSearchCardDisplay(

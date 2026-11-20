@@ -225,7 +225,7 @@ for (const approvalMode of ["always", "auto"] as const) {
       savePendingPlan: () => {},
       updateThreadStatus: () => {},
       getApprovalMode: () => approvalMode,
-      getMcpHubServerName: (id) => `eco_mcp_${id}`,
+      getMcpHubServerName: (id) => `mori_mcp_${id}`,
       getMcpToolApprovalTarget: (server, tool) => store.getToolApprovalTarget(server, tool),
       isMcpToolApproved: (target) => store.isToolApproved(target),
       reviewApproval: async () => {
@@ -265,7 +265,7 @@ for (const approvalMode of ["always", "auto"] as const) {
         item: {
           id: `call-${tool}`,
           type: "mcpToolCall",
-          server: `eco_mcp_${threadId}`,
+          server: `mori_mcp_${threadId}`,
           tool: "call_tool",
           arguments: { name: `mysql:${tool}`, arguments: { sql: "SELECT 1" } },
         },
@@ -273,7 +273,7 @@ for (const approvalMode of ["always", "auto"] as const) {
       return handleCodexServerRequest(deps, CODEX_MCP_SERVER_ELICITATION_REQUEST, {
         threadId,
         itemId: `call-${tool}`,
-        serverName: `eco_mcp_${threadId}`,
+        serverName: `mori_mcp_${threadId}`,
         mode: "form",
         requestedSchema: {},
         message: 'run tool "call_tool"',
@@ -337,7 +337,7 @@ test("Hub permission delegation preserves the wrapper, including updated nested 
   ]);
   expect(
     await handler({
-      toolName: "mcp__eco_mcp__call_tool",
+      toolName: "mcp__mori_mcp__call_tool",
       toolUseId: "call",
       input: { name: "mysql:read", arguments: { sql: "SELECT 1" } },
       signal: new AbortController().signal,
@@ -358,7 +358,7 @@ test("concurrent Hub calls cannot borrow another call's remembered identity", as
     getRoutesJson: () => "[]",
     savePendingPlan: () => {},
     updateThreadStatus: () => {},
-    getMcpHubServerName: () => "eco_mcp_concurrent",
+    getMcpHubServerName: () => "mori_mcp_concurrent",
     getMcpToolApprovalTarget: (server, tool) => store.getToolApprovalTarget(server, tool),
     isMcpToolApproved: (target) => store.isToolApproved(target),
     emitThreadLive: (event) => {
@@ -373,14 +373,14 @@ test("concurrent Hub calls cannot borrow another call's remembered identity", as
       item: {
         id: tool,
         type: "mcpToolCall",
-        server: "eco_mcp_concurrent",
+        server: "mori_mcp_concurrent",
         tool: "call_tool",
         arguments: { name: `mysql:${tool}`, arguments: {} },
       },
     });
   const params = {
     threadId: "concurrent-codex",
-    serverName: "eco_mcp_concurrent",
+    serverName: "mori_mcp_concurrent",
     mode: "form",
     requestedSchema: {},
     message: 'run tool "call_tool"',

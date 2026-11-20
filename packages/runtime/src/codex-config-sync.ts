@@ -508,7 +508,7 @@ function tomlBareKey(key: string): string {
  */
 export function defaultCodexMcpToolOutputTokenLimits(serverName: string): Record<string, number> | undefined {
   switch (serverName.trim()) {
-    case "eco_agent_browser":
+    case "mori_agent_browser":
       return {
         snapshot: 8_000,
         screenshot: 2_000,
@@ -518,7 +518,7 @@ export function defaultCodexMcpToolOutputTokenLimits(serverName: string): Record
         read: 8_000,
         eval: 4_000,
       };
-    case "eco_computer_use":
+    case "mori_computer_use":
       return {
         get_app_state: 8_000,
         list_apps: 2_000,
@@ -530,15 +530,15 @@ export function defaultCodexMcpToolOutputTokenLimits(serverName: string): Record
         set_value: 1_024,
         perform_secondary_action: 2_000,
       };
-    case "eco_image_view":
+    case "mori_image_view":
       return { view_image: 12_000 };
-    case "eco_image_display":
+    case "mori_image_display":
       return { show_media_to_user: 1_024 };
-    case "eco_image_generation":
+    case "mori_image_generation":
       return { create_image: 2_000 };
-    case "eco_html_host":
+    case "mori_html_host":
       return { publish_html: 2_000 };
-    case "eco_web_search":
+    case "mori_web_search":
       return { web_search: 4_000 };
     default:
       return undefined;

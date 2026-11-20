@@ -2785,10 +2785,10 @@ test("failed image analysis displays failure rather than a viewed image", () => 
   const failed = item({
     id: "image-view-failed",
     eventType: "tool.failed",
-    text: "Tool: mcp__eco_image_view__view_image · /tmp/feed-preview.png",
+    text: "Tool: mcp__mori_image_view__view_image · /tmp/feed-preview.png",
     metadata: {
       tool: {
-        name: "mcp__eco_image_view__view_image",
+        name: "mcp__mori_image_view__view_image",
         toolUseId: "image-view-failed",
         status: "failed",
         imageView: { path: "/tmp/feed-preview.png" },
@@ -2863,11 +2863,11 @@ test("display_image cards keep collapse separate from opening the workspace pane
           item({
             id: "image-display-feed",
             eventType: "tool.completed",
-            text: "Tool: mcp__eco_image_display__display_image · art-feed-1",
+            text: "Tool: mcp__mori_image_display__display_image · art-feed-1",
             metadata: {
               itemType: "tool",
               tool: {
-                name: "mcp__eco_image_display__display_image",
+                name: "mcp__mori_image_display__display_image",
                 detail: "art-feed-1",
                 toolUseId: "toolu_display_image_feed",
                 status: "completed",
@@ -2950,12 +2950,12 @@ test("ActivityLogView shimmers a running imageView and hides waiting thinking", 
             sequence: 2,
             requestId: "req_image",
             eventType: "tool.started",
-            text: "Tool: mcp__eco_image_view__view_image · /tmp/feed-preview.png",
+            text: "Tool: mcp__mori_image_view__view_image · /tmp/feed-preview.png",
             metadata: {
               liveType: "tool.started",
               itemType: "mcpToolCall",
               tool: {
-                name: "mcp__eco_image_view__view_image",
+                name: "mcp__mori_image_view__view_image",
                 detail: "/tmp/feed-preview.png",
                 toolUseId: "item_mcp_view_running",
                 status: "started",
@@ -3253,11 +3253,11 @@ test("ActivityLogView renders Eco MCP view_image as the image preview, not a web
           item({
             id: "eco-mcp-image-view-feed",
             eventType: "tool.completed",
-            text: "Tool: mcp__eco_image_view__view_image · /tmp/feed-preview.png",
+            text: "Tool: mcp__mori_image_view__view_image · /tmp/feed-preview.png",
             metadata: {
               itemType: "mcpToolCall",
               tool: {
-                name: "mcp__eco_image_view__view_image",
+                name: "mcp__mori_image_view__view_image",
                 detail: "/tmp/feed-preview.png",
                 toolUseId: "item_mcp_view_feed",
                 status: "completed",
@@ -3762,10 +3762,10 @@ test("failed Bash action uses the completed command style plus a status dot", ()
 test("ActivityLogView aggregates native and MCP image views with other tools and retains preview children", () => {
   const tools = [
     { name: "ViewImage", imageView: { path: "/tmp/native.png" } },
-    { name: "mcp__eco_image_view__view_image", imageView: { path: "/tmp/mcp.png", prompt: "找报错" }, outputPreview: "分析结果" },
+    { name: "mcp__mori_image_view__view_image", imageView: { path: "/tmp/mcp.png", prompt: "找报错" }, outputPreview: "分析结果" },
     { name: "Bash", detail: "pwd" },
     { name: "mcp__example__lookup" },
-    { name: "mcp__eco_tts__create_speech" },
+    { name: "mcp__mori_tts__create_speech" },
   ];
   const mixed = projection({
     status: "completed",
@@ -3827,7 +3827,7 @@ test("ActivityLogView aggregates a group that mixes commands with a failed image
         metadata: {
           itemType: "mcpToolCall",
           tool: {
-            name: "mcp__eco_image_view__view_image",
+            name: "mcp__mori_image_view__view_image",
             detail: "Failed to call tool: Request timed out",
             toolUseId: "toolu_image_view_failed",
             status: "failed",
@@ -3895,7 +3895,7 @@ test("ActivityLogView keeps a lone failed tool's own copy as the group title", (
             metadata: {
               itemType: "mcpToolCall",
               tool: {
-                name: "mcp__eco_image_view__view_image",
+                name: "mcp__mori_image_view__view_image",
                 detail: "Failed to call tool: Request timed out",
                 toolUseId: "toolu_image_view_failed",
                 status: "failed",
@@ -4518,11 +4518,11 @@ test("ActivityLogView does not leave inline loading on orphan running actions af
 });
 
 test("iconForToolName maps eco browser and image generation tools", () => {
-  expect(iconForToolName("mcp__eco_agent_browser__agent_browser_click")).toBe("browser");
-  expect(iconForToolName("mcp__eco_agent_browser__agent_browser_open")).toBe("browser");
-  expect(iconForToolName("mcp__eco_image_generation__create_image")).toBe("image");
+  expect(iconForToolName("mcp__mori_agent_browser__agent_browser_click")).toBe("browser");
+  expect(iconForToolName("mcp__mori_agent_browser__agent_browser_open")).toBe("browser");
+  expect(iconForToolName("mcp__mori_image_generation__create_image")).toBe("image");
   expect(iconForToolName("ViewImage")).toBe("images");
-  expect(iconForToolName("mcp__eco_image_view__view_image")).toBe("images");
+  expect(iconForToolName("mcp__mori_image_view__view_image")).toBe("images");
   expect(iconForToolName("WebSearch")).toBe("network");
   expect(iconForToolName("Read")).toBe("read");
   expect(iconForToolName("TotallyUnknown")).toBe("tool");
@@ -4838,7 +4838,7 @@ test("speech and web search cards stay behind the shared tool summary and appear
     ], createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:01.000Z",
   };
   for (const tool of [
-    { name: "mcp__eco_tts__create_speech", toolUseId: "speech-call", expected: "合成了音频" },
+    { name: "mcp__mori_tts__create_speech", toolUseId: "speech-call", expected: "合成了音频" },
     { name: "WebSearch", toolUseId: "search-call", detail: "测试搜索词", expected: "联网搜索了" },
   ]) {
     const view = buildThreadRunProjectionViewModel(projection({ status: "completed", timeline: [item({

@@ -11,9 +11,9 @@ import {
 
 describe("function call name normalization", () => {
   test("maps short MCP tool names back to request allowlist ids", () => {
-    const requestTools = ["mcp__eco_plan__finalize_plan", "Read"];
+    const requestTools = ["mcp__mori_plan__finalize_plan", "Read"];
     expect(normalizeFunctionCallNameForRequest("finalize_plan", requestTools)).toBe(
-      "mcp__eco_plan__finalize_plan",
+      "mcp__mori_plan__finalize_plan",
     );
     expect(normalizeFunctionCallNameForRequest("Read", requestTools)).toBe("Read");
   });
@@ -24,9 +24,9 @@ describe("function call name normalization", () => {
         model: "gpt-5.5",
         max_tokens: 1024,
         messages: [],
-        tools: [{ name: "mcp__eco_plan__finalize_plan", input_schema: { type: "object" } }],
+        tools: [{ name: "mcp__mori_plan__finalize_plan", input_schema: { type: "object" } }],
       }),
-    ).toEqual(["mcp__eco_plan__finalize_plan"]);
+    ).toEqual(["mcp__mori_plan__finalize_plan"]);
   });
 
   test("responsesToAnthropic normalizes function_call names", () => {
@@ -46,17 +46,17 @@ describe("function call name normalization", () => {
         ],
       },
       "gpt-5.5",
-      ["mcp__eco_plan__finalize_plan"],
+      ["mcp__mori_plan__finalize_plan"],
     );
     const toolUse = anthropic.content.find((block) => block.type === "tool_use");
-    expect(toolUse?.name).toBe("mcp__eco_plan__finalize_plan");
+    expect(toolUse?.name).toBe("mcp__mori_plan__finalize_plan");
     expect(anthropic.stop_reason).toBe("tool_use");
   });
 });
 
 describe("responses stream tool arguments on output_item.done", () => {
   test("emits tool input when upstream only sends arguments on output_item.done", () => {
-    const requestTools = ["mcp__eco_plan__finalize_plan"];
+    const requestTools = ["mcp__mori_plan__finalize_plan"];
     const state = newResponsesEventToAnthropicState(requestTools);
     const push = (evt: Parameters<typeof responsesEventToAnthropicEvents>[0]) =>
       responsesEventToAnthropicEvents(evt, state);
@@ -94,7 +94,7 @@ describe("responses stream tool arguments on output_item.done", () => {
     const toolStart = events.find(
       (event) => event.type === "content_block_start" && event.content_block?.type === "tool_use",
     );
-    expect(toolStart?.content_block?.name).toBe("mcp__eco_plan__finalize_plan");
+    expect(toolStart?.content_block?.name).toBe("mcp__mori_plan__finalize_plan");
 
     const toolDelta = events.find(
       (event) =>

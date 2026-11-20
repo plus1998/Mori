@@ -42,7 +42,7 @@ test("vision configuration does not change Login identity or native title select
 });
 
 test("computer use instructions keep the Mori image viewer entry", () => {
-  expect(buildEcoComputerUsePromptAppend()).toContain("eco_image_view:view_image");
+  expect(buildEcoComputerUsePromptAppend()).toContain("mori_image_view:view_image");
 });
 
 test("Codex title notifications only rename the mapped root, never children or empty names", () => {

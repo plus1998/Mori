@@ -60,27 +60,27 @@ test("resolveActionKind upgrades webSearch payload mode fetch", () => {
 
 test("resolveActionKind classifies eco browser and image tools", () => {
   const click = resolveActionKind({
-    toolName: "mcp__eco_agent_browser__agent_browser_click",
+    toolName: "mcp__mori_agent_browser__agent_browser_click",
   });
   expect(click.kind).toBe("browser");
   expect(click.namedSuffix).toBe("agent_browser_click");
   expect(resolveActionKind({ toolName: "mcp__eco_ab_ea4a60abe66__agent_browser_open" }).kind).toBe("browser");
-  expect(resolveActionKind({ toolName: "mcp__eco_image_generation__create_image" }).kind).toBe("imageCreate");
-  expect(resolveActionKind({ toolName: "mcp__eco_image_generation__create_image" }).icon).toBe("image");
+  expect(resolveActionKind({ toolName: "mcp__mori_image_generation__create_image" }).kind).toBe("imageCreate");
+  expect(resolveActionKind({ toolName: "mcp__mori_image_generation__create_image" }).icon).toBe("image");
   expect(resolveActionKind({ toolName: "ViewImage" }).kind).toBe("imageView");
   expect(resolveActionKind({ toolName: "ViewImage" }).icon).toBe("images");
-  expect(resolveActionKind({ toolName: "mcp__eco_image_view__view_image" }).kind).toBe("imageView");
-  expect(resolveActionKind({ toolName: "mcp__eco_image_view__view_image" }).icon).toBe("images");
-  expect(resolveActionKind({ toolName: "mcp__eco_web_search__search" }).kind).toBe("webSearch");
-  expect(resolveActionKind({ toolName: "mcp__eco_web_search__search" }).icon).toBe("network");
-  expect(resolveActionKind({ toolName: "eco_agent_browser_agent_browser_open" }).kind).toBe("browser");
-  expect(resolveActionKind({ toolName: "eco_agent_browser_agent_browser_open" }).namedSuffix).toBe(
+  expect(resolveActionKind({ toolName: "mcp__mori_image_view__view_image" }).kind).toBe("imageView");
+  expect(resolveActionKind({ toolName: "mcp__mori_image_view__view_image" }).icon).toBe("images");
+  expect(resolveActionKind({ toolName: "mcp__mori_web_search__search" }).kind).toBe("webSearch");
+  expect(resolveActionKind({ toolName: "mcp__mori_web_search__search" }).icon).toBe("network");
+  expect(resolveActionKind({ toolName: "mori_agent_browser_agent_browser_open" }).kind).toBe("browser");
+  expect(resolveActionKind({ toolName: "mori_agent_browser_agent_browser_open" }).namedSuffix).toBe(
     "agent_browser_open",
   );
 });
 
 test("resolveActionKind classifies eco computer use tools", () => {
-  const resolved = resolveActionKind({ toolName: "mcp__eco_computer_use__click" });
+  const resolved = resolveActionKind({ toolName: "mcp__mori_computer_use__click" });
   expect(resolved.kind).toBe("computerUse");
   expect(resolved.icon).toBe("computer");
   expect(resolved.bucket).toBe("computerUse");
@@ -114,7 +114,7 @@ test("external MCP labels retain server identity in both phases and languages", 
 
 test("MCP discovery and anonymous historical calls do not invent a server name", () => {
   const discovery = resolveActionKind({
-    toolName: "mcp__eco_mcp__search_tools",
+    toolName: "mcp__mori_mcp__search_tools",
     payload: { mcpDiscovery: { kind: "search" } },
   });
   expect(formatActionLine({ resolved: discovery, phase: "running" }, tZh)).toBe("正在查找 MCP 工具");
@@ -156,11 +156,11 @@ test("formatActionLine done includes basename target", () => {
 });
 
 test("formatActionLine uses the generic browser label for tools the catalogs do not name", () => {
-  const known = resolveActionKind({ toolName: "mcp__eco_agent_browser__agent_browser_click" });
+  const known = resolveActionKind({ toolName: "mcp__mori_agent_browser__agent_browser_click" });
   expect(formatActionLine({ resolved: known, phase: "done" }, tZh)).toBe("浏览器点击");
   // `agent_browser_eval` has no `activity.named.*` entry; the old dynamic key would
   // have rendered the raw key instead of a label.
-  const unknown = resolveActionKind({ toolName: "mcp__eco_agent_browser__agent_browser_eval" });
+  const unknown = resolveActionKind({ toolName: "mcp__mori_agent_browser__agent_browser_eval" });
   expect(unknown.kind).toBe("browser");
   expect(formatActionLine({ resolved: unknown, phase: "running" }, tZh)).toBe("浏览器操作");
   expect(formatActionLine({ resolved: unknown, phase: "done" }, tZh)).toBe("浏览器操作");
@@ -244,7 +244,7 @@ test("summarizeActionGroup icon priority uses network for mcp-only and browser f
   expect(summarizeActionGroup([resolveActionKind({ toolName: "mcp" })], tZh).icon).toBe("network");
   expect(
     summarizeActionGroup(
-      [resolveActionKind({ toolName: "mcp__eco_agent_browser__agent_browser_click" })],
+      [resolveActionKind({ toolName: "mcp__mori_agent_browser__agent_browser_click" })],
       tZh,
     ).icon,
   ).toBe("browser");

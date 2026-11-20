@@ -19,7 +19,7 @@ import {
   PI_FINALIZE_PLAN_EXTENSION_NAME,
 } from "./pi-finalize-plan.js";
 import { assertPiImageInputAllowed, createEcoPiImageInputExtensionFactory } from "./pi-image-input-policy.js";
-import { canonicalizePiMcpFingerprint, fingerprintPiMcpServers, PI_MCP_HUB_TOOL_NAMES } from "./pi-mcp.js";
+import { canonicalizePiMcpFingerprint, fingerprintPiMcpServers, PI_MCP_HUB_SERVER_NAME, PI_MCP_HUB_TOOL_NAMES } from "./pi-mcp.js";
 import { createPiMcpExtensionFactory } from "./pi-mcp-extension-factory.js";
 import {
   type BuildEcoPiModelInput,
@@ -953,7 +953,7 @@ async function createDefaultPiSession(input: PiSessionFactoryInput): Promise<PiS
   const allowSelectedMcpTools = PI_MCP_HUB_TOOL_NAMES.some((name) => allowedTools.has(name));
   const nonHubServers = Object.keys(input.mcpServers ?? {})
     .map((name) => name.trim())
-    .filter((name) => name !== "eco_mcp");
+    .filter((name) => name !== PI_MCP_HUB_SERVER_NAME);
   // MCP names are only known after native registration (including sanitized/hash
   // suffixes). Filter registrations instead of freezing those names in SDK tools.
   const scopedFactory =

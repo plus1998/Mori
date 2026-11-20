@@ -17,8 +17,9 @@ import {
 /** 跨平台的路径 fixture：POSIX 上保持原样，Windows 上是 `<当前盘>` 下的同一路径。 */
 const APP_PATH = path.resolve(path.parse(process.cwd()).root, "tmp", "Open Computer Use.app");
 
-test("eco-computer-use-mcp-stdio packaging script still exists for debug", () => {
+test("the Mori computer-use MCP stdio script is resolved for debugging", () => {
   const packagingStdio = ComputerUseMcpGateway.packagingStdioScriptPath();
+  expect(path.basename(packagingStdio)).toBe("mori-computer-use-mcp-stdio.mjs");
   expect(fs.existsSync(packagingStdio)).toBe(true);
   const src = fs.readFileSync(packagingStdio, "utf8");
   expect(src).toContain("/v1/tool-started");

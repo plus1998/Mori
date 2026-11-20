@@ -6,7 +6,7 @@ import '../locale/app_localizations_ext.dart';
 import '../providers/app_providers.dart';
 import '../theme/eco_icons.dart';
 import '../theme/eco_theme.dart';
-import '../services/eco_tts_service.dart';
+import '../services/mori_tts_service.dart';
 import 'read_aloud_thread_scope.dart';
 
 const activityFeedMessageActionIconSize = 15.0;

@@ -99,7 +99,7 @@ export function parseMcpToolRunElicitationMessage(serverName: string, message: s
 }
 
 /**
- * Whether Eco should accept an eco_agent_browser tool-run elicitation without UI.
+ * Whether Eco should accept an mori_agent_browser tool-run elicitation without UI.
  * - always_allow: all eco browser tool-run confirms auto-accept
  * - always_ask: only non-open tools auto-accept (open / tab_new still ask)
  */
@@ -127,7 +127,7 @@ export function shouldAutoAcceptEcoBrowserToolElicitation(input: {
 }
 
 /**
- * Whether Eco should accept an eco_web_search tool-run elicitation without UI.
+ * Whether Eco should accept an mori_web_search tool-run elicitation without UI.
  * - always_allow: all eco web-search tool-run confirms auto-accept
  * - always_ask: never auto-accept (user confirms before each search)
  */
@@ -147,7 +147,7 @@ export function shouldAutoAcceptEcoWebSearchToolElicitation(input: {
 }
 
 /**
- * Whether Eco should accept an eco_computer_use tool-run elicitation without UI.
+ * Whether Eco should accept an mori_computer_use tool-run elicitation without UI.
  * - always_allow: all Computer Use tool-run confirms auto-accept
  * - always_ask: only read tools (list_apps / get_app_state) auto-accept
  */
@@ -205,17 +205,17 @@ export interface CodexApprovalBridgeDeps {
   getMcpHubServerName?: (ecoThreadId: string) => string | undefined;
   /**
    * Built-in browser open approval (settings). Used to auto-accept Codex MCP
-   * tool-run elicitations for eco_agent_browser when mode is always_allow.
+   * tool-run elicitations for mori_agent_browser when mode is always_allow.
    */
   getBrowserOpenApprovalMode?: () => BrowserOpenApprovalMode;
   /**
    * Computer Use action approval (settings). Used to auto-accept Codex MCP
-   * tool-run elicitations for eco_computer_use when mode is always_allow.
+   * tool-run elicitations for mori_computer_use when mode is always_allow.
    */
   getComputerUseActionApprovalMode?: () => ComputerUseActionApprovalMode;
   /**
    * Web search approval (settings). Used to auto-accept Codex MCP tool-run
-   * elicitations for eco_web_search when mode is always_allow.
+   * elicitations for mori_web_search when mode is always_allow.
    */
   getWebSearchApprovalMode?: () => WebSearchApprovalMode;
   /**
@@ -2578,7 +2578,7 @@ function resolvePendingHubCall(
   wrapperServerName: string,
   itemId?: string,
 ): { itemId: string; serverName: string; toolName: string; arguments: Record<string, unknown> } | undefined {
-  if (!wrapperServerName.trim().toLowerCase().startsWith("eco_mcp")) {
+  if (!wrapperServerName.trim().toLowerCase().startsWith("mori_mcp")) {
     return undefined;
   }
   const calls = (pendingMcpToolCalls.get(codexThreadId) ?? []).filter(

@@ -32,7 +32,7 @@ async function initialize(entry: Record<string, unknown>) {
   return { url, h, sid };
 }
 
-test("MCP Hub gateway gives a Pi-shaped eco_mcp entry and dispatches over real HTTP", async () => {
+test("MCP Hub gateway gives a Pi-shaped mori_mcp entry and dispatches over real HTTP", async () => {
   const gateway = new McpHubGateway();
   gateway.registerServer({
     name: "probe",
@@ -61,8 +61,8 @@ test("MCP Hub keeps image generation's 10-minute timeout on the outer wrapper", 
   try {
     const prepared = await gateway.prepareThread({
       threadId: "image-timeout-thread",
-      allowedServers: ["eco_image_generation"],
-      runtimeName: "eco_mcp_image_timeout",
+      allowedServers: ["mori_image_generation"],
+      runtimeName: "mori_mcp_image_timeout",
     });
     expect(IMAGE_GENERATION_MCP_TOOL_TIMEOUT_MS).toBeGreaterThanOrEqual(600_000);
     expect(prepared.sdkEntry).toMatchObject({
@@ -185,9 +185,9 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
     expect(other?.promptAppend).toContain("database:read");
     expect(gateway.getThreadPromptAppend("stdio-thread")).toBe(second.promptAppend);
 
-    gateway.registerThreadServerEntry({ name: "eco_demo", threadId: "stdio-thread", sdkEntry: { type: "http", url: "http://127.0.0.1:1/mcp" } });
+    gateway.registerThreadServerEntry({ name: "mori_demo", threadId: "stdio-thread", sdkEntry: { type: "http", url: "http://127.0.0.1:1/mcp" } });
     const builtinOnly = await gateway.prepareThreadFromSdkConfig({
-      threadId: "stdio-thread", config: { mcpServers: servers, allowedTools: [] }, allowedServers: ["eco_demo"],
+      threadId: "stdio-thread", config: { mcpServers: servers, allowedTools: [] }, allowedServers: ["mori_demo"],
     });
     expect(builtinOnly?.promptAppend).toBeUndefined();
     expect(gateway.getThreadPromptAppend("stdio-thread")).toBeUndefined();
@@ -313,15 +313,15 @@ test("MCP Hub keeps built-in HTTP gateway credentials isolated per thread", asyn
   const port = (upstream.address() as { port: number }).port;
   const gateway = new McpHubGateway();
   try {
-    gateway.registerThreadServerEntry({ name: "eco_demo", threadId: "thread-a", sdkEntry: { type: "http", url: `http://127.0.0.1:${port}/mcp`, headers: { authorization: "Bearer A" } } });
-    gateway.registerThreadServerEntry({ name: "eco_demo", threadId: "thread-b", sdkEntry: { type: "http", url: `http://127.0.0.1:${port}/mcp`, headers: { authorization: "Bearer B" } } });
-    const a = await gateway.prepareThread({ threadId: "thread-a", allowedServers: ["eco_demo"] });
-    const b = await gateway.prepareThread({ threadId: "thread-b", allowedServers: ["eco_demo"] });
+    gateway.registerThreadServerEntry({ name: "mori_demo", threadId: "thread-a", sdkEntry: { type: "http", url: `http://127.0.0.1:${port}/mcp`, headers: { authorization: "Bearer A" } } });
+    gateway.registerThreadServerEntry({ name: "mori_demo", threadId: "thread-b", sdkEntry: { type: "http", url: `http://127.0.0.1:${port}/mcp`, headers: { authorization: "Bearer B" } } });
+    const a = await gateway.prepareThread({ threadId: "thread-a", allowedServers: ["mori_demo"] });
+    const b = await gateway.prepareThread({ threadId: "thread-b", allowedServers: ["mori_demo"] });
     const run = async (entry: Record<string, unknown>) => {
       const current = await initialize(entry);
       const search = await rpc(current.url, current.h, { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "search_tools", arguments: {} } }, current.sid);
-      expect((search.body.result as { structuredContent: { tools: Array<{ name: string }> } }).structuredContent.tools.map((tool) => tool.name)).toEqual(["eco_demo:echo"]);
-      return rpc(current.url, current.h, { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "call_tool", arguments: { name: "eco_demo:echo", arguments: {} } } }, current.sid);
+      expect((search.body.result as { structuredContent: { tools: Array<{ name: string }> } }).structuredContent.tools.map((tool) => tool.name)).toEqual(["mori_demo:echo"]);
+      return rpc(current.url, current.h, { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "call_tool", arguments: { name: "mori_demo:echo", arguments: {} } } }, current.sid);
     };
     const [calledA, calledB] = await Promise.all([run(a.sdkEntry), run(b.sdkEntry)]);
     expect((calledA.body.result as { content: Array<{ text: string }> }).content[0]?.text).toBe("Bearer A");
@@ -367,7 +367,7 @@ test("MCP Hub forwards an image server's per-entry timeout to its nested MCP cli
   const gateway = new McpHubGateway();
   try {
     gateway.registerThreadServerEntry({
-      name: "eco_image_generation",
+      name: "mori_image_generation",
       threadId: "image-timeout-forwarding",
       sdkEntry: {
         type: "http",
@@ -377,7 +377,7 @@ test("MCP Hub forwards an image server's per-entry timeout to its nested MCP cli
     });
     const prepared = await gateway.prepareThread({
       threadId: "image-timeout-forwarding",
-      allowedServers: ["eco_image_generation"],
+      allowedServers: ["mori_image_generation"],
     });
     const session = await initialize(prepared.sdkEntry);
     const called = await rpc(
@@ -387,7 +387,7 @@ test("MCP Hub forwards an image server's per-entry timeout to its nested MCP cli
         jsonrpc: "2.0",
         id: 2,
         method: "tools/call",
-        params: { name: "call_tool", arguments: { name: "eco_image_generation:slow", arguments: {} } },
+        params: { name: "call_tool", arguments: { name: "mori_image_generation:slow", arguments: {} } },
       },
       session.sid,
     );
@@ -409,42 +409,42 @@ test("MCP Hub tracks and retires thread-scoped Codex descriptors", async () => {
       url: "http://127.0.0.1:1/mcp",
       headers: { authorization: "Bearer A" },
     };
-    gateway.registerThreadServerEntry({ name: "eco_demo", threadId: "thread-a", sdkEntry });
+    gateway.registerThreadServerEntry({ name: "mori_demo", threadId: "thread-a", sdkEntry });
     const first = await gateway.prepareThread({
       threadId: "thread-a",
-      allowedServers: ["eco_demo"],
-      runtimeName: "eco_mcp_thread_a",
+      allowedServers: ["mori_demo"],
+      runtimeName: "mori_mcp_thread_a",
     });
     expect(first.codexServerChanged).toBe(true);
-    expect(gateway.listThreadCodexServers().map((server) => server.name)).toEqual(["eco_mcp_thread_a"]);
-    expect(gateway.getThreadCodexServerName("thread-a")).toBe("eco_mcp_thread_a");
+    expect(gateway.listThreadCodexServers().map((server) => server.name)).toEqual(["mori_mcp_thread_a"]);
+    expect(gateway.getThreadCodexServerName("thread-a")).toBe("mori_mcp_thread_a");
     expect(gateway.getThreadCodexServerName("thread-b")).toBeUndefined();
 
     const same = await gateway.prepareThread({
       threadId: "thread-a",
-      allowedServers: ["eco_demo"],
-      runtimeName: "eco_mcp_thread_a",
+      allowedServers: ["mori_demo"],
+      runtimeName: "mori_mcp_thread_a",
     });
     expect(same.codexServerChanged).toBeUndefined();
     expect(gateway.listThreadCodexServers()).toHaveLength(1);
 
     const sdkEntryB = { ...sdkEntry, headers: { authorization: "Bearer B" } };
-    gateway.registerThreadServerEntry({ name: "eco_demo", threadId: "thread-b", sdkEntry: sdkEntryB });
+    gateway.registerThreadServerEntry({ name: "mori_demo", threadId: "thread-b", sdkEntry: sdkEntryB });
     const second = await gateway.prepareThread({
       threadId: "thread-b",
-      allowedServers: ["eco_demo"],
-      runtimeName: "eco_mcp_thread_b",
+      allowedServers: ["mori_demo"],
+      runtimeName: "mori_mcp_thread_b",
     });
     expect(second.codexServerChanged).toBe(true);
     expect(gateway.listThreadCodexServers().map((server) => server.name)).toEqual([
-      "eco_mcp_thread_a",
-      "eco_mcp_thread_b",
+      "mori_mcp_thread_a",
+      "mori_mcp_thread_b",
     ]);
 
     gateway.revokeThread("thread-a");
     expect(gateway.getThreadCodexServerName("thread-a")).toBeUndefined();
-    expect(gateway.getThreadCodexServerName("thread-b")).toBe("eco_mcp_thread_b");
-    expect(gateway.listThreadCodexServers().map((server) => server.name)).toEqual(["eco_mcp_thread_b"]);
+    expect(gateway.getThreadCodexServerName("thread-b")).toBe("mori_mcp_thread_b");
+    expect(gateway.listThreadCodexServers().map((server) => server.name)).toEqual(["mori_mcp_thread_b"]);
   } finally {
     await gateway.close();
   }
@@ -454,7 +454,7 @@ test("MCP Hub retires a Codex descriptor when a thread loses its last server", a
   const gateway = new McpHubGateway();
   try {
     gateway.registerThreadServerEntry({
-      name: "eco_demo",
+      name: "mori_demo",
       threadId: "thread-empty",
       sdkEntry: {
         type: "http",
@@ -465,8 +465,8 @@ test("MCP Hub retires a Codex descriptor when a thread loses its last server", a
     await gateway.prepareThreadFromSdkConfig({
       threadId: "thread-empty",
       config: { mcpServers: {}, allowedTools: [] },
-      allowedServers: ["eco_demo"],
-      runtimeName: "eco_mcp_thread_empty",
+      allowedServers: ["mori_demo"],
+      runtimeName: "mori_mcp_thread_empty",
     });
     expect(gateway.listThreadCodexServers()).toHaveLength(1);
 
@@ -474,7 +474,7 @@ test("MCP Hub retires a Codex descriptor when a thread loses its last server", a
       threadId: "thread-empty",
       config: { mcpServers: {}, allowedTools: [] },
       allowedServers: [],
-      runtimeName: "eco_mcp_thread_empty",
+      runtimeName: "mori_mcp_thread_empty",
     });
     expect(retired).toBeUndefined();
     expect(gateway.listThreadCodexServers()).toHaveLength(0);
@@ -487,7 +487,7 @@ test("MCP Hub retires a Codex descriptor when a thread loses its last server", a
 test("MCP Hub keeps speech generation's timeout on the runtime-visible wrapper", async () => {
   const gateway = new McpHubGateway();
   try {
-    const prepared = await gateway.prepareThread({ threadId: "tts-timeout-thread", allowedServers: ["eco_tts"], runtimeName: "eco_mcp_tts_timeout" });
+    const prepared = await gateway.prepareThread({ threadId: "tts-timeout-thread", allowedServers: ["mori_tts"], runtimeName: "mori_mcp_tts_timeout" });
     expect(prepared.sdkEntry).toMatchObject({ timeout: 600_000, requestTimeoutMs: 600_000 });
     expect(prepared.codexServer.toolTimeoutSec).toBe(600);
   } finally { await gateway.close(); }
@@ -496,10 +496,10 @@ test("MCP Hub keeps speech generation's timeout on the runtime-visible wrapper",
 test("MCP Hub carries ASR timeout and preserves longer speech generation timeout", async () => {
   const gateway = new McpHubGateway();
   try {
-    const asr = await gateway.prepareThread({ threadId: "asr-timeout", allowedServers: ["eco_asr"] });
+    const asr = await gateway.prepareThread({ threadId: "asr-timeout", allowedServers: ["mori_asr"] });
     expect(asr.sdkEntry).toMatchObject({ timeout: 300_000, requestTimeoutMs: 300_000 });
     expect(asr.codexServer.toolTimeoutSec).toBe(300);
-    const both = await gateway.prepareThread({ threadId: "speech-timeout", allowedServers: ["eco_asr", "eco_tts"] });
+    const both = await gateway.prepareThread({ threadId: "speech-timeout", allowedServers: ["mori_asr", "mori_tts"] });
     expect(both.sdkEntry).toMatchObject({ timeout: 600_000, requestTimeoutMs: 600_000 });
   } finally { await gateway.close(); }
 });

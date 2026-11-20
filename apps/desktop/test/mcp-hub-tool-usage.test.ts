@@ -17,14 +17,14 @@ import {
 } from "../src/shared/mcp-hub-tool-usage";
 
 test("Hub tool usage tells agents to search and dispatch by the canonical tool id", () => {
-  const prompt = buildEcoMcpHubToolUsage({ server: "eco_image_view", tool: "view_image" });
-  expect(prompt).toContain("mcp__eco_mcp__search_tools");
-  expect(prompt).toContain("mcp__eco_mcp__call_tool");
-  expect(prompt).toContain("eco_image_view:view_image");
+  const prompt = buildEcoMcpHubToolUsage({ server: "mori_image_view", tool: "view_image" });
+  expect(prompt).toContain("mcp__mori_mcp__search_tools");
+  expect(prompt).toContain("mcp__mori_mcp__call_tool");
+  expect(prompt).toContain("mori_image_view:view_image");
   expect(prompt).toContain("tool id in `name`");
   expect(prompt).toContain("Use direct MCP tools only when explicitly listed");
   expect(prompt).toContain(ECO_MCP_HUB_SEARCH_QUERY_DESCRIPTION);
-  expect(prompt).toContain("eco_agent_browser navigate read");
+  expect(prompt).toContain("mori_agent_browser navigate read");
   expect(prompt).toContain("retry with the exact Hub target alone");
 });
 
@@ -56,48 +56,48 @@ test("external service directory bounds real capability excerpts and keeps missi
 
 test("image view prompt matches the runtime-visible Hub instead of requiring a missing direct tool", () => {
   const prompt = buildImageViewPromptAppend();
-  expect(prompt).toContain("mcp__eco_mcp__search_tools");
-  expect(prompt).toContain("Hub target: `eco_image_view`");
+  expect(prompt).toContain("mcp__mori_mcp__search_tools");
+  expect(prompt).toContain("Hub target: `mori_image_view`");
   expect(prompt).toContain("explicitly listed");
 });
 
 test("browser prompt accepts the Hub tool pair as available and does not require direct MCP exposure", () => {
   const prompt = buildEcoAgentBrowserPromptAppend();
-  expect(prompt).toContain("mcp__eco_mcp__search_tools");
-  expect(prompt).toContain("mcp__eco_mcp__call_tool");
-  expect(prompt).toContain("Hub target: `eco_agent_browser`");
+  expect(prompt).toContain("mcp__mori_mcp__search_tools");
+  expect(prompt).toContain("mcp__mori_mcp__call_tool");
+  expect(prompt).toContain("Hub target: `mori_agent_browser`");
   expect(prompt).toContain("Report discovery or execution failures");
-  expect(prompt).not.toContain("If `mcp__eco_agent_browser__*` tools are missing");
+  expect(prompt).not.toContain("If `mcp__mori_agent_browser__*` tools are missing");
 });
 
 test("image display prompt distinguishes presentation from image analysis", () => {
   const prompt = buildImageDisplayPromptAppend();
   expect(prompt).toContain("image analysis is provided by Mori image viewing");
-  expect(prompt).toContain("mcp__eco_mcp__call_tool");
+  expect(prompt).toContain("mcp__mori_mcp__call_tool");
   expect(prompt).not.toContain(
-    "To analyze an image for yourself (vision report), use `mcp__eco_image_view__view_image`",
+    "To analyze an image for yourself (vision report), use `mcp__mori_image_view__view_image`",
   );
 });
 
 test("Codex rewrite maps fixed Hub wrapper names to the per-thread registered server", () => {
-  const codexHubName = "eco_mcp_b7c11635_thr_1790693503071";
+  const codexHubName = "mori_mcp_b7c11635_thr_1790693503071";
   const prompt = buildImageViewPromptAppend();
   const rewritten = rewriteEcoMcpHubPromptForCodexServer(prompt, codexHubName);
-  expect(rewritten).toContain("mcp__eco_mcp_b7c11635_thr_1790693503071__search_tools");
-  expect(rewritten).toContain("mcp__eco_mcp_b7c11635_thr_1790693503071__call_tool");
-  expect(rewritten).not.toContain("mcp__eco_mcp__search_tools");
-  expect(rewritten).not.toContain("mcp__eco_mcp__call_tool");
+  expect(rewritten).toContain("mcp__mori_mcp_b7c11635_thr_1790693503071__search_tools");
+  expect(rewritten).toContain("mcp__mori_mcp_b7c11635_thr_1790693503071__call_tool");
+  expect(rewritten).not.toContain("mcp__mori_mcp__search_tools");
+  expect(rewritten).not.toContain("mcp__mori_mcp__call_tool");
   // Service search targets are independent of the runtime's wrapper namespace.
-  expect(rewritten).toContain("Hub target: `eco_image_view`");
-  expect(rewritten).not.toContain("mcp__eco_image_view__view_image");
+  expect(rewritten).toContain("Hub target: `mori_image_view`");
+  expect(rewritten).not.toContain("mcp__mori_image_view__view_image");
 });
 
 test("Codex rewrite is idempotent and leaves the fixed-name SDK prompt untouched", () => {
-  const codexHubName = "eco_mcp_b7c11635_thr_1790693503071";
+  const codexHubName = "mori_mcp_b7c11635_thr_1790693503071";
   const once = rewriteEcoMcpHubPromptForCodexServer(buildImageViewPromptAppend(), codexHubName);
   expect(rewriteEcoMcpHubPromptForCodexServer(once, codexHubName)).toBe(once);
   const sdkPrompt = buildImageViewPromptAppend();
-  expect(rewriteEcoMcpHubPromptForCodexServer(sdkPrompt, "eco_mcp")).toBe(sdkPrompt);
+  expect(rewriteEcoMcpHubPromptForCodexServer(sdkPrompt, "mori_mcp")).toBe(sdkPrompt);
   expect(rewriteEcoMcpHubPromptForCodexServer(undefined, codexHubName)).toBeUndefined();
   expect(rewriteEcoMcpHubPromptForCodexServer("no hub names here", codexHubName)).toBe("no hub names here");
 });
@@ -127,24 +127,24 @@ test("combined integration prompts include the Hub protocol once for every runti
   const piPrompt = mergePiAppendSystemPrompt({ globalUserRules: userRules, integrationAppend: parts }).join(
     "\n\n",
   );
-  const codexPrompt = rewriteEcoMcpHubPromptForCodexServer(sdkPrompt, "eco_mcp_thread");
+  const codexPrompt = rewriteEcoMcpHubPromptForCodexServer(sdkPrompt, "mori_mcp_thread");
   for (const [prompt, server] of [
-    [sdkPrompt, "eco_mcp"],
-    [piPrompt, "eco_mcp"],
-    [codexPrompt, "eco_mcp_thread"],
+    [sdkPrompt, "mori_mcp"],
+    [piPrompt, "mori_mcp"],
+    [codexPrompt, "mori_mcp_thread"],
   ] as const) {
     expect(prompt?.split(`mcp__${server}__search_tools`)).toHaveLength(2);
     expect(prompt?.split(`mcp__${server}__call_tool`)).toHaveLength(2);
     expect(prompt).toContain(userRules);
     for (const target of [
-      "eco_agent_browser",
-      "eco_computer_use",
-      "eco_image_generation",
-      "eco_image_view",
-      "eco_image_display",
-      "eco_html_host",
-      "eco_web_search",
-      "eco_scheduling",
+      "mori_agent_browser",
+      "mori_computer_use",
+      "mori_image_generation",
+      "mori_image_view",
+      "mori_image_display",
+      "mori_html_host",
+      "mori_web_search",
+      "mori_scheduling",
       "mongo",
     ]) {
       expect(prompt).toContain(target);

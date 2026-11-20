@@ -1,5 +1,7 @@
 import { stableHash } from "./conversation-v2";
 
+export const MORI_MCP_HUB_SERVER = "mori_mcp";
+
 /**
  * Per-thread MCP Hub server name registered with the shared Codex app-server.
  *
@@ -13,7 +15,7 @@ import { stableHash } from "./conversation-v2";
 export function ecoMcpHubServerName(threadId: string): string {
   const normalized = threadId.trim();
   const readableSuffix = normalized.replace(/[^a-zA-Z0-9_-]/g, "_").slice(-24);
-  return `eco_mcp_${stableHash(normalized)}${readableSuffix ? `_${readableSuffix}` : ""}`;
+  return `${MORI_MCP_HUB_SERVER}_${stableHash(normalized)}${readableSuffix ? `_${readableSuffix}` : ""}`;
 }
 
 /** Tool names the per-thread MCP Hub exposes (dispatched with the Hub namespace). */

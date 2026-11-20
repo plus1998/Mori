@@ -484,7 +484,7 @@ test("Codex imageGeneration keeps fileId and generationId without embedding imag
   expect(JSON.stringify(events[1])).not.toContain("base64-that-must-not-be-persisted");
 });
 
-test("eco_image_view MCP calls project imageView metadata from absolute path arguments", () => {
+test("mori_image_view MCP calls project imageView metadata from absolute path arguments", () => {
   const events = collectEvents((record) => {
     const adapter = new CodexEventAdapter({ resolveEcoThreadId, recordThreadRunEvent: record });
     adapter.dispatch("item/started", {
@@ -493,7 +493,7 @@ test("eco_image_view MCP calls project imageView metadata from absolute path arg
       item: {
         id: "item_mcp_view_1",
         type: "mcpToolCall",
-        server: "eco_image_view",
+        server: "mori_image_view",
         tool: "view_image",
         arguments: { path: "/tmp/shot.png", question: "找报错" },
       },
@@ -501,7 +501,7 @@ test("eco_image_view MCP calls project imageView metadata from absolute path arg
   });
   expect(events[0]?.metadata?.tool).toEqual(
     expect.objectContaining({
-      name: "mcp__eco_image_view__view_image",
+      name: "mcp__mori_image_view__view_image",
       // `question` is the deprecated alias of `prompt`; either one is what the vision
       // model was asked, and the Feed shows it beside the answer.
       imageView: { path: "/tmp/shot.png", prompt: "找报错" },
@@ -510,7 +510,7 @@ test("eco_image_view MCP calls project imageView metadata from absolute path arg
 });
 
 test("per-thread MCP Hub wrapper calls unwrap to the nested tool for the Feed", () => {
-  // Codex sessions register the Hub under `eco_mcp_<hash>_<threadSuffix>`; the
+  // Codex sessions register the Hub under `mori_mcp_<hash>_<threadSuffix>`; the
   // wrapper call carries the real tool id in `arguments.name`.
   const events = collectEvents((record) => {
     const adapter = new CodexEventAdapter({ resolveEcoThreadId, recordThreadRunEvent: record });
@@ -520,10 +520,10 @@ test("per-thread MCP Hub wrapper calls unwrap to the nested tool for the Feed", 
       item: {
         id: "item_hub_view_1",
         type: "mcpToolCall",
-        server: "eco_mcp_4b6e103b_thr_1790688274221",
+        server: "mori_mcp_4b6e103b_thr_1790688274221",
         tool: "call_tool",
         arguments: {
-          name: "eco_image_view:view_image",
+          name: "mori_image_view:view_image",
           arguments: { path: "/tmp/shot.png", prompt: "描述这张图" },
         },
       },
@@ -534,11 +534,11 @@ test("per-thread MCP Hub wrapper calls unwrap to the nested tool for the Feed", 
       item: {
         id: "item_hub_view_1",
         type: "mcpToolCall",
-        server: "eco_mcp_4b6e103b_thr_1790688274221",
+        server: "mori_mcp_4b6e103b_thr_1790688274221",
         tool: "call_tool",
         status: "completed",
         arguments: {
-          name: "eco_image_view:view_image",
+          name: "mori_image_view:view_image",
           arguments: { path: "/tmp/shot.png", prompt: "描述这张图" },
         },
         aggregatedOutput: "这是一张终端截图。",
@@ -547,21 +547,21 @@ test("per-thread MCP Hub wrapper calls unwrap to the nested tool for the Feed", 
   });
   expect(events[0]?.metadata?.tool).toEqual(
     expect.objectContaining({
-      name: "mcp__eco_image_view__view_image",
+      name: "mcp__mori_image_view__view_image",
       imageView: { path: "/tmp/shot.png", prompt: "描述这张图" },
     }),
   );
   const completed = events.find((event) => event.id === "tre:codex:tool:item_hub_view_1:done");
   expect(completed?.metadata?.tool).toEqual(
     expect.objectContaining({
-      name: "mcp__eco_image_view__view_image",
+      name: "mcp__mori_image_view__view_image",
       imageView: { path: "/tmp/shot.png", prompt: "描述这张图" },
       outputPreview: "这是一张终端截图。",
     }),
   );
 });
 
-test("eco_image_view MCP completion carries the vision answer as the tool output", () => {
+test("mori_image_view MCP completion carries the vision answer as the tool output", () => {
   const events = collectEvents((record) => {
     const adapter = new CodexEventAdapter({ resolveEcoThreadId, recordThreadRunEvent: record });
     adapter.dispatch("item/completed", {
@@ -570,7 +570,7 @@ test("eco_image_view MCP completion carries the vision answer as the tool output
       item: {
         id: "item_mcp_view_done",
         type: "mcpToolCall",
-        server: "eco_image_view",
+        server: "mori_image_view",
         tool: "view_image",
         status: "completed",
         arguments: { path: "/tmp/shot.png", prompt: "找报错" },
@@ -596,11 +596,11 @@ test("failed Hub image analysis retains the MCP error alongside its image input"
       item: {
         id: "item_hub_view_failed",
         type: "mcpToolCall",
-        server: "eco_mcp_4b6e103b_thr_1790688274221",
+        server: "mori_mcp_4b6e103b_thr_1790688274221",
         tool: "call_tool",
         status: "failed",
         arguments: {
-          name: "eco_image_view:view_image",
+          name: "mori_image_view:view_image",
           arguments: { path: "/tmp/shot.png", prompt: "描述这张图" },
         },
         error: { message: error },
@@ -615,7 +615,7 @@ test("failed Hub image analysis retains the MCP error alongside its image input"
   });
 });
 
-test("eco_image_view MCP completion reads the answer out of a raw MCP result envelope", () => {
+test("mori_image_view MCP completion reads the answer out of a raw MCP result envelope", () => {
   const events = collectEvents((record) => {
     const adapter = new CodexEventAdapter({ resolveEcoThreadId, recordThreadRunEvent: record });
     adapter.dispatch("item/completed", {
@@ -624,7 +624,7 @@ test("eco_image_view MCP completion reads the answer out of a raw MCP result env
       item: {
         id: "item_mcp_view_envelope",
         type: "mcpToolCall",
-        server: "eco_image_view",
+        server: "mori_image_view",
         tool: "view_image",
         status: "completed",
         arguments: { path: "/tmp/shot.png", prompt: "找报错" },
@@ -635,7 +635,7 @@ test("eco_image_view MCP completion reads the answer out of a raw MCP result env
   expect(events[0]?.metadata?.tool?.outputPreview).toBe("第 3 行的类型不匹配。");
 });
 
-test("eco_image_view MCP completion keeps both halves of a real call", () => {
+test("mori_image_view MCP completion keeps both halves of a real call", () => {
   // Values taken from a live call: a long multi-line prompt and an answer that arrives as a
   // raw MCP content envelope rather than a flattened string.
   const events = collectEvents((record) => {
@@ -646,7 +646,7 @@ test("eco_image_view MCP completion keeps both halves of a real call", () => {
       item: {
         type: "mcpToolCall",
         id: "call_00_ET_1enklUHENuk398PNWfYx2663",
-        server: "eco_image_view",
+        server: "mori_image_view",
         tool: "view_image",
         arguments: {
           path: "/Users/plus/img_0_76f9aad9eac302601f1b04ac.png",
@@ -659,7 +659,7 @@ test("eco_image_view MCP completion keeps both halves of a real call", () => {
   });
   expect(events[0]?.metadata?.tool).toEqual(
     expect.objectContaining({
-      name: "mcp__eco_image_view__view_image",
+      name: "mcp__mori_image_view__view_image",
       imageView: {
         path: "/Users/plus/img_0_76f9aad9eac302601f1b04ac.png",
         prompt: "请详细描述这张图片的全部内容：包括画面中的文字（逐字列出）。",
@@ -669,7 +669,7 @@ test("eco_image_view MCP completion keeps both halves of a real call", () => {
   );
 });
 
-test("eco_image_view MCP start does not invent an output before the answer exists", () => {
+test("mori_image_view MCP start does not invent an output before the answer exists", () => {
   const events = collectEvents((record) => {
     const adapter = new CodexEventAdapter({ resolveEcoThreadId, recordThreadRunEvent: record });
     adapter.dispatch("item/started", {
@@ -678,7 +678,7 @@ test("eco_image_view MCP start does not invent an output before the answer exist
       item: {
         id: "item_mcp_view_start",
         type: "mcpToolCall",
-        server: "eco_image_view",
+        server: "mori_image_view",
         tool: "view_image",
         arguments: { path: "/tmp/shot.png", prompt: "找报错" },
       },
@@ -687,7 +687,7 @@ test("eco_image_view MCP start does not invent an output before the answer exist
   expect(events[0]?.metadata?.tool?.outputPreview).toBeUndefined();
 });
 
-test("eco_image_view MCP calls with relative path do not attach imageView", () => {
+test("mori_image_view MCP calls with relative path do not attach imageView", () => {
   const events = collectEvents((record) => {
     const adapter = new CodexEventAdapter({ resolveEcoThreadId, recordThreadRunEvent: record });
     adapter.dispatch("item/started", {
@@ -696,7 +696,7 @@ test("eco_image_view MCP calls with relative path do not attach imageView", () =
       item: {
         id: "item_mcp_rel",
         type: "mcpToolCall",
-        server: "eco_image_view",
+        server: "mori_image_view",
         tool: "view_image",
         arguments: { path: "shot.png" },
       },
@@ -705,7 +705,7 @@ test("eco_image_view MCP calls with relative path do not attach imageView", () =
   expect(events[0]?.metadata?.tool?.imageView).toBeUndefined();
 });
 
-test("eco_image_display MCP completed calls attach imageDisplay artifactId", () => {
+test("mori_image_display MCP completed calls attach imageDisplay artifactId", () => {
   const events = collectEvents((record) => {
     const adapter = new CodexEventAdapter({ resolveEcoThreadId, recordThreadRunEvent: record });
     adapter.dispatch("item/completed", {
@@ -714,7 +714,7 @@ test("eco_image_display MCP completed calls attach imageDisplay artifactId", () 
       item: {
         id: "item_display_1",
         type: "mcpToolCall",
-        server: "eco_image_display",
+        server: "mori_image_display",
         tool: "display_image",
         status: "completed",
         aggregatedOutput: JSON.stringify({
@@ -727,13 +727,13 @@ test("eco_image_display MCP completed calls attach imageDisplay artifactId", () 
   });
   expect(events[0]?.metadata?.tool).toEqual(
     expect.objectContaining({
-      name: "mcp__eco_image_display__display_image",
+      name: "mcp__mori_image_display__display_image",
       imageDisplay: { artifactId: "art-feed-1", title: "封面图" },
     }),
   );
 });
 
-test("eco_web_search MCP completed calls attach webSearch results", () => {
+test("mori_web_search MCP completed calls attach webSearch results", () => {
   const events = collectEvents((record) => {
     const adapter = new CodexEventAdapter({ resolveEcoThreadId, recordThreadRunEvent: record });
     adapter.dispatch("item/completed", {
@@ -742,7 +742,7 @@ test("eco_web_search MCP completed calls attach webSearch results", () => {
       item: {
         id: "item_web_search_1",
         type: "mcpToolCall",
-        server: "eco_web_search",
+        server: "mori_web_search",
         tool: "search",
         status: "completed",
         arguments: { query: "shanghai weather" },
@@ -769,7 +769,7 @@ test("eco_web_search MCP completed calls attach webSearch results", () => {
   });
   expect(events[0]?.metadata?.tool).toEqual(
     expect.objectContaining({
-      name: "mcp__eco_web_search__search",
+      name: "mcp__mori_web_search__search",
       detail: "shanghai weather",
       webSearch: expect.objectContaining({
         mode: "search",
@@ -797,11 +797,11 @@ test("Eco MCP Hub calls expose the nested tool in Codex activity metadata", () =
       item: {
         id: "item_hub_call_1",
         type: "mcpToolCall",
-        server: "eco_mcp",
+        server: "mori_mcp",
         tool: "call_tool",
         status: "completed",
         arguments: {
-          name: "eco_image_view:view_image",
+          name: "mori_image_view:view_image",
           arguments: { path: "/tmp/hub-shot.png", prompt: "描述" },
         },
         aggregatedOutput: "一张截图",
@@ -810,11 +810,11 @@ test("Eco MCP Hub calls expose the nested tool in Codex activity metadata", () =
   });
   expect(events[0]?.metadata?.tool).toEqual(
     expect.objectContaining({
-      name: "mcp__eco_image_view__view_image",
+      name: "mcp__mori_image_view__view_image",
       imageView: { path: "/tmp/hub-shot.png", prompt: "描述" },
     }),
   );
-  expect(events[0]?.message).toContain("mcp__eco_image_view__view_image");
+  expect(events[0]?.message).toContain("mcp__mori_image_view__view_image");
 });
 
 test("Eco MCP Hub search calls remain classified as MCP discovery", () => {
@@ -826,7 +826,7 @@ test("Eco MCP Hub search calls remain classified as MCP discovery", () => {
       item: {
         id: "item_hub_search_1",
         type: "mcpToolCall",
-        server: "eco_mcp",
+        server: "mori_mcp",
         tool: "search_tools",
         arguments: { query: "image" },
       },
@@ -834,7 +834,7 @@ test("Eco MCP Hub search calls remain classified as MCP discovery", () => {
   });
   expect(events[0]?.metadata?.tool).toEqual(
     expect.objectContaining({
-      name: "mcp__eco_mcp__search_tools",
+      name: "mcp__mori_mcp__search_tools",
       mcpDiscovery: { kind: "search" },
     }),
   );
@@ -849,7 +849,7 @@ test("agent_browser_screenshot completed attaches imageView path from output", (
       item: {
         id: "item_shot_1",
         type: "mcpToolCall",
-        server: "eco_agent_browser",
+        server: "mori_agent_browser",
         tool: "agent_browser_screenshot",
         status: "completed",
         aggregatedOutput: "/tmp/eco-browser-screenshot-1.png",

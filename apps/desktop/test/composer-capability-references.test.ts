@@ -45,7 +45,7 @@ test("capability picker includes only globally available and session-enabled ser
     "mcp:mysql",
     "mcp:mongo",
   ]);
-  expect(capabilities()[0]).toMatchObject({ detail: "", server: "eco_agent_browser" });
+  expect(capabilities()[0]).toMatchObject({ detail: "", server: "mori_agent_browser" });
 });
 
 test("Chinese aliases work in English UI; category prefixes select integrations, MCP and subagents", () => {

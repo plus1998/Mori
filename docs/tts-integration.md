@@ -32,7 +32,7 @@ Base URL 包含服务的 API 前缀，不包含最终请求路径。可以改为
 
 ## Agent 工具与产物
 
-工具由 Eco MCP Hub 暴露为 `eco_tts:create_speech`：
+工具由 Eco MCP Hub 暴露为 `mori_tts:create_speech`：
 
 ```json
 {

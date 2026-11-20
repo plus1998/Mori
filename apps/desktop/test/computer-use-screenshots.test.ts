@@ -113,11 +113,11 @@ for (const supportsImageInput of [false, true]) {
       if (!computer.sdkEntry) throw new Error("Missing Computer Use entry");
       const codex = await gateway.resolveGlobalCodexServer();
       expect(codex?.url).toBe(computer.sdkEntry.url);
-      hub.registerThreadServerEntry({ name: "eco_computer_use", threadId, sdkEntry: computer.sdkEntry });
+      hub.registerThreadServerEntry({ name: "mori_computer_use", threadId, sdkEntry: computer.sdkEntry });
       hub.registerServer({
-        name: "eco_image_view",
+        name: "mori_image_view",
         server: {
-          name: "eco_image_view",
+          name: "mori_image_view",
           listTools: async () => ({
             tools: [
               {
@@ -140,31 +140,31 @@ for (const supportsImageInput of [false, true]) {
       });
       const prepared = await hub.prepareThread({
         threadId,
-        allowedServers: ["eco_computer_use", "eco_image_view"],
+        allowedServers: ["mori_computer_use", "mori_image_view"],
       });
       session = await runScriptedPiSession({
         workspace: directory,
         agentDir: path.join(directory, "agent"),
         threadId,
         supportsImageInput,
-        mcpServers: { eco_mcp: prepared.sdkEntry },
-        toolsAllowlist: ["codemode", "mcp__eco_mcp__call_tool"],
+        mcpServers: { mori_mcp: prepared.sdkEntry },
+        toolsAllowlist: ["codemode", "mcp__mori_mcp__call_tool"],
         turns: [
           {
-            tool: "mcp__eco_mcp__call_tool",
+            tool: "mcp__mori_mcp__call_tool",
             id: "observe",
-            input: { name: "eco_computer_use:get_app_state", arguments: {} },
+            input: { name: "mori_computer_use:get_app_state", arguments: {} },
           },
           {
             tool: "codemode",
             id: "act-and-inspect",
             input: {
               code: `
-              const result = await tools.mcp__eco_mcp__call_tool({name:"eco_computer_use:press_key",arguments:{key:"Tab"}});
+              const result = await tools.mcp__mori_mcp__call_tool({name:"mori_computer_use:press_key",arguments:{key:"Tab"}});
               const text = result.content.filter(c => c.type === "text").map(c => c.text).join("\\n");
               const match = text.match(/截图已保存：("[^"]+")/);
               if (!match) throw new Error("Missing screenshot path: " + text);
-              return await tools.mcp__eco_mcp__call_tool({name:"eco_image_view:view_image",arguments:{path:JSON.parse(match[1]),prompt:"Find the input field"}});
+              return await tools.mcp__mori_mcp__call_tool({name:"mori_image_view:view_image",arguments:{path:JSON.parse(match[1]),prompt:"Find the input field"}});
             `,
             },
           },

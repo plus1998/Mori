@@ -74,32 +74,32 @@ test("Codex clarification publishes the answered summary and exits the waiting s
 test("parseMcpToolRunElicitationMessage extracts tool name", () => {
   expect(
     parseMcpToolRunElicitationMessage(
-      "eco_agent_browser",
-      'Allow the eco_agent_browser MCP server to run tool "agent_browser_open"?',
+      "mori_agent_browser",
+      'Allow the mori_agent_browser MCP server to run tool "agent_browser_open"?',
     ),
-  ).toBe("mcp__eco_agent_browser__agent_browser_open");
+  ).toBe("mcp__mori_agent_browser__agent_browser_open");
 });
 
 test("shouldAutoAcceptEcoBrowserToolElicitation respects open approval mode", () => {
-  const openMsg = 'Allow the eco_agent_browser MCP server to run tool "agent_browser_open"?';
-  const snapMsg = 'Allow the eco_agent_browser MCP server to run tool "agent_browser_snapshot"?';
+  const openMsg = 'Allow the mori_agent_browser MCP server to run tool "agent_browser_open"?';
+  const snapMsg = 'Allow the mori_agent_browser MCP server to run tool "agent_browser_snapshot"?';
   expect(
     shouldAutoAcceptEcoBrowserToolElicitation({
-      serverName: "eco_agent_browser",
+      serverName: "mori_agent_browser",
       message: openMsg,
       openApprovalMode: "always_allow",
     }),
   ).toBe(true);
   expect(
     shouldAutoAcceptEcoBrowserToolElicitation({
-      serverName: "eco_agent_browser",
+      serverName: "mori_agent_browser",
       message: openMsg,
       openApprovalMode: "always_ask",
     }),
   ).toBe(false);
   expect(
     shouldAutoAcceptEcoBrowserToolElicitation({
-      serverName: "eco_agent_browser",
+      serverName: "mori_agent_browser",
       message: snapMsg,
       openApprovalMode: "always_ask",
     }),
@@ -120,7 +120,7 @@ test("shouldAutoAcceptEcoBrowserToolElicitation respects open approval mode", ()
   ).toBe(true);
 });
 
-test("Codex eco_agent_browser tool elicitation auto-accepts when always allow", async () => {
+test("Codex mori_agent_browser tool elicitation auto-accepts when always allow", async () => {
   const events: ThreadLiveEvent[] = [];
   const deps: CodexApprovalBridgeDeps = {
     resolveEcoThreadId: () => "thread-1",
@@ -137,9 +137,9 @@ test("Codex eco_agent_browser tool elicitation auto-accepts when always allow", 
   await expect(
     handleCodexServerRequest(deps, CODEX_MCP_SERVER_ELICITATION_REQUEST, {
       threadId: "codex-thread-1",
-      serverName: "eco_agent_browser",
+      serverName: "mori_agent_browser",
       mode: "form",
-      message: 'Allow the eco_agent_browser MCP server to run tool "agent_browser_open"?',
+      message: 'Allow the mori_agent_browser MCP server to run tool "agent_browser_open"?',
       requestedSchema: { type: "object", properties: {} },
     }),
   ).resolves.toEqual({ action: "accept", content: {} });
@@ -147,7 +147,7 @@ test("Codex eco_agent_browser tool elicitation auto-accepts when always allow", 
   expect(events).toEqual([]);
 });
 
-test("Codex eco_agent_browser open elicitation still asks when always_ask", async () => {
+test("Codex mori_agent_browser open elicitation still asks when always_ask", async () => {
   const events: ThreadLiveEvent[] = [];
   const deps: CodexApprovalBridgeDeps = {
     resolveEcoThreadId: () => "thread-1",
@@ -163,9 +163,9 @@ test("Codex eco_agent_browser open elicitation still asks when always_ask", asyn
 
   const pending = handleCodexServerRequest(deps, CODEX_MCP_SERVER_ELICITATION_REQUEST, {
     threadId: "codex-thread-1",
-    serverName: "eco_agent_browser",
+    serverName: "mori_agent_browser",
     mode: "form",
-    message: 'Allow the eco_agent_browser MCP server to run tool "agent_browser_open"?',
+    message: 'Allow the mori_agent_browser MCP server to run tool "agent_browser_open"?',
     requestedSchema: { type: "object", properties: {} },
   });
 
@@ -191,7 +191,7 @@ test("Codex Hub elicitation unwraps the started call before showing MCP approval
     getThread: () => ({ prompt: "创建 issue", workspacePath: "/workspace" }),
     getWorktreePath: () => undefined,
     getPlannerAgentId: () => "planner-hub-approval",
-    getMcpHubServerName: () => "eco_mcp_abc123",
+    getMcpHubServerName: () => "mori_mcp_abc123",
     getRoutesJson: () => "[]",
     savePendingPlan: () => undefined,
     emitThreadLive: (event) => events.push(event),
@@ -204,7 +204,7 @@ test("Codex Hub elicitation unwraps the started call before showing MCP approval
     item: {
       id: "mcp-call-hub-approval",
       type: "mcpToolCall",
-      server: "eco_mcp_abc123",
+      server: "mori_mcp_abc123",
       tool: "call_tool",
       arguments: {
         name: "github:create_issue",
@@ -216,9 +216,9 @@ test("Codex Hub elicitation unwraps the started call before showing MCP approval
   const pending = handleCodexServerRequest(deps, CODEX_MCP_SERVER_ELICITATION_REQUEST, {
     threadId: "codex-hub-approval",
     turnId: "turn-hub-approval",
-    serverName: "eco_mcp_abc123",
+    serverName: "mori_mcp_abc123",
     mode: "form",
-    message: 'Allow the eco_mcp_abc123 MCP server to run tool "call_tool"?',
+    message: 'Allow the mori_mcp_abc123 MCP server to run tool "call_tool"?',
     requestedSchema: { type: "object", properties: {} },
     _meta: { codex_approval_kind: "mcp_tool_call" },
   });

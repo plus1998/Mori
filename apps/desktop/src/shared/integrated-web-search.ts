@@ -1,6 +1,6 @@
 import { buildEcoMcpHubToolUsage } from "./mcp-hub-tool-usage";
 
-export const ECO_WEB_SEARCH_MCP_SERVER = "eco_web_search";
+export const ECO_WEB_SEARCH_MCP_SERVER = "mori_web_search";
 export const ECO_WEB_SEARCH_TOOL = "search";
 export const ECO_WEB_SEARCH_FULL_TOOL = `mcp__${ECO_WEB_SEARCH_MCP_SERVER}__${ECO_WEB_SEARCH_TOOL}`;
 
@@ -30,7 +30,7 @@ export function shouldAutoApproveEcoWebSearchTools(mode: WebSearchApprovalMode):
 
 /**
  * Web-search tools gated by approvalMode:
- * - Eco integrated MCP tool (`mcp__eco_web_search__search`)
+ * - Eco integrated MCP tool (`mcp__mori_web_search__search`)
  * - provider-native WebSearch (Claude `WebSearch`; PI `web_search` maps to `WebSearch`)
  */
 export function isWebSearchApprovalToolName(toolName: string | undefined): boolean {

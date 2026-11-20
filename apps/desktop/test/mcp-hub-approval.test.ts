@@ -12,7 +12,7 @@ import { presentMcpApproval } from "../src/shared/mcp-approval-presentation";
 
 for (const mode of ["always", "auto", "allow_all"] as const) {
   test(`registered Hub metadata discovery does not park or review in ${mode}, even with a pending call_tool`, async () => {
-    const server = `eco_mcp_abc123_thr_${mode}`;
+    const server = `mori_mcp_abc123_thr_${mode}`;
     const reviewed: unknown[] = [],
       events: ThreadLiveEvent[] = [];
     const deps: CodexApprovalBridgeDeps = {
@@ -83,7 +83,7 @@ test("a similarly named external server cannot bypass ordinary approval", async 
     savePendingPlan: () => {},
     updateThreadStatus: () => {},
     getApprovalMode: () => "auto",
-    getMcpHubServerName: () => "eco_mcp_owned",
+    getMcpHubServerName: () => "mori_mcp_owned",
     reviewApproval: async () => {
       reviewed = true;
       return { action: "human_required", rationale: "External tool" };
@@ -99,10 +99,10 @@ test("a similarly named external server cannot bypass ordinary approval", async 
   expect(
     await handleCodexServerRequest(deps, CODEX_MCP_SERVER_ELICITATION_REQUEST, {
       threadId: "codex-external",
-      serverName: "eco_mcp_other_thread",
+      serverName: "mori_mcp_other_thread",
       mode: "form",
       requestedSchema: {},
-      message: 'Allow eco_mcp_other_thread to run tool "search_tools"?',
+      message: 'Allow mori_mcp_other_thread to run tool "search_tools"?',
     }),
   ).toEqual({ action: "decline" });
   expect(reviewed).toBe(true);
@@ -110,7 +110,7 @@ test("a similarly named external server cannot bypass ordinary approval", async 
 });
 
 test("legacy cards hide runtime ids while retaining exact tool arguments and the routing command", () => {
-  const server = "eco_mcp_c19172d3_thr_1791441942755";
+  const server = "mori_mcp_c19172d3_thr_1791441942755";
   const request = {
     kind: "mcp",
     filesystemTool: "MCP",

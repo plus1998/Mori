@@ -1,3 +1,4 @@
+import { normalizeStoredMoriMcpName } from "@eco/shared";
 import type { AgentEvent, AgentEventType, AgentRole, RuntimeAgentRole } from "../../shared/src";
 import { formatSubagentMissionMessage } from "./agent-mission.js";
 import { formatSendMessageToolInputSummary } from "./send-message-tool.js";
@@ -819,7 +820,7 @@ function formatToolInputSummary(toolName: string, input: unknown): string | null
     return input.pattern;
   }
 
-  if (toolName === "WebSearch" || toolName === "web_search" || toolName.includes("eco_web_search")) {
+  if (toolName === "WebSearch" || toolName === "web_search" || normalizeStoredMoriMcpName(toolName).includes("mori_web_search")) {
     const query = typeof input.query === "string" ? input.query.trim() : "";
     if (query) {
       return query.length > 80 ? `${query.slice(0, 77)}…` : query;

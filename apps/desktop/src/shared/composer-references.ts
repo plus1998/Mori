@@ -111,7 +111,7 @@ export function parseMentionQuery(
 export const CONTEXT_MCP_SERVER = "mori_context";
 
 export function isBuiltinHubServerName(name: string): boolean {
-  return name.startsWith("eco_") || name === CONTEXT_MCP_SERVER;
+  return name.startsWith("mori_");
 }
 export const CONTEXT_REFERENCE_PROMPT = [
   "Mori references: user messages may reference project todos, SSH bookmarks, built-in browser pages, or local conversations across projects.",

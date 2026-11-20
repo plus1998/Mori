@@ -81,9 +81,9 @@ export interface ThreadRunToolMetadata {
   imageView?: ThreadRunImageViewMetadata;
   /** Codex imageGeneration output; fileId is the durable reference for the image. */
   imageGeneration?: ThreadRunImageGenerationMetadata;
-  /** eco_image_display.display_image artifact for user-facing feed previews. */
+  /** mori_image_display.display_image artifact for user-facing feed previews. */
   imageDisplay?: ThreadRunImageDisplayMetadata;
-  /** eco_html_host.publish_html hosted page for Feed cards. */
+  /** mori_html_host.publish_html hosted page for Feed cards. */
   htmlHost?: ThreadRunHtmlHostMetadata;
   /** PI `mcp({ search })` / `mcp({ action })` probes before a real `{ tool, args }` call. */
   mcpDiscovery?: ThreadRunMcpDiscoveryMetadata;

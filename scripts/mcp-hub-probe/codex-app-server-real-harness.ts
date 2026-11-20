@@ -95,7 +95,7 @@ function functionCall(
   callId: string,
   name: string,
   args: Record<string, unknown>,
-  namespace = "mcp__eco_mcp",
+  namespace = "mcp__mori_mcp",
 ): Record<string, unknown> {
   return {
     id: `fc_${callId}`,
@@ -166,7 +166,7 @@ async function startModelApi(identity: Identity): Promise<ModelApi> {
         phase = 0;
       }
       const namespace = Array.isArray(body.tools)
-        ? body.tools.find((tool) => tool && typeof tool === "object" && (tool as Record<string, unknown>).name === "mcp__eco_mcp" && (tool as Record<string, unknown>).type === "namespace")
+        ? body.tools.find((tool) => tool && typeof tool === "object" && (tool as Record<string, unknown>).name === "mcp__mori_mcp" && (tool as Record<string, unknown>).type === "namespace")
         : undefined;
       const hasHub = Boolean(namespace);
       const output = !hasHub
@@ -232,11 +232,11 @@ async function writeConfig(home: string, api: ModelApi, hub: RunningHub, token: 
     'remote_compaction = "unsupported"',
     'external_web_access = false',
     "",
-    "[mcp_servers.eco_mcp]",
+    "[mcp_servers.mori_mcp]",
     `url = "${hub.url}"`,
     'default_tools_approval_mode = "prompt"',
     "",
-    "[mcp_servers.eco_mcp.http_headers]",
+    "[mcp_servers.mori_mcp.http_headers]",
     `Authorization = "Bearer ${token}"`,
     "",
   ].join("\n"));

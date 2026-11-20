@@ -26,7 +26,7 @@ const server = http.createServer(async (request, response) => {
   const method = message.method;
   if (method === "initialize") {
     response.writeHead(200, { "content-type": "application/json", "mcp-session-id": `${identity}-worker` });
-    response.end(JSON.stringify({ jsonrpc: "2.0", id, result: { protocolVersion: message.params?.protocolVersion ?? "2025-03-26", capabilities: { tools: {} }, serverInfo: { name: "eco_mcp_worker", version: "0.1.0" } } }));
+    response.end(JSON.stringify({ jsonrpc: "2.0", id, result: { protocolVersion: message.params?.protocolVersion ?? "2025-03-26", capabilities: { tools: {} }, serverInfo: { name: "mori_mcp_worker", version: "0.1.0" } } }));
     return;
   }
   if (method === "notifications/initialized") {

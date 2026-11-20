@@ -33,7 +33,7 @@ bun run cdp:shot -- --filename .smoke-artifacts/step.png
 
 ## 说明（尽量短）
 
-- 走 **Mori 主窗口 CDP 9333**，不是内置浏览器 MCP（`eco_agent_browser` 是另一回事）
+- 走 **Mori 主窗口 CDP 9333**，不是内置浏览器 MCP（`mori_agent_browser` 是另一回事）
 - 底层是本地 `@playwright/test` 的 `playwright cli`（同 e2e）
 - 关 CDP：`ECO_DEV_CDP=0`；改端口：`ECO_DEV_CDP_PORT`
 

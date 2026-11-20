@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:eco_mobile/core/models/tts_models.dart';
-import 'package:eco_mobile/core/services/eco_tts_service.dart';
+import 'package:eco_mobile/core/services/mori_tts_service.dart';
 import 'package:eco_mobile/core/services/read_aloud_player.dart';
 import 'package:eco_mobile/core/utils/activity_feed_speak_candidate.dart';
 import 'package:eco_mobile/core/utils/markdown_to_speech_text.dart';

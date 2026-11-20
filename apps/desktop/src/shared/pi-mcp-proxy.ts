@@ -1,3 +1,4 @@
+import { normalizeStoredMoriMcpName } from "@eco/shared";
 /**
  * Pi runtime MCP proxy resolution — legacy replay only.
  *
@@ -6,18 +7,18 @@
  * gateway tool (`mcpScript` for batch scripts) with `{ tool, args, server? }`,
  * so the runtime event stream reported `tool_name: "mcp"` / `"mcpScript"`.
  *
- * PI 1.0.3 exposes the real tools (`mcp__eco_mcp__search_tools` /
- * `mcp__eco_mcp__call_tool`, plus each server's own tools), so new turns never
+ * PI 1.0.3 exposes the real tools (`mcp__mori_mcp__search_tools` /
+ * `mcp__mori_mcp__call_tool`, plus each server's own tools), so new turns never
  * produce those names. The resolver stays to keep historical JSONL replay
  * readable, where re-resolving the target tool is what stops the activity feed
  * from showing every Eco integration (browser operations, computer use, image
  * creation, …) as a generic "calling MCP tool" line.
  */
 
-import { ECO_HTML_HOST_MCP_SERVER } from "@eco/runtime/eco-html-host-names";
-import { ECO_IMAGE_DISPLAY_MCP_SERVER } from "@eco/runtime/eco-image-display-names";
-import { ECO_IMAGE_VIEW_MCP_SERVER } from "@eco/runtime/eco-image-view-names";
-import { resolveEcoMcpHubToolCall } from "@eco/runtime/eco-mcp-hub-tool";
+import { ECO_HTML_HOST_MCP_SERVER } from "@eco/runtime/mori-html-host-names";
+import { ECO_IMAGE_DISPLAY_MCP_SERVER } from "@eco/runtime/mori-image-display-names";
+import { ECO_IMAGE_VIEW_MCP_SERVER } from "@eco/runtime/mori-image-view-names";
+import { resolveEcoMcpHubToolCall } from "@eco/runtime/mori-mcp-hub-tool";
 import { ECO_AGENT_BROWSER_MCP_SERVER } from "./browser";
 import { ECO_COMPUTER_USE_MCP_SERVER } from "./computer-use";
 import { ECO_IMAGE_GENERATION_MCP_SERVER } from "./image-generation";
@@ -27,14 +28,14 @@ const PI_MCP_PROXY_TOOL_NAMES = new Set(["mcp", "mcpscript", "mcp_tool"]);
 
 /** Eco integration server ids, longest first so prefix stripping is unambiguous. */
 const ECO_INTEGRATED_MCP_SERVERS = [
-  "eco_mcp",
-  ECO_IMAGE_GENERATION_MCP_SERVER, // eco_image_generation
-  ECO_IMAGE_DISPLAY_MCP_SERVER, // eco_image_display
-  ECO_COMPUTER_USE_MCP_SERVER, // eco_computer_use
-  ECO_HTML_HOST_MCP_SERVER, // eco_html_host
-  ECO_AGENT_BROWSER_MCP_SERVER, // eco_agent_browser
-  ECO_IMAGE_VIEW_MCP_SERVER, // eco_image_view
-  ECO_WEB_SEARCH_MCP_SERVER, // eco_web_search
+  "mori_mcp",
+  ECO_IMAGE_GENERATION_MCP_SERVER, // mori_image_generation
+  ECO_IMAGE_DISPLAY_MCP_SERVER, // mori_image_display
+  ECO_COMPUTER_USE_MCP_SERVER, // mori_computer_use
+  ECO_HTML_HOST_MCP_SERVER, // mori_html_host
+  ECO_AGENT_BROWSER_MCP_SERVER, // mori_agent_browser
+  ECO_IMAGE_VIEW_MCP_SERVER, // mori_image_view
+  ECO_WEB_SEARCH_MCP_SERVER, // mori_web_search
 ].sort((a, b) => b.length - a.length);
 
 export interface PiMcpProxyCall {
@@ -55,9 +56,9 @@ export function isPiMcpProxyToolName(toolName: string | undefined): boolean {
 /**
  * Resolve which real MCP tool a Pi proxy invocation targets.
  *
- * - `mcp({ tool: "eco_agent_browser.agent_browser_open", args: {...} })`
- * - `mcp({ tool: "create_image", server: "eco_image_generation", args: {...} })`
- * - `mcpScript({ code: "await tools.eco_image_generation_create_image({...})" })`
+ * - `mcp({ tool: "mori_agent_browser.agent_browser_open", args: {...} })`
+ * - `mcp({ tool: "create_image", server: "mori_image_generation", args: {...} })`
+ * - `mcpScript({ code: "await tools.mori_image_generation_create_image({...})" })`
  *
  * Returns undefined for gateway probes without a single target (`mcp({})`,
  * `search`, `describe`, `connect`, `server` listings, …).
@@ -149,7 +150,7 @@ function resolvePiMcpProxyBaseToolName(call: PiMcpProxyCall): string | undefined
 }
 
 function normalizeToolToken(value: string): string {
-  return value.trim().toLowerCase().replace(/-/g, "_");
+  return normalizeStoredMoriMcpName(value.trim().toLowerCase().replace(/-/g, "_"));
 }
 
 function stripServerPrefix(token: string, server: string): string {

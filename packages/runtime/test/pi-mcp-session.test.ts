@@ -122,11 +122,11 @@ test("native sanitized tool names use their actual server owner for the allowlis
   try {
     result = await runScriptedPiSession({
       ...input,
-      mcpServers: { "eco-mcp": input.mcpServers.lc_echo },
+      mcpServers: { "mori-mcp": input.mcpServers.lc_echo },
       threadId: "mcp-sanitized-name",
-      turns: [{ tool: "mcp__eco_mcp__echo", id: "echo", input: { text: "SANITIZED" } }, { text: "done" }],
+      turns: [{ tool: "mcp__mori_mcp__echo", id: "echo", input: { text: "SANITIZED" } }, { text: "done" }],
     });
-    expect(result.requests[0]?.toolNames).toContain("mcp__eco_mcp__echo");
+    expect(result.requests[0]?.toolNames).toContain("mcp__mori_mcp__echo");
     expect(toolResult(result.events, "echo")?.content).toContain("MCP-ECHO: SANITIZED");
   } finally {
     await result?.dispose();
@@ -171,12 +171,12 @@ test("unreachable MCP fails before any model request", async () => {
     result = await runScriptedPiSession({
       ...input,
       threadId: "mcp-unreachable",
-      mcpServers: { eco_mcp: { type: "http", url: "http://127.0.0.1:1/mcp" } },
+      mcpServers: { mori_mcp: { type: "http", url: "http://127.0.0.1:1/mcp" } },
       turns: [{ text: "must not run" }],
     });
     expect(result.requests).toHaveLength(0);
     expect(terminal(result.events)).toMatchObject({ status: "failed" });
-    expect(terminal(result.events)?.error).toContain("eco_mcp");
+    expect(terminal(result.events)?.error).toContain("mori_mcp");
   } finally {
     await result?.dispose();
     await rm(input.workspace, { recursive: true, force: true });

@@ -1,4 +1,4 @@
-import { ECO_HTML_HOST_MCP_SERVER } from "@eco/runtime/eco-html-host-names";
+import { ECO_HTML_HOST_MCP_SERVER } from "@eco/runtime/mori-html-host-names";
 import { buildEcoMcpHubToolUsage } from "./mcp-hub-tool-usage";
 
 export {
@@ -6,7 +6,7 @@ export {
   ECO_HTML_HOST_MCP_SERVER,
   ECO_HTML_HOST_TOOL,
   isEcoHtmlHostToolName,
-} from "@eco/runtime/eco-html-host-names";
+} from "@eco/runtime/mori-html-host-names";
 
 export function buildHtmlHostPromptAppend(): string {
   return [

@@ -112,9 +112,9 @@ async function writeSessionConfig(ecoDataDir: string, mcpUrl: string, authorizat
     [
       'model = "eco-isolation-probe"',
       "",
-      "[mcp_servers.eco_mcp]",
+      "[mcp_servers.mori_mcp]",
       `url = "${mcpUrl}"`,
-      "[mcp_servers.eco_mcp.http_headers]",
+      "[mcp_servers.mori_mcp.http_headers]",
       `Authorization = "${authorization}"`,
       "",
     ].join("\n"),

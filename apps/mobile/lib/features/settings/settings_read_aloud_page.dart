@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/locale/app_localizations_ext.dart';
 import '../../core/models/tts_models.dart';
 import '../../core/providers/app_providers.dart';
-import '../../core/services/eco_tts_service.dart';
+import '../../core/services/mori_tts_service.dart';
 import '../../core/widgets/eco_grouped_list.dart';
 import 'settings_disclosure_row.dart';
 

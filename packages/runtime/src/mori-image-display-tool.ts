@@ -4,7 +4,7 @@ import {
   ECO_IMAGE_DISPLAY_MCP_SERVER,
   ECO_IMAGE_DISPLAY_TOOL,
   isEcoImageDisplayToolName,
-} from "./eco-image-display-names.js";
+} from "./mori-image-display-names.js";
 import { readMcpToolOutputText } from "./mcp-tool-output-text.js";
 
 export {
@@ -12,7 +12,7 @@ export {
   ECO_IMAGE_DISPLAY_MCP_SERVER,
   ECO_IMAGE_DISPLAY_TOOL,
   isEcoImageDisplayToolName,
-} from "./eco-image-display-names.js";
+} from "./mori-image-display-names.js";
 
 export type ImageDisplaySourceKind = "path" | "url" | "base64";
 

@@ -72,10 +72,10 @@ test("isBrowserSettingsSnapshot validates shape", () => {
 });
 
 test("requiresBrowserOpenApproval only for open / tab_new navigations", () => {
-  expect(requiresBrowserOpenApproval("mcp__eco_agent_browser__agent_browser_open")).toBe(true);
-  expect(requiresBrowserOpenApproval("mcp__eco_agent_browser__agent_browser_tab_new")).toBe(true);
-  expect(requiresBrowserOpenApproval("mcp__eco_agent_browser__agent_browser_snapshot")).toBe(false);
-  expect(requiresBrowserOpenApproval("mcp__eco_agent_browser__agent_browser_click")).toBe(false);
+  expect(requiresBrowserOpenApproval("mcp__mori_agent_browser__agent_browser_open")).toBe(true);
+  expect(requiresBrowserOpenApproval("mcp__mori_agent_browser__agent_browser_tab_new")).toBe(true);
+  expect(requiresBrowserOpenApproval("mcp__mori_agent_browser__agent_browser_snapshot")).toBe(false);
+  expect(requiresBrowserOpenApproval("mcp__mori_agent_browser__agent_browser_click")).toBe(false);
   expect(requiresBrowserOpenApproval("Bash")).toBe(false);
 });
 
@@ -159,8 +159,8 @@ test("browser task tab ids are per browser; partitions are workspace-scoped", ()
   expect(browserAgentSessionKey("thr_1/x")).toMatch(/^e[0-9a-f]{10}$/);
   expect(browserAgentSessionKey("thr_a")).not.toBe(browserAgentSessionKey("thr_b"));
   expect(browserAgentSessionKey("thr_1786165124188").length).toBeLessThan(16);
-  expect(isEcoAgentBrowserEnabledInSettingsMap({ eco_agent_browser: true })).toBe(true);
-  expect(isEcoAgentBrowserEnabledInSettingsMap({ eco_agent_browser: false })).toBe(false);
+  expect(isEcoAgentBrowserEnabledInSettingsMap({ mori_agent_browser: true })).toBe(true);
+  expect(isEcoAgentBrowserEnabledInSettingsMap({ mori_agent_browser: false })).toBe(false);
   expect(isEcoAgentBrowserEnabledInSettingsMap(undefined)).toBe(false);
 });
 

@@ -319,7 +319,7 @@ test("resolves pi mcp proxy calls into canonical eco tool names", () => {
     tool_name: "mcp",
     tool_use_id: "pi_tool_browser",
     input: {
-      tool: "eco_agent_browser_agent_browser_open",
+      tool: "mori_agent_browser_agent_browser_open",
       args: { url: "https://example.com/page" },
     },
   });
@@ -329,7 +329,7 @@ test("resolves pi mcp proxy calls into canonical eco tool names", () => {
     tool_use_id: "pi_tool_image",
     input: {
       tool: "create_image",
-      server: "eco_image_generation",
+      server: "mori_image_generation",
       args: { prompt: "a cat" },
     },
   });
@@ -338,7 +338,7 @@ test("resolves pi mcp proxy calls into canonical eco tool names", () => {
     tool_name: "mcp",
     tool_use_id: "pi_tool_click",
     input: {
-      tool: "eco_computer_use_click",
+      tool: "mori_computer_use_click",
       args: { x: 10, y: 20 },
     },
   });
@@ -347,7 +347,7 @@ test("resolves pi mcp proxy calls into canonical eco tool names", () => {
     tool_name: "mcp",
     tool_use_id: "pi_tool_search",
     input: {
-      tool: "eco_web_search_search",
+      tool: "mori_web_search_search",
       args: { query: "eco desktop app" },
     },
   });
@@ -361,7 +361,7 @@ test("resolves pi mcp proxy calls into canonical eco tool names", () => {
     type: "tool_use",
     tool_name: "mcpScript",
     tool_use_id: "pi_tool_script",
-    input: { code: 'await tools.eco_image_generation_create_image({ prompt: "x" });' },
+    input: { code: 'await tools.mori_image_generation_create_image({ prompt: "x" });' },
   });
   handleTool({
     type: "tool_use",
@@ -375,23 +375,23 @@ test("resolves pi mcp proxy calls into canonical eco tool names", () => {
     tool_use_id: "pi_tool_hub",
     input: {
       tool: "call_tool",
-      server: "eco_mcp",
+      server: "mori_mcp",
       args: {
-        name: "eco_image_view:view_image",
+        name: "mori_image_view:view_image",
         arguments: { path: "/tmp/hub.png", prompt: "描述" },
       },
     },
   });
 
   expect(emitted.map((entry) => entry.tool?.name)).toEqual([
-    "mcp__eco_agent_browser__agent_browser_open",
-    "mcp__eco_image_generation__create_image",
-    "mcp__eco_computer_use__click",
-    "mcp__eco_web_search__search",
+    "mcp__mori_agent_browser__agent_browser_open",
+    "mcp__mori_image_generation__create_image",
+    "mcp__mori_computer_use__click",
+    "mcp__mori_web_search__search",
     "mcp",
-    "mcp__eco_image_generation__create_image",
+    "mcp__mori_image_generation__create_image",
     "mcp",
-    "mcp__eco_image_view__view_image",
+    "mcp__mori_image_view__view_image",
   ]);
   expect(emitted[0]?.tool?.detail).toBe("https://example.com/page");
   expect(emitted[3]?.tool?.webSearch?.query).toBe("eco desktop app");
@@ -1030,7 +1030,7 @@ test("defers streaming tool placeholder until input is complete", () => {
 
   const placeholder = {
     type: "tool_use",
-    tool_name: "mcp__eco_plan__finalize_plan",
+    tool_name: "mcp__mori_plan__finalize_plan",
     tool_use_id: "toolu_plan",
     streaming: true,
   } as const;
@@ -1044,7 +1044,7 @@ test("defers streaming tool placeholder until input is complete", () => {
       role: "main",
       payload: {
         type: "tool_use",
-        tool_name: "mcp__eco_plan__finalize_plan",
+        tool_name: "mcp__mori_plan__finalize_plan",
         tool_use_id: "toolu_plan",
         input: { analysis: "done", plan: "ship it" },
         streaming: true,
@@ -1056,15 +1056,15 @@ test("defers streaming tool placeholder until input is complete", () => {
 
   // One "still writing" fact, then the real tool row — never a card for the partial input.
   expect(emitted.map((event) => event.type)).toEqual(["tool.writing", "tool.started"]);
-  expect(emitted[0]?.message).toBe("mcp__eco_plan__finalize_plan");
+  expect(emitted[0]?.message).toBe("mcp__mori_plan__finalize_plan");
   expect(emitted[0]?.tool).toBeUndefined();
   expect(emitted[0]?.stream).toBe(false);
   expect(emitted[0]?.metadata?.toolWriting).toEqual({
-    name: "mcp__eco_plan__finalize_plan",
+    name: "mcp__mori_plan__finalize_plan",
     kind: "tool",
   });
-  expect(emitted[1]?.message).toBe("Tool: mcp__eco_plan__finalize_plan");
-  expect(emitted[1]?.tool?.name).toBe("mcp__eco_plan__finalize_plan");
+  expect(emitted[1]?.message).toBe("Tool: mcp__mori_plan__finalize_plan");
+  expect(emitted[1]?.tool?.name).toBe("mcp__mori_plan__finalize_plan");
 });
 
 test("announces a second tool call in the same run after the first one started", () => {
@@ -2098,7 +2098,7 @@ test("an image-view tool_result carries the prompt and the vision answer", () =>
       role: "main",
       payload: {
         type: "tool_result",
-        tool_name: "mcp__eco_image_view__view_image",
+        tool_name: "mcp__mori_image_view__view_image",
         tool_use_id: "toolu_view_1",
         input: { path: "/tmp/shot.png", prompt: "找报错" },
         output: "第 3 行的类型不匹配。",
@@ -2118,7 +2118,7 @@ test("an image-view tool_result carries the prompt and the vision answer", () =>
 });
 
 test("a PI mcp-proxy view_image keeps the prompt on both the start and the result event", () => {
-  // PI 不走 `mcp__eco_image_view__view_image` 这个名字，而是 `mcp({ tool: "eco_image_view_view_image",
+  // PI 不走 `mcp__mori_image_view__view_image` 这个名字，而是 `mcp({ tool: "mori_image_view_view_image",
   // args: { path, prompt } })`。tool_name 到这里还是 "mcp"，只有解开代理层才拿得到提示词——
   // 这正是三个 agent 里提示词全都不见的那条路。
   const bridge = new SdkStreamActivityBridge();
@@ -2135,7 +2135,7 @@ test("a PI mcp-proxy view_image keeps the prompt on both the start and the resul
     if (extras?.tool) tools.push(extras.tool);
   };
   const piInput = {
-    tool: "eco_image_view_view_image",
+    tool: "mori_image_view_view_image",
     args: { path: "/tmp/left_circle.png", prompt: "这幅图是奖章正面。请回答：(1) 人像特征" },
   };
 
@@ -2170,13 +2170,13 @@ test("a PI mcp-proxy view_image keeps the prompt on both the start and the resul
 
   expect(tools[0]).toEqual(
     expect.objectContaining({
-      name: "mcp__eco_image_view__view_image",
+      name: "mcp__mori_image_view__view_image",
       imageView: { path: "/tmp/left_circle.png", prompt: "这幅图是奖章正面。请回答：(1) 人像特征" },
     }),
   );
   expect(tools[1]).toEqual(
     expect.objectContaining({
-      name: "mcp__eco_image_view__view_image",
+      name: "mcp__mori_image_view__view_image",
       imageView: { path: "/tmp/left_circle.png", prompt: "这幅图是奖章正面。请回答：(1) 人像特征" },
       outputPreview: "孙宇晨奖。",
     }),
@@ -2205,7 +2205,7 @@ test("an image-view tool_result without a recorded prompt still keeps the answer
       role: "main",
       payload: {
         type: "tool_result",
-        tool_name: "mcp__eco_image_view__view_image",
+        tool_name: "mcp__mori_image_view__view_image",
         tool_use_id: "toolu_view_2",
         input: { path: "/tmp/shot.png" },
         output: "第 3 行的类型不匹配。",

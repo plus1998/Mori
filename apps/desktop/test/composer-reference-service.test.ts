@@ -289,7 +289,7 @@ test("capability resolution uses current server and agent identity and rejects d
               id: "browser",
               label: "浏览器",
               detail: "",
-              server: "eco_agent_browser",
+              server: "mori_agent_browser",
               searchTerms: "",
             },
           ]
@@ -308,7 +308,7 @@ test("capability resolution uses current server and agent identity and rejects d
   expect(details).toMatchObject([
     { type: "mcp", name: "Mongo renamed", server: "Mongo_actual" },
     { type: "subagent", agentKey: "coder" },
-    { type: "integration", server: "eco_agent_browser" },
+    { type: "integration", server: "mori_agent_browser" },
   ]);
   expect(prompt).not.toContain("forged_");
   enabled = false;

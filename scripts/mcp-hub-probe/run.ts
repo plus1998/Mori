@@ -382,7 +382,7 @@ export async function startHub(): Promise<RunningHub> {
       request,
       response,
       {
-        serverName: "eco_mcp_probe",
+        serverName: "mori_mcp_probe",
         instructions: "Probe Hub. Only search_tools and call_tool are exposed.",
         listTools: async ({ authToken }) => state.listTools(authToken),
         callTool: async ({ name, arguments: args, authToken, signal }) =>
@@ -456,7 +456,7 @@ async function initialize(url: string, token: string): Promise<{ sessionId: stri
   const reply = await rpc(url, token, 0, "initialize", {
     protocolVersion: "2025-03-26",
     capabilities: {},
-    clientInfo: { name: "eco_mcp_probe", version: "0.1.0" },
+    clientInfo: { name: "mori_mcp_probe", version: "0.1.0" },
   });
   if (reply.status !== 200 || !reply.body.result) throw new Error(`initialize failed: ${JSON.stringify(reply.body)}`);
   const sessionId = reply.headers.get("mcp-session-id") ?? "";
@@ -640,8 +640,8 @@ async function waitFor(predicate: () => boolean, timeoutMs: number, label: strin
 async function runClaudeProbe(hub: RunningHub, token: string) {
   const raw = buildMcpSdkConfig([
     {
-      id: "eco_mcp",
-      name: "eco_mcp",
+      id: "mori_mcp",
+      name: "mori_mcp",
       transport: "http",
       enabled: true,
       url: hub.url,
@@ -667,7 +667,7 @@ async function runClaudeProbe(hub: RunningHub, token: string) {
         if (options.resume === "claude-probe-session") resumeSeen = true;
         return {
           async *[Symbol.asyncIterator]() {
-            const entry = (options.mcpServers as Record<string, any>)?.eco_mcp;
+            const entry = (options.mcpServers as Record<string, any>)?.mori_mcp;
             const auth = entry?.headers?.Authorization as string;
             const listed = await rpc(hub.url, auth?.replace(/^Bearer\s+/i, ""), 200, "tools/list");
             const names = listed.body.result?.tools?.map((tool: McpToolDefinition) => tool.name) ?? [];
@@ -738,7 +738,7 @@ async function runPiProbe(hub: RunningHub, token: string, identity: string) {
   try {
     const factory = await createPiMcpExtensionFactory(
       {
-        eco_mcp: {
+        mori_mcp: {
           type: "http",
           url: hub.url,
           headers: { Authorization: `Bearer ${token}` },
@@ -786,13 +786,13 @@ async function runPiProbe(hub: RunningHub, token: string, identity: string) {
       (session as any).agent?.state?.tools?.find((tool: any) => tool.name === name);
     const toolDeadline = Date.now() + 10_000;
     while (
-      (!findTool("mcp__eco_mcp__search_tools") || !findTool("mcp__eco_mcp__call_tool")) &&
+      (!findTool("mcp__mori_mcp__search_tools") || !findTool("mcp__mori_mcp__call_tool")) &&
       Date.now() < toolDeadline
     ) {
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
-    const searchTool = findTool("mcp__eco_mcp__search_tools");
-    const callTool = findTool("mcp__eco_mcp__call_tool");
+    const searchTool = findTool("mcp__mori_mcp__search_tools");
+    const callTool = findTool("mcp__mori_mcp__call_tool");
     if (!searchTool || !callTool) throw new Error("PI MCP Hub tools were not registered");
     const search = await searchTool.execute(
       "probe-search",
@@ -812,7 +812,7 @@ async function runPiProbe(hub: RunningHub, token: string, identity: string) {
     session.dispose();
     return {
       status: "pass",
-      proxy: "official PI MCP extension (mcp__eco_mcp__* tools)",
+      proxy: "official PI MCP extension (mcp__mori_mcp__* tools)",
       dynamicSearchAndCall: "pass (direct tool invocation; model itself not run)",
       sessionConfigIsolated: true,
     };
@@ -833,7 +833,7 @@ async function runAcpProbe(hub: RunningHub, tokens: { a: string; b: string }) {
   });
   const runOne = async (threadId: string, token: string, marker: string, resumeSessionId?: string) => {
     const mcpServers = toAcpMcpServers({
-      eco_mcp: {
+      mori_mcp: {
         type: "http",
         url: hub.url,
         headers: { Authorization: `Bearer ${token}` },
@@ -874,8 +874,8 @@ async function runAcpProbe(hub: RunningHub, tokens: { a: string; b: string }) {
 
 async function runCodexProbe(hub: RunningHub, tokenA: string, tokenB: string) {
   const server: McpServerConfigView = {
-    id: "eco_mcp",
-    name: "eco_mcp",
+    id: "mori_mcp",
+    name: "mori_mcp",
     transport: "http",
     enabled: true,
     url: hub.url,
@@ -886,11 +886,11 @@ async function runCodexProbe(hub: RunningHub, tokenA: string, tokenB: string) {
     createdAt: "",
     updatedAt: "",
   };
-  const configured = buildCodexMcpServersForConfigSync([server], ["eco_mcp"]);
+  const configured = buildCodexMcpServersForConfigSync([server], ["mori_mcp"]);
   const prepared = prepareCodexMcpServersForRuntime(configured);
   assert(prepared[0]?.httpHeaders?.Authorization === `Bearer ${tokenA}`, "Codex config did not retain configured HTTP header");
   const handshake = await probeCodexStyleHttpMcpHandshake({
-    name: "eco_mcp",
+    name: "mori_mcp",
     url: hub.url,
     headers: { Authorization: `Bearer ${tokenA}` },
   });

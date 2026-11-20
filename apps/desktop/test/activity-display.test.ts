@@ -25,7 +25,7 @@ test("formatToolDisplayLabel reads verbs from t instead of hardcoded tables", ()
   expect(formatToolDisplayLabel("WebSearch", "flutter keyboard dismiss", t)).toBe(
     "T_WEB_SEARCH · flutter keyboard dismiss",
   );
-  expect(formatToolDisplayLabel("mcp__eco_agent_browser__agent_browser_click", undefined, t)).toBe("T_CLICK");
+  expect(formatToolDisplayLabel("mcp__mori_agent_browser__agent_browser_click", undefined, t)).toBe("T_CLICK");
 });
 
 test("formatToolStatusPreview shortens long Bash commands for compact status rows", () => {
@@ -103,7 +103,7 @@ test("resolveWebSearchCardDisplay builds network search panel model", () => {
   expect(
     resolveWebSearchCardDisplay(
       {
-        toolName: "mcp__eco_web_search__search",
+        toolName: "mcp__mori_web_search__search",
         detail: "shanghai weather",
         status: "completed",
         webSearch: {
@@ -245,34 +245,34 @@ test("formatBashRunMeta truncates absolute path to basename", () => {
 });
 
 test("formatToolDisplayLabel maps eco browser and image generation MCP tools", () => {
-  expect(formatToolDisplayLabel("mcp__eco_agent_browser__agent_browser_click", undefined, tZh)).toBe(
+  expect(formatToolDisplayLabel("mcp__mori_agent_browser__agent_browser_click", undefined, tZh)).toBe(
     "浏览器点击",
   );
-  expect(formatToolDisplayLabel("mcp__eco_agent_browser__agent_browser_open", undefined, tZh)).toBe(
+  expect(formatToolDisplayLabel("mcp__mori_agent_browser__agent_browser_open", undefined, tZh)).toBe(
     "打开网页",
   );
-  expect(formatToolDisplayLabel("mcp__eco_agent_browser__agent_browser_snapshot", undefined, tZh)).toBe(
+  expect(formatToolDisplayLabel("mcp__mori_agent_browser__agent_browser_snapshot", undefined, tZh)).toBe(
     "页面快照",
   );
-  expect(formatToolDisplayLabel("mcp__eco_image_generation__create_image", undefined, tZh)).toBe("生成图片");
-  expect(formatToolDisplayLabel("mcp__eco_image_view__view_image", undefined, tZh)).toBe("查看图像");
-  expect(formatToolDisplayLabel("mcp__eco_plan__finalize_plan", undefined, tZh)).toBe("提交计划");
-  expect(formatToolDisplayLabel("mcp_tool", "mcp__eco_agent_browser__agent_browser_click", tZh)).toBe(
+  expect(formatToolDisplayLabel("mcp__mori_image_generation__create_image", undefined, tZh)).toBe("生成图片");
+  expect(formatToolDisplayLabel("mcp__mori_image_view__view_image", undefined, tZh)).toBe("查看图像");
+  expect(formatToolDisplayLabel("mcp__mori_plan__finalize_plan", undefined, tZh)).toBe("提交计划");
+  expect(formatToolDisplayLabel("mcp_tool", "mcp__mori_agent_browser__agent_browser_click", tZh)).toBe(
     "浏览器点击",
   );
   expect(formatToolDisplayLabel("mcp__eco_ab_ea4a60abe66__agent_browser_open", undefined, tZh)).toBe(
     "打开网页",
   );
-  expect(formatToolDisplayLabel("mcp__eco_agent_browser__agent_browser_scroll", undefined, tZh)).toBe(
+  expect(formatToolDisplayLabel("mcp__mori_agent_browser__agent_browser_scroll", undefined, tZh)).toBe(
     "浏览器操作",
   );
   expect(formatToolDisplayLabel("mcp__github__list_issues", undefined, tZh)).toBe("github · list issues");
 });
 
 test("parseToolActionDisplayLabel recognizes Tool lines for builtin MCP tools", () => {
-  expect(parseToolActionDisplayLabel("Tool: mcp__eco_agent_browser__agent_browser_click", tZh)).toBe(
+  expect(parseToolActionDisplayLabel("Tool: mcp__mori_agent_browser__agent_browser_click", tZh)).toBe(
     "浏览器点击",
   );
-  expect(parseToolActionDisplayLabel("Tool: mcp__eco_image_generation__create_image", tZh)).toBe("生成图片");
-  expect(parseToolActionDisplayLabel("mcp__eco_agent_browser__agent_browser_fill", tZh)).toBe("填写表单");
+  expect(parseToolActionDisplayLabel("Tool: mcp__mori_image_generation__create_image", tZh)).toBe("生成图片");
+  expect(parseToolActionDisplayLabel("mcp__mori_agent_browser__agent_browser_fill", tZh)).toBe("填写表单");
 });

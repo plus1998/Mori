@@ -10,7 +10,7 @@ import { parseResponsesStreamEventBlock, splitSseBlocks } from "./sse.js";
 import {
   fixupEcoMcpHubResponsesPayload,
   fixupEcoMcpHubStreamEvent,
-} from "./eco-mcp-hub-fixup.js";
+} from "./mori-mcp-hub-fixup.js";
 
 const TOOL_ARGUMENT_FAILURE_LIMIT = 3;
 const TOOL_ARGUMENT_FAILURE_TTL_MS = 60 * 60 * 1000;

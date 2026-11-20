@@ -1,6 +1,6 @@
 import { buildEcoMcpHubToolUsage } from "./mcp-hub-tool-usage";
 
-export const ECO_TTS_MCP_SERVER = "eco_tts";
+export const ECO_TTS_MCP_SERVER = "mori_tts";
 export const ECO_TTS_TOOL = "create_speech";
 export const ECO_TTS_FULL_TOOL = `mcp__${ECO_TTS_MCP_SERVER}__${ECO_TTS_TOOL}`;
 export const TTS_REQUEST_TIMEOUT_MS = 600_000;

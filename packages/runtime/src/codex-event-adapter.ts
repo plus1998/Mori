@@ -33,24 +33,24 @@ import type {
   CodexTurnRouteRegistry,
   CodexTurnTokenUsageSnapshot,
 } from "./codex-turn-route-registry.js";
-import { resolveEcoMcpHubSearchCall, resolveEcoMcpHubToolCall } from "./eco-mcp-hub-tool.js";
-import { resolveEcoImageViewToolCall } from "./eco-image-view-tool.js";
+import { resolveEcoMcpHubSearchCall, resolveEcoMcpHubToolCall } from "./mori-mcp-hub-tool.js";
+import { resolveEcoImageViewToolCall } from "./mori-image-view-tool.js";
 import { readMcpToolOutputText } from "./mcp-tool-output-text.js";
 import {
   isAgentBrowserScreenshotToolName,
   isEcoImageDisplayToolName,
   readAbsolutePathFromMcpToolOutput,
   readImageDisplayMetadataFromToolOutput,
-} from "./eco-image-display-tool.js";
+} from "./mori-image-display-tool.js";
 import {
   isEcoHtmlHostToolName,
   readHtmlHostMetadataFromToolOutput,
-} from "./eco-html-host-tool.js";
+} from "./mori-html-host-tool.js";
 import {
   isEcoWebSearchToolName,
   parseEcoWebSearchToolOutput,
   readEcoWebSearchQuery,
-} from "./eco-web-search-tool.js";
+} from "./mori-web-search-tool.js";
 import { CODEX_GENERAL_SPAWN_ROLE } from "./subagent-availability.js";
 import {
   appendToolOutputPreviewCapture,
@@ -271,7 +271,7 @@ type AdapterContext = CodexEventAdapterOptions & {
   emittedAgentStartedIds: Set<string>;
   /** Actual models reported by native spawn activity, not role configuration guesses. */
   nativeChildRoutes: Map<string, CodexTurnRouteIdentity>;
-  /** Same absolute path from native imageView + eco_image_view MCP → one Feed card. */
+  /** Same absolute path from native imageView + mori_image_view MCP → one Feed card. */
   emittedImageViewPaths: Set<string>;
   /** display_image artifact ids emitted once per tool item. */
   emittedImageDisplayArtifacts: Set<string>;

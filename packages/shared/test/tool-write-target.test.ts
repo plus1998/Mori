@@ -57,7 +57,7 @@ test("kind comes from the tool, and unknown tools are just calls", () => {
   expect(classifyToolWriteKind("Read")).toBe("read");
   expect(classifyToolWriteKind("Bash")).toBe("command");
   expect(classifyToolWriteKind("exec_command")).toBe("command");
-  expect(classifyToolWriteKind("mcp__eco_mcp__search_tools")).toBe("tool");
+  expect(classifyToolWriteKind("mcp__mori_mcp__search_tools")).toBe("tool");
   expect(classifyToolWriteKind("WebFetch")).toBe("tool");
 });
 

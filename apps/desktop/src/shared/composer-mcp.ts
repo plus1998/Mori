@@ -1,3 +1,4 @@
+import { normalizeStoredMoriMcpServer } from "@eco/shared";
 import type { McpServerConfigView } from "./ipc";
 import { sanitizeMcpServerName } from "./mcp";
 
@@ -55,7 +56,11 @@ export function normalizeMcpServersEnabled(value: unknown): McpServersEnabledSet
   const result: McpServersEnabledSettings = {};
   for (const [key, enabled] of Object.entries(value)) {
     if (typeof enabled === "boolean" && key.trim()) {
-      result[sanitizeMcpServerName(key)] = enabled;
+      const sanitized = sanitizeMcpServerName(key);
+      const canonical = normalizeStoredMoriMcpServer(sanitized);
+      if (sanitized === canonical || !Object.hasOwn(result, canonical)) {
+        result[canonical] = enabled;
+      }
     }
   }
   return Object.keys(result).length > 0 ? result : undefined;

@@ -118,7 +118,7 @@ async function fixture() {
       url: `http://127.0.0.1:${port}/mcp`,
       headers: { authorization: `Bearer ${threadId}` },
     };
-    const serverName = external ? "remote" : "eco_agent_browser";
+    const serverName = external ? "remote" : "mori_agent_browser";
     if (external) gateway.syncSdkConfig({ mcpServers: { remote: entry }, allowedTools: [] });
     else gateway.registerThreadServerEntry({ name: serverName, threadId, sdkEntry: entry });
     const prepared = await gateway.prepareThread({ threadId, allowedServers: [serverName] });
@@ -403,7 +403,7 @@ test("production 30-minute TTL expiry recovers through both real HTTP hops", asy
   const realNow = Date.now;
   try {
     gateway.registerThreadServerEntry({
-      name: "eco_agent_browser",
+      name: "mori_agent_browser",
       threadId: "ttl",
       sdkEntry: {
         type: "http",
@@ -413,7 +413,7 @@ test("production 30-minute TTL expiry recovers through both real HTTP hops", asy
     });
     const { sdkEntry: entry } = await gateway.prepareThread({
       threadId: "ttl",
-      allowedServers: ["eco_agent_browser"],
+      allowedServers: ["mori_agent_browser"],
     });
     const rpc = async (method: string, params: unknown, sid?: string) => {
       const response = await fetch(String(entry.url), {

@@ -14,39 +14,39 @@
 
 ```text
 Built-in browser (Eco): browse and interact with websites, read pages, fill forms, extract data, capture screenshots and verify web UIs.
-Eco MCP Hub: call `mcp__eco_mcp__search_tools` with a Hub target in `query`, read the returned descriptions and input schemas, then call `mcp__eco_mcp__call_tool` with the returned tool id in `name` and its input in `arguments`. Reuse discovered definitions within this turn. Use direct MCP tools only when explicitly listed. Eco manages connections, session routing and approvals; do not launch substitute MCP servers or CLIs. Report discovery or execution failures.
-Hub target: `eco_agent_browser`.
+Eco MCP Hub: call `mcp__mori_mcp__search_tools` with a Hub target in `query`, read the returned descriptions and input schemas, then call `mcp__mori_mcp__call_tool` with the returned tool id in `name` and its input in `arguments`. Reuse discovered definitions within this turn. Use direct MCP tools only when explicitly listed. Eco manages connections, session routing and approvals; do not launch substitute MCP servers or CLIs. Report discovery or execution failures.
+Hub target: `mori_agent_browser`.
 Tabs are auth-bound to the current conversation thread; cookies, localStorage and IndexedDB are shared within this workspace. Eco binds the browser session automatically; do not pass a custom `session`.
 Use the bundled Skill `mori-agent-browser` for browser workflows. Discover capabilities through tool search; this server exposes tools only.
 
 Built-in Computer Use (Eco): inspect and operate local applications and desktop interfaces through accessibility APIs.
-Hub target: `eco_computer_use`.
+Hub target: `mori_computer_use`.
 Desktop state is shared across conversations; actions affect the same OS UI. Action approvals follow the current Eco settings.
 Act on current accessibility state; refresh it after navigation or failed actions. Prefer element indices, using coordinates only when no accessibility element matches.
 
 Built-in Creative Drawing (Eco): generate illustrations and visual assets; edit reference images when the active profile supports image-to-image. Use this integration for image generation and editing.
-Hub target: `eco_image_generation`.
+Hub target: `mori_image_generation`.
 Active profile: Example; provider=openai; model=example-image-model.
 OpenAI-style providers accept size, quality, and count=1..4; aspect_ratio is unsupported.
 Image-to-image is enabled: pass input_images (1..16 absolute or workspace-relative PNG/JPEG/WebP paths) with the edit prompt.
 Eco handles approval for every drawing call. After an error, changes to provider, model, size, quality, count or aspect ratio require the user's decision.
 
 Built-in image viewing (Eco): analyze images, read screenshots and inspect visual results with a vision model; returns a text answer to your question.
-Hub target: `eco_image_view`.
+Hub target: `mori_image_view`.
 On Codex, use this Eco tool for image inspection with custom providers; the native view_image tool remains available with the built-in OpenAI account.
 
 Built-in image display (Eco): present images, screenshots and visual results to the user in workspace cards and the task sidebar. Image analysis is provided by Eco image viewing.
-Hub target: `eco_image_display`.
+Hub target: `mori_image_display`.
 
 Built-in HTML page hosting (Eco Artifacts): publish or update shareable, self-contained HTML pages for progress reports and statistics.
-Hub target: `eco_html_host`.
+Hub target: `mori_html_host`.
 
 Integrated web search (Eco): search public webpages for current information and reference sources.
-Hub target: `eco_web_search`.
+Hub target: `mori_web_search`.
 Active search provider: Tavily. Use this integration for web searches in this conversation.
 
 Built-in scheduling (Eco): continue this conversation after a delay, or run independent scheduled tasks in new conversations; inspect, update and cancel schedules.
-Hub target: `eco_scheduling`.
+Hub target: `mori_scheduling`.
 Choose a conversation wakeup to continue current work. Independent task prompts must include all required context because each occurrence starts a new conversation.
 Execution requires Eco running on an awake local computer; a conversation wakeup does not wake a sleeping computer.
 ```

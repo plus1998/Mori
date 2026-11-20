@@ -1,3 +1,4 @@
+import { normalizeStoredMoriMcpName } from "@eco/shared";
 import { ArrowUpRight, LoaderCircle, Pause, Play } from "lucide-react";
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -276,7 +277,7 @@ export function readTtsToolUseId(item: {
   if (!tool || typeof tool !== "object" || Array.isArray(tool)) return undefined;
   const record = tool as Record<string, unknown>;
   return typeof record.name === "string" &&
-    isEcoTtsToolName(record.name) &&
+    isEcoTtsToolName(normalizeStoredMoriMcpName(record.name)) &&
     typeof record.toolUseId === "string"
     ? record.toolUseId
     : undefined;

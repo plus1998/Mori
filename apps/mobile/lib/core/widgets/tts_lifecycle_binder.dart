@@ -5,7 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/app_providers.dart';
 import '../models/eco_types.dart';
-import '../services/eco_tts_service.dart';
+import '../services/mori_tts_service.dart';
 
 /// Stops TTS when the app leaves the foreground so playback cannot resume later.
 class TtsLifecycleBinder extends ConsumerStatefulWidget {

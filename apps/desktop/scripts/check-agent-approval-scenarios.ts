@@ -266,10 +266,10 @@ try {
     {
       id: "validation-mcp-discovery",
       request: "梳理订单同步逻辑，查找可用的工具定义。",
-      tool: "mcp__eco_mcp_92c2e621_488d_b191_b32c937f2d9e__search_tools",
+      tool: "mcp__mori_mcp_92c2e621_488d_b191_b32c937f2d9e__search_tools",
       input: {
         _approvalMessage:
-          'Allow the eco_mcp_92c2e621_488d_b191_b32c937f2d9e MCP server to run tool "search_tools"?',
+          'Allow the mori_mcp_92c2e621_488d_b191_b32c937f2d9e MCP server to run tool "search_tools"?',
         _argumentsUnavailable: "not_provided",
       },
       expected: "allow",

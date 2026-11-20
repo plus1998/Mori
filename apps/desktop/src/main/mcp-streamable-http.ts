@@ -10,6 +10,7 @@
 
 import { randomUUID } from "node:crypto";
 import type http from "node:http";
+import { isBuiltinHubServerName } from "../shared/composer-references";
 
 export const ECO_MCP_HTTP_PATH = "/mcp";
 
@@ -607,7 +608,7 @@ export async function assertEcoHttpMcpServersReachable(
       continue;
     }
     // Only Eco-hosted builtins — do not block prepare on arbitrary user HTTP MCPs.
-    if (!server.name.startsWith("eco_")) {
+    if (!isBuiltinHubServerName(server.name)) {
       continue;
     }
     const result = await probeCodexStyleHttpMcpHandshake({

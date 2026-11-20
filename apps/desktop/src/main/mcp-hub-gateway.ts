@@ -10,7 +10,7 @@ import {
 } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { McpSdkConfig } from "../shared/mcp";
 import { isBuiltinHubServerName } from "../shared/composer-references";
-import { buildEcoMcpHubDirectoryPrompt } from "../shared/mcp-hub-tool-usage";
+import { buildEcoMcpHubDirectoryPrompt, ECO_MCP_HUB_MCP_SERVER } from "../shared/mcp-hub-tool-usage";
 import {
   ECO_IMAGE_GENERATION_MCP_SERVER,
   IMAGE_GENERATION_MCP_TOOL_TIMEOUT_MS,
@@ -313,7 +313,7 @@ export class McpHubGateway {
           : undefined;
     const toolTimeoutSec = toolTimeoutMs === undefined ? undefined : Math.ceil(toolTimeoutMs / 1000);
     const injection = buildEcoHttpInjection({
-      name: input.runtimeName?.trim() || "eco_mcp",
+      name: input.runtimeName?.trim() || ECO_MCP_HUB_MCP_SERVER,
       controlBaseUrl: this.controlBaseUrl,
       controlSecretHeader: CONTROL_SECRET_HEADER,
       controlSecret: this.controlSecret,
@@ -476,7 +476,7 @@ class HttpMcpHubServer implements McpHubServer {
     arguments: Record<string, unknown>;
     signal: AbortSignal;
   }): Promise<McpToolCallResult> {
-    // This client is a second MCP hop for Codex's eco_mcp wrapper. Its SDK
+    // This client is a second MCP hop for Codex's mori_mcp wrapper. Its SDK
     // default is 60s, so the outer runtime timeout alone cannot protect a
     // long-running built-in tool such as create_image.
     return normalizeToolCallResult(
@@ -556,7 +556,7 @@ class HttpMcpHubServer implements McpHubServer {
     if (this.closed) throw new Error(`MCP Hub HTTP connection is closed: ${this.name}`);
     let connection = this.connection;
     if (!connection) {
-      const client = new Client({ name: "eco_mcp_hub", version: "1.0.0" });
+      const client = new Client({ name: "mori_mcp_hub", version: "1.0.0" });
       const options = { requestInit: { headers: this.headers } };
       const transport = this.transportType === "sse"
         ? new SSEClientTransport(new URL(this.url), options)

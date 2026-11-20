@@ -2,9 +2,9 @@ import { describe, expect, test } from "bun:test";
 import {
   readHtmlHostMetadataFromToolOutput,
   resolveEcoHtmlHostToolCall,
-} from "../src/eco-html-host-tool";
+} from "../src/mori-html-host-tool";
 
-describe("eco-html-host-tool", () => {
+describe("mori-html-host-tool", () => {
   test("resolveEcoHtmlHostToolCall matches publish_html", () => {
     const call = resolveEcoHtmlHostToolCall("publish_html", {
       title: "Report",

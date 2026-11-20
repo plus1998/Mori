@@ -1,5 +1,5 @@
 /**
- * Concurrent Codex shares one eco_agent_browser MCP process. Tool calls do not carry Eco
+ * Concurrent Codex shares one mori_agent_browser MCP process. Tool calls do not carry Eco
  * threadId, so we bind them via (1) bearer token when present and (2) FIFO claims registered
  * when Eco sees tool.started for that thread.
  */

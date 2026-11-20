@@ -4,14 +4,14 @@ import {
   ECO_IMAGE_VIEW_MCP_SERVER,
   ECO_IMAGE_VIEW_TOOL,
   isEcoImageViewToolName,
-} from "./eco-image-view-names.js";
+} from "./mori-image-view-names.js";
 
 export {
   ECO_IMAGE_VIEW_FULL_TOOL,
   ECO_IMAGE_VIEW_MCP_SERVER,
   ECO_IMAGE_VIEW_TOOL,
   isEcoImageViewToolName,
-} from "./eco-image-view-names.js";
+} from "./mori-image-view-names.js";
 
 const PI_MCP_PROXY_TOOL_NAMES = new Set(["mcp", "mcpscript", "mcp_tool"]);
 

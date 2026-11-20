@@ -16,26 +16,26 @@ test("isPiMcpProxyToolName matches only pi gateway tools", () => {
 
 test("resolvePiMcpProxyCall reads tool, server, and nested args", () => {
   const call = resolvePiMcpProxyCall("mcp", {
-    tool: "eco_agent_browser.agent_browser_open",
+    tool: "mori_agent_browser.agent_browser_open",
     args: { url: "https://example.com" },
   });
   expect(call).toEqual({
-    tool: "eco_agent_browser.agent_browser_open",
+    tool: "mori_agent_browser.agent_browser_open",
     args: { url: "https://example.com" },
   });
 
   const withServer = resolvePiMcpProxyCall("mcp", {
     tool: "create_image",
-    server: "eco_image_generation",
+    server: "mori_image_generation",
     args: { prompt: "a cat" },
   });
-  expect(withServer?.server).toBe("eco_image_generation");
+  expect(withServer?.server).toBe("mori_image_generation");
   expect(withServer?.args).toEqual({ prompt: "a cat" });
 });
 
 test("resolvePiMcpProxyCall accepts JSON-string args", () => {
   const call = resolvePiMcpProxyCall("mcp", {
-    tool: "eco_web_search.search",
+    tool: "mori_web_search.search",
     args: '{"query":"eco desktop"}',
   });
   expect(call?.args).toEqual({ query: "eco desktop" });
@@ -43,23 +43,23 @@ test("resolvePiMcpProxyCall accepts JSON-string args", () => {
 
 test("resolvePiMcpProxyCall reads the first tools call from mcpScript code", () => {
   const call = resolvePiMcpProxyCall("mcpScript", {
-    code: 'const items = await tools.eco_image_generation_create_image({ prompt: "x" }); emit(items);',
+    code: 'const items = await tools.mori_image_generation_create_image({ prompt: "x" }); emit(items);',
   });
-  expect(call?.tool).toBe("eco_image_generation_create_image");
+  expect(call?.tool).toBe("mori_image_generation_create_image");
 });
 
 test("resolvePiMcpProxyCall is undefined for gateway probes", () => {
   expect(resolvePiMcpProxyCall("mcp", {})).toBeUndefined();
   expect(resolvePiMcpProxyCall("mcp", { search: "browser" })).toBeUndefined();
   expect(resolvePiMcpProxyCall("mcp", { describe: "x" })).toBeUndefined();
-  expect(resolvePiMcpProxyCall("mcp", { server: "eco_agent_browser" })).toBeUndefined();
+  expect(resolvePiMcpProxyCall("mcp", { server: "mori_agent_browser" })).toBeUndefined();
   expect(resolvePiMcpProxyCall("mcpScript", { code: "emit(1)" })).toBeUndefined();
   expect(resolvePiMcpProxyCall("read", { tool: "x" })).toBeUndefined();
 });
 
 test("resolvePiMcpProxyToolName canonicalizes explicit server calls", () => {
-  expect(resolvePiMcpProxyToolName("mcp", { tool: "create_image", server: "eco_image_generation" })).toBe(
-    "mcp__eco_image_generation__create_image",
+  expect(resolvePiMcpProxyToolName("mcp", { tool: "create_image", server: "mori_image_generation" })).toBe(
+    "mcp__mori_image_generation__create_image",
   );
 });
 
@@ -67,34 +67,34 @@ test("resolvePiMcpProxyCall unwraps Eco Hub calls", () => {
   expect(
     resolvePiMcpProxyCall("mcp", {
       tool: "call_tool",
-      server: "eco_mcp",
+      server: "mori_mcp",
       args: {
-        name: "eco_image_view:view_image",
+        name: "mori_image_view:view_image",
         arguments: { path: "/tmp/example.png", prompt: "describe" },
       },
     }),
   ).toEqual({
-    tool: "mcp__eco_image_view__view_image",
+    tool: "mcp__mori_image_view__view_image",
     args: { path: "/tmp/example.png", prompt: "describe" },
   });
   expect(
     resolvePiMcpProxyToolName("mcp", {
       tool: "call_tool",
-      server: "eco_mcp",
-      args: { name: "eco_image_view:view_image", arguments: {} },
+      server: "mori_mcp",
+      args: { name: "mori_image_view:view_image", arguments: {} },
     }),
-  ).toBe("mcp__eco_image_view__view_image");
+  ).toBe("mcp__mori_image_view__view_image");
 });
 
 test("resolvePiMcpProxyToolName strips known eco integration prefixes", () => {
-  expect(resolvePiMcpProxyToolName("mcp", { tool: "eco_agent_browser_agent_browser_open" })).toBe(
-    "mcp__eco_agent_browser__agent_browser_open",
+  expect(resolvePiMcpProxyToolName("mcp", { tool: "mori_agent_browser_agent_browser_open" })).toBe(
+    "mcp__mori_agent_browser__agent_browser_open",
   );
-  expect(resolvePiMcpProxyToolName("mcp", { tool: "eco_computer_use.click" })).toBe(
-    "mcp__eco_computer_use__click",
+  expect(resolvePiMcpProxyToolName("mcp", { tool: "mori_computer_use.click" })).toBe(
+    "mcp__mori_computer_use__click",
   );
-  expect(resolvePiMcpProxyToolName("mcp", { tool: "eco_image_generation_create_image" })).toBe(
-    "mcp__eco_image_generation__create_image",
+  expect(resolvePiMcpProxyToolName("mcp", { tool: "mori_image_generation_create_image" })).toBe(
+    "mcp__mori_image_generation__create_image",
   );
 });
 

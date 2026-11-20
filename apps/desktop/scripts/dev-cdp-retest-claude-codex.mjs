@@ -161,7 +161,7 @@ await setIntegrations(page, { browser: true, drawing: true });
 const src = SOURCE.replace(/\\/g, "/");
 const prompt = [
   `Marker=${MARKER}_CODEX`,
-  "Call mcp__eco_image_generation__create_image once for image-to-image.",
+  "Call mcp__mori_image_generation__create_image once for image-to-image.",
   `input_images=["${src}"]`,
   'prompt="watercolor red square, soft edges"',
   `When done reply exactly: IMAGE_EDIT_OK:${MARKER}_CODEX:<abs_path>`,

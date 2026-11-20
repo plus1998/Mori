@@ -6,7 +6,9 @@
  * show the actual operation instead of the wrapper name.
  */
 
-export const ECO_MCP_HUB_MCP_SERVER = "eco_mcp";
+import { MORI_MCP_HUB_SERVER, normalizeStoredMoriMcpName } from "@eco/shared";
+
+export const ECO_MCP_HUB_MCP_SERVER = MORI_MCP_HUB_SERVER;
 export const ECO_MCP_HUB_SEARCH_TOOL = "search_tools";
 export const ECO_MCP_HUB_CALL_TOOL = "call_tool";
 
@@ -16,7 +18,7 @@ export const ECO_MCP_HUB_CALL_FULL_TOOL =
   `mcp__${ECO_MCP_HUB_MCP_SERVER}__${ECO_MCP_HUB_CALL_TOOL}`;
 
 export interface EcoMcpHubToolCall {
-  /** Canonical runtime name, e.g. `mcp__eco_image_view__view_image`. */
+  /** Canonical runtime name, e.g. `mcp__mori_image_view__view_image`. */
   name: string;
   /** Arguments for the nested tool, not the Hub wrapper arguments. */
   args?: Record<string, unknown>;
@@ -28,15 +30,15 @@ export interface EcoMcpHubSearchCall {
 
 /**
  * Namespaced wrapper names as the Codex app-server runtime exposes them:
- * `mcp__<server>__<tool>`. The server part is either the fixed `eco_mcp` or
- * the per-thread runtime name `eco_mcp_<hash>_<threadSuffix>` that the
+ * `mcp__<server>__<tool>`. The server part is either the fixed `mori_mcp` or
+ * the per-thread runtime name `mori_mcp_<hash>_<threadSuffix>` that the
  * desktop main process derives from the thread id for Codex sessions
  * (`codexHubServerName`). The suffix is a sequence of `_`-prefixed
  * alphanumeric chunks, so match it structurally instead of with an exact
  * string.
  */
 const HUB_NAMESPACED_WRAPPER_PATTERN =
-  /^mcp__eco_mcp(?:_[a-z0-9]+)*__(search_tools|call_tool)$/;
+  /^mcp__mori_mcp(?:_[a-z0-9_-]+)?__(search_tools|call_tool)$/;
 
 function hubWrapperToolInNamespacedName(normalized: string): string | undefined {
   return HUB_NAMESPACED_WRAPPER_PATTERN.exec(normalized)?.[1];
@@ -46,9 +48,8 @@ function hubWrapperToolInNamespacedName(normalized: string): string | undefined 
 export function isEcoMcpHubCallToolName(toolName: string | undefined): boolean {
   const normalized = normalizeToolName(toolName);
   return (
-    // `ECO_MCP_HUB_CALL_FULL_TOOL` (`mcp__eco_mcp__call_tool`) is the zero-chunk
+    // `ECO_MCP_HUB_CALL_FULL_TOOL` (`mcp__mori_mcp__call_tool`) is the zero-chunk
     // case of the namespaced pattern below.
-    normalized === `eco_${ECO_MCP_HUB_MCP_SERVER}_${ECO_MCP_HUB_CALL_TOOL}` ||
     normalized === `${ECO_MCP_HUB_MCP_SERVER}_${ECO_MCP_HUB_CALL_TOOL}` ||
     hubWrapperToolInNamespacedName(normalized) === ECO_MCP_HUB_CALL_TOOL
   );
@@ -59,7 +60,6 @@ export function isEcoMcpHubSearchToolName(toolName: string | undefined): boolean
   const normalized = normalizeToolName(toolName);
   return (
     // `ECO_MCP_HUB_SEARCH_FULL_TOOL` is the zero-chunk case of the pattern.
-    normalized === `eco_${ECO_MCP_HUB_MCP_SERVER}_${ECO_MCP_HUB_SEARCH_TOOL}` ||
     normalized === `${ECO_MCP_HUB_MCP_SERVER}_${ECO_MCP_HUB_SEARCH_TOOL}` ||
     hubWrapperToolInNamespacedName(normalized) === ECO_MCP_HUB_SEARCH_TOOL
   );
@@ -121,19 +121,20 @@ function canonicalNestedToolName(value: string | undefined): string | undefined 
     return undefined;
   }
   if (trimmed.startsWith("mcp__")) {
-    return trimmed;
+    return normalizeStoredMoriMcpName(trimmed);
   }
   const separator = trimmed.indexOf(":");
   if (separator <= 0 || separator >= trimmed.length - 1) {
     return undefined;
   }
-  const server = normalizeServerName(trimmed.slice(0, separator));
+  const server = normalizeStoredMoriMcpName(normalizeServerName(trimmed.slice(0, separator)));
   const tool = trimmed.slice(separator + 1).trim();
   return server && tool ? `mcp__${server}__${tool}` : undefined;
 }
 
 function normalizeToolName(value: string | undefined): string {
-  return value?.trim().toLowerCase().replace(/-/g, "_") ?? "";
+  const normalized = value?.trim().toLowerCase().replace(/-/g, "_") ?? "";
+  return normalizeStoredMoriMcpName(normalized.replace(/^eco_eco_mcp_/, "eco_mcp_"));
 }
 
 function normalizeServerName(value: string): string {

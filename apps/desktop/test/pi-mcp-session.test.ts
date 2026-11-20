@@ -40,7 +40,7 @@ test("buildPiMcpSessionConfig merges browser and image integrations", () => {
         args: ["browser.mjs"],
         env: { ECO_BROWSER_AUTH_TOKEN: "tok-a" },
       },
-      promptAppend: "Use eco_agent_browser for this thread.",
+      promptAppend: "Use mori_agent_browser for this thread.",
     },
     computerUseInject: {
       enabled: true,
@@ -49,7 +49,7 @@ test("buildPiMcpSessionConfig merges browser and image integrations", () => {
         command: "/bin/open-computer-use",
         args: ["mcp"],
       },
-      promptAppend: "Use eco_computer_use for desktop control.",
+      promptAppend: "Use mori_computer_use for desktop control.",
     },
     imageInject: {
       enabled: true,
@@ -58,20 +58,20 @@ test("buildPiMcpSessionConfig merges browser and image integrations", () => {
         command: "/bin/node",
         args: ["image.mjs"],
       },
-      promptAppend: "Use eco_image_generation when asked.",
+      promptAppend: "Use mori_image_generation when asked.",
     },
     browserSkillDirectory: "/tmp/skills/mori-agent-browser",
   });
   expect(Object.keys(result.mcpServers).sort()).toEqual([
-    ECO_AGENT_BROWSER_MCP_SERVER,
-    "eco_computer_use",
-    ECO_IMAGE_GENERATION_MCP_SERVER,
     "github",
+    ECO_AGENT_BROWSER_MCP_SERVER,
+    "mori_computer_use",
+    ECO_IMAGE_GENERATION_MCP_SERVER,
   ]);
   expect(result.appendSystemPrompt).toEqual([
-    "Use eco_agent_browser for this thread.",
-    "Use eco_computer_use for desktop control.",
-    "Use eco_image_generation when asked.",
+    "Use mori_agent_browser for this thread.",
+    "Use mori_computer_use for desktop control.",
+    "Use mori_image_generation when asked.",
   ]);
   expect(result.extraSkillDirectories).toEqual([path.resolve("/tmp/skills/mori-agent-browser")]);
 });
@@ -95,10 +95,10 @@ test("buildPiMcpSessionConfig always merges imageViewInject even when Composer i
         command: "/bin/node",
         args: ["image-view.mjs"],
       },
-      promptAppend: "Use eco_image_view with an absolute path.",
+      promptAppend: "Use mori_image_view with an absolute path.",
     },
   });
-  expect(Object.keys(result.mcpServers).sort()).toEqual([ECO_IMAGE_VIEW_MCP_SERVER, "github"]);
+  expect(Object.keys(result.mcpServers).sort()).toEqual(["github", ECO_IMAGE_VIEW_MCP_SERVER]);
   expect(result.mcpServers[ECO_IMAGE_VIEW_MCP_SERVER]).toMatchObject({
     type: "stdio",
     args: ["image-view.mjs"],
@@ -106,7 +106,7 @@ test("buildPiMcpSessionConfig always merges imageViewInject even when Composer i
   expect((result.mcpServers[ECO_IMAGE_VIEW_MCP_SERVER] as { command?: string }).command).not.toBe(
     "user-override",
   );
-  expect(result.appendSystemPrompt).toEqual(["Use eco_image_view with an absolute path."]);
+  expect(result.appendSystemPrompt).toEqual(["Use mori_image_view with an absolute path."]);
 });
 
 test("buildPiMcpSessionConfig isolates different browser tokens per call", () => {
@@ -147,18 +147,18 @@ test("mergePiAppendSystemPrompt prepends trimmed global rules before integration
   expect(
     mergePiAppendSystemPrompt({
       globalUserRules: "  Always reply in Chinese.  ",
-      integrationAppend: ["Use eco_agent_browser for this thread."],
+      integrationAppend: ["Use mori_agent_browser for this thread."],
     }),
-  ).toEqual(["Always reply in Chinese.", "Use eco_agent_browser for this thread."]);
+  ).toEqual(["Always reply in Chinese.", "Use mori_agent_browser for this thread."]);
 });
 
 test("mergePiAppendSystemPrompt omits blank global rules", () => {
   expect(
     mergePiAppendSystemPrompt({
       globalUserRules: "   ",
-      integrationAppend: ["Use eco_agent_browser for this thread."],
+      integrationAppend: ["Use mori_agent_browser for this thread."],
     }),
-  ).toEqual(["Use eco_agent_browser for this thread."]);
+  ).toEqual(["Use mori_agent_browser for this thread."]);
 });
 
 test("mergePiAppendSystemPrompt returns only global rules when integrations are empty", () => {
@@ -172,27 +172,27 @@ test("mergePiAppendSystemPrompt returns only global rules when integrations are 
 
 test("TTS uses the session injection and never inherits an ambient speech server when disabled", () => {
   const base = {
-    globalSdkConfig: { mcpServers: { eco_tts: { url: "https://ambient.example/mcp" } }, allowedTools: [] },
-    enabledMcpServerKeys: ["eco_tts"],
+    globalSdkConfig: { mcpServers: { mori_tts: { url: "https://ambient.example/mcp" } }, allowedTools: [] },
+    enabledMcpServerKeys: ["mori_tts"],
     browserInject: { enabled: false },
     imageInject: { enabled: false },
   };
   const disabled = buildPiMcpSessionConfig({ ...base, ttsInject: { enabled: false } });
   expect(disabled.mcpServers).toEqual({});
   const enabled = buildPiMcpSessionConfig({ ...base, ttsInject: { enabled: true, sdkEntry: { type: "http", url: "http://127.0.0.1/session/mcp", headers: { Authorization: "Bearer thread-a" } }, promptAppend: "Choose voice and delivery style." } });
-  expect(enabled.mcpServers.eco_tts).toMatchObject({ headers: { Authorization: "Bearer thread-a" } });
+  expect(enabled.mcpServers.mori_tts).toMatchObject({ headers: { Authorization: "Bearer thread-a" } });
   expect(enabled.appendSystemPrompt).toEqual(["Choose voice and delivery style."]);
 });
 
 test("ASR session injection cannot be enabled through ambient user MCP config", () => {
   const base = {
-    globalSdkConfig: { mcpServers: { eco_asr: { url: "http://ambient" } }, allowedTools: [] },
-    enabledMcpServerKeys: ["eco_asr"],
+    globalSdkConfig: { mcpServers: { mori_asr: { url: "http://ambient" } }, allowedTools: [] },
+    enabledMcpServerKeys: ["mori_asr"],
     browserInject: { enabled: false },
     imageInject: { enabled: false },
   };
   expect(buildPiMcpSessionConfig(base).mcpServers).toEqual({});
-  const result = buildPiMcpSessionConfig({ ...base, asrInject: { enabled: true, sdkEntry: { url: "http://session" }, promptAppend: "Transcribe with eco_asr" } });
-  expect(result.mcpServers.eco_asr).toMatchObject({ url: "http://session" });
-  expect(result.appendSystemPrompt).toEqual(["Transcribe with eco_asr"]);
+  const result = buildPiMcpSessionConfig({ ...base, asrInject: { enabled: true, sdkEntry: { url: "http://session" }, promptAppend: "Transcribe with mori_asr" } });
+  expect(result.mcpServers.mori_asr).toMatchObject({ url: "http://session" });
+  expect(result.appendSystemPrompt).toEqual(["Transcribe with mori_asr"]);
 });

@@ -4,7 +4,7 @@ import 'dart:typed_data';
 import 'package:eco_mobile/core/models/tts_models.dart';
 import 'package:eco_mobile/core/providers/app_providers.dart';
 import 'package:eco_mobile/core/models/eco_types.dart';
-import 'package:eco_mobile/core/services/eco_tts_service.dart';
+import 'package:eco_mobile/core/services/mori_tts_service.dart';
 import 'package:eco_mobile/core/services/read_aloud_player.dart';
 import 'package:eco_mobile/core/widgets/tts_lifecycle_binder.dart';
 import 'package:flutter/material.dart';

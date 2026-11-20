@@ -19,7 +19,7 @@ function fixture() {
           content: [
             {
               type: "text",
-              text: '截图已保存："/tmp/mori-owned.png"。如需分析，请调用 eco_image_view:view_image。',
+              text: '截图已保存："/tmp/mori-owned.png"。如需分析，请调用 mori_image_view:view_image。',
             },
           ],
         };
@@ -62,7 +62,7 @@ test("screenshot analysis is bound to the observing Mori thread and preserves th
   const signal = new AbortController().signal;
   const observed = await computer.callTool("one", "get_app_state", {}, signal);
   expect(JSON.stringify(observed)).toContain("mori_computer_view");
-  expect(JSON.stringify(observed)).not.toContain("eco_image_view");
+  expect(JSON.stringify(observed)).not.toContain("mori_image_view");
   await expect(
     computer.viewScreenshot("two", "/tmp/mori-owned.png", "当前页面是什么", signal),
   ).rejects.toThrow("当前 Mori 会话");

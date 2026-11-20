@@ -3,7 +3,7 @@ import {
   type IntegratedWebSearchResult,
 } from "./pi-integrated-web-search.js";
 
-export const ECO_WEB_SEARCH_MCP_SERVER = "eco_web_search";
+export const ECO_WEB_SEARCH_MCP_SERVER = "mori_web_search";
 export const ECO_WEB_SEARCH_TOOL = "search";
 export const ECO_WEB_SEARCH_FULL_TOOL = `mcp__${ECO_WEB_SEARCH_MCP_SERVER}__${ECO_WEB_SEARCH_TOOL}`;
 

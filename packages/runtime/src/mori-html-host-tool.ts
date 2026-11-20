@@ -3,14 +3,14 @@ import {
   ECO_HTML_HOST_MCP_SERVER,
   ECO_HTML_HOST_TOOL,
   isEcoHtmlHostToolName,
-} from "./eco-html-host-names.js";
+} from "./mori-html-host-names.js";
 
 export {
   ECO_HTML_HOST_FULL_TOOL,
   ECO_HTML_HOST_MCP_SERVER,
   ECO_HTML_HOST_TOOL,
   isEcoHtmlHostToolName,
-} from "./eco-html-host-names.js";
+} from "./mori-html-host-names.js";
 
 export interface HtmlHostToolCall {
   name: string;

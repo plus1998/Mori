@@ -262,7 +262,7 @@ export async function runPiGatewayRound(input: PiGatewayRoundInput): Promise<PiG
       thinkingLevel: "off",
       modelRuntime,
       resourceLoader: resourceLoader as never,
-      tools: [...new Set([...toolsAllowlist, ...(hasMcp && toolsAllowlist.includes("mcp__eco_mcp__call_tool") ? ["mcp__eco_smoke__smoke_ping", "mcp__eco_smoke__smoke_echo"] : [])])],
+      tools: [...new Set([...toolsAllowlist, ...(hasMcp && toolsAllowlist.includes("mcp__mori_mcp__call_tool") ? ["mcp__eco_smoke__smoke_ping", "mcp__eco_smoke__smoke_echo"] : [])])],
       sessionManager,
       settingsManager,
     });

@@ -223,7 +223,7 @@ test("one Hub registration follows live vision selection and never hides configu
   }, host));
   const hub = new McpHubGateway();
   const signal = new AbortController().signal;
-  const call = () => hub.callThreadTool("login", "eco_image_view:view_image", { path: imagePath, prompt: "describe" }, signal);
+  const call = () => hub.callThreadTool("login", "mori_image_view:view_image", { path: imagePath, prompt: "describe" }, signal);
   const errorText = (result: Awaited<ReturnType<typeof call>>) => JSON.parse((result.content[0] as { text: string }).text);
   try {
     const injection = await gateway.resolveInjection("login");

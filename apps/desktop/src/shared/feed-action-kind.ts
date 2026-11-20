@@ -1,3 +1,4 @@
+import { normalizeStoredMoriMcpName } from "@eco/shared";
 import { isEcoTtsToolName } from "./tts";
 import { ecoAgentBrowserToolSuffix, hasNamedAgentBrowserLabel, isEcoAgentBrowserToolName } from "./browser";
 import { isEcoComputerUseToolName } from "./computer-use";
@@ -226,7 +227,7 @@ function kindFromPayload(payload: ActionKindPayload | undefined): ActionKind | u
 }
 
 export function resolveActionKind(input: { toolName?: string; payload?: ActionKindPayload }): ResolvedAction {
-  const toolName = input.toolName ?? "";
+  const toolName = normalizeStoredMoriMcpName(input.toolName ?? "");
   const name = toolName.trim().toLowerCase();
 
   if (input.payload?.mcpDiscovery?.kind === "search") {

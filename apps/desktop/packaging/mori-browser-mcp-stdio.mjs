@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Eco browser MCP stdio front-end.
- * Always exposes logical server name eco_agent_browser to agents.
+ * Always exposes logical server name mori_agent_browser to agents.
  * Forwards tools/list + tools/call to Eco desktop control HTTP with auth:
  *   - ECO_BROWSER_AUTH_TOKEN (thread-bound) when set (Claude / sealed sessions)
  *   - ECO_BROWSER_CONTROL_SECRET (required) to reach control plane
@@ -75,7 +75,7 @@ rl.on("line", (line) => {
           result: {
             protocolVersion: msg.params?.protocolVersion || "2024-11-05",
             capabilities: { tools: {} },
-            serverInfo: { name: "eco_agent_browser", version: "1.0.0" },
+            serverInfo: { name: "mori_agent_browser", version: "1.0.0" },
             instructions: "Mori built-in browser. Tools apply only to the authenticated conversation thread.",
           },
         });

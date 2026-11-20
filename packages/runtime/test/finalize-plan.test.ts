@@ -49,5 +49,5 @@ test("createFinalizePlanMcpServer passes timeout 60000 to createSdkMcpServer", a
 
   expect(captured).toHaveLength(1);
   expect(captured[0]?.timeout).toBe(60_000);
-  expect(captured[0]?.name).toBe("eco_plan");
+  expect(captured[0]?.name).toBe("mori_plan");
 });

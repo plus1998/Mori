@@ -412,7 +412,7 @@ async function executeAgentBrowserToolViaCli(
             const { maybeSpillMcpTextContent } = await import("./mcp-tool-result-spill.js");
             const spilled = await maybeSpillMcpTextContent({
               text: rawText,
-              serverName: "eco_agent_browser",
+              serverName: "mori_agent_browser",
               toolName: input.toolName,
               threadId: input.sessionKey,
             });

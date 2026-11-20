@@ -34,7 +34,7 @@ Agent 自主创建任务时，宿主读取当前会话的 Harness 和有效主�
 
 ## Agent 工具
 
-Claude、Codex、PI 和 Cursor ACP 通过当前会话认证的 MCP 使用以下工具。定时工具注册为 `eco_scheduling`，经现有 Eco MCP Hub 提供；ACP 复用现有的 MCP 配置转换和会话注入流程。
+Claude、Codex、PI 和 Cursor ACP 通过当前会话认证的 MCP 使用以下工具。定时工具注册为 `mori_scheduling`，经现有 Eco MCP Hub 提供；ACP 复用现有的 MCP 配置转换和会话注入流程。
 
 | 工具 | 用途 |
 | --- | --- |

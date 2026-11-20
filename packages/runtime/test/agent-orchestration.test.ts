@@ -124,16 +124,16 @@ test("orchestration forwards the optional Claude compaction policy into the SDK 
 test("createAgentDefinitionsFromOrchestration swaps native WebSearch for Integrated MCP", () => {
   const resolved = createAgentDefinitionsFromOrchestration(orchestration, [researchTemplate], {
     integratedWebSearch: {
-      serverName: "eco_web_search",
-      fullToolName: "mcp__eco_web_search__search",
+      serverName: "mori_web_search",
+      fullToolName: "mcp__mori_web_search__search",
     },
   });
 
   const definition = resolved.definitions.eco_researcher as Record<string, unknown>;
-  expect(definition.tools).toEqual(expect.arrayContaining(["Read", "mcp__eco_web_search__search"]));
+  expect(definition.tools).toEqual(expect.arrayContaining(["Read", "mcp__mori_web_search__search"]));
   expect(definition.tools).not.toContain("WebSearch");
   expect(definition.disallowedTools).toEqual(expect.arrayContaining(["Bash", "Agent", "Task", "WebSearch"]));
-  expect(definition.mcpServers).toEqual(expect.arrayContaining(["sources", "browser", "eco_web_search"]));
+  expect(definition.mcpServers).toEqual(expect.arrayContaining(["sources", "browser", "mori_web_search"]));
 });
 
 test("applyIntegratedWebSearchToAgentToolFields skips MCP for network.webSearch false", () => {
@@ -143,8 +143,8 @@ test("applyIntegratedWebSearchToAgentToolFields skips MCP for network.webSearch 
     mcpServers: [],
     networkWebSearch: false,
     integratedWebSearch: {
-      serverName: "eco_web_search",
-      fullToolName: "mcp__eco_web_search__search",
+      serverName: "mori_web_search",
+      fullToolName: "mcp__mori_web_search__search",
     },
   });
   expect(applied.tools).toEqual(["Read", "Glob", "Grep"]);

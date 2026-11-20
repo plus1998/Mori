@@ -2,7 +2,7 @@ import type { BrowserViewport } from "./browser-viewport";
 import { buildEcoMcpHubToolUsage, mergeEcoMcpHubPromptParts } from "./mcp-hub-tool-usage";
 
 /** Built-in Eco browser MCP server name (must stay sanitizable for MCP tool prefixes). */
-export const ECO_AGENT_BROWSER_MCP_SERVER = "eco_agent_browser";
+export const ECO_AGENT_BROWSER_MCP_SERVER = "mori_agent_browser";
 
 export const ECO_AGENT_BROWSER_ALLOWED_TOOL = `mcp__${ECO_AGENT_BROWSER_MCP_SERVER}__*`;
 
@@ -61,16 +61,16 @@ export function browserAgentSessionKey(threadId: string): string {
 }
 
 /**
- * Short system append when this *thread* enabled eco_agent_browser MCP.
+ * Short system append when this *thread* enabled mori_agent_browser MCP.
  * Detailed workflow lives in the bundled skill `mori-agent-browser`.
- * Server name is always `eco_agent_browser`; isolation is auth-token + Eco gateway routing.
+ * Server name is always `mori_agent_browser`; isolation is auth-token + Eco gateway routing.
  */
 export function buildEcoAgentBrowserPromptAppend(
   _threadId?: string,
   skillName: string = MORI_AGENT_BROWSER_SKILL_NAME,
 ): string {
   return [
-    "Built-in browser (Mori): browse and interact with websites, read pages, fill forms, extract data, capture screenshots and verify web UIs.",
+    "Built-in browser (Mori): browse websites, read pages, fill forms, extract data, capture screenshots and verify web UIs.",
     buildEcoMcpHubToolUsage({ server: ECO_AGENT_BROWSER_MCP_SERVER }),
     "Tabs are auth-bound to the conversation thread; cookies, localStorage and IndexedDB are shared within this workspace. Mori binds the browser session automatically; do not pass a custom `session`.",
     `Use the bundled Skill \`${skillName}\` for browser workflows. Discover capabilities through tool search; this server exposes tools only.`,
@@ -108,7 +108,7 @@ export function isBrowserOpenApprovalMode(value: unknown): value is BrowserOpenA
 
 export interface BrowserSettingsSnapshot {
   /**
-   * When true, `eco_agent_browser` may appear in Composer/workpanel MCP toggles.
+   * When true, `mori_agent_browser` may appear in Composer/workpanel MCP toggles.
    * Does not inject into sessions; each thread enables via mcpServersEnabled.
    */
   agentIntegrationEnabled: boolean;
@@ -168,8 +168,8 @@ export function requiresBrowserOpenApproval(toolName: string): boolean {
     return false;
   }
   const isEcoBrowser =
-    name.includes("eco_agent_browser") ||
-    name.includes("mcp__eco_agent_browser") ||
+    name.includes("mori_agent_browser") ||
+    name.includes("mcp__mori_agent_browser") ||
     name.includes("mcp__eco_ab_") ||
     name.includes("agent_browser_");
   if (!isEcoBrowser) {
@@ -658,8 +658,8 @@ export function isEcoAgentBrowserToolName(toolName: string | undefined): boolean
     return false;
   }
   return (
-    name.includes("eco_agent_browser") ||
-    name.includes("mcp__eco_agent_browser") ||
+    name.includes("mori_agent_browser") ||
+    name.includes("mcp__mori_agent_browser") ||
     name.includes("mcp__eco_ab_") ||
     name.includes("agent_browser_")
   );
@@ -697,7 +697,7 @@ export function ecoAgentBrowserToolSuffix(toolName: string): string | undefined 
   }
   const match = name.match(/^mcp__(?:[^_]+(?:_[^_]+)*)__(.+)$/i);
   let suffix = (match?.[1] ?? name).trim().toLowerCase();
-  // Pi proxy form `eco_agent_browser_agent_browser_open` → short tool name.
+  // Pi proxy form `mori_agent_browser_agent_browser_open` → short tool name.
   if (!suffix.startsWith("agent_browser") && suffix.startsWith(`${ECO_AGENT_BROWSER_MCP_SERVER}_`)) {
     suffix = suffix.slice(ECO_AGENT_BROWSER_MCP_SERVER.length + 1);
   }

@@ -1,31 +1,31 @@
 ---
 name: mori-agent-browser
 description: >
-  Mori built-in browser via agent-browser MCP (mcp__eco_agent_browser__agent_browser_*). Use when browsing,
+  Mori built-in browser via agent-browser MCP (mcp__mori_agent_browser__agent_browser_*). Use when browsing,
   clicking, filling forms, extracting page data, taking screenshots, or verifying local web UIs
   against this conversation's in-app browsers. Prefer this over macOS open / separate Chrome.
-  Only available when the session has enabled eco_agent_browser MCP.
+  Only available when the session has enabled mori_agent_browser MCP.
 ---
 
 # Mori agent-browser (built-in)
 
 The **current Mori conversation thread** may own **multiple** independent in-app browser surfaces
-(task-panel Tabs). MCP server name is always **`eco_agent_browser`**. Mori binds the connection to
+(task-panel Tabs). MCP server name is always **`mori_agent_browser`**. Mori binds the connection to
 **this conversation** via auth token / tool claims and a **thread-scoped CDP** — not a second
 Chrome, and not another conversation's open pages. **Cookies / localStorage are shared** with
 other conversations in the same workspace (login once across threads).
 
 Tool names look like:
 
-- `mcp__eco_agent_browser__agent_browser_open`
-- `mcp__eco_agent_browser__agent_browser_snapshot`
-- `mcp__eco_agent_browser__agent_browser_click`
-- `mcp__eco_agent_browser__agent_browser_fill`
-- `mcp__eco_agent_browser__agent_browser_screenshot`
-- `mcp__eco_agent_browser__agent_browser_get_url`
-- `mcp__eco_agent_browser__agent_browser_eval`
-- `mcp__eco_agent_browser__agent_browser_cdp`
-- `mcp__eco_agent_browser__agent_browser_tab_list` / `tab_new` / `tab_switch` (when listed)
+- `mcp__mori_agent_browser__agent_browser_open`
+- `mcp__mori_agent_browser__agent_browser_snapshot`
+- `mcp__mori_agent_browser__agent_browser_click`
+- `mcp__mori_agent_browser__agent_browser_fill`
+- `mcp__mori_agent_browser__agent_browser_screenshot`
+- `mcp__mori_agent_browser__agent_browser_get_url`
+- `mcp__mori_agent_browser__agent_browser_eval`
+- `mcp__mori_agent_browser__agent_browser_cdp`
+- `mcp__mori_agent_browser__agent_browser_tab_list` / `tab_new` / `tab_switch` (when listed)
 
 Do **not** start a separate headless Chrome, and do **not** shell out to macOS `open` for normal web work when these tools are present.
 
@@ -132,12 +132,12 @@ DPR, orientation and touch; it does not switch to Safari/WebKit or change User-A
 
 ## Avoid
 
-- Shelling `agent-browser` CLI / `Bash(agent-browser …)` when `mcp__eco_agent_browser__*` tools exist.
+- Shelling `agent-browser` CLI / `Bash(agent-browser …)` when `mcp__mori_agent_browser__*` tools exist.
 - Passing a custom `session` argument (causes parallel daemon sessions and tab-count mismatches).
 - Reading `~/.agents/skills/agent-browser` or launching a second browser product for the same task.
 - Launching macOS `open`, separate Chrome, or headed CLI for normal web work in Mori.
 - Assuming refs survive a page change.
-- Claiming tools are available when the session has not enabled `eco_agent_browser`.
+- Claiming tools are available when the session has not enabled `mori_agent_browser`.
 
 ## When tools fail
 

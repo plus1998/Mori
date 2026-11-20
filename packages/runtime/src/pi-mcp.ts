@@ -10,7 +10,7 @@
  */
 
 import type { LoadedMcpConfig, McpServerConfig, McpServerEntry } from "@earendil-works/pi-coding-agent";
-import { ECO_MCP_HUB_CALL_FULL_TOOL, ECO_MCP_HUB_SEARCH_FULL_TOOL } from "./eco-mcp-hub-tool.js";
+import { ECO_MCP_HUB_CALL_FULL_TOOL, ECO_MCP_HUB_MCP_SERVER, ECO_MCP_HUB_SEARCH_FULL_TOOL } from "./mori-mcp-hub-tool.js";
 
 type PiMcpStdioServerConfig = Extract<McpServerConfig, { command: string }>;
 type PiMcpHttpServerConfig = Extract<McpServerConfig, { url: string }>;
@@ -19,7 +19,7 @@ type PiMcpHttpServerConfig = Extract<McpServerConfig, { url: string }>;
  * Server name the Hub injection uses. PI namespaces its tools as
  * `mcp__<server>__<tool>`, so both names below are the exact wire names.
  */
-export const PI_MCP_HUB_SERVER_NAME = "eco_mcp";
+export const PI_MCP_HUB_SERVER_NAME = ECO_MCP_HUB_MCP_SERVER;
 
 /** The only Hub tools declared to the model, identical to the Claude/Codex runtime. */
 export const PI_MCP_HUB_TOOL_NAMES = [ECO_MCP_HUB_SEARCH_FULL_TOOL, ECO_MCP_HUB_CALL_FULL_TOOL] as const;

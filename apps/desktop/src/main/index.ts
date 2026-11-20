@@ -167,6 +167,7 @@ import {
   definedProps,
   ecoMcpHubServerName,
   isRemoteCommandChannel,
+  MORI_MCP_HUB_SERVER,
   stableHash,
 } from "@eco/shared";
 import {
@@ -464,7 +465,11 @@ import {
   resolveAppLocale,
 } from "../shared/locale";
 import { filterMcpSdkConfigByAssignedServers } from "../shared/mcp";
-import { rewriteEcoMcpHubPromptForCodexServer } from "../shared/mcp-hub-tool-usage";
+import {
+  ECO_MCP_HUB_CALL_FULL_TOOL,
+  ECO_MCP_HUB_SEARCH_FULL_TOOL,
+  rewriteEcoMcpHubPromptForCodexServer,
+} from "../shared/mcp-hub-tool-usage";
 import { evaluateDesktopNotificationPolicy } from "./desktop-notification-policy";
 import type {
   OpenAIAccountAssistantAction,
@@ -1822,7 +1827,7 @@ async function resolveCodexGlobalMcpServers(): Promise<CodexMcpServerForConfigSy
 }
 
 function codexHubServerName(threadId: string): string {
-  // Single source of truth lives in @eco/shared (packages/shared/src/eco-mcp-hub.ts);
+  // Single source of truth lives in @eco/shared (packages/shared/src/mori-mcp-hub.ts);
   // the gateway derives the same name for Hub namespace repair.
   return ecoMcpHubServerName(threadId);
 }
@@ -13808,7 +13813,7 @@ async function startCodexThreadRun(
             append = appendBrowserPrompt(append, mcpHubGateway.getThreadPromptAppend(input.thread.id));
             // Codex registers this thread's Hub under a per-thread server
             // name (shared app-server global pool + per-thread bearer token),
-            // so rewrite the fixed `mcp__eco_mcp__*` names emitted by the Hub
+            // so rewrite the fixed `mcp__mori_mcp__*` names emitted by the Hub
             // usage builders to the exact names Codex will register.
             return rewriteEcoMcpHubPromptForCodexServer(append, codexHubServerName(input.thread.id));
           },
@@ -14416,7 +14421,7 @@ async function resolvePiSessionResourcesForThread(
     (key) => Object.hasOwn(globalMcpConfig.mcpServers, key) && !isBuiltinHubServerName(key),
   );
   const hubBuiltinKeys = Object.keys(mcpSession.mcpServers).filter(
-    (key) => isBuiltinHubServerName(key) && key !== "eco_mcp",
+    (key) => isBuiltinHubServerName(key) && key !== MORI_MCP_HUB_SERVER,
   );
   for (const key of hubBuiltinKeys) {
     const entry = mcpSession.mcpServers[key];
@@ -14433,7 +14438,7 @@ async function resolvePiSessionResourcesForThread(
   const resolvedMcpServers = { ...mcpSession.mcpServers };
   for (const key of hubServerKeys) delete resolvedMcpServers[key];
   for (const key of hubBuiltinKeys) delete resolvedMcpServers[key];
-  if (hubInjection) resolvedMcpServers.eco_mcp = hubInjection.sdkEntry;
+  if (hubInjection) resolvedMcpServers[MORI_MCP_HUB_SERVER] = hubInjection.sdkEntry;
 
   return {
     skillPaths: [
@@ -20526,7 +20531,7 @@ async function buildSdkSessionOptions(
     await modelManagementGateway.resolveInjection(threadId)
   ).sdkEntry;
   const hubBuiltinKeys = Object.keys(withWechatMcp.mcpServers).filter(
-    (key) => isBuiltinHubServerName(key) && key !== "eco_mcp",
+    (key) => isBuiltinHubServerName(key) && key !== MORI_MCP_HUB_SERVER,
   );
   for (const key of hubBuiltinKeys) {
     const entry = withWechatMcp.mcpServers[key];
@@ -20541,13 +20546,13 @@ async function buildSdkSessionOptions(
   });
   const hubRuntimeConfig: typeof withWechatMcp = {
     mcpServers: { ...withWechatMcp.mcpServers },
-    allowedTools: hubInjection ? ["mcp__eco_mcp__search_tools", "mcp__eco_mcp__call_tool"] : [],
+    allowedTools: hubInjection ? [ECO_MCP_HUB_SEARCH_FULL_TOOL, ECO_MCP_HUB_CALL_FULL_TOOL] : [],
   };
   for (const key of hubServerKeys) delete hubRuntimeConfig.mcpServers[key];
   for (const key of hubBuiltinKeys) delete hubRuntimeConfig.mcpServers[key];
-  if (hubInjection) hubRuntimeConfig.mcpServers.eco_mcp = hubInjection.sdkEntry;
+  if (hubInjection) hubRuntimeConfig.mcpServers[MORI_MCP_HUB_SERVER] = hubInjection.sdkEntry;
   const runtimeMcp = prepareMcpSdkConfigForRuntime(hubRuntimeConfig);
-  const runtimeMcpServers = [...(hubInjection ? ["eco_mcp"] : [])];
+  const runtimeMcpServers = [...(hubInjection ? [MORI_MCP_HUB_SERVER] : [])];
   const enabledSubagents = hydrated?.runtimeConfig?.subagentEnabled ?? defaultSubagentAvailability();
   const workspacePath =
     thread?.workspacePath ??
@@ -20982,7 +20987,7 @@ function maybeRevealBrowserFromAgentTool(input: {
   }
   if (
     toolName.includes("agent_browser") ||
-    toolName.includes("eco_agent_browser") ||
+    toolName.includes("mori_agent_browser") ||
     toolName.includes("eco_ab_")
   ) {
     requireBrowserHost().noteBrowserToolStarted(threadId, toolName);
@@ -21045,7 +21050,7 @@ function maybeRevealBrowserFromThreadRunEvent(event: {
   if (!toolName || !isEcoAgentBrowserOpenToolName(toolName)) {
     if (
       name &&
-      (name.includes("agent_browser") || name.includes("eco_agent_browser") || name.includes("eco_ab_"))
+      (name.includes("agent_browser") || name.includes("mori_agent_browser") || name.includes("eco_ab_"))
     ) {
       requireBrowserHost().noteBrowserToolStarted(event.threadId, name);
     }

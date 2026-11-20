@@ -28,7 +28,7 @@ const BROWSER_EVAL_REQUEST: AcpPermissionRequest = {
   toolCall: {
     toolCallId: "call_browser_eval",
     kind: "other",
-    title: "eco_agent_browser-agent_browser_eval: agent_browser_eval",
+    title: "mori_agent_browser-agent_browser_eval: agent_browser_eval",
     rawInput: { script: "1+1" },
   },
   options: [
@@ -41,7 +41,7 @@ const BROWSER_OPEN_REQUEST: AcpPermissionRequest = {
   toolCall: {
     toolCallId: "call_browser_open",
     kind: "other",
-    title: "eco_agent_browser-agent_browser_open: agent_browser_open",
+    title: "mori_agent_browser-agent_browser_open: agent_browser_open",
     rawInput: { url: "https://example.com" },
   },
   options: [
@@ -336,25 +336,25 @@ test("switch_mode is auto-allowed; web search still parks in Eco always", async 
 test("shouldAutoAllowAcpEcoBrowserTool mirrors settings always_allow / always_ask", () => {
   expect(
     shouldAutoAllowAcpEcoBrowserTool({
-      toolName: "eco_agent_browser-agent_browser_eval: agent_browser_eval",
+      toolName: "mori_agent_browser-agent_browser_eval: agent_browser_eval",
       openApprovalMode: "always_allow",
     }),
   ).toBe(true);
   expect(
     shouldAutoAllowAcpEcoBrowserTool({
-      toolName: "eco_agent_browser-agent_browser_open: agent_browser_open",
+      toolName: "mori_agent_browser-agent_browser_open: agent_browser_open",
       openApprovalMode: "always_ask",
     }),
   ).toBe(false);
   expect(
     shouldAutoAllowAcpEcoBrowserTool({
-      toolName: "eco_agent_browser-agent_browser_eval: agent_browser_eval",
+      toolName: "mori_agent_browser-agent_browser_eval: agent_browser_eval",
       openApprovalMode: "always_ask",
     }),
   ).toBe(true);
   expect(
     shouldAutoAllowAcpEcoComputerUseTool({
-      toolName: "eco_computer_use-click: click",
+      toolName: "mori_computer_use-click: click",
       actionApprovalMode: "always_allow",
     }),
   ).toBe(true);

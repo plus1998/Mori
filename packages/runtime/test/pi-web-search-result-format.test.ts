@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseEcoWebSearchToolOutput } from "../src/eco-web-search-tool.ts";
+import { parseEcoWebSearchToolOutput } from "../src/mori-web-search-tool.ts";
 
 /**
  * Mirrors packages/runtime/src/pi-event-adapter.ts formatToolResult priority for

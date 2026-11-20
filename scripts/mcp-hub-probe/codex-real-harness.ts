@@ -69,9 +69,9 @@ async function startCodexApi(hub: RunningHub, identity: "A" | "B", scenario: Sce
       }
       const body = JSON.parse(raw) as Record<string, any>;
       requests.push(body);
-      const mcpNamespace = (body.tools ?? []).find((tool: any) => tool?.name === "mcp__eco_mcp" && tool?.type === "namespace");
-      const searchName = mcpNamespace ? "mcp__eco_mcp__search_tools" : undefined;
-      const callName = mcpNamespace ? "mcp__eco_mcp__call_tool" : undefined;
+      const mcpNamespace = (body.tools ?? []).find((tool: any) => tool?.name === "mcp__mori_mcp" && tool?.type === "namespace");
+      const searchName = mcpNamespace ? "mcp__mori_mcp__search_tools" : undefined;
+      const callName = mcpNamespace ? "mcp__mori_mcp__call_tool" : undefined;
       const input = Array.isArray(body.input) ? body.input : [];
       const outputs = input.filter((item: any) => item?.type === "function_call_output");
       response.writeHead(200, { "content-type": "text/event-stream", connection: "keep-alive" });
@@ -79,7 +79,7 @@ async function startCodexApi(hub: RunningHub, identity: "A" | "B", scenario: Sce
         step += 1;
         const query = scenario === "revoked" ? "restricted_probe_x" : scenario === "write" || scenario === "write-allow" ? "mock_write" : "echo";
         if (scenario === "revoked") hub.state.revoke(identity, "restricted_probe_x");
-        response.end(functionCallResponse(`resp_${step}`, `search_${step}`, "search_tools", { query }, "mcp__eco_mcp"));
+        response.end(functionCallResponse(`resp_${step}`, `search_${step}`, "search_tools", { query }, "mcp__mori_mcp"));
         return;
       }
       if (searchName && callName && outputs.length === 1) {
@@ -89,7 +89,7 @@ async function startCodexApi(hub: RunningHub, identity: "A" | "B", scenario: Sce
           : scenario === "write" || scenario === "write-allow"
             ? { name: "mock_write", arguments: { value: `codex-${identity}-write`, clientSessionId: "codex-model-forged" } }
             : { name: "echo_context", arguments: { clientSessionId: "codex-model-forged", marker: `codex-${identity}` } };
-        response.end(functionCallResponse(`resp_${step}`, `call_${step}`, "call_tool", nested, "mcp__eco_mcp"));
+        response.end(functionCallResponse(`resp_${step}`, `call_${step}`, "call_tool", nested, "mcp__mori_mcp"));
         return;
       }
       step += 1;
@@ -152,9 +152,9 @@ export async function runCodexRealProbe(scenario: Scenario = "dynamic"): Promise
       "request_max_retries = 0",
       'env_key = "ECO_PROBE_KEY"',
       "",
-      "[mcp_servers.eco_mcp]",
+      "[mcp_servers.mori_mcp]",
       `url = "${hub.url}"`,
-      `[mcp_servers.eco_mcp.http_headers]`,
+      `[mcp_servers.mori_mcp.http_headers]`,
       `Authorization = "Bearer ${token}"`,
       "",
     ].join("\n"));

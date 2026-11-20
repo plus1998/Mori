@@ -897,8 +897,8 @@ String? _toolNameForActionIcon(ActivityActionIcon? icon) {
     ActivityActionIcon.network => 'WebSearch',
     ActivityActionIcon.image => 'ViewImage',
     ActivityActionIcon.images => 'ViewImage',
-    ActivityActionIcon.browser => 'mcp__eco_agent_browser__browser',
-    ActivityActionIcon.computer => 'mcp__eco_computer_use__click',
+    ActivityActionIcon.browser => 'mcp__mori_agent_browser__browser',
+    ActivityActionIcon.computer => 'mcp__mori_computer_use__click',
     ActivityActionIcon.tool || ActivityActionIcon.context || null => null,
   };
 }

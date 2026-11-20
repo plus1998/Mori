@@ -66,14 +66,14 @@ for (const match of blocks) {
 }
 
 // Concurrent tools/list against image_view + browser (same process, different ports = one server each)
-const image = results.find((r) => r.name === "eco_image_view");
-const browser = results.find((r) => r.name === "eco_agent_browser");
+const image = results.find((r) => r.name === "mori_image_view");
+const browser = results.find((r) => r.name === "mori_agent_browser");
 if (image?.url && browser?.url) {
   const imageSecret = /"(X-Eco-[^"]+-Control-Secret)" = "([^"]+)"/.exec(
-    blocks.find((m) => m[1] === "eco_image_view")?.[2] ?? "",
+    blocks.find((m) => m[1] === "mori_image_view")?.[2] ?? "",
   );
   const browserSecret = /"(X-Eco-[^"]+-Control-Secret)" = "([^"]+)"/.exec(
-    blocks.find((m) => m[1] === "eco_agent_browser")?.[2] ?? "",
+    blocks.find((m) => m[1] === "mori_agent_browser")?.[2] ?? "",
   );
   const concurrent = await Promise.all(
     Array.from({ length: 4 }, async (_, i) => {

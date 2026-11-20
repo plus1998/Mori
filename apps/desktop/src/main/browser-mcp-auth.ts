@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 
 /**
  * Thread-scoped bearer tokens for Eco's browser MCP gateway.
- * - UI / composer toggle stays `eco_agent_browser` (one logical server name).
+ * - UI / composer toggle stays `mori_agent_browser` (one logical server name).
  * - Each conversation gets a secret token; the gateway maps token → Eco threadId → CDP.
  * - Codex may share one MCP process: concurrent routing also uses the tool.started claim queue.
  */

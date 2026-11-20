@@ -1,4 +1,4 @@
-import { ECO_IMAGE_VIEW_MCP_SERVER } from "@eco/runtime/eco-image-view-names";
+import { ECO_IMAGE_VIEW_MCP_SERVER } from "@eco/runtime/mori-image-view-names";
 import { buildEcoMcpHubToolUsage } from "./mcp-hub-tool-usage";
 
 export {
@@ -6,7 +6,7 @@ export {
   ECO_IMAGE_VIEW_MCP_SERVER,
   ECO_IMAGE_VIEW_TOOL,
   isEcoImageViewToolName,
-} from "@eco/runtime/eco-image-view-names";
+} from "@eco/runtime/mori-image-view-names";
 
 export function buildImageViewPromptAppend(): string {
   return [

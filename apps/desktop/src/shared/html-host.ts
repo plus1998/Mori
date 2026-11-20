@@ -1,4 +1,4 @@
-export const ECO_HTML_HOST_MCP_SERVER = "eco_html_host";
+export const ECO_HTML_HOST_MCP_SERVER = "mori_html_host";
 export const ECO_HTML_HOST_TOOL = "publish_html";
 export const ECO_HTML_HOST_FULL_TOOL = `mcp__${ECO_HTML_HOST_MCP_SERVER}__${ECO_HTML_HOST_TOOL}`;
 

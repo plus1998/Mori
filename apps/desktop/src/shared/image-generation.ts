@@ -1,6 +1,6 @@
 import { buildEcoMcpHubToolUsage } from "./mcp-hub-tool-usage";
 
-export const ECO_IMAGE_GENERATION_MCP_SERVER = "eco_image_generation";
+export const ECO_IMAGE_GENERATION_MCP_SERVER = "mori_image_generation";
 export const ECO_IMAGE_GENERATION_TOOL = "create_image";
 export const ECO_IMAGE_GENERATION_FULL_TOOL = `mcp__${ECO_IMAGE_GENERATION_MCP_SERVER}__${ECO_IMAGE_GENERATION_TOOL}`;
 export const IMAGE_GENERATION_TASK_TAB_PREFIX = "image:";

@@ -23,7 +23,7 @@ void main() {
           role: 'tool',
           metadata: {
             'tool': {
-              'name': 'mcp__eco_html_host__publish_html',
+              'name': 'mcp__mori_html_host__publish_html',
               'status': 'completed',
               'htmlHost': {
                 'pageId': 'page_1',

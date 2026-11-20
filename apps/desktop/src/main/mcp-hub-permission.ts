@@ -10,9 +10,9 @@ export function createMcpHubNestedToolPermissionHandler(
   const delegate = composeCanUseToolHandlers(...handlers);
   return async (request) => {
     if (
-      request.toolName !== "mcp__eco_mcp__call_tool" &&
-      request.toolName !== "eco_mcp_call_tool" &&
-      !request.toolName.endsWith("__eco_mcp__call_tool")
+      request.toolName !== "mcp__mori_mcp__call_tool" &&
+      request.toolName !== "mori_mcp_call_tool" &&
+      !request.toolName.endsWith("__mori_mcp__call_tool")
     ) {
       return { behavior: "allow", updatedInput: request.input };
     }

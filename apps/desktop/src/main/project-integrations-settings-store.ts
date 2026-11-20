@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { DatabaseSync as DatabaseSyncType } from "node:sqlite";
 import { ECO_AGENT_BROWSER_MCP_SERVER } from "../shared/browser";
+import { normalizeMcpServersEnabled } from "../shared/composer-mcp";
 import {
   normalizeIntegrationsEnabled,
   type ProjectIntegrationsSettingsSnapshot,
@@ -46,9 +47,7 @@ export class ProjectIntegrationsSettingsStore {
     let browser = false;
     try {
       const parsed = JSON.parse(legacy.enabled_json) as unknown;
-      browser =
-        Boolean(parsed && typeof parsed === "object") &&
-        (parsed as Record<string, unknown>)[ECO_AGENT_BROWSER_MCP_SERVER] === true;
+      browser = normalizeMcpServersEnabled(parsed)?.[ECO_AGENT_BROWSER_MCP_SERVER] === true;
     } catch {
       throw new Error(`项目 MCP 配置损坏，无法迁移浏览器集成：${normalizedPath}`);
     }

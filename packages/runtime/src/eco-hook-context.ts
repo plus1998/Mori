@@ -134,7 +134,7 @@ export interface EcoHookContext {
    */
   resolveBrowserOpenApprovalMode?: () => "always_allow" | "always_ask";
   /**
-   * Web search: whether WebSearch / eco_web_search must ask the user first.
+   * Web search: whether WebSearch / mori_web_search must ask the user first.
    * When `always_ask`, PreToolUse returns ask so canUseTool shows the approval card
    * even under permissionMode bypassPermissions.
    */

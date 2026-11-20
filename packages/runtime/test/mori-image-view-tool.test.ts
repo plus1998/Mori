@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import {
   ECO_IMAGE_VIEW_FULL_TOOL as NAMED_FULL_TOOL,
   isEcoImageViewToolName as namedIsEcoImageViewToolName,
-} from "../src/eco-image-view-names";
+} from "../src/mori-image-view-names";
 import {
   ECO_IMAGE_VIEW_FULL_TOOL,
   ECO_IMAGE_VIEW_MCP_SERVER,
@@ -12,18 +12,18 @@ import {
   readImageViewPathFromToolArgs,
   resolveEcoImageViewToolCall,
   resolvePiMcpProxyDiscoveryCall,
-} from "../src/eco-image-view-tool";
+} from "../src/mori-image-view-tool";
 
 test("recognizes Eco image view MCP names", () => {
   expect(isEcoImageViewToolName(ECO_IMAGE_VIEW_FULL_TOOL)).toBe(true);
   expect(isEcoImageViewToolName(`mcp__${ECO_IMAGE_VIEW_MCP_SERVER}__${ECO_IMAGE_VIEW_TOOL}`)).toBe(true);
-  expect(isEcoImageViewToolName("mcp__eco_image_generation__create_image")).toBe(false);
+  expect(isEcoImageViewToolName("mcp__mori_image_generation__create_image")).toBe(false);
   expect(isEcoImageViewToolName("ViewImage")).toBe(false);
   expect(isEcoImageViewToolName("view_image")).toBe(false);
 });
 
 test("image view names module stays usable in the Vite renderer", () => {
-  const source = readFileSync(new URL("../src/eco-image-view-names.ts", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../src/mori-image-view-names.ts", import.meta.url), "utf8");
   expect(source).not.toContain("node:");
   // Renderer-safe: must not pull the Node-only PI runtime (the guard named the
   // removed pi-mcp-adapter before PI 1.0.3).
@@ -41,7 +41,7 @@ test("readImageViewPathFromToolArgs unwraps PI mcp proxy view_image calls", () =
   expect(
     readImageViewPathFromToolArgs("mcp", {
       tool: "view_image",
-      server: "eco_image_view",
+      server: "mori_image_view",
       args: '{"path":"/tmp/shot.png"}',
     }),
   ).toBe("/tmp/shot.png");
@@ -65,7 +65,7 @@ test("readImageViewPathFromToolArgs unwraps PI mcp proxy view_image calls", () =
   expect(
     resolveEcoImageViewToolCall("mcp", {
       tool: "view_image",
-      server: "eco_image_view",
+      server: "mori_image_view",
       args: '{"path":"/tmp/shot.png"}',
     }),
   ).toEqual({
@@ -76,10 +76,10 @@ test("readImageViewPathFromToolArgs unwraps PI mcp proxy view_image calls", () =
 
 test("PI mcp proxy view_image calls keep the caller's prompt, not just the path", () => {
   // 真实 PI 会话里这一句（server 字段缺省，tool 写成 <server>_<tool>）：
-  //   mcp({ tool: "eco_image_view_view_image", args: { path, prompt } })
+  //   mcp({ tool: "mori_image_view_view_image", args: { path, prompt } })
   expect(
     resolveEcoImageViewToolCall("mcp", {
-      tool: "eco_image_view_view_image",
+      tool: "mori_image_view_view_image",
       args: { path: "/tmp/left_circle.png", prompt: "这幅图是奖章正面。请回答：(1) 人像特征" },
     }),
   ).toEqual({
@@ -90,7 +90,7 @@ test("PI mcp proxy view_image calls keep the caller's prompt, not just the path"
   // 旧字段 question 仍按同一个提示词读取。
   expect(
     resolveEcoImageViewToolCall("mcp", {
-      tool: "eco_image_view_view_image",
+      tool: "mori_image_view_view_image",
       args: { path: "/tmp/left_circle.png", question: "找报错" },
     }),
   ).toEqual({ name: ECO_IMAGE_VIEW_FULL_TOOL, path: "/tmp/left_circle.png", prompt: "找报错" });
@@ -106,5 +106,5 @@ test("resolvePiMcpProxyDiscoveryCall labels PI mcp search/action probes", () => 
       args: { path: "/tmp/shot.png" },
     }),
   ).toBe(undefined);
-  expect(resolvePiMcpProxyDiscoveryCall("mcp__eco_image_view__view_image", { search: "x" })).toBe(undefined);
+  expect(resolvePiMcpProxyDiscoveryCall("mcp__mori_image_view__view_image", { search: "x" })).toBe(undefined);
 });

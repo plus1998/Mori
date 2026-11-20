@@ -137,7 +137,7 @@ test("buildCodexConfigToml keeps native view_image thread-scoped and leaves Eco'
     providers: [{ id: "local", name: "Local", enabled: true }],
     mcpServers: [
       {
-        name: "eco_image_view",
+        name: "mori_image_view",
         transport: "http",
         url: "http://127.0.0.1:12345/mcp",
         enabledTools: ["view_image"],
@@ -147,7 +147,7 @@ test("buildCodexConfigToml keeps native view_image thread-scoped and leaves Eco'
 
   expect(toml).toContain("[features]\nremote_plugin = false\nplugins = false");
   expect(toml).not.toContain("view_image = false");
-  expect(toml).toContain("[mcp_servers.eco_image_view]");
+  expect(toml).toContain("[mcp_servers.mori_image_view]");
   expect(toml).toContain('enabled_tools = ["view_image"]');
   expect(toml).not.toContain("[tools.view_image]");
 });
@@ -280,7 +280,7 @@ test("buildCodexConfigToml writes only selected MCP servers", () => {
 test("buildCodexMcpServerOverride mirrors the TOML descriptor for thread-scoped config", () => {
   expect(
     buildCodexMcpServerOverride({
-      name: "eco_mcp_abc",
+      name: "mori_mcp_abc",
       transport: "http",
       url: "http://127.0.0.1:9/mcp",
       httpHeaders: { Authorization: "Bearer t" },
@@ -341,7 +341,7 @@ test("buildCodexConfigToml writes tool_timeout_sec when set", () => {
     providers: [{ id: "custom", name: "Custom", enabled: true }],
     mcpServers: [
       {
-        name: "eco_image_generation",
+        name: "mori_image_generation",
         transport: "stdio",
         command: "/bin/electron",
         args: ["stdio.mjs"],
@@ -350,10 +350,10 @@ test("buildCodexConfigToml writes tool_timeout_sec when set", () => {
       },
     ],
   });
-  expect(toml).toContain("[mcp_servers.eco_image_generation]");
+  expect(toml).toContain("[mcp_servers.mori_image_generation]");
   expect(toml).toContain("startup_timeout_sec = 60");
   expect(toml).toContain("tool_timeout_sec = 300");
-  expect(toml).toContain("[mcp_servers.eco_image_generation.tools.create_image]");
+  expect(toml).toContain("[mcp_servers.mori_image_generation.tools.create_image]");
   expect(toml).toContain("output_token_limit = 2000");
 });
 
@@ -364,7 +364,7 @@ test("buildCodexConfigToml writes explicit per-tool output_token_limit", () => {
     providers: [{ id: "custom", name: "Custom", enabled: true }],
     mcpServers: [
       {
-        name: "eco_agent_browser",
+        name: "mori_agent_browser",
         transport: "stdio",
         command: "agent-browser",
         args: ["mcp"],
@@ -372,9 +372,9 @@ test("buildCodexConfigToml writes explicit per-tool output_token_limit", () => {
       },
     ],
   });
-  expect(toml).toContain("[mcp_servers.eco_agent_browser.tools.snapshot]");
+  expect(toml).toContain("[mcp_servers.mori_agent_browser.tools.snapshot]");
   expect(toml).toContain("output_token_limit = 4096");
-  expect(toml).toContain("[mcp_servers.eco_agent_browser.tools.get_url]");
+  expect(toml).toContain("[mcp_servers.mori_agent_browser.tools.get_url]");
   expect(toml).toContain("output_token_limit = 256");
 });
 

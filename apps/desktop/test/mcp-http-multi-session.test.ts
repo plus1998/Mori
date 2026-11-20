@@ -76,11 +76,11 @@ test("multi-session image-view shares one HTTP endpoint and routes by token", as
     // Direct exposure keeps the Hub tools callable without a script sandbox.
     exposure: "direct",
   });
-  const acp = toAcpMcpServers({ eco_image_view: injA.sdkEntry });
+  const acp = toAcpMcpServers({ mori_image_view: injA.sdkEntry });
   expect(acp).toEqual([
     expect.objectContaining({
       type: "http",
-      name: "eco_image_view",
+      name: "mori_image_view",
       url: String(injA.sdkEntry.url),
     }),
   ]);
@@ -151,7 +151,7 @@ test("multi-session browser prepareThread reuses one control URL for agents", as
 
   // Same MCP server description for Claude SDK shape and ACP shape.
   const claudeEntry = a.sdkEntry;
-  const acpServers = toAcpMcpServers({ eco_agent_browser: claudeEntry });
+  const acpServers = toAcpMcpServers({ mori_agent_browser: claudeEntry });
   expect(acpServers[0]?.type).toBe("http");
   if (acpServers[0]?.type === "http") {
     expect(acpServers[0].url).toBe(String(claudeEntry.url));

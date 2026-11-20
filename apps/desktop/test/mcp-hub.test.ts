@@ -7,7 +7,7 @@ test("MCP Hub finds browser tools with the multi-keyword query that failed in Pr
   const schema = { type: "object", properties: { url: { type: "string" } } };
   const hub = new McpHub();
   hub.registerServer({
-    name: "eco_agent_browser",
+    name: "mori_agent_browser",
     listTools: async () => {
       listed.push("browser");
       return { tools: [
@@ -28,20 +28,20 @@ test("MCP Hub finds browser tools with the multi-keyword query that failed in Pr
     callTool: async () => ({}),
   });
   hub.bindSession({ sessionId: "thread", token: "token" });
-  const result = await hub.searchTools({ token: "token", query: "eco_agent_browser search navigate read skill", limit: 2 });
+  const result = await hub.searchTools({ token: "token", query: "mori_agent_browser search navigate read skill", limit: 2 });
   expect(result).toEqual({
     tools: [
-      { name: "eco_agent_browser:agent_browser_read", description: "Read the current page." },
-      { name: "eco_agent_browser:agent_browser_tools_profiles", description: "List browser profiles / skills." },
+      { name: "mori_agent_browser:agent_browser_read", description: "Read the current page." },
+      { name: "mori_agent_browser:agent_browser_tools_profiles", description: "List browser profiles / skills." },
     ],
     total: 3,
     hasMore: true,
   });
   expect(listed).toEqual(["browser"]);
-  expect((await hub.searchTools({ token: "token", query: "eco_agent_browser:agent_browser_open" })).tools)
-    .toEqual([{ name: "eco_agent_browser:agent_browser_open", description: "Navigate to a URL.", inputSchema: schema }]);
-  expect((await hub.searchTools({ token: "token", query: "eco_agent_browser nonexistent" })).tools).toEqual([]);
-  expect((await hub.searchTools({ token: "token", query: "eco_agent_browser" })).total).toBe(4);
+  expect((await hub.searchTools({ token: "token", query: "mori_agent_browser:agent_browser_open" })).tools)
+    .toEqual([{ name: "mori_agent_browser:agent_browser_open", description: "Navigate to a URL.", inputSchema: schema }]);
+  expect((await hub.searchTools({ token: "token", query: "mori_agent_browser nonexistent" })).tools).toEqual([]);
+  expect((await hub.searchTools({ token: "token", query: "mori_agent_browser" })).total).toBe(4);
 });
 
 test("MCP Hub ranks any-keyword matches by coverage then name matches, with stable ties", async () => {

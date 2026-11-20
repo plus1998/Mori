@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 import readline from "node:readline";
 
-const controlUrl = (process.env.ECO_WEB_SEARCH_CONTROL_URL || "").replace(/\/$/, "");
-const controlSecret = process.env.ECO_WEB_SEARCH_CONTROL_SECRET || "";
-const authToken = process.env.ECO_WEB_SEARCH_AUTH_TOKEN || "";
+const controlUrl = (process.env.ECO_IMAGE_VIEW_CONTROL_URL || "").replace(/\/$/, "");
+const controlSecret = process.env.ECO_IMAGE_VIEW_CONTROL_SECRET || "";
+const authToken = process.env.ECO_IMAGE_VIEW_AUTH_TOKEN || "";
 
 if (!controlUrl || !controlSecret) {
-  process.stderr.write("[eco-web-search-mcp] missing control URL or secret\n");
+  process.stderr.write("[eco-image-view-mcp] missing control URL or secret\n");
   process.exit(1);
 }
 
@@ -15,7 +15,7 @@ async function control(route, body) {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "X-Eco-Web-Search-Control-Secret": controlSecret,
+      "X-Eco-Image-View-Control-Secret": controlSecret,
       ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
     },
     body: JSON.stringify({ ...(body || {}), ...(authToken ? { authToken } : {}) }),
@@ -48,8 +48,8 @@ lines.on("line", (line) => {
           result: {
             protocolVersion: params?.protocolVersion || "2024-11-05",
             capabilities: { tools: {} },
-            serverInfo: { name: "eco_web_search", version: "1.0.0" },
-            instructions: "Mori Integrated Web Search. Pass a query string to search the public web.",
+            serverInfo: { name: "mori_image_view", version: "1.0.0" },
+            instructions: "Mori local image viewing. Pass an absolute path; returns a structured text report.",
           },
         });
       } else if (method === "ping") {

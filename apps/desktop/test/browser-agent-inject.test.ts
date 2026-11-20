@@ -33,7 +33,7 @@ test("agent browser MCP merges only when enabled", () => {
     allowedTools: ["mcp__docs__*"],
   };
   const off = mergeBrowserMcp(base, { enabled: false });
-  expect(off.mcpServers.eco_agent_browser).toBeUndefined();
+  expect(off.mcpServers.mori_agent_browser).toBeUndefined();
   expect(off.allowedTools).toEqual(["mcp__docs__*"]);
 
   const on = mergeBrowserMcp(base, {
@@ -46,7 +46,7 @@ test("agent browser MCP merges only when enabled", () => {
       alwaysLoad: true,
     },
   });
-  expect(on.mcpServers.eco_agent_browser).toEqual({
+  expect(on.mcpServers.mori_agent_browser).toEqual({
     type: "stdio",
     command: "/bin/agent-browser",
     args: ["--cdp", "9333", "mcp", "--tools", "core"],
@@ -65,7 +65,7 @@ test("agent browser MCP merges only when enabled", () => {
       alwaysLoad: true,
     },
   });
-  expect(ask.mcpServers.eco_agent_browser).toBeDefined();
+  expect(ask.mcpServers.mori_agent_browser).toBeDefined();
   expect(ask.allowedTools).not.toContain(ECO_AGENT_BROWSER_ALLOWED_TOOL);
   expect(ask.allowedTools).toEqual(["mcp__docs__*"]);
 });

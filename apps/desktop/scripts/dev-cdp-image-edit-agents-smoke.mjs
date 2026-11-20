@@ -48,7 +48,7 @@ function buildPrompt(marker, sourceAbs) {
   const posix = sourceAbs.replace(/\\/g, "/");
   return [
     `Marker=${marker}`,
-    "Call mcp__eco_image_generation__create_image once for image-to-image.",
+    "Call mcp__mori_image_generation__create_image once for image-to-image.",
     `input_images=["${posix}"]`,
     'prompt="watercolor red square, soft edges"',
     `When done reply exactly: IMAGE_EDIT_OK:${marker}:<abs_path>`,

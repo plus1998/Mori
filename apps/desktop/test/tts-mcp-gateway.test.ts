@@ -77,7 +77,7 @@ test("thread-authenticated MCP calls persist audio and tool IDs; tokens, toggles
       });
       return { status: response.status, body: await response.json() };
     };
-    gateway.noteUpcomingTool("a", "mcp__eco_tts__create_speech", "tool-1");
+    gateway.noteUpcomingTool("a", "mcp__mori_tts__create_speech", "tool-1");
     const client = new Client({ name: "tts-test", version: "1" });
     await client.connect(
       new StreamableHTTPClientTransport(new URL(String(a.sdkEntry?.url)), { requestInit: { headers } }),
@@ -116,7 +116,7 @@ test("thread-authenticated MCP calls persist audio and tool IDs; tokens, toggles
     gateway.disposeThread("a");
     expect((await call()).status).toBe(400);
     const merged = gateway.mergeIntoSdkConfig({ mcpServers: {}, allowedTools: [] }, b);
-    expect(Object.keys(merged.mcpServers)).toEqual(["eco_tts"]);
+    expect(Object.keys(merged.mcpServers)).toEqual(["mori_tts"]);
   } finally {
     await gateway.close();
     provider.stop(true);

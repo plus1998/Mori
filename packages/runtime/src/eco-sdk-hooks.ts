@@ -103,8 +103,8 @@ export function isEcoBrowserOpenApprovalToolName(toolName: string): boolean {
     return false;
   }
   const isEcoBrowser =
-    name.includes("eco_agent_browser") ||
-    name.includes("mcp__eco_agent_browser") ||
+    name.includes("mori_agent_browser") ||
+    name.includes("mcp__mori_agent_browser") ||
     name.includes("agent_browser_");
   if (!isEcoBrowser) {
     return false;
@@ -151,7 +151,7 @@ export function isEcoWebSearchApprovalToolName(toolName: string): boolean {
   if (name === "websearch" || name === "web_search") {
     return true;
   }
-  return name.includes("eco_web_search");
+  return name.includes("mori_web_search");
 }
 
 export function createWebSearchApprovalPreToolHook(
@@ -733,7 +733,7 @@ export function createPlanModeBoundaryPreToolHook(
     if (
       toolName !== "EnterPlanMode" &&
       toolName !== "ExitPlanMode" &&
-      toolName !== "mcp__eco_plan__finalize_plan"
+      toolName !== "mcp__mori_plan__finalize_plan"
     ) {
       return {};
     }
@@ -2009,7 +2009,7 @@ export function buildEcoSdkHooks(ctx: EcoHookContext): Partial<Record<HookEvent,
     hooks,
     "PreToolUse",
     createPlanModeBoundaryPreToolHook(planModeToolPolicy, ctx.approvedExitPlanToolUseId),
-    "EnterPlanMode|ExitPlanMode|mcp__eco_plan__finalize_plan",
+    "EnterPlanMode|ExitPlanMode|mcp__mori_plan__finalize_plan",
   );
   const exitPlanHookOptions = {
     ...(ctx.workspacePath ? { workspacePath: ctx.workspacePath } : {}),

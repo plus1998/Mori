@@ -1,6 +1,6 @@
 import { buildEcoMcpHubToolUsage } from "./mcp-hub-tool-usage";
 
-export const ECO_ASR_MCP_SERVER = "eco_asr";
+export const ECO_ASR_MCP_SERVER = "mori_asr";
 export const ECO_ASR_TOOL = "transcribe_audio";
 export const ECO_ASR_FULL_TOOL = `mcp__${ECO_ASR_MCP_SERVER}__${ECO_ASR_TOOL}`;
 export const ASR_MCP_TOOL_TIMEOUT_MS = 300_000;

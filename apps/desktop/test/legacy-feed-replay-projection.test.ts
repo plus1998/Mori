@@ -610,13 +610,13 @@ test("live feed tool projection never exposes bash output preview", () => {
 test("persisted view_image metadata keeps the prompt and the vision answer", () => {
   expect(
     projectThreadRunToolMetadata({
-      name: "mcp__eco_image_view__view_image",
+      name: "mcp__mori_image_view__view_image",
       status: "completed",
       imageView: { path: "/tmp/shot.png", prompt: "找报错" },
       outputPreview: "第 3 行的类型不匹配。",
     }),
   ).toEqual({
-    name: "mcp__eco_image_view__view_image",
+    name: "mcp__mori_image_view__view_image",
     status: "completed",
     imageView: { path: "/tmp/shot.png", prompt: "找报错" },
     // The answer is the only place the caller's prompt is answered, so it has to survive
@@ -628,19 +628,19 @@ test("persisted view_image metadata keeps the prompt and the vision answer", () 
 test("a view_image with no recorded prompt keeps only the answer", () => {
   expect(
     projectThreadRunToolMetadata({
-      name: "mcp__eco_image_view__view_image",
+      name: "mcp__mori_image_view__view_image",
       imageView: { path: "/tmp/shot.png" },
       outputPreview: "第 3 行的类型不匹配。",
     }),
   ).toEqual({
-    name: "mcp__eco_image_view__view_image",
+    name: "mcp__mori_image_view__view_image",
     imageView: { path: "/tmp/shot.png" },
     outputPreview: "第 3 行的类型不匹配。",
   });
 });
 
 test("opening the view_image output gate does not open it for every other tool", () => {
-  for (const name of ["Edit", "Read", "Grep", "mcp__eco_agent_browser__agent_browser_open"]) {
+  for (const name of ["Edit", "Read", "Grep", "mcp__mori_agent_browser__agent_browser_open"]) {
     expect(projectThreadRunToolMetadata({ name, outputPreview: "noise" })).toEqual({ name });
   }
 });
@@ -664,12 +664,12 @@ test("trimProjectionForFeed keeps imageView path for Eco view_image on a live ru
         sequence: 1,
         eventType: "tool.completed",
         scope: "main",
-        text: "Tool: mcp__eco_image_view__view_image · /tmp/shot.png",
+        text: "Tool: mcp__mori_image_view__view_image · /tmp/shot.png",
         at: "2026-01-01T00:00:00.000Z",
         runAttemptId: "att_run",
         metadata: {
           tool: {
-            name: "mcp__eco_image_view__view_image",
+            name: "mcp__mori_image_view__view_image",
             detail: "/tmp/shot.png",
             toolUseId: "toolu_image",
             status: "completed",
@@ -681,7 +681,7 @@ test("trimProjectionForFeed keeps imageView path for Eco view_image on a live ru
   });
 
   expect(trimmed.timeline[0]?.metadata?.tool).toEqual({
-    name: "mcp__eco_image_view__view_image",
+    name: "mcp__mori_image_view__view_image",
     detail: "/tmp/shot.png",
     toolUseId: "toolu_image",
     status: "completed",
@@ -692,13 +692,13 @@ test("trimProjectionForFeed keeps imageView path for Eco view_image on a live ru
 test("live feed tool projection keeps imageView path for Eco view_image", () => {
   expect(
     projectThreadRunToolMetadataForFeed({
-      name: "mcp__eco_image_view__view_image",
+      name: "mcp__mori_image_view__view_image",
       detail: "/tmp/shot.png",
       status: "completed",
       imageView: { path: "/tmp/shot.png" },
     }),
   ).toEqual({
-    name: "mcp__eco_image_view__view_image",
+    name: "mcp__mori_image_view__view_image",
     detail: "/tmp/shot.png",
     status: "completed",
     imageView: { path: "/tmp/shot.png" },
@@ -708,13 +708,13 @@ test("live feed tool projection keeps imageView path for Eco view_image", () => 
 test("live feed tool projection keeps imageDisplay artifact for Eco display_image", () => {
   expect(
     projectThreadRunToolMetadataForFeed({
-      name: "mcp__eco_image_display__display_image",
+      name: "mcp__mori_image_display__display_image",
       detail: "art-feed-1",
       status: "completed",
       imageDisplay: { artifactId: "art-feed-1", title: "示例图" },
     }),
   ).toEqual({
-    name: "mcp__eco_image_display__display_image",
+    name: "mcp__mori_image_display__display_image",
     detail: "art-feed-1",
     status: "completed",
     imageDisplay: { artifactId: "art-feed-1", title: "示例图" },
@@ -724,7 +724,7 @@ test("live feed tool projection keeps imageDisplay artifact for Eco display_imag
 test("live feed tool projection keeps htmlHost page for Eco publish_html", () => {
   expect(
     projectThreadRunToolMetadataForFeed({
-      name: "mcp__eco_html_host__publish_html",
+      name: "mcp__mori_html_host__publish_html",
       detail: "https://example.supabase.co/functions/v1/html-page-view/slug",
       status: "completed",
       htmlHost: {
@@ -736,7 +736,7 @@ test("live feed tool projection keeps htmlHost page for Eco publish_html", () =>
       },
     }),
   ).toEqual({
-    name: "mcp__eco_html_host__publish_html",
+    name: "mcp__mori_html_host__publish_html",
     detail: "https://example.supabase.co/functions/v1/html-page-view/slug",
     status: "completed",
     htmlHost: {
@@ -768,12 +768,12 @@ test("trimProjectionForFeed keeps imageDisplay artifact for Eco display_image on
         sequence: 1,
         eventType: "tool.completed",
         scope: "main",
-        text: "Tool: mcp__eco_image_display__display_image · art-feed-1",
+        text: "Tool: mcp__mori_image_display__display_image · art-feed-1",
         at: "2026-01-01T00:00:00.000Z",
         runAttemptId: "att_run",
         metadata: {
           tool: {
-            name: "mcp__eco_image_display__display_image",
+            name: "mcp__mori_image_display__display_image",
             detail: "art-feed-1",
             toolUseId: "toolu_display",
             status: "completed",
@@ -785,7 +785,7 @@ test("trimProjectionForFeed keeps imageDisplay artifact for Eco display_image on
   });
 
   expect(trimmed.timeline[0]?.metadata?.tool).toEqual({
-    name: "mcp__eco_image_display__display_image",
+    name: "mcp__mori_image_display__display_image",
     detail: "art-feed-1",
     toolUseId: "toolu_display",
     status: "completed",
@@ -812,12 +812,12 @@ test("trimProjectionForFeed keeps htmlHost page for Eco publish_html on a live r
         sequence: 1,
         eventType: "tool.completed",
         scope: "main",
-        text: "Tool: mcp__eco_html_host__publish_html · https://example.supabase.co/functions/v1/html-page-view/slug",
+        text: "Tool: mcp__mori_html_host__publish_html · https://example.supabase.co/functions/v1/html-page-view/slug",
         at: "2026-01-01T00:00:00.000Z",
         runAttemptId: "att_run",
         metadata: {
           tool: {
-            name: "mcp__eco_html_host__publish_html",
+            name: "mcp__mori_html_host__publish_html",
             detail: "https://example.supabase.co/functions/v1/html-page-view/slug",
             toolUseId: "toolu_html",
             status: "completed",
@@ -835,7 +835,7 @@ test("trimProjectionForFeed keeps htmlHost page for Eco publish_html on a live r
   });
 
   expect(trimmed.timeline[0]?.metadata?.tool).toEqual({
-    name: "mcp__eco_html_host__publish_html",
+    name: "mcp__mori_html_host__publish_html",
     detail: "https://example.supabase.co/functions/v1/html-page-view/slug",
     toolUseId: "toolu_html",
     status: "completed",

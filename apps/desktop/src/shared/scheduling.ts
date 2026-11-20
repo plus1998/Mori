@@ -101,7 +101,7 @@ export function isExpiredOneShotSchedule(definition: ScheduleDefinition, now = D
   return !definition.enabled && definition.trigger.type === "at" && Date.parse(definition.trigger.at) <= now;
 }
 
-export const SCHEDULING_MCP_SERVER = "eco_scheduling";
+export const SCHEDULING_MCP_SERVER = "mori_scheduling";
 export const SCHEDULING_PROMPT = [
   "Built-in scheduling (Mori): continue this conversation after a delay, or run independent scheduled tasks in new conversations; inspect, update and cancel schedules.",
   buildEcoMcpHubToolUsage({ server: SCHEDULING_MCP_SERVER }),

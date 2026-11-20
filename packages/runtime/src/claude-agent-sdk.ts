@@ -538,7 +538,7 @@ const planningContinuationAllowedTools = [
   "AskUserQuestion",
 ] as const;
 // Plan submission tools are user-approval boundaries; never let SDK allow-rules auto-approve them.
-const protectedPlanModeToolNames = ["EnterPlanMode", "ExitPlanMode", "mcp__eco_plan__finalize_plan"] as const;
+const protectedPlanModeToolNames = ["EnterPlanMode", "ExitPlanMode", "mcp__mori_plan__finalize_plan"] as const;
 // A preset also advertises CLI-only scheduling and worktree tools. Keep the native
 // tools Eco supports explicit; allowedTools controls approval, not visibility.
 const nativeSdkTools = uniqueStrings([
@@ -673,12 +673,12 @@ export function resolveIntegratedWebSearchAgentDefOptions(
   if (!session?.disallowedTools?.some((tool) => tool.trim() === "WebSearch")) {
     return undefined;
   }
-  const fullToolName = session.mcpAllowedTools?.find((tool) => tool.includes("eco_web_search"))?.trim();
+  const fullToolName = session.mcpAllowedTools?.find((tool) => tool.includes("mori_web_search"))?.trim();
   if (!fullToolName) {
     return undefined;
   }
-  const serverFromMcp = Object.keys(session.mcpServers ?? {}).find((name) => name.includes("eco_web_search"));
-  const serverFromRuntime = session.runtimeMcpServers?.find((name) => name.includes("eco_web_search"));
+  const serverFromMcp = Object.keys(session.mcpServers ?? {}).find((name) => name.includes("mori_web_search"));
+  const serverFromRuntime = session.runtimeMcpServers?.find((name) => name.includes("mori_web_search"));
   const serverName = (serverFromMcp ?? serverFromRuntime)?.trim();
   if (!serverName) {
     return undefined;

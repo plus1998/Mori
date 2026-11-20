@@ -1,6 +1,6 @@
 import { buildEcoMcpHubToolUsage } from "./mcp-hub-tool-usage";
 
-export const MODEL_MANAGEMENT_MCP_SERVER = "eco_models";
+export const MODEL_MANAGEMENT_MCP_SERVER = "mori_models";
 export const MODEL_MANAGEMENT_PROMPT = [
   "Built-in model management (Mori): list, add, update, enable/disable and delete providers; discover, import, edit, order and delete models; test connections and refresh account model catalogs.",
   buildEcoMcpHubToolUsage({ server: MODEL_MANAGEMENT_MCP_SERVER }),

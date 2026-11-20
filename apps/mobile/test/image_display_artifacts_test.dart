@@ -22,7 +22,7 @@ void main() {
           role: 'tool',
           metadata: {
             'tool': {
-              'name': 'mcp__eco_image_display__display_image',
+              'name': 'mcp__mori_image_display__display_image',
               'status': 'completed',
               'imageDisplay': {
                 'artifactId': 'art-1',

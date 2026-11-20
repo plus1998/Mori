@@ -72,8 +72,8 @@ extraResources:
     filter:
       - "**/*"
   # Legacy debug-only; agents use HTTP MCP. Keep for offline stdio probing.
-  - from: packaging/eco-computer-use-mcp-stdio.mjs
-    to: eco-computer-use-mcp-stdio.mjs
+  - from: packaging/mori-computer-use-mcp-stdio.mjs
+    to: mori-computer-use-mcp-stdio.mjs
 
 npmRebuild: false
 nodeGypRebuild: false

@@ -32,7 +32,7 @@ const artifact: TtsArtifact = {
 
 test("Feed audio links the actual tool ID and shows a transcript excerpt without generation details", () => {
   const id = readTtsToolUseId({
-    metadata: { tool: { name: "mcp__eco_tts__create_speech", toolUseId: "tool-a" } },
+    metadata: { tool: { name: "mcp__mori_tts__create_speech", toolUseId: "tool-a" } },
   });
   expect(id).toBe("tool-a");
   const markup = renderLocalized(
@@ -182,7 +182,7 @@ test("settings expose the Gemini model and custom Base URL; integration selectio
   expect(englishMarkup).toContain("In use");
   expect(englishMarkup).not.toMatch(/[\u3400-\u9fff]/u);
   expect(normalizeIntegrationsEnabled({ tts: true, browser: false })).toEqual({ tts: true, browser: false });
-  expect(resolveActionKind({ toolName: "mcp__eco_tts__create_speech" }).kind).toBe("speechCreate");
+  expect(resolveActionKind({ toolName: "mcp__mori_tts__create_speech" }).kind).toBe("speechCreate");
   expect(
     formatActionLine(
       { resolved: resolveActionKind({ toolName: "create_speech" }), phase: "done" },

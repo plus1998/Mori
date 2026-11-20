@@ -175,9 +175,9 @@ test("6. bash tool.completed surfaces grep matches", () => {
 
 test("7. mcp tool.completed surfaces result preview", () => {
   const ctx = makeCtx();
-  const resultText = '{"eco_image_view": "initialized"}';
+  const resultText = '{"mori_image_view": "initialized"}';
   const mapped = mapAll(ctx, [
-    { type: "tool_execution_start", toolCallId: "tc5", toolName: "mcp", args: { server: "eco_image_view" } },
+    { type: "tool_execution_start", toolCallId: "tc5", toolName: "mcp", args: { server: "mori_image_view" } },
     {
       type: "tool_execution_end",
       toolCallId: "tc5",
@@ -189,7 +189,7 @@ test("7. mcp tool.completed surfaces result preview", () => {
   const payload = completed?.payload as Record<string, unknown>;
   expect(payload.content).toBe(resultText);
   const l = formatAgentEventLine(completed!);
-  expect(l?.includes("eco_image_view")).toBe(true);
+  expect(l?.includes("mori_image_view")).toBe(true);
   expect(l?.includes("initialized")).toBe(true);
 });
 

@@ -19,7 +19,7 @@ import { handleMcpStreamableHttpRequest } from "./mcp-streamable-http";
 const CONTROL_SECRET_HEADER = "X-Eco-Browser-Control-Secret";
 
 /**
- * Agent-facing MCP is `eco_agent_browser` (HTTP Streamable MCP → Eco control).
+ * Agent-facing MCP is `mori_agent_browser` (HTTP Streamable MCP → Eco control).
  * Tool execution uses agent-browser CLI + thread CDP — not agent-browser's MCP
  * subprocess (avoids double MCP and Windows tools/call hang).
  */
@@ -43,7 +43,7 @@ export type BrowserMcpGatewayDeps = {
 };
 
 /**
- * Eco-owned browser MCP: fixed server name `eco_agent_browser`, auth + claim routing to
+ * Eco-owned browser MCP: fixed server name `mori_agent_browser`, auth + claim routing to
  * per-thread CDP; agent-browser invoked via CLI only.
  */
 export class BrowserMcpGateway {

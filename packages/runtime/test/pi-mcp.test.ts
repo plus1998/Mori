@@ -164,8 +164,8 @@ test("toPiMcpLoadedConfig keeps autoEnableCodemode disabled", () => {
 });
 
 test("Hub server and tool names match the official extension namespace", () => {
-  expect(PI_MCP_HUB_SERVER_NAME).toBe("eco_mcp");
-  expect(PI_MCP_HUB_TOOL_NAMES).toEqual(["mcp__eco_mcp__search_tools", "mcp__eco_mcp__call_tool"]);
+  expect(PI_MCP_HUB_SERVER_NAME).toBe("mori_mcp");
+  expect(PI_MCP_HUB_TOOL_NAMES).toEqual(["mcp__mori_mcp__search_tools", "mcp__mori_mcp__call_tool"]);
 });
 
 test("fingerprintPiMcpServers is order-independent and empty when unset", () => {
@@ -185,7 +185,7 @@ test("fingerprintPiMcpServers is order-independent and empty when unset", () => 
 
 test("fingerprintPiMcpServers ignores spawn env and http headers", () => {
   const base = {
-    eco_agent_browser: {
+    mori_agent_browser: {
       command: "node",
       args: ["b.mjs"],
       env: {
@@ -198,7 +198,7 @@ test("fingerprintPiMcpServers ignores spawn env and http headers", () => {
     remote: { url: "https://mcp.example.com/mcp", headers: { Authorization: "Bearer a" } },
   };
   const rotatedSecrets = {
-    eco_agent_browser: {
+    mori_agent_browser: {
       command: "node",
       args: ["b.mjs"],
       env: {
@@ -215,7 +215,7 @@ test("fingerprintPiMcpServers ignores spawn env and http headers", () => {
   expect(fingerprintPiMcpServers(base)).not.toBe(
     fingerprintPiMcpServers({
       ...base,
-      eco_agent_browser: { command: "node", args: ["other.mjs"] },
+      mori_agent_browser: { command: "node", args: ["other.mjs"] },
     }),
   );
   expect(fingerprintPiMcpServers(base)).not.toBe(
@@ -228,7 +228,7 @@ test("fingerprintPiMcpServers ignores spawn env and http headers", () => {
 
 test("canonicalizePiMcpFingerprint re-fingerprints a stored payload that embedded env/headers", () => {
   const live = fingerprintPiMcpServers({
-    eco_agent_browser: {
+    mori_agent_browser: {
       command: "node",
       args: ["b.mjs"],
       env: { ECO_BROWSER_AUTH_TOKEN: "new", ELECTRON_RUN_AS_NODE: "1" },
@@ -237,7 +237,7 @@ test("canonicalizePiMcpFingerprint re-fingerprints a stored payload that embedde
   });
   const legacyStored = JSON.stringify([
     [
-      "eco_agent_browser",
+      "mori_agent_browser",
       {
         command: "node",
         args: ["b.mjs"],
@@ -272,7 +272,7 @@ test("createPiMcpExtensionFactory returns undefined for empty config and a facto
 
 test("current MCP fingerprints preserve seconds and are idempotent", () => {
   const fingerprints = [60_000, 120_000, 300_000, 600_000].map((timeout) =>
-    fingerprintPiMcpServers({ eco_mcp: { type: "http", url: "http://localhost/mcp", timeout } }),
+    fingerprintPiMcpServers({ mori_mcp: { type: "http", url: "http://localhost/mcp", timeout } }),
   );
   for (const fingerprint of fingerprints) {
     expect(canonicalizePiMcpFingerprint(fingerprint)).toBe(fingerprint);

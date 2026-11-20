@@ -765,9 +765,9 @@ test("tool summaries recover Hub wrapper arguments from the streamed tool use", 
           {
             type: "tool_use",
             id: "toolu_hub_call",
-            name: "mcp__eco_mcp__call_tool",
+            name: "mcp__mori_mcp__call_tool",
             input: {
-              name: "eco_image_view:view_image",
+              name: "mori_image_view:view_image",
               arguments: { path: "/tmp/hub.png", prompt: "描述" },
             },
           },
@@ -784,7 +784,7 @@ test("tool summaries recover Hub wrapper arguments from the streamed tool use", 
       uuid: "u_hub_summary",
       session_id: "sess",
       tool_use_id: "toolu_hub_call",
-      tool_name: "mcp__eco_mcp__call_tool",
+      tool_name: "mcp__mori_mcp__call_tool",
       summary: "completed",
     },
     "thr_1",
@@ -792,9 +792,9 @@ test("tool summaries recover Hub wrapper arguments from the streamed tool use", 
   );
 
   expect(summary[0]?.payload).toMatchObject({
-    tool_name: "mcp__eco_mcp__call_tool",
+    tool_name: "mcp__mori_mcp__call_tool",
     input: {
-      name: "eco_image_view:view_image",
+      name: "mori_image_view:view_image",
       arguments: { path: "/tmp/hub.png", prompt: "描述" },
     },
   });

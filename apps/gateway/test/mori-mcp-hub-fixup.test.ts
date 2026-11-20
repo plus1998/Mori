@@ -13,13 +13,13 @@ import {
   fixupEcoMcpHubResponsesPayload,
   fixupEcoMcpHubStreamEvent,
   resolveEcoMcpHubNamespace,
-} from "../src/eco-mcp-hub-fixup.js";
+} from "../src/mori-mcp-hub-fixup.js";
 import type { GatewayConfig, GatewayProvider } from "../src/types.js";
 
 const CODEX_THREAD = "019a4f3f-6b2c-7d00-9f00-000000000000";
 const ECO_THREAD = "thr_1790696385743";
 // Golden vectors: verified against names actually registered by the shared Codex app-server.
-const EXPECTED_HUB = "eco_mcp_81905ae0_thr_1790696385743";
+const EXPECTED_HUB = "mori_mcp_81905ae0_thr_1790696385743";
 const EXPECTED_NS = `mcp__${EXPECTED_HUB}`;
 
 const provider: GatewayProvider = {
@@ -39,7 +39,7 @@ const hubCallItem = {
   id: "fc_1",
   call_id: "call_1",
   name: "call_tool",
-  arguments: '{"name":"eco_image_view:view_image"}',
+  arguments: '{"name":"mori_image_view:view_image"}',
 };
 
 function codexTurnMetadataHeader(): string {
@@ -67,7 +67,7 @@ function postResponses(
 describe("eco mcp hub name goldens (@eco/shared)", () => {
   test("per-thread server name matches the names registered with Codex", () => {
     expect(ecoMcpHubServerName("thr_1790696385743")).toBe(EXPECTED_HUB);
-    expect(ecoMcpHubServerName("thr_1790682175108")).toBe("eco_mcp_37e3bfc7_thr_1790682175108");
+    expect(ecoMcpHubServerName("thr_1790682175108")).toBe("mori_mcp_37e3bfc7_thr_1790682175108");
     expect(ecoMcpHubNamespace(ECO_THREAD)).toBe(EXPECTED_NS);
     expect([...ECO_MCP_HUB_TOOL_NAMES]).toEqual(["call_tool", "search_tools"]);
   });
@@ -117,7 +117,7 @@ describe("fixupEcoMcpHubStreamEvent", () => {
   test("preserves a non-empty namespace to avoid same-name tool collisions", () => {
     const event = {
       type: "response.output_item.done",
-      item: { ...hubCallItem, namespace: "mcp__eco_mcp_deadbeef_other" },
+      item: { ...hubCallItem, namespace: "mcp__mori_mcp_deadbeef_other" },
     };
     expect(fixupEcoMcpHubStreamEvent(event, EXPECTED_NS)).toBe(event);
   });
@@ -139,7 +139,7 @@ describe("fixupEcoMcpHubStreamEvent", () => {
     const event = {
       type: "response.function_call_arguments.done",
       name: "search_tools",
-      namespace: "mcp__eco_mcp_deadbeef_other",
+      namespace: "mcp__mori_mcp_deadbeef_other",
     };
     const fixed = fixupEcoMcpHubStreamEvent(event, EXPECTED_NS) as typeof event;
     expect(fixed.namespace).toBe(event.namespace);

@@ -89,7 +89,7 @@ const report = {
 
 try {
   await client.initialize({
-    clientInfo: { name: "eco_mcp_probe", title: "Mori MCP Probe", version: "1.0.0" },
+    clientInfo: { name: "mori_mcp_probe", title: "Mori MCP Probe", version: "1.0.0" },
     capabilities: { experimentalApi: true },
   });
 

@@ -151,8 +151,8 @@ test("a read says what it reads, and a call we cannot place is a build in progre
     }),
   ).toEqual({ key: "activity.writingReadTarget", params: { target: "/tmp/eco.md" } });
   expect(
-    resolveToolWritingLabel({ requestId: "r", since: "s", name: "mcp__eco_mcp__search_tools", kind: "tool" }),
-  ).toEqual({ key: "activity.writingTool", params: { tool: "mcp__eco_mcp__search_tools" } });
+    resolveToolWritingLabel({ requestId: "r", since: "s", name: "mcp__mori_mcp__search_tools", kind: "tool" }),
+  ).toEqual({ key: "activity.writingTool", params: { tool: "mcp__mori_mcp__search_tools" } });
   // Nothing to name: the stream said only that a call is being written.
   expect(resolveToolWritingLabel({ requestId: "r", since: "s", kind: "tool" })).toEqual({
     key: "activity.writingUnknown",
