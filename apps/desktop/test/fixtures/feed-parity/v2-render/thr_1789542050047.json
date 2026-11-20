@@ -14,7 +14,7 @@
     },
     {
       "text": "<text#77a3868eae:len31>",
-      "role": "planner",
+      "role": "main",
       "at": "2026-09-16T07:00:57.346Z",
       "callId": null
     },
@@ -26,7 +26,7 @@
     },
     {
       "text": "<text#dc9389a757:len32>",
-      "role": "planner",
+      "role": "main",
       "at": "2026-09-16T07:01:35.310Z",
       "callId": null
     },
@@ -50,7 +50,7 @@
     },
     {
       "text": "<text#5e38ba682f:len24>",
-      "role": "planner",
+      "role": "main",
       "at": "2026-09-16T07:01:38.670Z",
       "callId": null
     },
@@ -74,7 +74,7 @@
     },
     {
       "text": "<text#7ad9f97a00:len29>",
-      "role": "planner",
+      "role": "main",
       "at": "2026-09-16T07:01:45.098Z",
       "callId": null
     },
@@ -98,7 +98,7 @@
     },
     {
       "text": "<text#c5150ab707:len570>",
-      "role": "planner",
+      "role": "main",
       "at": "2026-09-16T07:02:01.144Z",
       "callId": null,
       "final": true
@@ -116,18 +116,6 @@
       "rows": [
         {
           "text": "<text#8ce0b0f72e:len158>",
-          "role": "explore",
-          "at": null,
-          "callId": null
-        },
-        {
-          "text": "<text#4afe16fae4:len124>",
-          "role": "thinking",
-          "at": null,
-          "callId": null
-        },
-        {
-          "text": "<text#5fcd895a62:len130>",
           "role": "explore",
           "at": null,
           "callId": null
@@ -150,22 +138,10 @@
           "callId": null
         },
         {
-          "text": "<text#3221180a2d:len69>",
-          "role": "thinking",
-          "at": null,
-          "callId": null
-        },
-        {
           "role": "explore",
           "at": null,
           "callId": "call_7fffc3b396fe455b9b4044b0|item_9ff5d7801cb261eb051a9b5b",
           "status": "tool.failed"
-        },
-        {
-          "text": "<text#a375bdfea9:len79>",
-          "role": "thinking",
-          "at": null,
-          "callId": null
         },
         {
           "role": "explore",
@@ -174,22 +150,10 @@
           "status": "tool.failed"
         },
         {
-          "text": "<text#b980338f98:len155>",
-          "role": "thinking",
-          "at": null,
-          "callId": null
-        },
-        {
           "role": "explore",
           "at": null,
           "callId": "call_dfb940e703b44f5d874d3f56|item_2661acd54feacc22d479230b",
           "status": "tool.failed"
-        },
-        {
-          "text": "<text#f41443e532:len80>",
-          "role": "thinking",
-          "at": null,
-          "callId": null
         },
         {
           "role": "explore",
@@ -198,22 +162,10 @@
           "status": "tool.failed"
         },
         {
-          "text": "<text#1bf5775d7b:len138>",
-          "role": "thinking",
-          "at": null,
-          "callId": null
-        },
-        {
           "role": "explore",
           "at": null,
           "callId": "call_bbb86989b62646e192eccd7e|item_5d12508c0c1151c08c5cbfad",
           "status": "tool.failed"
-        },
-        {
-          "text": "<text#438bd5fae8:len135>",
-          "role": "thinking",
-          "at": null,
-          "callId": null
         },
         {
           "role": "explore",
@@ -222,28 +174,10 @@
           "status": "tool.failed"
         },
         {
-          "text": "<text#434e360a55:len185>",
-          "role": "thinking",
-          "at": null,
-          "callId": null
-        },
-        {
           "role": "explore",
           "at": null,
           "callId": "call_5611a041850b420d929b8373|item_35c771b49321729635472b7d",
           "status": "tool.failed"
-        },
-        {
-          "text": "<text#4b5e701053:len224>",
-          "role": "thinking",
-          "at": null,
-          "callId": null
-        },
-        {
-          "text": "<text#364a6ffb0d:len386>",
-          "role": "explore",
-          "at": null,
-          "callId": null
         }
       ]
     }
