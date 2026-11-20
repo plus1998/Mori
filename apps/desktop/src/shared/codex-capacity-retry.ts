@@ -1,7 +1,5 @@
 import type { ThreadRunProjectionTimelineItem } from "./conversation-v2-projection";
 
-export const CODEX_CAPACITY_RETRY_LIMIT = 5;
-
 export type CodexCapacityRetryNotice = {
   id: string;
   runAttemptId: string;

@@ -1,6 +1,5 @@
 import { describe, expect, it, mock } from "bun:test";
 import { CodexCapacityAutoRetry } from "../src/renderer/codex-capacity-auto-retry";
-import { CODEX_CAPACITY_RETRY_LIMIT } from "../src/shared/codex-capacity-retry";
 
 function input() {
   return {
@@ -68,20 +67,16 @@ describe("CodexCapacityAutoRetry", () => {
     expect(sendContinue).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps the per-attempt limit and allows retries for a new attempt", () => {
+  it("keeps sending for new capacity notices after five retries in the same attempt", () => {
     const retry = new CodexCapacityAutoRetry();
     const sendContinue = mock(() => {});
     const current = input();
-    for (let index = 0; index < CODEX_CAPACITY_RETRY_LIMIT + 2; index++) {
-      retry.observe({ ...current, notice: { ...current.notice, id: `capacity-${index}` } }, sendContinue);
+    for (let index = 1; index <= 10; index++) {
+      const notice = { ...current.notice, id: `capacity-${index}` };
+      retry.observe({ ...current, notice }, sendContinue);
+      retry.observe({ ...current, notice }, sendContinue);
     }
-    expect(sendContinue).toHaveBeenCalledTimes(CODEX_CAPACITY_RETRY_LIMIT);
-    retry.observe({
-      ...current,
-      attemptId: "attempt-2",
-      notice: { ...current.notice, runAttemptId: "attempt-2" },
-    }, sendContinue);
-    expect(sendContinue).toHaveBeenCalledTimes(CODEX_CAPACITY_RETRY_LIMIT + 1);
+    expect(sendContinue).toHaveBeenCalledTimes(10);
   });
 
   it("does not automatically resend a notice already retried manually", () => {

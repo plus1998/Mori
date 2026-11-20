@@ -1,21 +1,21 @@
-import { CODEX_CAPACITY_RETRY_LIMIT, type CodexCapacityRetryNotice } from "../shared/codex-capacity-retry";
+import type { CodexCapacityRetryNotice } from "../shared/codex-capacity-retry";
 
 /** Deduplicate capacity notices before sending, including repeated React effects. */
 export class CodexCapacityAutoRetry {
-  private attempts = new Map<string, { handledNoticeIds: Set<string>; retriesStarted: number }>();
+  private handledNoticeIdsByAttempt = new Map<string, Set<string>>();
 
-  private selectAttempt(threadId: string, attemptId: string) {
+  private handledNoticeIds(threadId: string, attemptId: string) {
     const identity = JSON.stringify([threadId, attemptId]);
-    let attempt = this.attempts.get(identity);
-    if (!attempt) {
-      attempt = { handledNoticeIds: new Set(), retriesStarted: 0 };
-      this.attempts.set(identity, attempt);
+    let noticeIds = this.handledNoticeIdsByAttempt.get(identity);
+    if (!noticeIds) {
+      noticeIds = new Set();
+      this.handledNoticeIdsByAttempt.set(identity, noticeIds);
     }
-    return attempt;
+    return noticeIds;
   }
 
   markHandled(threadId: string, notice: CodexCapacityRetryNotice) {
-    this.selectAttempt(threadId, notice.runAttemptId).handledNoticeIds.add(notice.id);
+    this.handledNoticeIds(threadId, notice.runAttemptId).add(notice.id);
   }
 
   observe(
@@ -40,10 +40,9 @@ export class CodexCapacityAutoRetry {
       notice.runAttemptId !== input.attemptId
     ) return;
 
-    const attempt = this.selectAttempt(input.threadId, input.attemptId);
-    if (attempt.handledNoticeIds.has(notice.id) || attempt.retriesStarted >= CODEX_CAPACITY_RETRY_LIMIT) return;
-    attempt.handledNoticeIds.add(notice.id);
-    attempt.retriesStarted += 1;
+    const noticeIds = this.handledNoticeIds(input.threadId, input.attemptId);
+    if (noticeIds.has(notice.id)) return;
+    noticeIds.add(notice.id);
     // retryAt belongs to Codex's native backoff. Steer immediately instead.
     sendContinue();
   }
