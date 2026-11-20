@@ -48,6 +48,20 @@ test("continuation preserves a partial Skills snapshot when discovery and projec
   expect(blockedOnLoadedThread(previous, next)).toBe(false);
 });
 
+test("an existing thread does not import global MCP or integration settings", () => {
+  const previous = {
+    ...existingConfig,
+    mcpServersEnabled: { mongo: true },
+    integrationsEnabled: { browser: false },
+  };
+  const next = buildEffectiveComposerRuntimeConfig(previous, derivedChoices);
+  assert(next);
+
+  expect(next).toBe(previous);
+  expect(next.mcpServersEnabled).toEqual({ mongo: true });
+  expect(next.integrationsEnabled).toEqual({ browser: false });
+});
+
 test("an explicit Skills edit still reaches the loaded-thread reload guard", () => {
   const editedConfig = { ...existingConfig, skillsEnabled: { "project:local": false } };
   const next = buildEffectiveComposerRuntimeConfig(editedConfig, derivedChoices);
