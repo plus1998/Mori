@@ -756,7 +756,7 @@ export function MultiAgentsRunPanel({
               <div className="multi-agents-tasks">
                 {run.tasks.map((task) => {
                   const member = run.config.members.find((member) => member.id === task.memberId);
-                  const model = member?.runtimeConfig.orchestrationSelection?.mainModel;
+                  const model = task.model ?? member?.runtimeConfig.orchestrationSelection?.mainModel;
                   const integrated = task.integratedCommit && task.integratedCommit === task.resultCommit;
                   return (
                     <section className="multi-agents-task" key={task.id}>

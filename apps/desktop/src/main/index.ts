@@ -12167,6 +12167,11 @@ function runThreadRequestOnce(
     phase,
     runOnce: (context) => {
       planAttemptId = context.runAttemptId;
+      // Member turns launched from their own conversation use this same lifecycle.
+      // The observer shares the dispatch lock, so do not await it from a host start.
+      void multiAgentsService?.memberAttemptStarted(threadId, context.runAttemptId).catch((error) => {
+        console.error("[multi-agents] failed to sync member attempt", error);
+      });
       conversationStore.startPlanExecution(threadId, context.runAttemptId);
       publishPlanExecutionChanges(threadId);
       return runOnce(context);

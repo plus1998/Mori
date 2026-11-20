@@ -332,6 +332,76 @@ test("failed member blocks dependencies; rework reuses the same conversation and
   expect(service.runs()[0]!.tasks[1]!.status).toBe("running");
 });
 
+test("a manual retry in the member conversation reopens its task and unblocks dependents after reporting", async () => {
+  const { service, host, threads, started, resumed, finish } = await setup();
+  await service.tool("main", "multi_agents_submit_tasks", { tasks: [task("x"), task("y", "b", ["x"])] });
+  await service.tick();
+  const child = threads.get(started[0]!.id)!;
+  child.status = "failed";
+  child.message = "first provider failed";
+  await service.tick();
+  expect(service.runs()[0]!.status).toBe("awaiting_review");
+  expect(service.runs()[0]!.tasks.map(({ status }) => status)).toEqual(["failed", "blocked"]);
+
+  // A duplicate lifecycle notification from the failed attempt cannot reopen it.
+  await service.memberAttemptStarted(child.id, `${child.id}:attempt`);
+  expect(service.runs()[0]!.tasks[0]!.status).toBe("failed");
+
+  const model = { providerId: "other-provider", modelId: "other-model" };
+  child.runtimeConfig = normalizeThreadRuntimeConfig({
+    sessionMode: "agent",
+    orchestrationSelection: { mainModel: model, mainPrompt: { mode: "builtin" }, subagents: { mode: "none" } },
+  });
+  child.status = "running";
+  child.message = "";
+  const latestAttempt = host.latestAttempt;
+  host.latestAttempt = (id) => id === child.id
+    ? { attemptId: "manual-retry", status: child.status === "running" ? "running" : "completed" }
+    : latestAttempt(id);
+  const observed = service.memberAttemptStarted(child.id, "manual-retry");
+  // Reporting can happen before the scheduler's next tick.
+  await finish("x");
+  await observed;
+  expect(service.runs()[0]).toMatchObject({ status: "running" });
+  expect(service.runs()[0]!.tasks[0]).toMatchObject({
+    status: "running", threadId: child.id, attempt: 2, model,
+    reportAttemptId: "manual-retry",
+    history: [{ attempt: 1, status: "failed", error: "first provider failed" }],
+  });
+  expect(service.runs()[0]!.tasks[0]!.error).toBeUndefined();
+
+  await service.tick();
+  expect(service.runs()[0]!.tasks.map(({ status }) => status)).toEqual(["succeeded", "running"]);
+  expect(started).toHaveLength(2);
+  expect(resumed.some(({ id }) => id === child.id)).toBe(false);
+});
+
+test("a short manual retry records its latest failure without carrying over an old report", async () => {
+  const { service, host, started, threads } = await setup();
+  await service.tool("main", "multi_agents_submit_tasks", { tasks: [task("x")] });
+  await service.tick();
+  const child = threads.get(started[0]!.id)!;
+  await service.tool(child.id, "multi_agents_report", { result: "first attempt report" });
+  child.status = "failed";
+  child.message = "first error";
+  await service.tick();
+
+  const observation = service.memberAttemptStarted(child.id, "fast-retry");
+  host.latestAttempt = () => ({ attemptId: "fast-retry", status: "failed" });
+  child.message = "second error";
+  await observation;
+  await service.tick();
+  expect(service.runs()[0]!.tasks[0]).toMatchObject({
+    status: "failed", attempt: 2, error: "second error",
+    history: [{ attempt: 1, status: "failed", result: "first attempt report", error: "first error" }],
+  });
+  expect(service.runs()[0]!.tasks[0]!.result).toBeUndefined();
+
+  await service.control("run-1", "stop");
+  await service.memberAttemptStarted(child.id, "after-stop");
+  expect(service.runs()[0]).toMatchObject({ status: "cancelled", tasks: [{ status: "failed", attempt: 2 }] });
+});
+
 test("a preparation failure before conversation creation can be retried without resuming a nonexistent session", async () => {
   const { service, host, started, finish } = await setup();
   const start = host.start;

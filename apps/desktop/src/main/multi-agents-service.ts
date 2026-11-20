@@ -24,6 +24,7 @@ interface Host {
   nativeAgentKeys(threadId: string): string[];
 }
 const activeStatuses = new Set(["planning", "running", "awaiting_review", "paused", "interrupted"]);
+const memberTrackingStatuses = new Set(["running", "awaiting_review", "paused"]);
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 export class MultiAgentsService {
@@ -249,6 +250,60 @@ export class MultiAgentsService {
       (run) => run.sourceThreadId === id || run.tasks.some((task) => task.threadId === id),
     );
   }
+  async memberAttemptStarted(threadId: string, attemptId: string): Promise<void> {
+    const initial = this.forThread(threadId).find((run) =>
+      memberTrackingStatuses.has(run.status) &&
+      run.tasks.some((task) => task.threadId === threadId && (task.status === "running" || task.status === "failed")),
+    );
+    if (!initial) return;
+    await this.exclusive(initial.id, async () => {
+      const run = this.runs().find((value) => value.id === initial.id);
+      const task = run?.tasks.find((value) => value.threadId === threadId);
+      if (!run || !task || !memberTrackingStatuses.has(run.status) ||
+        (task.status !== "running" && task.status !== "failed") || task.runtimeAttemptId === attemptId) return;
+
+      if (task.status === "failed") {
+        this.archiveAttempt(task);
+        task.status = "running";
+        task.attempt++;
+        if (run.status === "awaiting_review") run.status = "running";
+        delete run.pendingNotification;
+        delete run.message;
+      }
+      task.runtimeAttemptId = attemptId;
+      const config = this.host.thread(threadId)?.runtimeConfig;
+      const selectedModel = config?.resolvedOrchestrationSnapshot?.mainAgent.modelRef ??
+        config?.orchestrationSelection?.mainModel;
+      const model = config?.mainAgentModelOverride ?? selectedModel;
+      if (model) {
+        const accountId = selectedModel?.providerId === model.providerId ? selectedModel.accountId : undefined;
+        task.model = { providerId: model.providerId, modelId: model.modelId, ...(accountId ? { accountId } : {}) };
+      }
+      this.update(run);
+    });
+  }
+  private archiveAttempt(task: MultiAgentsTask) {
+    const { attempt, status, result, error, baseCommit, resultCommit, integratedCommit } = task;
+    task.history = [
+      ...(task.history ?? []),
+      {
+        attempt,
+        status,
+        ...(result ? { result } : {}),
+        ...(error ? { error } : {}),
+        ...(baseCommit ? { baseCommit } : {}),
+        ...(resultCommit ? { resultCommit } : {}),
+        ...(integratedCommit ? { integratedCommit } : {}),
+      },
+    ];
+    task.reported = false;
+    delete task.result;
+    delete task.error;
+    delete task.reportAttemptId;
+    delete task.resultCommit;
+    delete task.integrationError;
+    delete task.integrationResolution;
+  }
   private source(id: string): MultiAgentsRun {
     const run = this.runs().find((value) => value.sourceThreadId === id && activeStatuses.has(value.status));
     if (!run) throw new Error("当前主会话没有进行中的 Multi-Agents 执行。");
@@ -372,7 +427,7 @@ export class MultiAgentsService {
     if (name === "multi_agents_report") {
       const run = this.runs().find((value) => value.tasks.some((task) => task.threadId === threadId));
       const task = run?.tasks.find((value) => value.threadId === threadId);
-      if (!run || !task || task.status !== "running")
+      if (!run || !task || !memberTrackingStatuses.has(run.status) || task.status !== "running")
         throw new Error("只有运行中的成员能提交自己的任务结果。");
       if (typeof args.result !== "string" || !args.result.trim())
         throw new Error("结果需包含修改内容、测试结果和未解决事项。");
@@ -438,31 +493,12 @@ export class MultiAgentsService {
       if (run.tasks.some((item) => affected.has(item.id) && item.status === "running"))
         throw new Error("下游成员仍在运行，请等待其结束后返工。");
       for (const item of run.tasks.filter((item) => affected.has(item.id))) {
-        const { attempt, status, result, error, baseCommit, resultCommit, integratedCommit } = item;
-        item.history = [
-          ...(item.history ?? []),
-          {
-            attempt,
-            status,
-            ...(result ? { result } : {}),
-            ...(error ? { error } : {}),
-            ...(baseCommit ? { baseCommit } : {}),
-            ...(resultCommit ? { resultCommit } : {}),
-            ...(integratedCommit ? { integratedCommit } : {}),
-          },
-        ];
+        this.archiveAttempt(item);
         item.instructions =
           item.id === task.id
             ? args.instructions
             : `${item.instructions}\n上游任务 ${task.id} 已返工，请基于最新依赖重新检查并修正本任务。`;
         item.status = "queued";
-        item.reported = false;
-        delete item.result;
-        delete item.error;
-        delete item.reportAttemptId;
-        delete item.resultCommit;
-        delete item.integrationError;
-        delete item.integrationResolution;
       }
       delete run.pendingNotification;
       run.status = "running";
@@ -602,13 +638,13 @@ export class MultiAgentsService {
     try {
       for (const initial of this.runs()) {
         if (
-          !["running", "paused", "awaiting_review"].includes(initial.status) ||
+          !memberTrackingStatuses.has(initial.status) ||
           initial.config.mode !== "sessions"
         )
           continue;
         await this.exclusive(initial.id, async () => {
           let run = this.runs().find((value) => value.id === initial.id)!;
-          if (!["running", "paused", "awaiting_review"].includes(run.status)) return;
+          if (!memberTrackingStatuses.has(run.status)) return;
           if (!this.host.thread(run.sourceThreadId)) {
             run.status = "interrupted";
             run.message = "来源主会话已删除，调度已中断。";
@@ -633,6 +669,7 @@ export class MultiAgentsService {
             if (this.host.busy(task.threadId)) continue;
             if (thread && ["running", "queued"].includes(thread.status)) continue;
             const attempt = thread ? this.host.latestAttempt(task.threadId) : undefined;
+            if (attempt) task.runtimeAttemptId = attempt.attemptId;
             if (
               !thread ||
               thread.status === "failed" ||

@@ -1,4 +1,5 @@
 import type { CoreKind } from "@eco/runtime/core-runtime";
+import type { ModelRef } from "./agent-orchestration";
 import type { ThreadPendingPlan, ThreadSummary } from "./ipc";
 import type { ThreadRuntimeConfig } from "./thread-runtime-config";
 
@@ -34,6 +35,8 @@ export interface MultiAgentsTask extends MultiAgentsTaskInput {
   status: MultiAgentsTaskStatus;
   attempt: number;
   threadId?: string;
+  runtimeAttemptId?: string;
+  model?: Pick<ModelRef, "providerId" | "modelId" | "accountId">;
   baseCommit?: string;
   resultCommit?: string;
   result?: string;
