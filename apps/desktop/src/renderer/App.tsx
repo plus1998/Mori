@@ -454,7 +454,7 @@ import {
 } from "./orchestration-readiness";
 import { PackageScriptsDialog } from "./PackageScriptsDialog";
 import { PlanApprovalPanel } from "./PlanApprovalPanel";
-import { MultiAgentsSettingsPanel, MultiAgentsRunPanel, useMultiAgentsSnapshot } from "./MultiAgentsPanel";
+import { MultiAgentsSettingsPanel, useMultiAgentsSnapshot } from "./MultiAgentsPanel";
 import { PlanExecutionLinks } from "./PlanExecutionLinks";
 import { ProjectSidebarTree } from "./ProjectSidebarTree";
 import { ProjectTerminalSettingsDialog } from "./ProjectTerminalSettingsDialog";
@@ -462,6 +462,7 @@ import { waitForOverlayDismiss } from "./package-script-ui";
 import {
   buildInitialProjectOrder,
   ensureHomeProjectFirst,
+  PROJECT_DRAG_MIME,
   type ProjectReorderPosition,
   prependProjectOrder,
   reorderProjectPaths,
@@ -12155,12 +12156,9 @@ function App() {
   }
 
   function handleComposerDragOver(event: ReactDragEvent<HTMLDivElement>) {
-    if (event.dataTransfer.types.includes(CONVERSATION_REFERENCE_DRAG_MIME)) {
-      event.preventDefault();
-      event.dataTransfer.dropEffect = composerDisabled ? "none" : "copy";
-      return;
-    }
-    if (!event.dataTransfer.types.includes(WORKSPACE_FILE_DRAG_MIME) && ![...event.dataTransfer.types].includes("Files")) {
+    const types = event.dataTransfer.types;
+    if (!types.includes(PROJECT_DRAG_MIME) && !types.includes(CONVERSATION_REFERENCE_DRAG_MIME) &&
+        !types.includes(WORKSPACE_FILE_DRAG_MIME) && !types.includes("Files")) {
       return;
     }
     event.preventDefault();
@@ -12168,6 +12166,16 @@ function App() {
   }
 
   function handleComposerDrop(event: ReactDragEvent<HTMLDivElement>) {
+    if (event.dataTransfer.types.includes(PROJECT_DRAG_MIME)) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (composerDisabled) return;
+      const projectPath = event.dataTransfer.getData(PROJECT_DRAG_MIME);
+      if (isAbsoluteLocalFilePath(projectPath)) {
+        composerRef.current?.insertTextAtPoint(`${fileAttachmentToken(projectPath)} `, event.clientX, event.clientY);
+      }
+      return;
+    }
     if (event.dataTransfer.types.includes(CONVERSATION_REFERENCE_DRAG_MIME)) {
       event.preventDefault();
       event.stopPropagation();
@@ -13239,7 +13247,6 @@ function App() {
         {/* The overlay band is shared: a queued follow-up panel or the landing context bar
             already owns it, and stacking the dots under either would just collide. */}
         {composerAgentSilenceVisible && !showComposerInputOverlays && !answerRequest ? <ComposerFloatingLoading /> : null}
-        <MultiAgentsRunPanel runs={multiAgents.snapshot.runs.filter(run => run.sourceThreadId === selectedThreadId)} loadError={multiAgents.error} onNavigate={id => void navigatePlanConversation(id)} />
         <ComposerDockMorph
           showApproval={showBlockingComposerDockApproval}
           surfaceKey={composerDockSurfaceKey}
@@ -14414,6 +14421,9 @@ function App() {
                       }
                     : {})}
                   subagentRunCards={activeSubagentCards}
+                  multiAgentsRuns={multiAgents.snapshot.runs.filter(run => run.sourceThreadId === selectedThreadId)}
+                  multiAgentsLoadError={multiAgents.error}
+                  onNavigateMultiAgentsThread={(id) => void navigatePlanConversation(id)}
                   {...(selectedSubagentAgentId && { selectedSubagentAgentId })}
                   agentDisplayNames={activeRuntimeAgentDisplayNames}
                   agentThemes={activeRuntimeAgentThemes}

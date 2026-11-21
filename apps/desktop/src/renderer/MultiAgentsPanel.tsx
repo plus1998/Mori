@@ -674,7 +674,7 @@ export function MultiAgentsRunPanel({
   loadError,
 }: {
   runs: MultiAgentsRun[];
-  onNavigate: (id: string) => void;
+  onNavigate?: (id: string) => void;
   loadError?: string | undefined;
 }) {
   const { t } = useTranslation();
@@ -766,7 +766,7 @@ export function MultiAgentsRunPanel({
                         )}
                         <strong>{task.title}</strong>
                         <StatusBadge status={task.status} />
-                        {task.threadId && (
+                        {task.threadId && onNavigate && (
                           <SettingsButton
                             variant="ghost"
                             className="multi-agents-open-thread"

@@ -1,5 +1,6 @@
 import type { AuxiliaryModelSelection } from "../shared/auxiliary-model";
 import type { TtsArtifact } from "../shared/tts";
+import type { MultiAgentsRun } from "../shared/multi-agents";
 import { TtsArtifactPlayer } from "./TtsArtifactPlayer";
 import {
   Blocks,
@@ -83,6 +84,7 @@ import { ScheduledMessagesCardBody } from "./ScheduledMessagesCardBody";
 import { ImageDisplayArtifactIcon } from "./ImageDisplayArtifactIcon";
 import { ImageDisplayDeleteButton } from "./ImageDisplayDeleteButton";
 import { OverflowFadeText } from "./OverflowFadeText";
+import { MultiAgentsRunPanel } from "./MultiAgentsPanel";
 
 export interface ThreadUsageSummary {
   billing?: ThreadBillingSnapshot;
@@ -166,6 +168,9 @@ export interface WorkspaceFloatingCardsProps {
   htmlHostArtifacts?: readonly HtmlHostArtifact[];
   onOpenHtmlHostArtifact?: (artifactId: string) => void;
   subagentRunCards?: readonly ThreadRunProjectionSubagentCard[];
+  multiAgentsRuns?: MultiAgentsRun[];
+  multiAgentsLoadError?: string;
+  onNavigateMultiAgentsThread?: (id: string) => void;
   selectedSubagentAgentId?: string;
   agentDisplayNames?: RuntimeAgentDisplayNames;
   agentThemes?: RuntimeAgentThemes;
@@ -859,6 +864,9 @@ export function WorkspaceFloatingCards({
   htmlHostArtifacts = [],
   onOpenHtmlHostArtifact,
   subagentRunCards = [],
+  multiAgentsRuns = [],
+  multiAgentsLoadError,
+  onNavigateMultiAgentsThread,
   selectedSubagentAgentId,
   agentDisplayNames,
   agentThemes,
@@ -1124,6 +1132,27 @@ export function WorkspaceFloatingCards({
               {...(agentDisplayNames && { agentDisplayNames })}
               {...(agentThemes && { agentThemes })}
               {...(onOpenSubagent && { onOpenSubagent })}
+            />
+          </WorkspacePanelSection>
+        ) : null}
+
+        {multiAgentsRuns.length > 0 || multiAgentsLoadError ? (
+          <WorkspacePanelSection
+            id="workspace-multi-agents-runs"
+            title={t("multiAgents.runsTitle")}
+            defaultExpanded
+            summary={
+              <>
+                <Users size={14} aria-hidden />
+                <span>{multiAgentsRuns.length}</span>
+              </>
+            }
+            maxBodyHeight={360}
+          >
+            <MultiAgentsRunPanel
+              runs={multiAgentsRuns}
+              loadError={multiAgentsLoadError}
+              onNavigate={onNavigateMultiAgentsThread}
             />
           </WorkspacePanelSection>
         ) : null}

@@ -125,6 +125,19 @@ test("ACP Cursor roster hides Eco fake subagent toggles even if labels are passe
   expect(markup).not.toContain('type="checkbox"');
 });
 
+test("Multi-Agents run status is rendered inside workspace cards", () => {
+  const markup = renderToStaticMarkup(
+    createElement(WorkspaceFloatingCards, {
+      multiAgentsRuns: [],
+      multiAgentsLoadError: "offline",
+    }),
+  );
+
+  expect(markup).toContain('aria-controls="workspace-multi-agents-runs-body"');
+  expect(markup).toContain('id="workspace-multi-agents-runs-body"');
+  expect(markup).toContain("读取 Multi-Agents 状态失败：offline");
+});
+
 test("workspace Skills render as a collapsible section", () => {
   const markup = renderToStaticMarkup(
     createElement(WorkspaceFloatingCards, {

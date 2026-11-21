@@ -1,5 +1,7 @@
 import { normalizeProjectPath } from "../shared/home-project";
 
+export const PROJECT_DRAG_MIME = "application/x-eco-project-path";
+
 export interface OrderedProject {
   path: string;
   importedAt: string;

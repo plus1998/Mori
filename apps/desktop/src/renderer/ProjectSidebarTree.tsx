@@ -36,14 +36,12 @@ import type { AppLocale } from "../shared/locale";
 import type { PlanExecutionStatus } from "../shared/plan-execution";
 import { ICON_SIZE, ICON_STROKE } from "./icon-metrics";
 import { coreDisplayName, coreIconSrc } from "./SidebarCoreSelector";
-import type { ProjectReorderPosition } from "./project-sidebar-order";
+import { PROJECT_DRAG_MIME, type ProjectReorderPosition } from "./project-sidebar-order";
 import { formatRelativeTime } from "./relative-time";
 import { OverflowFadeText } from "./OverflowFadeText";
 import { useSidebarPlanExecutions } from "./sidebar-plan-executions";
 import { startConversationReferenceDrag } from "./conversation-reference-drag";
 import { type ContextMenuBox, contextMenuBoxForPoint } from "./context-menu-layout";
-
-const PROJECT_DRAG_MIME = "application/x-eco-project-path";
 
 export interface ProjectTreeItem {
   project: { path: string; name: string; pinned?: boolean; isHome?: boolean };
@@ -399,11 +397,9 @@ function ProjectSidebarTreeView({
   }
 
   function handleProjectDragStart(event: DragEvent<HTMLElement>, projectPath: string, isHome?: boolean) {
-    if (isHome) {
-      return;
-    }
     event.dataTransfer.setData(PROJECT_DRAG_MIME, projectPath);
-    event.dataTransfer.effectAllowed = "move";
+    // The Home project stays fixed in the sidebar but can still be referenced.
+    event.dataTransfer.effectAllowed = isHome ? "copy" : "copyMove";
     setDraggingPath(projectPath);
   }
 
@@ -413,11 +409,7 @@ function ProjectSidebarTreeView({
   }
 
   function handleProjectRowDragOver(event: DragEvent<HTMLElement>, projectPath: string, isHome?: boolean) {
-    if (!isInternalProjectDrag(event) || isHome) {
-      return;
-    }
-    const draggedPath = event.dataTransfer.getData(PROJECT_DRAG_MIME);
-    if (draggedPath && projectTree.some(({ project }) => project.isHome && project.path === draggedPath)) {
+    if (!isInternalProjectDrag(event) || isHome || event.dataTransfer.effectAllowed === "copy") {
       return;
     }
     event.preventDefault();
@@ -497,7 +489,7 @@ function ProjectSidebarTreeView({
             aria-label={t("projectTree.dragArea", { name: project.name })}
             className={projectMainClassNames.join(" ")}
             data-project-path={project.path}
-            draggable={!project.isHome}
+            draggable={renamingPath !== project.path}
             onDragStart={(event) => handleProjectDragStart(event, project.path, project.isHome)}
             onDragEnd={handleProjectDragEnd}
             onDragOver={(event) => handleProjectRowDragOver(event, project.path, project.isHome)}
