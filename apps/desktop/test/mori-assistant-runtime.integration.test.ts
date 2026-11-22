@@ -9,13 +9,20 @@ import type { ChatApiCompat } from "../src/shared/api-compat";
 import { DEFAULT_MORI_ASSISTANT_SETTINGS } from "../src/shared/mori-assistant";
 
 const realCodexTest = process.env.ECO_CODEX_REAL_APP_SERVER_TEST === "1" ? test : test.skip;
+const cases = (["openai_responses", "openai_chat_completions", "anthropic"] as ChatApiCompat[])
+  .flatMap((apiCompat) => [false, true].map((withImage) => ({ apiCompat, withImage })));
 
-for (const apiCompat of ["openai_responses", "openai_chat_completions", "anthropic"] as ChatApiCompat[]) {
+for (const { apiCompat, withImage } of cases) {
   realCodexTest(
-    `isolated Mori Codex uses ${apiCompat} through Gateway without ChatGPT`,
+    withImage
+      ? `isolated Mori Codex forwards local images through ${apiCompat}`
+      : `isolated Mori Codex uses ${apiCompat} through Gateway without ChatGPT`,
     async () => {
       const root = await fs.mkdtemp(path.join(os.tmpdir(), "mori-custom-codex-"));
-      const upstreamRequests: Array<{ path: string; model: string; auth: string | null }> = [];
+      const imagePath = path.join(root, "wechat.png");
+      if (withImage)
+        await fs.writeFile(imagePath, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAD0lEQVR4nGNgKP+EQMRxADvSFpGmw3yXAAAAAElFTkSuQmCC", "base64"));
+      const upstreamRequests: Array<{ path: string; model: string; auth: string | null; hasImage: boolean }> = [];
       const upstream = Bun.serve({
         hostname: "127.0.0.1",
         port: 0,
@@ -25,6 +32,7 @@ for (const apiCompat of ["openai_responses", "openai_chat_completions", "anthrop
             path: new URL(request.url).pathname,
             model: body.model,
             auth: request.headers.get("authorization") ?? request.headers.get("x-api-key"),
+            hasImage: /image\/(?:png|jpeg|webp)/.test(JSON.stringify(body)),
           });
           return new Response(completedStream(apiCompat), {
             headers: { "content-type": "text/event-stream" },
@@ -91,10 +99,12 @@ for (const apiCompat of ["openai_responses", "openai_chat_completions", "anthrop
             const nativeId = await runtime.openThread(settings);
             await runtime.send("Reply ok.", settings);
             await runtime.close();
-            runtime = createRuntime("other");
-            const next = { ...settings, providerId: "other" };
+            const providerId = withImage ? "custom" : "other";
+            runtime = createRuntime(providerId);
+            const next = { ...settings, providerId };
             expect(await runtime.openThread(next, nativeId)).toBe(nativeId);
-            await runtime.send("Reply ok again.", next);
+            if (withImage) await runtime.send("Reply ok again.", next, "wechat", [imagePath], "mori-user-test-image");
+            else await runtime.send("Reply ok again.", next);
           })(),
           new Promise((_, reject) => {
             timeout = setTimeout(() => reject(new Error("Local Codex smoke timed out")), 20_000);
@@ -111,7 +121,10 @@ for (const apiCompat of ["openai_responses", "openai_chat_completions", "anthrop
           model: "custom-model",
           auth: apiCompat === "anthropic" ? "local-test-key" : "Bearer local-test-key",
         };
-        expect(upstreamRequests).toEqual([expectedRequest, expectedRequest]);
+        expect(upstreamRequests).toEqual([
+          { ...expectedRequest, hasImage: false },
+          { ...expectedRequest, hasImage: withImage },
+        ]);
         const config = await fs.readFile(path.join(root, "codex", "config.toml"), "utf8");
         expect(config).not.toContain("local-test-key");
         await expect(fs.access(path.join(root, "codex", "auth.json"))).rejects.toThrow();

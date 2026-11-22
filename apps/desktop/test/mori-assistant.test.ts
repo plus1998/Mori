@@ -28,6 +28,7 @@ import { McpStore } from "../src/main/mcp-store";
 import { handleMcpStreamableHttpRequest } from "../src/main/mcp-streamable-http";
 import { MoriAssistantTodos } from "../src/main/mori-assistant-todos";
 import { parseWechatJson, validateWechatBaseUrl } from "../src/main/mori-assistant-wechat";
+import { PromptImageFileStore } from "../src/main/prompt-image-file-store";
 import { OpenAIAccountService } from "../src/main/openai-account-service";
 import { ProjectTodoAgentService } from "../src/main/project-todo-agent-service";
 import { ProjectTodoStore } from "../src/main/project-todo-store";
@@ -1832,6 +1833,43 @@ test("desktop and WeChat share one durable V2 conversation; redelivery does not 
     await service.send("微信消息", "wechat", "wechat-1");
     expect(conversations.conversationV2().head(snapshot.currentThreadId).lastSeq).toBe(head);
     expect(conversations.conversationV2().validateIntegrity(snapshot.currentThreadId).headSeq).toBe(head);
+  } finally {
+    await service.close();
+    db.close();
+  }
+});
+
+test("微信原图作为本地图片交给 Mori，后续可以将原图转交新建或已有的 Agent", async () => {
+  const { service, db, root, commands } = await fixture({ realTaskMessages: true });
+  const bytes = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAD0lEQVR4nGNgKP+EQMRxADvSFpGmw3yXAAAAAElFTkSuQmCC", "base64");
+  const imageStore = new PromptImageFileStore(root);
+  const { path: localPath, ...storedImage } = await imageStore.persistImageBytes(bytes, "image/png");
+  const wechatImageMessageId = "mori-user-phone-image";
+  const runTool = (name: string, args: Record<string, unknown>) =>
+    service.send(`mcp-tool:${JSON.stringify({ name, args })}`, "wechat");
+  try {
+    await service.send("", "wechat", "phone-image", [{ path: localPath, ...storedImage }]);
+    const message = (await service.snapshot()).messages.find((item) => item.messageId === wechatImageMessageId);
+    expect(message?.body).toBe("[微信图片]");
+    expect(message?.attachments).toEqual([storedImage]);
+
+    const [firstRequest] = (await fs.readFile(path.join(root, "runtime-inputs.jsonl"), "utf8")).trim().split("\n");
+    const { input } = JSON.parse(firstRequest!);
+    expect(input).toContainEqual({ type: "localImage", path: localPath });
+    expect(input.some((item: { text?: string }) => item.text?.includes(wechatImageMessageId))).toBe(true);
+    expect(await fs.readFile(localPath)).toEqual(bytes);
+
+    await runTool("mori_start_task", { projectPath: root, prompt: "照截图修复布局", wechatImageMessageId });
+    const index = commands.findIndex((command) => command.channel === IPC_CHANNELS.threadStart);
+    expect(index).toBeGreaterThanOrEqual(0);
+    expect(commands[index]?.args[0]).toMatchObject({ prompt: "照截图修复布局", attachments: [storedImage] });
+
+    const workId = (await service.snapshot()).tasks[0]?.id;
+    expect(workId).toBeDefined();
+    await runTool("mori_send_to_task", { threadId: workId, wechatImageMessageId });
+    const request = commands.find((command) => command.channel === "conversation:send-message");
+    expect(request?.args[0]).toMatchObject({ conversationId: workId, text: "", attachments: [storedImage] });
+    expect(await imageStore.readAttachmentData(storedImage)).toBe(bytes.toString("base64"));
   } finally {
     await service.close();
     db.close();

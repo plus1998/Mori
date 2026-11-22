@@ -68,13 +68,13 @@ export class MoriAssistantHost {
         appendUpstreamLogLine(
           `[mori-wechat-typing] ${JSON.stringify({ time: new Date().toISOString(), pid: process.pid, event, ...fields })}\n`,
         ),
-      receive: async (text, id) => {
+      receive: async (text, id, images) => {
         const before = await this.service.snapshot();
-        if (before.pendingInput) {
+        if (before.pendingInput && !images.length) {
           await this.service.respond(before.pendingInput.id, text, "wechat");
           return "已收到回答，Mori 将继续处理。";
         }
-        await this.service.send(text, "wechat", id);
+        await this.service.send(text, "wechat", id, images);
         const snapshot = await this.service.snapshot();
         return snapshot.messages
           .filter((message) => message.role === "assistant" && message.runId === `mori-run-${id}`)

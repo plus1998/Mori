@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { MoriAssistantWechat } from "../src/main/mori-assistant-wechat";
-import { createDecipheriv } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHash } from "node:crypto";
 
 const originalFetch = globalThis.fetch;
 const directories: string[] = [];
@@ -102,12 +102,16 @@ async function until(check: () => boolean): Promise<void> {
 }
 
 async function typingFixture(
-  receive: (text: string, id: string) => Promise<string>,
+  receive: ConstructorParameters<typeof MoriAssistantWechat>[1]["receive"],
   handle?: (
     endpoint: string,
     body: Record<string, unknown>,
     signal: AbortSignal | null | undefined,
   ) => Promise<Response> | undefined,
+  options?: {
+    items: unknown[];
+    download(url: URL, init: RequestInit | undefined): Response;
+  },
 ) {
   const dir = await mkdtemp(path.join(tmpdir(), "mori-wechat-typing-test-"));
   directories.push(dir);
@@ -122,11 +126,13 @@ async function typingFixture(
     message_id: "42",
     from_user_id: "user",
     context_token: "context",
-    item_list: [{ text_item: { text: "慢任务" } }],
+    item_list: options?.items ?? [{ text_item: { text: "慢任务" } }],
   };
   let polls = 0;
   globalThis.fetch = (async (input, init) => {
-    const endpoint = new URL(String(input)).pathname;
+    const url = new URL(String(input));
+    const endpoint = url.pathname;
+    if (options && !endpoint.startsWith("/ilink/")) return options.download(url, init);
     const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
     calls.push({ endpoint, body });
     const result = handle?.(endpoint, body, init?.signal);
@@ -156,6 +162,101 @@ async function typingFixture(
     calls.filter((call) => call.endpoint.endsWith("/sendmessage")).map((call) => call.body.msg);
   return { wechat, file, calls, statuses, replies, diagnostics };
 }
+
+const receivedPng = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAD0lEQVR4nGNgKP+EQMRxADvSFpGmw3yXAAAAAElFTkSuQmCC", "base64");
+const receivedKey = Buffer.from("624e653e1a684a4686840559d35c7046", "hex");
+const downloadParam = "signed+param/=";
+const fullDownloadUrl = "https://novac2c.cdn.weixin.qq.com/c2c/download?direct=signed";
+
+test.each(["image-hex", "media-base64", "media-base64-hex", "plain"])(
+  "收取 %s 格式的微信原图，Agent 收到图片时文件已保存，重复消息只处理一次",
+  async (encoding) => {
+    const caption = encoding === "image-hex" ? "" : "请检查这张截图";
+    const image = {
+      type: 2,
+      image_item: {
+        ...(encoding === "image-hex" ? { aeskey: receivedKey.toString("hex") } : {}),
+        media: {
+          encrypt_query_param: downloadParam,
+          ...(encoding === "plain" ? { full_url: fullDownloadUrl } : {
+            aes_key: encoding === "image-hex" ? "unused-key" : encoding === "media-base64"
+              ? receivedKey.toString("base64")
+              : Buffer.from(receivedKey.toString("hex")).toString("base64"),
+          }),
+        },
+      },
+    };
+    const cipher = createCipheriv("aes-128-ecb", receivedKey, null);
+    const body = encoding === "plain" ? receivedPng : Buffer.concat([cipher.update(receivedPng), cipher.final()]);
+    const contentRef = `sha256:${createHash("sha256").update(receivedPng).digest("hex")}`;
+    const received: Array<{ text: string; id: string; bytes: Buffer; savedPath: string; contentRef: string }> = [];
+    const requests: Array<{ url: URL; authorized: boolean }> = [];
+    const { wechat, file, replies } = await typingFixture(
+      async (text, id, [attachment]) => {
+        if (!attachment) throw new Error("Missing saved attachment");
+        received.push({ text, id, bytes: await readFile(attachment.path), savedPath: attachment.path, contentRef: attachment.contentRef });
+        return "已看到图片";
+      },
+      undefined,
+      {
+        items: [image, ...(caption ? [{ type: 1, text_item: { text: caption } }] : [])],
+        download: (url, init) => {
+          requests.push({ url, authorized: new Headers(init?.headers).has("Authorization") });
+          return new Response(body);
+        },
+      },
+    );
+    try {
+      await until(() => replies().length === 1);
+    } finally {
+      await wechat.close();
+    }
+    const savedPath = path.join(path.dirname(file), "prompt-images", "objects", `${contentRef.slice(7)}.png`);
+    expect(received).toEqual([{ text: caption, id: "42", bytes: receivedPng, savedPath, contentRef }]);
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.url.href).toBe(encoding === "plain" ? fullDownloadUrl :
+      `https://novac2c.cdn.weixin.qq.com/c2c/download?encrypted_query_param=${encodeURIComponent(downloadParam)}`);
+    expect(requests[0]?.authorized).toBe(false);
+    expect(JSON.stringify(replies())).toContain("已看到图片");
+    const state = await readFile(file, "utf8");
+    expect(JSON.parse(state).inbox[0].status).toBe("done");
+    expect(state).not.toContain(downloadParam);
+    expect(state).not.toContain("aes_key");
+  },
+);
+
+test.each([
+  { url: "https://novac2c.cdn.weixin.qq.com/c2c/download?secret", status: 410, error: "微信图片下载失败（HTTP 410）", requests: 1 },
+  { url: "https://example.test/download?secret", status: 200, error: "微信返回了不受信任的图片下载地址", requests: 0 },
+  { url: fullDownloadUrl, status: 200, error: "微信图片格式无法识别", requests: 1 },
+])("微信图文下载失败会报告 $error", async ({ url, status, error, requests }) => {
+  let received = 0;
+  let downloaded = 0;
+  const { wechat, file, replies } = await typingFixture(
+    async () => { received++; return "unexpected"; },
+    undefined,
+    {
+      items: [
+        { type: 1, text_item: { text: "请检查这张截图" } },
+        { type: 2, image_item: { media: { full_url: url } } },
+      ],
+      download: () => {
+        downloaded++;
+        return new Response("unexpected body", { status });
+      },
+    },
+  );
+  try {
+    await until(() => replies().length === 1);
+  } finally {
+    await wechat.close();
+  }
+  expect(received).toBe(0);
+  expect(downloaded).toBe(requests);
+  expect(JSON.stringify(replies())).toContain(`Mori 处理未完成：${error}`);
+  expect(JSON.stringify(replies())).not.toContain("secret");
+  expect(JSON.parse(await readFile(file, "utf8")).inbox[0].status).toBe("failed");
+});
 
 test("慢回复使用原生状态；重复收件只处理一次，清理请求挂起也不阻塞正式答复", async () => {
   const reply = Promise.withResolvers<string>();

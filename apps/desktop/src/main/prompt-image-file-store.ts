@@ -14,6 +14,8 @@ const DEFAULT_GC_GRACE_MS = 24 * 60 * 60 * 1000;
 /** Matches mobile remote uploads; desktop renderer still caps picks at 5 MB. */
 export const PROMPT_IMAGE_UPLOAD_MAX_BYTES = 20 * 1024 * 1024;
 
+export type PersistedPromptImage = Required<Pick<PromptImageAttachment, "mediaType" | "path" | "contentRef" | "byteLength">>;
+
 const MEDIA_TYPE_EXTENSION: Record<PromptImageAttachment["mediaType"], string> = {
   "image/jpeg": "jpg",
   "image/png": "png",
@@ -435,6 +437,15 @@ export class PromptImageFileStore {
     return (await this.readAttachmentBytes(attachment)).toString("base64");
   }
 
+  async persistImageBytes(bytes: Buffer, mediaType: PromptImageAttachment["mediaType"]): Promise<PersistedPromptImage> {
+    assertImageByteLength(bytes.length);
+    const contentRef = contentRefForBuffer(bytes);
+    const filePath = this.contentObjectPath(contentRef, mediaType);
+    if (await this.fileExists(filePath)) await this.readContentObject(contentRef, mediaType);
+    else await this.writeFileAtomic(filePath, bytes);
+    return { path: filePath, mediaType, contentRef, byteLength: bytes.length };
+  }
+
   async readContentRefAttachment(contentRef: string): Promise<{
     path: string;
     mediaType: PromptImageAttachment["mediaType"];
@@ -580,16 +591,8 @@ export class PromptImageFileStore {
     filePath: string,
     mediaType: PromptImageAttachment["mediaType"],
   ): Promise<{ path: string; contentRef: string; byteLength: number }> {
-    const buffer = await fs.readFile(filePath);
-    assertImageByteLength(buffer.length);
-    const contentRef = contentRefForBuffer(buffer);
-    const objectPath = this.contentObjectPath(contentRef, mediaType);
-    if (!(await this.fileExists(objectPath))) {
-      await this.writeFileAtomic(objectPath, buffer);
-    } else if (contentRefForBuffer(await fs.readFile(objectPath)) !== contentRef) {
-      throw new Error("Prompt image content object hash mismatch.");
-    }
-    return { path: filePath, contentRef, byteLength: buffer.length };
+    const { contentRef, byteLength } = await this.persistImageBytes(await fs.readFile(filePath), mediaType);
+    return { path: filePath, contentRef, byteLength };
   }
 
   private async copyContentObjectToPath(
@@ -684,8 +687,12 @@ export class PromptImageFileStore {
   private async writeFileAtomic(filePath: string, data: Buffer): Promise<void> {
     await fs.mkdir(path.dirname(filePath), { recursive: true });
     const tempPath = `${filePath}.${randomUUID()}.tmp`;
-    await fs.writeFile(tempPath, data, { flag: "wx" });
-    await fs.rename(tempPath, filePath);
+    try {
+      await fs.writeFile(tempPath, data, { flag: "wx", mode: 0o600 });
+      await fs.rename(tempPath, filePath);
+    } finally {
+      await this.unlinkIfExists(tempPath);
+    }
   }
 
   private async moveOrCopy(sourcePath: string, targetPath: string): Promise<void> {

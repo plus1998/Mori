@@ -2,11 +2,11 @@ import { createCipheriv, createHash, randomBytes, randomUUID } from "node:crypto
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { MoriAssistantSnapshot } from "../shared/mori-assistant";
+import { downloadWechatImage, WECHAT_CDN_BASE, type WechatInboundImage } from "./mori-assistant-wechat-image";
 import { MoriWechatTyping, type WechatTypingDiagnostic } from "./mori-assistant-wechat-typing";
+import { PromptImageFileStore, PROMPT_IMAGE_UPLOAD_MAX_BYTES as MAX_IMAGE_BYTES, type PersistedPromptImage } from "./prompt-image-file-store";
 
 const BASE = "https://ilinkai.weixin.qq.com";
-const CDN_BASE = "https://novac2c.cdn.weixin.qq.com/c2c";
-const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 const TEXT_ITEM_TYPE = 1;
 const IMAGE_ITEM_TYPE = 2;
 function pause(ms: number, signal: AbortSignal): Promise<void> {
@@ -26,6 +26,7 @@ interface WechatMessage {
   userId: string;
   contextToken: string;
   text: string;
+  images?: WechatInboundImage[];
   status: "queued" | "running" | "done" | "failed";
   error?: string;
 }
@@ -106,6 +107,7 @@ export class MoriAssistantWechat {
   private typing: MoriWechatTyping | undefined;
   private waitingForInput = false;
   private feedbackError: string | undefined;
+  private readonly imageStore: PromptImageFileStore;
   private readonly enqueueWork = new Map<string, Promise<void>>();
   private readonly outboxControllers = new Map<string, AbortController>();
   status: MoriAssistantSnapshot["wechat"] = { status: "disconnected" };
@@ -113,12 +115,14 @@ export class MoriAssistantWechat {
     private readonly file: string,
     private readonly deps: {
       changed(): void;
-      receive(text: string, id: string): Promise<string>;
+      receive(text: string, id: string, images: PersistedPromptImage[]): Promise<string>;
       respondIfPending?(text: string): Promise<boolean>;
       canSendFollowNotification?(threadId: string, requestId: string | undefined): boolean;
       typingDiagnostic?: WechatTypingDiagnostic;
     },
-  ) {}
+  ) {
+    this.imageStore = new PromptImageFileStore(path.dirname(file));
+  }
 
   async load(): Promise<void> {
     try {
@@ -144,11 +148,14 @@ export class MoriAssistantWechat {
         throw new Error("微信通知回执无效，原文件已保留。");
       if (state.baseUrl) validateWechatBaseUrl(state.baseUrl);
       this.state = state;
-      for (const message of this.state.inbox)
+      for (const message of this.state.inbox) {
+        if (message.text === "[此消息没有可处理的文字]") message.text = "";
         if (message.status === "running") {
           message.status = "failed";
           message.error = "应用退出中断了处理；为避免重复执行任务，请重新发送指令。";
+          delete message.images;
         }
+      }
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
@@ -278,7 +285,7 @@ export class MoriAssistantWechat {
     const uploadUrl =
       uploadFullUrl ||
       (uploadParam
-        ? `${CDN_BASE}/upload?encrypted_query_param=${encodeURIComponent(uploadParam)}&filekey=${encodeURIComponent(fileKey)}`
+        ? `${WECHAT_CDN_BASE}/upload?encrypted_query_param=${encodeURIComponent(uploadParam)}&filekey=${encodeURIComponent(fileKey)}`
         : "");
     if (!uploadUrl) throw new Error("微信没有返回图片上传地址。");
     const cipher = createCipheriv("aes-128-ecb", aesKey, null);
@@ -455,6 +462,7 @@ export class MoriAssistantWechat {
               type: number;
               text_item?: { text?: string };
               voice_item?: { text?: string };
+              image_item?: WechatInboundImage;
             }>;
           };
           const messageId = msg.message_id ?? msg.msg_id;
@@ -467,15 +475,20 @@ export class MoriAssistantWechat {
             continue;
           const id = String(messageId);
           if (this.state.inbox.some((item) => item.id === id)) continue;
-          const text = (msg.item_list ?? [])
-            .map((item) => item.text_item?.text ?? item.voice_item?.text ?? "")
-            .filter(Boolean)
+          const items = Array.isArray(msg.item_list) ? msg.item_list : [];
+          const text = items
+            .map((item) => item?.text_item?.text ?? item?.voice_item?.text)
+            .filter((value): value is string => typeof value === "string" && Boolean(value.trim()))
             .join("\n");
+          const images = items
+            .filter((item) => item?.type === IMAGE_ITEM_TYPE)
+            .map((item) => item.image_item ?? {});
           this.state.inbox.push({
             id,
             userId: msg.from_user_id,
             contextToken: msg.context_token,
-            text: text || "[此消息没有可处理的文字]",
+            text,
+            ...(images.length ? { images } : {}),
             status: "queued",
           });
         }
@@ -484,7 +497,8 @@ export class MoriAssistantWechat {
         await this.save(); // Cursor and inbound queue are committed together before processing.
         if (this.draining && this.deps.respondIfPending) {
           for (const message of this.state.inbox) {
-            if (message.status !== "queued") continue;
+            // A picture or caption must not be consumed as an answer to a pending approval.
+            if (message.status !== "queued" || !message.text.trim() || message.images?.length) continue;
             if (await this.deps.respondIfPending(message.text)) {
               message.status = "done";
               await this.save();
@@ -494,7 +508,7 @@ export class MoriAssistantWechat {
         }
         this.update({ status: "connected" });
         failures = 0;
-        this.drainWork ??= this.drain().finally(() => {
+        this.drainWork ??= this.drain(controller.signal).finally(() => {
           this.drainWork = undefined;
         });
         await this.flushOutbox();
@@ -507,7 +521,7 @@ export class MoriAssistantWechat {
     }
   }
 
-  private async drain(): Promise<void> {
+  private async drain(signal: AbortSignal): Promise<void> {
     if (this.draining) return;
     this.draining = true;
     const generation = this.generation;
@@ -521,13 +535,14 @@ export class MoriAssistantWechat {
         const traceId = randomUUID();
         const diagnostic: WechatTypingDiagnostic = (event, fields) =>
           this.deps.typingDiagnostic?.(event, { ...fields, traceId });
+        const supported = Boolean(message.text.trim() || message.images?.length);
         diagnostic("processing", {
           waitingForInput: this.waitingForInput,
           enabled: this.enabled,
-          supported: message.text !== "[此消息没有可处理的文字]",
+          supported,
         });
         const typing =
-          this.enabled && message.text !== "[此消息没有可处理的文字]"
+          this.enabled && supported
             ? new MoriWechatTyping({
                 userId: message.userId,
                 contextToken: message.contextToken,
@@ -545,10 +560,23 @@ export class MoriAssistantWechat {
         typing?.setWaiting(this.waitingForInput);
         let cleanup: Promise<void> | undefined;
         try {
-          const reply =
-            message.text === "[此消息没有可处理的文字]"
-              ? "第一版支持文字和微信已转写的语音，请发送文字说明任务。"
-              : await this.deps.receive(message.text, message.id);
+          const images: PersistedPromptImage[] = [];
+          for (const image of message.images ?? []) {
+            const { bytes, mediaType } = await downloadWechatImage(image, signal);
+            signal.throwIfAborted();
+            try {
+              images.push(await this.imageStore.persistImageBytes(bytes, mediaType));
+            } catch (cause) {
+              const code = (cause as NodeJS.ErrnoException).code;
+              throw new Error(`微信图片保存失败${code ? `（${code}）` : ""}。`, { cause });
+            }
+          }
+          if (generation !== this.generation) return;
+          if (images.length) signal.throwIfAborted();
+          delete message.images;
+          const reply = supported
+            ? await this.deps.receive(message.text, message.id, images)
+            : "Mori 暂不支持这类微信消息，请发送文字、图片或微信已转写的语音。";
           cleanup = typing?.stop("reply-ready");
           if (generation !== this.generation) return;
           if (!reply.trim()) throw new Error("助手没有生成可发送的文字回复，请在桌面端检查任务状态。");
@@ -562,6 +590,12 @@ export class MoriAssistantWechat {
         } catch (error) {
           cleanup = typing?.stop("processing-failed");
           if (generation !== this.generation) return;
+          if (signal.aborted && message.images?.length) {
+            message.status = "queued";
+            await this.save();
+            return;
+          }
+          delete message.images;
           message.status = "failed";
           message.error = error instanceof Error ? error.message : String(error);
           this.state.outbox.push({

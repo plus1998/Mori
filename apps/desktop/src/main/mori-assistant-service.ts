@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type { ConversationEventType, ConversationMessage } from "@eco/shared";
-import type { ThreadRuntimeConfig, ThreadSummary } from "../shared/ipc";
+import type { PromptImageAttachment, ThreadRuntimeConfig, ThreadSummary } from "../shared/ipc";
 import type {
   MoriAssistantPendingInput,
   MoriAssistantSettings,
@@ -30,6 +30,7 @@ import { MoriScheduledActions, type MoriScheduledContext } from "./mori-schedule
 import type { SchedulingStore } from "./scheduling-store";
 import type { MoriScheduledNotification } from "../shared/mori-scheduled-action";
 import type { WechatNotification } from "./mori-assistant-wechat";
+import { isPromptImageAttachmentRecord, isPromptImageContentRef, type PersistedPromptImage } from "./prompt-image-file-store";
 import { explicitlyRequestsWechat, wechatNotificationId } from "./wechat-notification-policy";
 export { explicitlyRequestsWechat } from "./wechat-notification-policy";
 
@@ -109,11 +110,12 @@ export const MORI_ASSISTANT_TOOLS: AssistantTool[] = [
   ),
   tool(
     "mori_start_task",
-    "新建 Agent 工作会话并立即开始任务，返回 threadId，后台继续执行。普通任务必须提供 projectPath 和 prompt；执行待办时提供 todoId，使用原待办所属项目及完整引用，prompt 可补充要求，不能另选项目。当前请求来自微信或用户明确要求微信通知时，可设置 notifyWechat。",
+    "新建 Agent 工作会话并立即开始任务，返回 threadId，后台继续执行。普通任务必须提供 projectPath 和 prompt；执行待办时提供 todoId，使用原待办所属项目及完整引用，prompt 可补充要求，不能另选项目。任务需要微信图片时，传入对应的 wechatImageMessageId。当前请求来自微信或用户明确要求微信通知时，可设置 notifyWechat。",
     {
       todoId: text,
       projectPath: text,
       prompt: text,
+      wechatImageMessageId: text,
       coreKind: { type: "string", enum: ["claude", "codex", "pi", "acp"] },
       modelId: { type: "string" },
       providerId: { type: "string" },
@@ -132,8 +134,8 @@ export const MORI_ASSISTANT_TOOLS: AssistantTool[] = [
   ),
   tool(
     "mori_send_to_task",
-    "向现有 Agent 工作会话发送消息或待办；运行中按现有机制排队。text 和 todoId 至少提供一项；待办必须与目标会话属于同一项目，发送原待办引用以便 Agent 读取图片和回写状态。发送成功只表示已接收，不表示待办已完成。",
-    { threadId: text, text, todoId: text },
+    "向现有 Agent 工作会话发送消息、微信图片或待办；运行中按现有机制排队。text、wechatImageMessageId 和 todoId 至少提供一项；待办必须与目标会话属于同一项目，发送原待办引用以便 Agent 读取图片和回写状态。发送成功只表示已接收，不表示待办已完成。",
+    { threadId: text, text, todoId: text, wechatImageMessageId: text },
     ["threadId"],
   ),
   tool("mori_cancel_task", "停止用户指定的工作会话。不会删除历史。", { threadId: text }, ["threadId"]),
@@ -460,8 +462,9 @@ export class MoriAssistantService {
     value: unknown,
     source: "desktop" | "wechat" | "task" | "schedule" = "desktop",
     commandId: string = randomUUID(),
+    images: readonly PersistedPromptImage[] = [],
   ): Promise<void> {
-    const accepted = await this.enqueue(value, source, commandId);
+    const accepted = await this.enqueue(value, source, commandId, undefined, undefined, images);
     await accepted.completion;
   }
 
@@ -471,13 +474,17 @@ export class MoriAssistantService {
     commandId: string = randomUUID(),
     targetThreadId?: string,
     scheduled?: MoriScheduledContext,
+    images: readonly PersistedPromptImage[] = [],
   ): Promise<{ completion: Promise<void> }> {
-    if (typeof value !== "string" || !value.trim() || value.length > 100_000)
+    if (typeof value !== "string" || (!value.trim() && !images.length) || value.length > 100_000)
       throw new Error("请输入 1–100000 个字符。");
     if (!this.settings.enabled) throw new Error("请先在助手设置中启用 Mori。");
     if (this.closed || this.stopped) throw new Error("助手服务已停止。");
+    const prompt = value.trim() || "[微信图片]";
     this.pendingSends += 1;
-    const prepare = this.prepareQueue.then(() => this.acceptMessage(scheduled?.occurrence.definition.prompt ?? value.trim(), source, commandId, targetThreadId));
+    const prepare = this.prepareQueue.then(() =>
+      this.acceptMessage(scheduled?.occurrence.definition.prompt ?? prompt, source, commandId, targetThreadId, images),
+    );
     this.prepareQueue = prepare.then(
       () => {},
       () => {},
@@ -493,7 +500,7 @@ export class MoriAssistantService {
       this.pendingSends -= 1;
       return { completion: Promise.resolve() };
     }
-    const work = this.sendQueue.then(() => this.run(value.trim(), source, commandId, accepted.threadId, scheduled));
+    const work = this.sendQueue.then(() => this.run(prompt, source, commandId, accepted.threadId, scheduled, images));
     const completion = work.finally(() => {
       this.pendingSends -= 1;
       this.emit();
@@ -510,7 +517,8 @@ export class MoriAssistantService {
     prompt: string,
     source: "desktop" | "wechat" | "task" | "schedule",
     commandId: string,
-    targetThreadId?: string,
+    targetThreadId: string | undefined,
+    images: readonly PersistedPromptImage[],
   ): Promise<{ threadId: string; duplicate: boolean }> {
     if (targetThreadId && (!this.store.state.sessions.some(item => item.threadId === targetThreadId) || !this.deps.conversations.getThread(targetThreadId))) throw new Error("目标 Mori 会话不存在或已删除。");
     let threadId = targetThreadId ?? this.store.state.currentThreadId;
@@ -548,6 +556,7 @@ export class MoriAssistantService {
       messageId,
       turnId: `mori-run-${commandId}`,
       text: prompt,
+      ...(images.length ? { attachments: images.map(({ mediaType, contentRef, byteLength }) => ({ mediaType, contentRef, byteLength })) } : {}),
     });
     this.store.state.sourceByMessage[messageId] = source;
     if (source !== "schedule") this.store.state.draft = "";
@@ -561,7 +570,8 @@ export class MoriAssistantService {
     source: "desktop" | "wechat" | "task" | "schedule",
     commandId: string,
     threadId: string,
-    scheduled?: MoriScheduledContext,
+    scheduled: MoriScheduledContext | undefined,
+    images: readonly PersistedPromptImage[],
   ): Promise<void> {
     const runId = `mori-run-${commandId}`;
     const userId = `mori-user-${commandId}`;
@@ -604,7 +614,7 @@ export class MoriAssistantService {
           this.emit();
           const runtime = this.runtime;
           if (!runtime) throw new Error("助手运行实例已断开。");
-          await runtime.send(prompt, this.settings, source);
+          await runtime.send(prompt, this.settings, source, images.map((image) => image.path), userId);
           if (this.stopped || this.closed) throw new Error("助手已停止。");
           break;
         } catch (error) {
@@ -881,6 +891,22 @@ export class MoriAssistantService {
     return this.activeSource === "wechat" || explicitlyRequestsWechat(this.activePrompt);
   }
 
+  private wechatTaskAttachments(messageId: string): PromptImageAttachment[] {
+    if (!messageId) return [];
+    const threadId = this.activeThreadId;
+    const message = threadId && this.store.state.sourceByMessage[messageId] === "wechat"
+      ? this.deps.conversations.conversationV2().getMessage(threadId, messageId)
+      : undefined;
+    if (!message || message.role !== "user" || message.isDeleted || !message.attachments?.length)
+      throw new Error("当前 Mori 会话中找不到这条微信图片消息。");
+    return message.attachments.map((image) => {
+      if (!isPromptImageAttachmentRecord(image) || !isPromptImageContentRef(image.contentRef))
+        throw new Error("这条微信消息的图片引用无效，请重新发送图片。");
+      const { mediaType, contentRef, byteLength } = image;
+      return { mediaType, contentRef, ...(byteLength === undefined ? {} : { byteLength }) };
+    });
+  }
+
   private async viewComputerScreenshot(path: string, prompt: string, signal: AbortSignal) {
     const threadId = this.activeThreadId ?? "";
     try {
@@ -1089,6 +1115,7 @@ export class MoriAssistantService {
     if (name === "mori_open_project") return this.deps.invoke("workspace:open-path", [str("projectPath")]);
     if (name === "mori_start_task") {
       const todo = str("todoId") ? await this.todos.task(str("todoId"), str("prompt"), signal) : undefined;
+      const attachments = this.wechatTaskAttachments(str("wechatImageMessageId"));
       if (!todo && (!str("projectPath") || !str("prompt")))
         throw new Error("普通任务必须提供 projectPath 和 prompt；执行待办请提供 todoId。");
       if (todo && str("projectPath") && this.taskProjectPath(str("projectPath")) !== todo.projectPath)
@@ -1107,6 +1134,7 @@ export class MoriAssistantService {
         {
           workspacePath: projectPath,
           prompt: todo?.prompt ?? str("prompt"),
+          ...(attachments.length ? { attachments } : {}),
           coreKind: str("coreKind") || "codex",
           runtimeConfig: config,
         },
@@ -1151,7 +1179,8 @@ export class MoriAssistantService {
     if (name === "mori_send_to_task") {
       const target = thread();
       const todo = str("todoId") ? await this.todos.task(str("todoId"), str("text"), signal) : undefined;
-      if (!todo && !str("text")) throw new Error("请提供 text 或 todoId。");
+      const attachments = this.wechatTaskAttachments(str("wechatImageMessageId"));
+      if (!todo && !str("text") && !attachments.length) throw new Error("请提供 text、wechatImageMessageId 或 todoId。");
       if (todo && this.taskProjectPath(target.workspacePath) !== todo.projectPath)
         throw new Error("待办与目标 Agent 会话不属于同一项目，请选择原项目中的会话。");
       const receipt = await this.deps.invoke("conversation:send-message", [
@@ -1160,6 +1189,7 @@ export class MoriAssistantService {
           clientCommandId: `mori-tool-${callId}`,
           conversationId: target.id,
           text: todo?.prompt ?? str("text"),
+          ...(attachments.length ? { attachments } : {}),
         },
       ]);
       if (this.activeSchedule) {

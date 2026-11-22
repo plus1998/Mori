@@ -142,6 +142,9 @@ export class MoriAssistantRuntime {
       [
         'cli_auth_credentials_store = "ephemeral"',
         'web_search = "disabled"',
+        ...(connection.type === "custom"
+          ? [`model_provider = ${JSON.stringify(buildCodexModelProviderSlug(connection.providerId))}`]
+          : []),
         "[features]",
         "shell_tool = false",
         "multi_agent = false",
@@ -335,6 +338,8 @@ export class MoriAssistantRuntime {
     text: string,
     settings: MoriAssistantSettings,
     source: MoriAssistantState["sourceByMessage"][string] = "desktop",
+    imagePaths: string[] = [],
+    messageId?: string,
   ): Promise<void> {
     if (!this.client || !this.threadId) throw new Error("助手会话尚未建立。");
     if (this.completion) throw new Error("助手正在回复，请等待或停止后再发送。");
@@ -361,12 +366,17 @@ export class MoriAssistantRuntime {
           effort: settings.reasoningEffort,
           input: [
             { type: "text", text },
+            ...imagePaths.map((path) => ({ type: "localImage", path })),
             {
               type: "text",
               text: source === "wechat"
                 ? "[Mori 本轮通道上下文] 当前请求来自微信。可使用 mori_send_wechat 直接向用户回复文字或图片，无需再次索要微信发送授权；创建工作任务时可设置 notifyWechat=true 将结果回复微信。只有发送成功后才能确认已发送。"
                 : `[Mori 本轮通道上下文] 当前请求来源：${source}。本轮使用微信发送能力须用户明确要求微信通知，不能沿用历史轮次的微信来源。`,
             },
+            ...(imagePaths.length ? [{
+              type: "text",
+              text: `[Mori 微信图片] 本条消息的图片已附上。${JSON.stringify({ wechatImageMessageId: messageId })}。用户要求把图片交给工作 Agent 时，把这个 ID 传给 mori_start_task 或 mori_send_to_task，由 Mori 转交原图。只有图片且会话里尚无任务说明时，先询问用户想如何处理。`,
+            }] : []),
           ],
         },
         {
