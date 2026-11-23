@@ -14,6 +14,72 @@ import { collectResponsesSseEvents } from "../src/upstream/responses-passthrough
 import { createTestGatewayFetchHandler } from "./test-bridge-rewrite.js";
 
 const FIXTURE = readFileSync(join(import.meta.dirname, "fixtures", "anthropic-text-stream.sse"), "utf8");
+const STRATA_MODEL = "qwen3.8-flash-next-iq3_s";
+
+async function requestResponsesWithAnthropicUsage(
+  startUsage: Record<string, number | undefined>,
+  finalUsage: Record<string, number | undefined>,
+) {
+  const provider: GatewayProvider = {
+    id: "strata",
+    name: "Strata mock",
+    upstreamKind: "anthropic-messages",
+    baseUrl: "https://mock.anthropic.test",
+    apiKey: "test-key",
+    upstreamModelId: STRATA_MODEL,
+    models: [STRATA_MODEL],
+  };
+  const usageEvents: GatewayUsageEvent[] = [];
+  const logs: string[] = [];
+  const upstreamEvents = [
+    {
+      type: "message_start",
+      message: {
+        id: "msg_cache_split",
+        type: "message",
+        role: "assistant",
+        model: STRATA_MODEL,
+        content: [],
+        stop_reason: null,
+        usage: startUsage,
+      },
+    },
+    { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: finalUsage },
+    { type: "message_stop" },
+  ];
+  const stream = upstreamEvents
+    .map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`)
+    .join("");
+  const handler = createTestGatewayFetchHandler(
+    { host: "127.0.0.1", port: 0, providers: [provider] },
+    async () => new Response(stream, { headers: { "content-type": "text/event-stream" } }),
+    (message) => logs.push(message),
+    (event) => usageEvents.push(event),
+  );
+  const response = await handler(
+    new Request("http://127.0.0.1/v1/responses", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-codex-turn-metadata": JSON.stringify({
+          thread_id: "codex-root",
+          turn_id: "turn-cache-split",
+          request_kind: "turn",
+        }),
+      },
+      body: JSON.stringify({ model: STRATA_MODEL, stream: true, input: JSON.stringify("Hi") }),
+    }),
+  );
+  const text = await response.text();
+  if (response.status !== 200) {
+    throw new Error(`Expected Responses SSE, got HTTP ${response.status}: ${text}`);
+  }
+  const completion = text.split("\n").find((line) => line.startsWith('data: {"type":"response.completed"'));
+  if (!completion) {
+    throw new Error("Expected response.completed in converted Anthropic stream");
+  }
+  return { usageEvents, logs, completedUsage: JSON.parse(completion.slice("data: ".length)).response.usage };
+}
 
 function anthropicFixtureToResponsesEventTypes(): string[] {
   const state = newAnthropicEventToResponsesState();
@@ -184,6 +250,91 @@ describe("anthropic-messages golden SSE", () => {
         requestKind: "turn",
       },
     });
+  });
+
+  test.each([
+    {
+      name: "Strata classifies provisional input as cache writes",
+      start: { input_tokens: 56, output_tokens: 0 },
+      final: {
+        input_tokens: 1,
+        cache_read_input_tokens: 0,
+        cache_creation_input_tokens: 55,
+        output_tokens: 16,
+      },
+      usage: { inputTokens: 1, cacheReadTokens: 0, cacheCreationTokens: 55, outputTokens: 16 },
+      totalInput: 56,
+      totalTokens: 72,
+    },
+    {
+      name: "QwenCloud reports a higher final input total after classifying cache reads",
+      start: { input_tokens: 8834, output_tokens: 0 },
+      final: {
+        input_tokens: 18,
+        cache_read_input_tokens: 8831,
+        cache_creation_input_tokens: 0,
+        output_tokens: 426,
+      },
+      usage: { inputTokens: 18, cacheReadTokens: 8831, cacheCreationTokens: 0, outputTokens: 426 },
+      totalInput: 8849,
+      totalTokens: 9275,
+    },
+    {
+      name: "explicit zeros replace prior input and cache read counts",
+      start: { input_tokens: 40, cache_read_input_tokens: 16, output_tokens: 0 },
+      final: {
+        input_tokens: 0,
+        cache_read_input_tokens: 0,
+        cache_creation_input_tokens: 56,
+        output_tokens: 16,
+      },
+      usage: { inputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 56, outputTokens: 16 },
+      totalInput: 56,
+      totalTokens: 72,
+    },
+    {
+      name: "output-only delta keeps the initial input and cache split",
+      start: {
+        input_tokens: 1,
+        cache_read_input_tokens: 23,
+        cache_creation_input_tokens: 32,
+        output_tokens: 0,
+      },
+      final: { output_tokens: 16 },
+      usage: { inputTokens: 1, cacheReadTokens: 23, cacheCreationTokens: 32, outputTokens: 16 },
+      totalInput: 56,
+      totalTokens: 72,
+    },
+  ])("settles billed and client usage when $name", async ({
+    start,
+    final,
+    usage,
+    totalInput,
+    totalTokens,
+  }) => {
+    const { usageEvents, completedUsage } = await requestResponsesWithAnthropicUsage(start, final);
+    expect(usageEvents).toHaveLength(1);
+    expect(usageEvents[0]).toMatchObject({
+      source: "responses",
+      responseId: "msg_cache_split",
+      codexTurnMetadata: { threadId: "codex-root", turnId: "turn-cache-split" },
+      usage,
+    });
+    expect(completedUsage).toEqual({
+      input_tokens: totalInput,
+      output_tokens: usage.outputTokens,
+      total_tokens: totalTokens,
+      ...(usage.cacheReadTokens > 0 && { input_tokens_details: { cached_tokens: usage.cacheReadTokens } }),
+    });
+  });
+
+  test("invalid cache usage still prevents billing a completed stream", async () => {
+    const { usageEvents, logs } = await requestResponsesWithAnthropicUsage(
+      { input_tokens: 56, output_tokens: 0 },
+      { input_tokens: 1, cache_creation_input_tokens: -55, output_tokens: 16 },
+    );
+    expect(usageEvents).toHaveLength(0);
+    expect(logs).toContainEqual(expect.stringContaining("reason=invalid_message_delta_usage"));
   });
 
   test("non-stream Anthropic usage preserves cache counters and child turn metadata", async () => {

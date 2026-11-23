@@ -106,7 +106,14 @@ export interface AnthropicStreamEvent {
   index?: number | undefined;
   content_block?: AnthropicContentBlock | undefined;
   delta?: AnthropicDelta | undefined;
-  usage?: AnthropicUsage | undefined;
+  usage?:
+    | {
+        output_tokens: number;
+        input_tokens?: number | null | undefined;
+        cache_creation_input_tokens?: number | null | undefined;
+        cache_read_input_tokens?: number | null | undefined;
+      }
+    | undefined;
 }
 
 export interface AnthropicDelta {

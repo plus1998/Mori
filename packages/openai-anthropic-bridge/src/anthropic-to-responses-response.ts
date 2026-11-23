@@ -535,15 +535,16 @@ function anthToResHandleMessageDelta(
   state: AnthropicEventToResponsesState,
 ): ResponsesStreamEvent[] {
   if (evt.usage !== undefined) {
-    state.outputTokens = evt.usage.output_tokens;
-    if (evt.usage.input_tokens > 0) {
-      state.inputTokens = evt.usage.input_tokens;
+    const { output_tokens, input_tokens, cache_read_input_tokens, cache_creation_input_tokens } = evt.usage;
+    state.outputTokens = output_tokens;
+    if (typeof input_tokens === "number" && input_tokens >= 0) {
+      state.inputTokens = input_tokens;
     }
-    if (evt.usage.cache_read_input_tokens > 0) {
-      state.cacheReadInputTokens = evt.usage.cache_read_input_tokens;
+    if (typeof cache_read_input_tokens === "number" && cache_read_input_tokens >= 0) {
+      state.cacheReadInputTokens = cache_read_input_tokens;
     }
-    if (evt.usage.cache_creation_input_tokens > 0) {
-      state.cacheCreationInputTokens = evt.usage.cache_creation_input_tokens;
+    if (typeof cache_creation_input_tokens === "number" && cache_creation_input_tokens >= 0) {
+      state.cacheCreationInputTokens = cache_creation_input_tokens;
     }
   }
 

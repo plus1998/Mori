@@ -11,7 +11,6 @@ export type AnthropicStreamUsageRejectionReason =
   | "invalid_message_start_usage"
   | "message_delta_before_start"
   | "invalid_message_delta_usage"
-  | "non_monotonic_message_delta_usage"
   | "missing_message_start"
   | "missing_message_delta_usage"
   | "missing_message_stop"
@@ -82,24 +81,12 @@ export function trackAnthropicStreamUsage(
       tracker.rejectionReason = "invalid_message_delta_usage";
       return;
     }
-    if (
-      delta.outputTokens < tracker.usage.outputTokens ||
-      (delta.inputTokens !== undefined && delta.inputTokens < tracker.usage.inputTokens) ||
-      (delta.cacheReadTokens !== undefined && delta.cacheReadTokens < tracker.usage.cacheReadTokens) ||
-      (delta.cacheCreationTokens !== undefined &&
-        delta.cacheCreationTokens < tracker.usage.cacheCreationTokens)
-    ) {
-      tracker.rejectionReason = "non_monotonic_message_delta_usage";
-      return;
-    }
+    // Delta usage is a cumulative snapshot of the fields it reports. Some
+    // compatible providers reclassify provisional input as cache reads or
+    // writes, so a valid later count can be lower, including an explicit zero.
     tracker.usage = {
       ...tracker.usage,
-      outputTokens: delta.outputTokens,
-      ...(delta.inputTokens !== undefined && { inputTokens: delta.inputTokens }),
-      ...(delta.cacheReadTokens !== undefined && { cacheReadTokens: delta.cacheReadTokens }),
-      ...(delta.cacheCreationTokens !== undefined && {
-        cacheCreationTokens: delta.cacheCreationTokens,
-      }),
+      ...delta,
     };
     tracker.finalUsageSeen = true;
     return;
