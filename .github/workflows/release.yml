@@ -56,6 +56,13 @@ jobs:
       - name: Test desktop release policies
         run: bun run --cwd apps/desktop test:release
 
+      - name: Test Codex Gateway billing and Anthropic request conversion
+        run: |
+          bun test \
+            apps/desktop/test/codex-gateway-usage-billing.test.ts \
+            apps/gateway/test/anthropic-messages-golden.test.ts \
+            packages/openai-anthropic-bridge/test/responses-roundtrip.test.ts
+
       - name: Typecheck desktop release surface
         run: bun run --cwd apps/desktop typecheck:release
 

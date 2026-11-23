@@ -188,6 +188,56 @@ describe("roundtrip", () => {
     expect(blocks[0]?.content).toEqual([{ type: "text", text: "list result" }]);
   });
 
+  test("Anthropic history keeps the parse failure without replaying the rejected tool call", () => {
+    const failedCall = {
+      type: "function_call",
+      call_id: "call_invalid",
+      name: "call_tool",
+      arguments: '{"arguments": , "name": "mori_agent_browser:agent_browser_snapshot"}',
+    };
+    const failedOutput = {
+      type: "function_call_output",
+      call_id: "call_invalid",
+      output: [
+        { type: "input_text", text: "Wall time: 0.0001 seconds\nOutput:" },
+        { type: "input_text", text: "err: expected value at line 1 column 15" },
+      ],
+    };
+    const followUp = {
+      type: "message",
+      role: "user",
+      content: [{ type: "input_text", text: "Try again." }],
+    };
+    const request = responsesToAnthropicRequest({
+      model: "claude-test",
+      input: [
+        { type: "function_call", call_id: "call_valid", name: "lookup", arguments: '{"q":"x"}' },
+        failedCall,
+        failedOutput,
+        { type: "function_call_output", call_id: "call_valid", output: "found" },
+        followUp,
+      ],
+    });
+    expect(request.messages).toEqual([
+      {
+        role: "assistant",
+        content: [{ type: "tool_use", id: "call_valid", name: "lookup", input: { q: "x" } }],
+      },
+      {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "call_valid", content: "found" },
+          { type: "text", text: expect.stringContaining("err: expected value at line 1 column 15") },
+          { type: "text", text: "Try again." },
+        ],
+      },
+    ]);
+    expect(() => responsesToAnthropicRequest({
+      model: "claude-test",
+      input: [failedCall, { ...failedOutput, output: "found" }, followUp],
+    })).toThrow();
+  });
+
   test("responses reasoning summary and encrypted_content roundtrip through anthropic blocks", () => {
     const anthropic = responsesToAnthropic(
       {

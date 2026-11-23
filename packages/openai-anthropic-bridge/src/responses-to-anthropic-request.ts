@@ -160,6 +160,13 @@ function convertResponsesInputToAnthropic(
 
   let system: unknown | undefined;
   const messages: AnthropicMessage[] = [];
+  const functionOutputs = new Map(
+    items
+      .filter((item) => item.type === "function_call_output" && item.call_id)
+      .map((item) => [item.call_id, item] as const),
+  );
+  const rejectedOutputs = new Map<ResponsesInputItem, AnthropicContentBlock>();
+  const rejectedDiagnostics = new Set<AnthropicContentBlock>();
 
   for (const item of items) {
     if (item.role === "system" || item.role === "developer") {
@@ -176,17 +183,37 @@ function convertResponsesInputToAnthropic(
         });
       }
     } else if (item.type === "function_call") {
-      let input: unknown = {};
-      if (item.arguments !== undefined && item.arguments !== "") {
-        input = jsonParse(item.arguments);
-      }
       const wireName = item.name ?? "";
       const namespace =
         typeof (item as { namespace?: unknown }).namespace === "string"
           ? (item as { namespace: string }).namespace
           : undefined;
       const toolName = chatNameForResponseFunction(toolContext, wireName, namespace);
-      if (isCustomToolChatName(toolContext, toolName) || isCustomToolChatName(toolContext, wireName)) {
+      const isCustom = isCustomToolChatName(toolContext, toolName) || isCustomToolChatName(toolContext, wireName);
+      let input: unknown;
+      try {
+        input = item.arguments !== undefined && item.arguments !== "" ? jsonParse(item.arguments) : {};
+        if (!isCustom && (input === null || typeof input !== "object" || Array.isArray(input))) {
+          throw new Error("Function call arguments must be a JSON object.");
+        }
+      } catch (error) {
+        const rejectedOutput = functionOutputs.get(item.call_id);
+        const failure = extractTextFromContent(rejectedOutput?.output);
+        // Codex records the rejected call as well as its parse error. Anthropic
+        // needs a JSON object for tool_use.input, so represent the actual error
+        // in the transcript without sending a tool_use for the rejected attempt.
+        if (!rejectedOutput || !isFunctionArgumentParseFailure(failure)) {
+          throw error;
+        }
+        const diagnostic: AnthropicContentBlock = {
+          type: "text",
+          text: `Tool call ${toolName} was rejected before execution because its arguments could not be parsed.\n${failure}`,
+        };
+        rejectedOutputs.set(rejectedOutput, diagnostic);
+        rejectedDiagnostics.add(diagnostic);
+        continue;
+      }
+      if (isCustom) {
         input = {
           [CUSTOM_TOOL_INPUT_FIELD]: customToolInputFromChatArguments(
             typeof item.arguments === "string" ? item.arguments : jsonMarshal(input),
@@ -225,6 +252,11 @@ function convertResponsesInputToAnthropic(
         content: [block],
       });
     } else if (item.type === "function_call_output" || item.type === "custom_tool_call_output") {
+      const rejectedDiagnostic = rejectedOutputs.get(item);
+      if (rejectedDiagnostic) {
+        messages.push({ role: "user", content: [rejectedDiagnostic] });
+        continue;
+      }
       const content = convertResponsesFunctionCallOutputToAnthropicContent(item.output);
       const block: AnthropicContentBlock = {
         type: "tool_result",
@@ -258,13 +290,29 @@ function convertResponsesInputToAnthropic(
     }
   }
 
-  const merged = sanitizeAnthropicMessages(mergeConsecutiveMessages(messages));
+  const merged = mergeConsecutiveMessages(messages);
+  if (rejectedDiagnostics.size > 0) {
+    for (const message of merged) {
+      if (message.role !== "user" || !Array.isArray(message.content)) continue;
+      const blocks = message.content as AnthropicContentBlock[];
+      if (!blocks.some((block) => rejectedDiagnostics.has(block))) continue;
+      // Anthropic requires successful parallel tool results to precede any text.
+      message.content = [
+        ...blocks.filter((block) => block.type === "tool_result"),
+        ...blocks.filter((block) => block.type !== "tool_result"),
+      ];
+    }
+  }
 
   return {
     system,
-    messages: merged,
+    messages: sanitizeAnthropicMessages(merged),
     err: undefined,
   };
+}
+
+function isFunctionArgumentParseFailure(text: string): boolean {
+  return /^(?:failed to parse function arguments:|err: .+ at line \d+ column \d+\s*$)/im.test(text);
 }
 
 function combineResponsesInstructionsAndSystem(

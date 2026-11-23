@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import type { GatewayUsageEvent } from "@eco/gateway";
-import { buildCodexGatewayModelAlias, type CodexThreadAttribution } from "@eco/runtime";
+import { createGatewayFetchHandler, type GatewayUsageEvent } from "@eco/gateway";
+import { buildCodexGatewayModelAlias, type CodexThreadAttribution, resolveCodexContextSnapshot } from "@eco/runtime";
+import { projectBillingFromUsageLedger } from "../src/main/billing-projector";
 import type { RuntimeRoute } from "../src/main/billing-resolver";
 import {
   CodexGatewayUsageDeduplicator,
@@ -8,6 +9,8 @@ import {
 } from "../src/main/codex-gateway-usage-billing";
 import { CodexGatewayUsagePendingBuffer } from "../src/main/codex-gateway-usage-pending";
 import type { ProviderConfigSecret } from "../src/main/provider-store";
+import { resolveSingleUsageBillingOrchestration } from "../src/main/single-usage-billing-orchestration";
+import { InMemoryUsageLedger } from "../src/main/usage-ledger";
 
 const provider: ProviderConfigSecret = {
   id: "provider_test",
@@ -72,6 +75,108 @@ function resolve(event: GatewayUsageEvent, attribution?: CodexThreadAttribution)
 }
 
 describe("Codex Gateway usage billing", () => {
+  test("Anthropic cache corrections reach both Codex context and billed totals", async () => {
+    const modelId = "claude-test";
+    const alias = buildCodexGatewayModelAlias(provider.id, modelId, "anthropic");
+    const runtimeRoutes: RuntimeRoute[] = [{
+      role: "main",
+      provider: { ...provider, apiCompat: "anthropic", defaultModel: modelId },
+      modelId,
+      apiCompat: "anthropic",
+      manualSpec: { inputPerM: 2, outputPerM: 10, cacheReadPerM: 0.1, cacheWritePerM: 2.5 },
+    }];
+    const attribution: CodexThreadAttribution = { ecoThreadId: "thr_1", billingRole: "main" };
+    const threadId = "codex-root";
+    const turnId = "turn-cache-correction";
+    const ledger = new InMemoryUsageLedger();
+    const pendingBilling: Promise<void>[] = [];
+    const gateway = createGatewayFetchHandler({
+      host: "127.0.0.1",
+      port: 0,
+      providers: [{
+        id: provider.id,
+        name: provider.name,
+        baseUrl: provider.baseUrl,
+        apiKey: "test-key",
+        upstreamKind: "anthropic-messages",
+        upstreamModelId: modelId,
+        models: [modelId],
+      }],
+    }, async () => new Response([
+      { type: "message_start", message: {
+        id: "msg_cache_corrected",
+        model: modelId,
+        usage: { input_tokens: 28000, cache_read_input_tokens: 405793, output_tokens: 0 },
+      } },
+      { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: {
+        input_tokens: 1400,
+        cache_read_input_tokens: 0,
+        cache_creation_input_tokens: 25000,
+        output_tokens: 330,
+      } },
+      { type: "message_stop" },
+    ].map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join(""), {
+      headers: { "content-type": "text/event-stream" },
+    }), () => undefined, (event) => {
+      const billingTask = (async () => {
+        const resolved = resolveCodexGatewayUsageBilling({
+          event,
+          resolveThreadAttribution: (id) => id === threadId ? attribution : undefined,
+          resolveParentCodexThreadId: () => undefined,
+          resolveRuntimeRoutes: () => runtimeRoutes,
+          plannerAgentId: () => "planner_1",
+        });
+        if (resolved.status !== "resolved") throw new Error(resolved.reason);
+        const billing = await resolveSingleUsageBillingOrchestration({
+          request: resolved.billingInput,
+          runtimeRoutes,
+          lookupPricing: async () => null,
+        });
+        if (!billing) throw new Error("The final provider usage did not reach billing.");
+        ledger.appendUsageEvent(billing.effectsInput.artifacts.ledgerEvent);
+      })();
+      pendingBilling.push(billingTask);
+      return billingTask;
+    });
+    const response = await gateway(new Request("http://127.0.0.1/v1/responses", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-gateway-provider-id": provider.id,
+        "x-gateway-requested-model": alias,
+        "x-codex-turn-metadata": JSON.stringify({ thread_id: threadId, turn_id: turnId, request_kind: "turn" }),
+      },
+      body: JSON.stringify({ model: modelId, stream: true, input: JSON.stringify("Hi") }),
+    }));
+    const responseText = await response.text();
+    const completion = responseText.split("\n").find((line) => line.startsWith('data: {"type":"response.completed"'));
+    if (!completion) throw new Error(`Expected a Responses completion, got HTTP ${response.status}: ${responseText}`);
+    const { usage } = JSON.parse(completion.slice("data: ".length)).response;
+    const last = {
+      inputTokens: usage.input_tokens,
+      cachedInputTokens: usage.input_tokens_details?.cached_tokens ?? 0,
+      outputTokens: usage.output_tokens,
+      reasoningOutputTokens: 0,
+      totalTokens: usage.total_tokens,
+    };
+    const context = resolveCodexContextSnapshot({
+      params: { threadId, turnId, tokenUsage: { last, total: last, modelContextWindow: 1_000_000 } },
+      attribution,
+    });
+    await Promise.all(pendingBilling);
+    const events = ledger.listUsageEvents(attribution.ecoThreadId);
+    expect({
+      ledgerRows: events.length,
+      contextOccupied: context?.contextOccupied,
+    }).toEqual({ ledgerRows: 1, contextOccupied: 26_730 });
+    const { snapshot } = projectBillingFromUsageLedger({ events });
+    expect(snapshot).toMatchObject({
+      totalTokens: { input: 1400, output: 330, cacheRead: 0, cacheCreation: 25000 },
+      pricingResolved: true,
+    });
+    expect(snapshot?.ecoCostUsd).toBeCloseTo(0.0686, 8);
+  });
+
   test("resolves a root turn to the existing Codex ledger and pricing contract", () => {
     const result = resolve(usageEvent(), { ecoThreadId: "thr_1", billingRole: "main" });
 

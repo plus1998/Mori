@@ -317,6 +317,13 @@ test("MCP Hub exposes only fixed search and call wrappers to the transport", asy
     total: 1,
     hasMore: false,
   });
+  await expect(handlers.callTool({
+    name: "call_tool",
+    arguments: { name: "probe.echo", arguments: { value: "ok" } },
+    authToken: "token-a",
+    headers: {},
+    signal: new AbortController().signal,
+  })).rejects.toThrow("Copy the exact server:tool name from search_tools");
   const result = await handlers.callTool({
     name: "call_tool",
     arguments: { name: "probe:echo", arguments: { value: "ok" } },

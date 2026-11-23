@@ -278,7 +278,11 @@ export class McpHub {
     const session = this.resolveSession(input.token);
     const toolId = canonicalToolId(input.toolId);
     const separator = toolId.indexOf(":");
-    if (separator <= 0) throw new Error(`Invalid MCP Hub tool id: ${input.toolId}`);
+    if (separator <= 0 || separator === toolId.length - 1) {
+      throw new Error(
+        `Invalid MCP Hub tool id: ${input.toolId}. Copy the exact server:tool name from search_tools, including the colon.`,
+      );
+    }
     const serverName = toolId.slice(0, separator);
     const toolName = toolId.slice(separator + 1);
     if (!this.effectiveServers(session).has(serverName)) {
@@ -387,7 +391,13 @@ export class McpHub {
             inputSchema: {
               type: "object",
               required: ["name"],
-              properties: { name: { type: "string" }, arguments: { type: "object" } },
+              properties: {
+                name: { type: "string", description: "The exact server:tool name returned by search_tools." },
+                arguments: {
+                  type: "object",
+                  description: "Arguments matching the discovered input schema. Use {} for a tool with no arguments.",
+                },
+              },
               additionalProperties: false,
             },
           },
@@ -406,11 +416,11 @@ export class McpHub {
         }
         if (name === "call_tool") {
           const toolId = typeof args.name === "string" ? args.name : "";
-          const nested =
-            args.arguments && typeof args.arguments === "object" && !Array.isArray(args.arguments)
-              ? (args.arguments as Record<string, unknown>)
-              : {};
-          return this.callTool({ token: authToken, toolId, arguments: nested, signal });
+          const nested = args.arguments;
+          if (nested !== undefined && (!nested || typeof nested !== "object" || Array.isArray(nested))) {
+            throw new Error("MCP Hub call_tool arguments must be a JSON object.");
+          }
+          return this.callTool({ token: authToken, toolId, arguments: (nested ?? {}) as Record<string, unknown>, signal });
         }
         throw new Error(`MCP Hub exposes only search_tools and call_tool (got ${name})`);
       },
