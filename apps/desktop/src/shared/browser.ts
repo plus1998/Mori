@@ -70,7 +70,7 @@ export function buildEcoAgentBrowserPromptAppend(
   skillName: string = MORI_AGENT_BROWSER_SKILL_NAME,
 ): string {
   return [
-    "Built-in browser (Mori): browse websites, read pages, fill forms, extract data, capture screenshots and verify web UIs.",
+    "Built-in browser (Mori): use a tabId on every page call; use tab_switch only to show the user a page.",
     buildEcoMcpHubToolUsage({ server: ECO_AGENT_BROWSER_MCP_SERVER }),
     "Tabs are auth-bound to the conversation thread; cookies, localStorage and IndexedDB are shared within this workspace. Mori binds the browser session automatically; do not pass a custom `session`.",
     `Use the bundled Skill \`${skillName}\` for browser workflows. Discover capabilities through tool search; this server exposes tools only.`,
@@ -298,8 +298,10 @@ export interface BrowserViewState {
    * as soon as that page closes — a stale id re-opens a tab for a dead browser.
    */
   activateBrowserId?: string;
-  /** Distinguishes repeated user requests to reveal the same account tab. */
+  /** Distinguishes repeated requests to show the same tab. */
   activationRevision?: number;
+  /** An explicit request to show the page even if the panel is closed. */
+  openPanelOnActivate?: boolean;
 }
 
 export interface BrowserRegisterGuestRequest {

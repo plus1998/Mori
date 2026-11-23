@@ -14,28 +14,6 @@ import {
   shouldSurfaceBrowserInstance,
 } from "../src/shared/browser";
 
-test("agent_browser_open vs tab_new semantics are split in BrowserHost", () => {
-  const browserHostSource = fs.readFileSync(
-    path.join(import.meta.dir, "../src/main/browser-host.ts"),
-    "utf8",
-  );
-  const indexSource = fs.readFileSync(path.join(import.meta.dir, "../src/main/index.ts"), "utf8");
-  const openFn = browserHostSource.match(/private async invokeNativeAgentBrowserOpen[\s\S]*?^ {2}\}/m)?.[0];
-  const tabNewFn = browserHostSource.match(
-    /private async invokeNativeAgentBrowserTabNew[\s\S]*?^ {2}\}/m,
-  )?.[0];
-  expect(openFn).toBeDefined();
-  expect(tabNewFn).toBeDefined();
-  expect(openFn).toContain('source: "agent"');
-  expect(openFn).not.toContain("newBrowser: true");
-  expect(openFn).toContain("updateUiFocus: false");
-  expect(tabNewFn).toContain("newBrowser: true");
-  expect(tabNewFn).toContain("updateUiFocus: false");
-  expect(browserHostSource).not.toContain("shouldOpenAgentUrlInNewBrowser");
-  expect(browserHostSource).not.toContain("notifyAgentBrowserOpen");
-  expect(indexSource).not.toContain("notifyAgentBrowserOpen(");
-});
-
 test("browser MCP logical name stays fixed (no eco_ab multi-name)", () => {
   expect(ecoAgentBrowserRuntimeServerName("thr_1786166513794")).toBe("mori_agent_browser");
   expect(ecoAgentBrowserRuntimeServerName("thr_1786166511000")).toBe("mori_agent_browser");

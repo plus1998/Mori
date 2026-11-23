@@ -106,10 +106,12 @@ test("global resource list includes other conversations and closes pages without
 
 function createViewportGuest(id: number) {
   const commands: Array<{ method: string; params?: Record<string, unknown> }> = [];
+  const navigations: string[] = [];
   let windowOpenHandler: ((details: { url: string }) => unknown) | undefined;
   return {
     id,
     commands,
+    navigations,
     isDestroyed: () => false,
     getType: () => "webview",
     getURL: () => "about:blank",
@@ -121,7 +123,7 @@ function createViewportGuest(id: number) {
     openWindow: (url: string) => windowOpenHandler?.({ url }),
     on: () => {},
     close: () => {},
-    loadURL: async (_url: string) => {},
+    loadURL: async (url: string) => { navigations.push(url); },
     debugger: {
       isAttached: () => true,
       sendCommand: async (method: string, params?: Record<string, unknown>) => {
@@ -132,6 +134,53 @@ function createViewportGuest(id: number) {
   };
 }
 
+test("Agent targets survive human tab switches, popups, and closing a neighboring tab", async () => {
+  const host = createTestHost();
+  const tool = (name: string, args: Record<string, unknown>) =>
+    host.invokeNativeAgentBrowserTool("t1", `agent_browser_${name}`, args);
+  try {
+    const first = (await host.openSharedSession({ threadId: "t1", revealUi: false })).focusedBrowserId!;
+    const firstGuest = createViewportGuest(301);
+    host.registerGuestWebContents(first, firstGuest as never);
+    host.setVisible(true, first);
+    const created = await tool("tab_new", { url: "https://fixture.test/agent" });
+    const { tabId } = JSON.parse(created!.content[0]!.text);
+    const agentGuest = createViewportGuest(302);
+    host.registerGuestWebContents(tabId, agentGuest as never);
+    expect(host.getState().focusedBrowserId).toBe(first);
+    expect(host.getState().activateBrowserId).toBeUndefined();
+
+    const third = (await host.openSharedSession({ threadId: "t1", newBrowser: true, revealUi: false })).focusedBrowserId!;
+    host.setVisible(true, third);
+    await tool("open", { tabId, url: "https://fixture.test/background" });
+    expect(agentGuest.navigations.at(-1)).toBe("https://fixture.test/background");
+    expect(firstGuest.navigations).toEqual([]);
+    expect(host.getState().focusedBrowserId).toBe(third);
+    expect(host.getState().activateBrowserId).toBeUndefined();
+    await expect(tool("open", { url: "https://fixture.test/ambiguous" })).rejects.toThrow("tabId is required");
+    await expect(tool("tab_close", { tabId: third })).rejects.toThrow("user is viewing");
+    await tool("tab_close", { tabId: first });
+    expect((await tool("tab_list", {}))!.content[0]!.text).toContain(`[${tabId}]`);
+    await expect(tool("get_viewport", { tabId: first })).rejects.toThrow("not found");
+    expect(host.getState().focusedBrowserId).toBe(third);
+
+    await tool("tab_switch", { tabId });
+    const state = host.getState();
+    expect(state.focusedBrowserId).toBe(tabId);
+    expect(state.activateBrowserId).toBe(tabId);
+    expect(state.openPanelOnActivate).toBe(true);
+    agentGuest.openWindow("https://fixture.test/popup");
+    expect(host.getState().instances.some(page => page.url.endsWith("/popup"))).toBe(true);
+    expect(host.getState().focusedBrowserId).toBe(tabId);
+    expect(host.getState().activationRevision).toBe(state.activationRevision);
+    host.setVisible(true, third);
+    await tool("tab_switch", { tabId });
+    expect(host.getState().activationRevision).toBe(state.activationRevision! + 1);
+  } finally {
+    host.dispose();
+  }
+});
+
 test("Agent pages keep a fixed viewport through reveal, hide, navigation and guest recreation", async () => {
   const host = createTestHost();
   try {
@@ -140,7 +189,7 @@ test("Agent pages keep a fixed viewport through reveal, hide, navigation and gue
     expect(page.viewport).toEqual(BROWSER_AGENT_DEFAULT_VIEWPORT);
     const guest = createViewportGuest(310);
     host.registerGuestWebContents(page.id, guest as never);
-    await host.ensureScopeGuestsReady("t1");
+    await host.ensureAgentTabReady("t1", page.id);
     expect(
       guest.commands.find((call) => call.method === "Emulation.setDeviceMetricsOverride")?.params,
     ).toMatchObject({ width: 1366, height: 768 });
@@ -159,7 +208,7 @@ test("Agent pages keep a fixed viewport through reveal, hide, navigation and gue
     expect(host.getState().allInstances[0]?.viewport).toEqual(BROWSER_AGENT_DEFAULT_VIEWPORT);
     const replacement = createViewportGuest(311);
     host.registerGuestWebContents(page.id, replacement as never);
-    await host.ensureScopeGuestsReady("t1");
+    await host.ensureAgentTabReady("t1", page.id);
     expect(
       replacement.commands.find((call) => call.method === "Emulation.setDeviceMetricsOverride")?.params,
     ).toMatchObject({ width: 1366, height: 768 });
@@ -176,19 +225,20 @@ test("Agent open stabilizes an unconfigured human tab, honors explicit sizes and
     expect(page.viewport).toBeUndefined();
     const guest = createViewportGuest(312);
     host.registerGuestWebContents(page.id, guest as never);
-    await host.invokeNativeAgentBrowserTool("t1", "agent_browser_open", { url: "https://fixture.test" });
+    await host.invokeNativeAgentBrowserTool("t1", "agent_browser_open", { tabId: page.id, url: "https://fixture.test" });
     expect(host.getState().allInstances[0]?.viewport).toEqual(BROWSER_AGENT_DEFAULT_VIEWPORT);
     await host.invokeNativeAgentBrowserTool("t1", "agent_browser_open", {
+      tabId: page.id,
       url: "https://fixture.test",
       width: 1280,
       height: 800,
     });
     expect(host.getState().allInstances[0]?.viewport).toMatchObject({ width: 1280, height: 800 });
-    await host.invokeNativeAgentBrowserTool("t1", "agent_browser_open", { url: "https://fixture.test/next" });
+    await host.invokeNativeAgentBrowserTool("t1", "agent_browser_open", { tabId: page.id, url: "https://fixture.test/next" });
     expect(host.getState().allInstances[0]?.viewport).toMatchObject({ width: 1280, height: 800 });
     await host.setViewport(page.id, { preset: "auto" });
     const commandCount = guest.commands.length;
-    await host.invokeNativeAgentBrowserTool("t1", "agent_browser_open", { url: "https://fixture.test/auto" });
+    await host.invokeNativeAgentBrowserTool("t1", "agent_browser_open", { tabId: page.id, url: "https://fixture.test/auto" });
     expect(host.getState().allInstances[0]?.viewport).toBeUndefined();
     expect(guest.commands).toHaveLength(commandCount);
 
@@ -219,6 +269,7 @@ test("popups inherit a fixed parent viewport even when the Agent reused a human-
     const guest = createViewportGuest(314);
     host.registerGuestWebContents(page.id, guest as never);
     await host.invokeNativeAgentBrowserTool("t1", "agent_browser_open", {
+      tabId: page.id,
       url: "https://fixture.test",
       width: 1280,
       height: 800,
@@ -248,7 +299,7 @@ test("Agent tools wait for initial viewport application and report application f
     };
     host.registerGuestWebContents(page.id, guest as never);
     let settled = false;
-    const ready = host.ensureScopeGuestsReady("t1").finally(() => {
+    const ready = host.ensureAgentTabReady("t1", page.id).finally(() => {
       settled = true;
     });
     await Promise.resolve();
@@ -295,6 +346,7 @@ test("viewport changes stay tab-scoped and native Agent tools use the authentica
     const otherGuest = createViewportGuest(101);
     host.registerGuestWebContents(second, otherGuest as never);
     const result = await host.invokeNativeAgentBrowserTool("t1", "agent_browser_set_viewport", {
+      tabId: first,
       preset: "phone",
     });
     const state = host.getState();
@@ -408,7 +460,7 @@ test("background Agent tab switches keep the foreground conversation and browser
     host.registerGuestWebContents(second, createViewportGuest(202) as never);
     await host.openSharedSession({ threadId: "b", revealUi: false });
     const foreground = host.getState().focusedBrowserId;
-    await host.invokeNativeAgentBrowserTool("a", "agent_browser_tab_switch", { tabId: "t1" });
+    await host.invokeNativeAgentBrowserTool("a", "agent_browser_tab_switch", { tabId: first });
     expect(host.getState().uiScopeId).toBe("b");
     expect(host.getState().focusedBrowserId).toBe(foreground);
     expect(host.getState().revealBrowserId).toBeUndefined();

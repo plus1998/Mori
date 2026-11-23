@@ -43,7 +43,7 @@ test("reference DevTools targets the exact page even when another same-URL tab h
       });
       expect(JSON.parse(referenced.content[0]!.text!)).toMatchObject({ result: { guestId: 1 } });
     }
-    const focused = await host.invokeNativeAgentBrowserTool("b", "agent_browser_cdp", { method: "DOM.getDocument" });
+    const focused = await host.invokeNativeAgentBrowserTool("b", "agent_browser_cdp", { tabId: second.focusedBrowserId, method: "DOM.getDocument" });
     expect(JSON.parse(focused!.content[0]!.text!)).toMatchObject({ result: { guestId: 2 } });
     expect(a.commands).toEqual(["Page.getResourceContent", "Page.getResourceContent"]);
     expect(b.commands).toEqual(["DOM.getDocument"]);

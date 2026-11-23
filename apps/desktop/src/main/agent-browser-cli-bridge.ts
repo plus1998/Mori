@@ -6,7 +6,7 @@ import { AGENT_BROWSER_IDLE_TIMEOUT_MS, agentBrowserProcesses } from "./agent-br
 export type AgentBrowserCliBridgeInput = {
   binaryPath: string;
   cdpPort: number;
-  /** Eco page id; never confuse Eco's positional tN labels with CLI tab ids. */
+  /** Exact Mori page ID, independent of the CLI tab index. */
   cdpTargetId?: string;
   sessionKey: string;
   threadId?: string;
@@ -88,22 +88,6 @@ export function resolveAgentBrowserTabSwitchArg(args: Record<string, unknown>): 
     return `t${trimmed}`;
   }
   return trimmed;
-}
-
-/** Zero-based index for Eco-native tab_list / tab_switch (same t1…tN labels). */
-export function resolveAgentBrowserTabIndex(args: Record<string, unknown>, tabCount: number): number {
-  const tabArg = resolveAgentBrowserTabSwitchArg(args);
-  const match = /^t(\d+)$/i.exec(tabArg);
-  if (!match) {
-    throw new Error(
-      `Tab "${tabArg}" not found (${tabCount} tab(s) open). Use tabId from tab_list (e.g. t1).`,
-    );
-  }
-  const index = Number.parseInt(match[1]!, 10) - 1;
-  if (index < 0 || index >= tabCount) {
-    throw new Error(`Tab ${tabArg} not found (${tabCount} tab(s) open)`);
-  }
-  return index;
 }
 
 function selectorArg(args: Record<string, unknown>): string | undefined {

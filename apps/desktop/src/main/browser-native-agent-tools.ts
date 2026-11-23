@@ -175,19 +175,20 @@ export function agentBrowserTextResult(text: string, isError = false): AgentBrow
 }
 
 export type AgentBrowserTabEntry = {
+  tabId: string;
   url: string;
 };
 
-/** Match agent-browser CLI `tab list` line format (`[t1] about:blank`). */
+/** Show the stable ID that page tools accept, even when tabs are reordered or closed. */
 export function formatAgentBrowserTabList(tabs: AgentBrowserTabEntry[]): string {
   if (tabs.length === 0) {
     return "(no tabs)";
   }
   return tabs
-    .map((tab, index) => {
+    .map((tab) => {
       const raw = tab.url.trim() || "about:blank";
       const display = isBrowserPlaceholderUrl(raw) ? "about:blank" : raw;
-      return `[t${index + 1}] ${display}`;
+      return `[${tab.tabId}] ${display}`;
     })
     .join("\n");
 }

@@ -194,8 +194,8 @@ test("formatAgentBrowserTabList returns empty sentinel without minting tabs", ()
   expect(formatAgentBrowserTabList([])).toBe("(no tabs)");
 });
 
-test("formatAgentBrowserTabList matches agent-browser tab list lines", () => {
-  expect(formatAgentBrowserTabList([{ url: "about:blank" }, { url: "https://example.com/" }])).toBe(
-    "[t1] about:blank\n[t2] https://example.com/",
+test("formatAgentBrowserTabList prints exact stable tab IDs", () => {
+  expect(formatAgentBrowserTabList([{ tabId: "abc", url: "about:blank" }, { tabId: "def", url: "https://example.com/" }])).toBe(
+    "[abc] about:blank\n[def] https://example.com/",
   );
 });

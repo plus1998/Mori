@@ -6767,7 +6767,7 @@ function App() {
           setSelectedSubagentAgentId(undefined);
         }
       }
-      // User-initiated browser open: switch to the browser tab — but only once per intent.
+      // Explicit request to show a browser tab: switch once per intent.
       // Main keeps `activateBrowserId` set for the page's lifetime, so re-switching on every
       // later emit would drag the user off whatever tab they opened next (files / file viewer).
       if (
@@ -6787,7 +6787,8 @@ function App() {
           setTaskPanelFullscreen(false);
           revealTaskPanel();
         }
-        if ((taskDrawerOpenRef.current || accountPage) && isNewActivation) {
+        if (state.openPanelOnActivate && isNewActivation && !accountPage) revealTaskPanel();
+        if ((taskDrawerOpenRef.current || accountPage || state.openPanelOnActivate) && isNewActivation) {
           setTaskPanelActiveTab(tabId);
           setSelectedSubagentAgentId(undefined);
         }

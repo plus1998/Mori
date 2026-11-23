@@ -9,7 +9,12 @@ import {
 } from "../shared/browser";
 import type { McpSdkConfig } from "../shared/mcp";
 import { type AgentBrowserMcpToolResult, callAgentBrowserToolViaCli } from "./agent-browser-cli-bridge";
-import { agentBrowserCoreToolsCatalog } from "./agent-browser-core-tools";
+import {
+  AGENT_BROWSER_CORE_TOOL_NAMES,
+  agentBrowserCoreToolsCatalog,
+  agentBrowserToolRequiresTabId,
+  requireAgentBrowserTabId,
+} from "./agent-browser-core-tools";
 import { resolveAgentBrowserBinary } from "./agent-browser-resolve";
 import { BrowserMcpAuthRegistry, createBrowserMcpControlSecret } from "./browser-mcp-auth";
 import { BrowserMcpToolClaimRouter } from "./browser-mcp-router";
@@ -26,13 +31,9 @@ const CONTROL_SECRET_HEADER = "X-Eco-Browser-Control-Secret";
 
 export type BrowserMcpGatewayDeps = {
   ensureCdpPort: (threadId: string) => Promise<number>;
-  agentBrowserEnv: (cdpPort: number, threadId: string) => Record<string, string>;
-  ensureScopeGuestsReady?: (threadId: string) => Promise<void>;
-  /** Resolve after guest readiness; the CLI connection is bound to this exact page. */
-  getFocusedTargetId: (threadId: string) => string;
-  afterAgentBrowserClose?: (threadId: string) => Promise<void>;
-  /** Fired when a tools/call is bound to a thread (presence overlay). */
-  onToolCall?: (threadId: string, toolName: string) => void;
+  agentBrowserEnv: (cdpPort: number, sessionId: string) => Record<string, string>;
+  prepareTab: (threadId: string, tabId: string) => Promise<unknown>;
+  noteTabActivity?: (tabId: string) => void;
   /** Eco-native fast paths (screenshot/open) that bypass agent-browser CLI. */
   invokeNativeTool?: (
     threadId: string,
@@ -143,6 +144,7 @@ export class BrowserMcpGateway {
   private async invokeToolViaCli(
     threadId: string,
     cdpPort: number,
+    tabId: string | undefined,
     toolName: string,
     args: Record<string, unknown>,
     signal?: AbortSignal,
@@ -152,14 +154,14 @@ export class BrowserMcpGateway {
     if (!resolved.available || !resolved.binaryPath) {
       throw new Error(resolved.reason ?? "agent-browser 不可用");
     }
-    const sessionKey = browserAgentSessionKey(threadId);
-    const env = this.deps.agentBrowserEnv(cdpPort, threadId);
+    // Each CLI daemon keeps its own page and snapshot refs across calls.
+    const sessionId = tabId ? `tab:${tabId}` : threadId;
+    const sessionKey = browserAgentSessionKey(sessionId);
+    const env = this.deps.agentBrowserEnv(cdpPort, sessionId);
     return callAgentBrowserToolViaCli({
       binaryPath: resolved.binaryPath,
       cdpPort,
-      ...(!["agent_browser_tools_profiles", "agent_browser_close"].includes(toolName)
-        ? { cdpTargetId: this.deps.getFocusedTargetId(threadId) }
-        : {}),
+      ...(tabId ? { cdpTargetId: tabId, browserId: tabId } : {}),
       sessionKey,
       threadId,
       env,
@@ -179,7 +181,7 @@ export class BrowserMcpGateway {
       ...(authToken !== undefined ? { authToken } : {}),
       toolName: name,
     });
-    // Native tab switches and CLI commands share one ordered stream per thread.
+    // Keep calls ordered within a conversation, including tab creation and closure.
     const previous = this.threadCalls.get(threadId) ?? Promise.resolve();
     const call = previous
       .catch(() => {})
@@ -199,20 +201,21 @@ export class BrowserMcpGateway {
     signal?: AbortSignal,
   ): Promise<AgentBrowserMcpToolResult> {
     if (this.disposed || this.disposedThreads.has(threadId)) throw new Error("浏览器会话已关闭。");
-    this.deps.onToolCall?.(threadId, name);
     signal?.throwIfAborted();
-    const nativeResult = await this.deps.invokeNativeTool?.(threadId, name, args, signal);
-    const result =
-      nativeResult ??
-      (await (async () => {
-        const cdp = await this.deps.ensureCdpPort(threadId);
-        await this.deps.ensureScopeGuestsReady?.(threadId);
-        return this.invokeToolViaCli(threadId, cdp, name, args, signal);
-      })());
-    if (name === "agent_browser_close" && !result.isError) {
-      await this.deps.afterAgentBrowserClose?.(threadId);
+    if (!(AGENT_BROWSER_CORE_TOOL_NAMES as readonly string[]).includes(name)) {
+      throw new Error(`Unknown browser tool: ${name}`);
     }
-    return result;
+    if (Object.hasOwn(args, "extraArgs")) throw new Error("Browser tools do not accept extraArgs.");
+    const tabId = agentBrowserToolRequiresTabId(name) ? requireAgentBrowserTabId(args) : undefined;
+    const nativeResult = await this.deps.invokeNativeTool?.(threadId, name, args, signal);
+    if (nativeResult) return nativeResult;
+    if (tabId) {
+      await this.deps.prepareTab(threadId, tabId);
+      this.deps.noteTabActivity?.(tabId);
+    }
+    signal?.throwIfAborted();
+    const cdp = await this.deps.ensureCdpPort(threadId);
+    return this.invokeToolViaCli(threadId, cdp, tabId, name, args, signal);
   }
 
   private async handleControl(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {

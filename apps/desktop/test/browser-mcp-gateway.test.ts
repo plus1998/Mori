@@ -34,7 +34,7 @@ test("agent_browser_open schema declares required url (matches CLI/native impl)"
     properties?: Record<string, unknown>;
   };
   expect(schema.type).toBe("object");
-  expect(schema.required).toEqual(["url"]);
+  expect(schema.required).toEqual(["url", "tabId"]);
   expect(schema.properties?.url).toMatchObject({ type: "string" });
   expect(Object.keys(schema.properties ?? {})).toContain("url");
 });
@@ -43,8 +43,8 @@ test("click/fill schemas require ref (or selector) matching bridge", () => {
   const catalog = agentBrowserCoreToolsCatalog();
   const click = catalog.find((tool) => tool.name === "agent_browser_click")!;
   const fill = catalog.find((tool) => tool.name === "agent_browser_fill")!;
-  expect((click.inputSchema as { required: string[] }).required).toEqual(["ref"]);
-  expect((fill.inputSchema as { required: string[] }).required).toEqual(["ref", "text"]);
+  expect((click.inputSchema as { required: string[] }).required).toEqual(["ref", "tabId"]);
+  expect((fill.inputSchema as { required: string[] }).required).toEqual(["ref", "text", "tabId"]);
 });
 
 test("auth registry issues unique thread tokens", () => {
@@ -131,7 +131,7 @@ function controlBaseUrl(codexServer: { url?: string }): string {
 test("global browser Codex server starts control plane without creating a thread CDP", async () => {
   let cdpRequests = 0;
   const gateway = new BrowserMcpGateway({
-    getFocusedTargetId: () => "test-target",
+    prepareTab: async () => {},
     ensureCdpPort: async () => {
       cdpRequests += 1;
       return 9222;
@@ -153,7 +153,7 @@ test("global browser Codex server starts control plane without creating a thread
 test("prepareThread injects MCP without starting CDP or minting a page", async () => {
   let cdpRequests = 0;
   const gateway = new BrowserMcpGateway({
-    getFocusedTargetId: () => "test-target",
+    prepareTab: async () => {},
     ensureCdpPort: async () => {
       cdpRequests += 1;
       return 9222;
@@ -195,7 +195,7 @@ test("prepareThread injects MCP without starting CDP or minting a page", async (
 test("tab_list native path does not start CDP", async () => {
   let cdpRequests = 0;
   const gateway = new BrowserMcpGateway({
-    getFocusedTargetId: () => "test-target",
+    prepareTab: async () => {},
     ensureCdpPort: async () => {
       cdpRequests += 1;
       return 9222;
@@ -233,7 +233,7 @@ test("tab_list native path does not start CDP", async () => {
 test("tab_switch native path does not start CDP", async () => {
   let cdpRequests = 0;
   const gateway = new BrowserMcpGateway({
-    getFocusedTargetId: () => "test-target",
+    prepareTab: async () => {},
     ensureCdpPort: async () => {
       cdpRequests += 1;
       return 9222;
@@ -293,7 +293,7 @@ test("browser calls serialize native switches with other tools only within the s
     markStarted = resolve;
   });
   const gateway = new BrowserMcpGateway({
-    getFocusedTargetId: () => "test-target",
+    prepareTab: async () => {},
     ensureCdpPort: async () => {
       throw new Error("native tools must not start CDP");
     },
@@ -321,7 +321,7 @@ test("browser calls serialize native switches with other tools only within the s
           ),
           Authorization: `Bearer ${prepared.token}`,
         },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name, arguments: { tabId: "test-target" } }),
       });
     }
     const snapshot = call(a, "agent_browser_snapshot");

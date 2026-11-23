@@ -49,7 +49,7 @@ test("clearAgentPresenceForThread emits idle for every browser in the thread sco
     const browserIds = state.allGuestInstances.map((b) => b.id);
     expect(browserIds.length).toBe(2);
 
-    host.noteAgentPresenceForThread("t1");
+    host.noteAgentPresence(browserIds[0]!);
     const activeIds = presence.filter((e) => e.type === "active").map((e) => e.browserId);
     expect(activeIds.length).toBeGreaterThan(0);
 

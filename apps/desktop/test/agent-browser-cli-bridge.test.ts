@@ -4,7 +4,6 @@ import { fileURLToPath } from "node:url";
 import {
   callAgentBrowserToolViaCli,
   mapAgentBrowserToolToCliArgs,
-  resolveAgentBrowserTabIndex,
   resolveAgentBrowserTabSwitchArg,
   shouldRouteAgentBrowserToolsViaCli,
 } from "../src/main/agent-browser-cli-bridge";
@@ -55,11 +54,6 @@ test("resolveAgentBrowserTabSwitchArg maps to agent-browser tab syntax", () => {
   expect(mapAgentBrowserToolToCliArgs("agent_browser_tab_switch", { index: 0 })).toEqual(["tab", "t1"]);
 });
 
-test("resolveAgentBrowserTabIndex maps tN to zero-based index", () => {
-  expect(resolveAgentBrowserTabIndex({ tabId: "t1" }, 2)).toBe(0);
-  expect(resolveAgentBrowserTabIndex({ tabId: "t2" }, 2)).toBe(1);
-  expect(() => resolveAgentBrowserTabIndex({ tabId: "t6" }, 2)).toThrow(/not found/);
-});
 
 test("mapAgentBrowserToolToCliArgs screenshot always includes output path", () => {
   const args = mapAgentBrowserToolToCliArgs("agent_browser_screenshot", {});

@@ -44,7 +44,6 @@ export const AGENT_BROWSER_CORE_TOOL_NAMES = [
   "agent_browser_tab_close",
   "agent_browser_eval",
   "agent_browser_cdp",
-  "agent_browser_close",
 ] as const;
 
 type JsonSchema = Record<string, unknown>;
@@ -98,17 +97,12 @@ const TOOL_DEFINITIONS: Record<
 > = {
   agent_browser_files_list: {
     description: "List this browser tab's downloads and their pending/completed/failed/cancelled states. Download clicks do not imply completion. Local paths are not exposed by this tool.",
-    inputSchema: objectSchema({ properties: {
-      tabId: { type: "string", description: "Optional tab label from tab_list, e.g. t1. Does not change UI focus." },
-      browserId: { type: "string", description: "Optional exact browser ID returned by files_list. Cannot be combined with tabId. Defaults to the focused tab." },
-    } }),
+    inputSchema: emptyObjectSchema,
   },
   agent_browser_files_get: {
     description: "Request reviewed access to one completed download from this tab. Returns its local temporary file path. Files are removed when the tab closes; copy needed files before closing it. Never re-fetch a download URL to bypass review.",
     inputSchema: objectSchema({ required: ["fileId"], properties: {
       fileId: { type: "string", minLength: 1, description: "Exact completed file ID returned by files_list." },
-      tabId: { type: "string", description: "Optional tab label from tab_list, e.g. t1. Does not change UI focus." },
-      browserId: { type: "string", description: "Optional exact browser ID returned by files_list. Cannot be combined with tabId. Defaults to the focused tab." },
     } }),
   },
   agent_browser_tools_profiles: {
@@ -117,7 +111,7 @@ const TOOL_DEFINITIONS: Record<
   },
   agent_browser_open: {
     description:
-      `Navigate the UI-focused tab to a URL (creates the first tab when none exist). Requires url. ${openingViewportDescription}`,
+      `Navigate the specified tab to a URL without changing the visible tab. Use tab_new to create a tab. ${openingViewportDescription}`,
     inputSchema: objectSchema({
       required: ["url"],
       properties: {
@@ -139,7 +133,7 @@ const TOOL_DEFINITIONS: Record<
     }),
   },
   agent_browser_snapshot: {
-    description: "Accessibility snapshot of the focused tab (use refs for click/fill).",
+    description: "Accessibility snapshot of the specified tab (use refs for click/fill).",
     inputSchema: objectSchema({
       properties: {
         interactive: {
@@ -158,12 +152,12 @@ const TOOL_DEFINITIONS: Record<
     inputSchema: emptyObjectSchema,
   },
   agent_browser_reload: {
-    description: "Reload the focused tab.",
+    description: "Reload the specified tab.",
     inputSchema: emptyObjectSchema,
   },
   agent_browser_set_viewport: {
     description:
-      "Set the focused tab's real CSS viewport for responsive testing; its on-screen preview scales to fit independently. Choose a named device (e.g. iphone-se or iphone-16-pro-max), a generic preset, or provide width and height. Call agent_browser_list_devices for names, IDs, dimensions and DPR. Use preset auto to restore panel size. Does not reload the page or change User-Agent/browser engine. Returns applied settings and page metrics. Tabs retain independent settings.",
+      "Set the specified tab's real CSS viewport for responsive testing; its on-screen preview scales to fit independently. Choose a named device (e.g. iphone-se or iphone-16-pro-max), a generic preset, or provide width and height. Call agent_browser_list_devices for names, IDs, dimensions and DPR. Use preset auto to restore panel size. Does not reload the page or change User-Agent/browser engine. Returns applied settings and page metrics. Tabs retain independent settings.",
     inputSchema: objectSchema({
       properties: {
         preset: {
@@ -194,7 +188,7 @@ const TOOL_DEFINITIONS: Record<
   },
   agent_browser_get_viewport: {
     description:
-      "Get the focused tab's viewport settings and actual page metrics (innerWidth/height, screen size, DPR, orientation, visual viewport, touch points). A null viewport means automatic panel size.",
+      "Get the specified tab's viewport settings and actual page metrics (innerWidth/height, screen size, DPR, orientation, visual viewport, touch points). A null viewport means automatic panel size.",
     inputSchema: emptyObjectSchema,
   },
   agent_browser_list_devices: {
@@ -325,7 +319,7 @@ const TOOL_DEFINITIONS: Record<
     inputSchema: emptyObjectSchema,
   },
   agent_browser_screenshot: {
-    description: "Capture a screenshot of the focused tab.",
+    description: "Capture a screenshot of the specified tab.",
     inputSchema: objectSchema({
       properties: {
         path: {
@@ -345,15 +339,15 @@ const TOOL_DEFINITIONS: Record<
     }),
   },
   agent_browser_get_url: {
-    description: "Get the focused tab URL.",
+    description: "Get the specified tab URL.",
     inputSchema: emptyObjectSchema,
   },
   agent_browser_get_title: {
-    description: "Get the focused tab title.",
+    description: "Get the specified tab title.",
     inputSchema: emptyObjectSchema,
   },
   agent_browser_tab_new: {
-    description: `Open a background tab (does not steal UI focus). Optional url. ${openingViewportDescription}`,
+    description: `Create a background tab and return its tabId. Optional url. ${openingViewportDescription}`,
     inputSchema: objectSchema({
       properties: {
         ...openingViewportProperties,
@@ -362,23 +356,15 @@ const TOOL_DEFINITIONS: Record<
     }),
   },
   agent_browser_tab_list: {
-    description: "List tabs in this Mori browser session.",
+    description: "List tabs and their stable tabId values in this Mori conversation.",
     inputSchema: emptyObjectSchema,
   },
   agent_browser_tab_switch: {
-    description: "Switch the UI-focused tab (e.g. t1, t2, or 1-based index).",
-    inputSchema: objectSchema({
-      properties: {
-        tab: {
-          type: "string",
-          description: "Tab id like t1 / t2, or numeric index string.",
-        },
-        index: { type: "number", description: "1-based tab index." },
-      },
-    }),
+    description: "Show a specific tab to the user. Only call when the user should see the tab; page tools already accept tabId and work in the background.",
+    inputSchema: emptyObjectSchema,
   },
   agent_browser_tab_close: {
-    description: "Close the focused tab.",
+    description: "Close the specified tab. A tab the user is currently viewing cannot be closed by this tool.",
     inputSchema: emptyObjectSchema,
   },
   agent_browser_eval: {
@@ -409,21 +395,45 @@ const TOOL_DEFINITIONS: Record<
       },
     }),
   },
-  agent_browser_close: {
-    description: "Close the Mori built-in browser session for this thread.",
-    inputSchema: emptyObjectSchema,
-  },
+
 };
 
 import type { McpToolDefinition } from "./mcp-streamable-http";
 
+const unscopedTools = new Set([
+  "agent_browser_tools_profiles",
+  "agent_browser_list_devices",
+  "agent_browser_tab_list",
+  "agent_browser_tab_new",
+]);
+
+export function agentBrowserToolRequiresTabId(name: string): boolean {
+  return !unscopedTools.has(name);
+}
+
+export function requireAgentBrowserTabId(args: Record<string, unknown>): string {
+  if (typeof args.tabId !== "string" || !args.tabId.trim()) {
+    throw new Error("tabId is required. Use the exact ID returned by agent_browser_tab_list or agent_browser_tab_new.");
+  }
+  return args.tabId.trim();
+}
+
 export function agentBrowserCoreToolsCatalog(): McpToolDefinition[] {
   return AGENT_BROWSER_CORE_TOOL_NAMES.map((name) => {
     const def = TOOL_DEFINITIONS[name];
+    const schema = def.inputSchema;
+    if (!agentBrowserToolRequiresTabId(name)) return { name, ...def };
     return {
       name,
       description: def.description,
-      inputSchema: def.inputSchema,
+      inputSchema: {
+        ...schema,
+        properties: {
+          ...(schema.properties as Record<string, unknown>),
+          tabId: { type: "string", minLength: 1, description: "Exact tabId returned by tab_list or tab_new." },
+        },
+        required: [...(schema.required as string[]), "tabId"],
+      },
     };
   });
 }

@@ -48,7 +48,8 @@ import {
 } from "../shared/browser-viewport";
 import type { McpSdkConfig } from "../shared/mcp";
 import type { AgentBrowserMcpToolResult } from "./agent-browser-cli-bridge";
-import { callAgentBrowserToolViaCli, resolveAgentBrowserTabIndex } from "./agent-browser-cli-bridge";
+import { callAgentBrowserToolViaCli } from "./agent-browser-cli-bridge";
+import { requireAgentBrowserTabId } from "./agent-browser-core-tools";
 import { resolveAgentBrowserBinary } from "./agent-browser-resolve";
 import { AGENT_BROWSER_IDLE_TIMEOUT_MS, agentBrowserProcesses } from "./agent-browser-processes";
 import { type BrowserCdpProxy, type BrowserCdpTarget, assertBrowserGuestWebContents, startMultiBrowserCdpProxy } from "./browser-cdp-proxy";
@@ -87,8 +88,8 @@ function resolveAgentBrowserSocketDir(): string {
   return path.join(process.cwd(), ".eco-ab");
 }
 
-function ensureAgentBrowserRuntimeEnv(cdpPort: number, threadId: string): Record<string, string> {
-  const sessionKey = browserAgentSessionKey(threadId);
+function ensureAgentBrowserRuntimeEnv(cdpPort: number, sessionId: string): Record<string, string> {
+  const sessionKey = browserAgentSessionKey(sessionId);
   const socketDir = path.join(resolveAgentBrowserSocketDir(), sessionKey);
   fs.mkdirSync(socketDir, { recursive: true });
   return {
@@ -218,6 +219,7 @@ export class BrowserHost {
   /** Browser id that should force task-panel tab switch (user-initiated opens). */
   private activateBrowserId: string | undefined;
   private activationRevision = 0;
+  private openPanelOnActivate = false;
   private browserMcpGateway: BrowserMcpGateway | undefined;
   private readonly partitionHandlers = new Map<string, () => void>();
   private readonly accountSessions = new Map<string, Session>();
@@ -266,6 +268,7 @@ export class BrowserHost {
     for (const resource of processes) if (resource.threadId === threadId) ids.add(resource.id);
     for (const browser of this.scopes.get(threadId)?.browsers.values() ?? []) {
       ids.add(browserAgentSessionKey(`reference:${browser.id}`));
+      ids.add(browserAgentSessionKey(`tab:${browser.id}`));
     }
     await agentBrowserProcesses.stop(resolveAgentBrowserSocketDir(), ids);
   }
@@ -284,11 +287,9 @@ export class BrowserHost {
     if (!this.browserMcpGateway) {
       this.browserMcpGateway = new BrowserMcpGateway({
         ensureCdpPort: (threadId) => this.ensureCdpPort(threadId),
-        agentBrowserEnv: (cdpPort, threadId) => ensureAgentBrowserRuntimeEnv(cdpPort, threadId),
-        ensureScopeGuestsReady: (threadId) => this.ensureScopeGuestsReady(threadId),
-        getFocusedTargetId: (threadId) => this.getFocusedCdpTargetId(threadId),
-        afterAgentBrowserClose: (threadId) => this.disposeAllBrowsersInThread(threadId),
-        onToolCall: (threadId) => this.noteAgentPresenceForThread(threadId),
+        agentBrowserEnv: ensureAgentBrowserRuntimeEnv,
+        prepareTab: (threadId, tabId) => this.ensureAgentTabReady(threadId, tabId),
+        noteTabActivity: (tabId) => this.noteAgentPresence(tabId),
         invokeNativeTool: (threadId, toolName, args, signal) =>
           this.invokeNativeAgentBrowserTool(threadId, toolName, args, signal),
       });
@@ -298,7 +299,6 @@ export class BrowserHost {
 
   noteBrowserToolStarted(threadId: string, toolName?: string): void {
     this.gateway().noteUpcomingTool(threadId, toolName);
-    this.noteAgentPresenceForThread(threadId);
   }
 
   /** Mark Agent operating a browser tab (rainbow edge); resets 15s idle release. */
@@ -362,23 +362,6 @@ export class BrowserHost {
     }
     this.agentPointerMoveAt.set(browserId, now);
     return true;
-  }
-
-  noteAgentPresenceForThread(threadId: string): void {
-    const scopeId = threadId.trim();
-    if (!scopeId) {
-      return;
-    }
-    const scope = this.scopes.get(scopeId);
-    if (!scope || scope.browsers.size === 0) {
-      return;
-    }
-    const browserId =
-      scope.focusedBrowserId ?? this.orderedBrowsersInScope(scope)[0]?.id ?? undefined;
-    if (!browserId) {
-      return;
-    }
-    this.noteAgentPresence(browserId);
   }
 
   /**
@@ -494,8 +477,7 @@ export class BrowserHost {
           scope.cdp?.notifyTargetCreated(browser.id);
         }
         scope.focusedBrowserId = browser.id;
-        host.activateBrowserId = browser.id;
-        host.activationRevision += 1;
+        host.requestActivation(browser.id);
         host.revealBrowserId = browser.id;
         host.emit();
         host.deps.getMainWindow()?.show();
@@ -587,8 +569,7 @@ export class BrowserHost {
     }
     if (windowed) this.deps.focusBrowserWindow?.(browser.id);
     else {
-      this.activateBrowserId = browser.id;
-      this.activationRevision += 1;
+      this.requestActivation(browser.id);
       this.deps.getMainWindow()?.show();
       this.deps.getMainWindow()?.focus();
     }
@@ -813,7 +794,8 @@ export class BrowserHost {
       ...(resolved.reason ? { agentBrowserUnavailableReason: resolved.reason } : {}),
       ...(revealSurfaced && this.revealBrowserId ? { revealBrowserId: this.revealBrowserId } : {}),
       ...(activateSurfaced && this.activateBrowserId
-        ? { activateBrowserId: this.activateBrowserId, activationRevision: this.activationRevision }
+        ? { activateBrowserId: this.activateBrowserId, activationRevision: this.activationRevision,
+            ...(this.openPanelOnActivate ? { openPanelOnActivate: true } : {}) }
         : {}),
     };
   }
@@ -824,6 +806,7 @@ export class BrowserHost {
     if (next !== this.uiScopeId) {
       this.uiScopeId = next;
       this.revealBrowserId = undefined;
+      if (this.openPanelOnActivate) this.activateBrowserId = undefined;
     }
     this.emit();
     return this.getState();
@@ -988,7 +971,7 @@ export class BrowserHost {
   private createBrowserInScope(
     scope: ThreadBrowserScope,
     source: BrowserInstanceSource,
-    options?: { surfacePlaceholder?: boolean },
+    options?: { surfacePlaceholder?: boolean; background?: boolean },
   ): SessionBrowser {
     const id = randomUUID();
     const browser: SessionBrowser = {
@@ -1001,7 +984,7 @@ export class BrowserHost {
       surfacePlaceholder: options?.surfacePlaceholder !== false,
     };
     scope.browsers.set(id, browser);
-    if (!scope.focusedBrowserId && source !== "agent") {
+    if (!scope.focusedBrowserId && source !== "agent" && !options?.background) {
       scope.focusedBrowserId = id;
     }
     scope.cdp?.notifyTargetCreated(id);
@@ -1024,14 +1007,13 @@ export class BrowserHost {
       if (browser.account) return this.accountPopupOptions(url, browser.account.session);
       if (isBrowserHttpUrl(url)) {
         try {
-          const created = this.createBrowserInScope(currentScope(), browser.source);
+          // Electron does not distinguish Agent input from a human click here.
+          const created = this.createBrowserInScope(currentScope(), browser.source, { background: true });
           created.partition = browser.partition;
           if (browser.viewportConfigured) {
             created.viewport = browser.viewport ? { ...browser.viewport } : undefined;
             created.viewportConfigured = true;
           }
-          currentScope().focusedBrowserId = created.id;
-          this.requestReveal(created.id);
           created.pendingUrl = url;
           const guest = created.webContents;
           if (guest && !guest.isDestroyed()) {
@@ -1058,9 +1040,6 @@ export class BrowserHost {
       if (!isBrowserPlaceholderUrl(target)) {
         browser.detachedUrl = target;
         browser.lastLoadedUrl = target;
-      }
-      if (isBrowserHttpUrl(target) && currentScope().focusedBrowserId === browser.id) {
-        this.requestReveal(browser.id);
       }
       currentScope().cdp?.notifyTargetInfoChanged(browser.id);
       this.emit();
@@ -1151,6 +1130,12 @@ export class BrowserHost {
       accountSession.flushStorageData();
       void accountSession.cookies.flushStore().catch(error => console.error("[browser] Account popup flush failed", error));
     });
+  }
+
+  private requestActivation(browserId: string, openPanel = false): void {
+    this.activateBrowserId = browserId;
+    this.activationRevision += 1;
+    this.openPanelOnActivate = openPanel;
   }
 
   private requestReveal(browserId: string): void {
@@ -1255,8 +1240,7 @@ export class BrowserHost {
       this.requestReveal(browser.id);
     }
     if (options.activate) {
-      this.activateBrowserId = browser.id;
-      this.activationRevision += 1;
+      this.requestActivation(browser.id);
     }
 
     const raw = options.url?.trim();
@@ -1343,20 +1327,18 @@ export class BrowserHost {
     void this.downloads.removeBrowser(browser.id).catch(error => console.error("[browser] Download cleanup failed", error));
     const proxy = this.referenceProxies.get(browser.id);
     this.referenceProxies.delete(browser.id);
-    if (proxy) {
-      const cleanup = proxy.then(async (value) => {
-        try {
-          await agentBrowserProcesses.stop(
-            resolveAgentBrowserSocketDir(),
-            new Set([browserAgentSessionKey(`reference:${browser.id}`)]),
-          );
-        } finally {
-          await value.close();
-        }
-      });
-      this.browserCleanups.set(browser.id, cleanup);
-      void cleanup.catch((error) => console.error("[browser] Reference process cleanup failed", error));
-    }
+    const cleanup = (async () => {
+      try {
+        await agentBrowserProcesses.stop(resolveAgentBrowserSocketDir(), new Set([
+          browserAgentSessionKey(`tab:${browser.id}`),
+          browserAgentSessionKey(`reference:${browser.id}`),
+        ]));
+      } finally {
+        if (proxy) await (await proxy).close();
+      }
+    })();
+    this.browserCleanups.set(browser.id, cleanup);
+    void cleanup.catch((error) => console.error("[browser] Tab process cleanup failed", error));
     if (browser.guestLoadTimer) {
       clearTimeout(browser.guestLoadTimer);
       browser.guestLoadTimer = undefined;
@@ -1544,7 +1526,7 @@ export class BrowserHost {
           const placeholder = isBrowserPlaceholderUrl(url);
           if (placeholder && scope.browsers.size === 0) {
             throw new Error(
-              "No browser tabs in this session. Use agent_browser_open or agent_browser_tab_new first.",
+              "No browser tabs in this session. Use agent_browser_tab_new first.",
             );
           }
           const created =
@@ -1584,13 +1566,14 @@ export class BrowserHost {
           if (!browser) {
             return;
           }
+          this.assertAgentCanCloseTab(scope, browser);
           this.destroyBrowser(scope, browser);
           if (scope.focusedBrowserId === targetId) {
             const next = scope.browsers.keys().next();
             scope.focusedBrowserId = next.done ? undefined : next.value;
           }
           if (this.revealBrowserId === targetId) {
-            this.revealBrowserId = scope.focusedBrowserId;
+            this.revealBrowserId = undefined;
           }
           this.emit();
         },
@@ -1717,18 +1700,16 @@ export class BrowserHost {
   }
 
   private async invokeNativeAgentBrowserViewport(
-    threadId: string,
+    browser: SessionBrowser,
     args?: Record<string, unknown>,
   ): Promise<AgentBrowserMcpToolResult> {
-    const browserId = this.getFocusedCdpTargetId(threadId);
+    const browserId = browser.id;
     if (args) await this.setViewport(browserId, args);
-    const found = this.findBrowser(browserId);
-    if (!found?.browser.webContents || found.scope.threadId !== threadId.trim())
-      throw new Error("Browser target is unavailable in this conversation.");
-    const browser = found.browser;
+    const guest = browser.webContents;
+    if (!guest || guest.isDestroyed()) throw new Error("Browser guest is unavailable.");
     if (browser.viewportUpdate) await browser.viewportUpdate;
     if (browser.viewportError) throw new Error(browser.viewportError);
-    const metrics = await browser.webContents!.executeJavaScript(`({
+    const metrics = await guest.executeJavaScript(`({
       width: innerWidth, height: innerHeight,
       deviceScaleFactor: devicePixelRatio,
       screenWidth: screen.width, screenHeight: screen.height,
@@ -1809,35 +1790,32 @@ export class BrowserHost {
     try { return await call; } finally { if (this.referenceCalls.get(browserId) === call) this.referenceCalls.delete(browserId); }
   }
 
-  /** Exact guest used by both native tools and the CLI connection. */
-  private getFocusedCdpTargetId(threadId: string): string {
+  private requireAgentTab(threadId: string, tabId: string): { scope: ThreadBrowserScope; browser: SessionBrowser } {
     const scope = this.scopes.get(threadId.trim());
-    const browserId = scope?.focusedBrowserId ?? scope?.browsers.keys().next().value;
-    const browser = browserId ? scope?.browsers.get(browserId) : undefined;
-    if (!browser?.webContents || browser.webContents.isDestroyed()) {
-      throw new Error("No browser target available in this session");
-    }
-    return browser.id;
+    const browser = scope?.browsers.get(tabId);
+    if (!scope || !browser) throw new Error(`Tab ${tabId} not found in this conversation. Use agent_browser_tab_list.`);
+    return { scope, browser };
   }
 
-  /** Wait for focused (or first) guest before page-level CDP tools run. */
-  async ensureScopeGuestsReady(threadId: string): Promise<void> {
-    const scopeId = threadId.trim() || ECO_BROWSER_PERSONAL_SCOPE_ID;
-    const scope = this.scopes.get(scopeId);
-    if (!scope || scope.browsers.size === 0) {
-      return;
+  async ensureAgentTabReady(threadId: string, tabId: string): Promise<WebContents> {
+    const { browser } = this.requireAgentTab(threadId, tabId);
+    if (!browser.webContents || browser.webContents.isDestroyed()) this.notePendingGuestAttach(tabId);
+    const guest = await this.waitForGuestWebContents(tabId);
+    if (browser.viewportUpdate) await browser.viewportUpdate;
+    this.requireAgentTab(threadId, tabId);
+    if (browser.viewportError) throw new Error(browser.viewportError);
+    if (guest.isDestroyed()) throw new Error("Browser guest is unavailable.");
+    return guest;
+  }
+
+  private assertAgentCanCloseTab(scope: ThreadBrowserScope, browser: SessionBrowser): void {
+    if (browser.closable === false) throw new Error("This tab cannot be closed.");
+    const isViewing = browser.windowed
+      ? this.deps.getBrowserWindow?.(browser.id)?.isFocused()
+      : scope.threadId === this.uiScopeId && this.panelVisible && scope.focusedBrowserId === browser.id;
+    if (isViewing) {
+      throw new Error("The user is viewing this tab. Leave it open or ask the user to close it.");
     }
-    const browserId = scope.focusedBrowserId ?? scope.browsers.keys().next().value ?? undefined;
-    if (!browserId) {
-      return;
-    }
-    const browser = scope.browsers.get(browserId);
-    if (!browser?.webContents || browser.webContents.isDestroyed()) {
-      this.notePendingGuestAttach(browserId);
-      await this.waitForGuestWebContents(browserId);
-    }
-    if (browser?.viewportUpdate) await browser.viewportUpdate;
-    if (browser?.viewportError) throw new Error(browser.viewportError);
   }
 
   /** Eco-native MCP tools that bypass agent-browser CLI (tab list, open, screenshot, …). */
@@ -1848,25 +1826,20 @@ export class BrowserHost {
     signal?: AbortSignal,
   ): Promise<AgentBrowserMcpToolResult | null> {
     signal?.throwIfAborted();
-    this.noteAgentPresenceForThread(threadId);
     switch (toolName) {
       case "agent_browser_cdp": {
-        await this.ensureScopeGuestsReady(threadId);
-        const guest = await this.waitForGuestWebContents(this.getFocusedCdpTargetId(threadId));
-        return invokeGuestCdp(guest, args, signal);
+        const browserId = requireAgentBrowserTabId(args);
+        const guest = await this.ensureAgentTabReady(threadId, browserId);
+        this.noteAgentPresence(browserId);
+        const { tabId: _tabId, ...cdpArgs } = args;
+        return invokeGuestCdp(guest, cdpArgs, signal);
       }
       case "agent_browser_files_list":
       case "agent_browser_files_get": {
-        const scope = this.scopes.get(threadId);
-        if (args.browserId !== undefined && (typeof args.browserId !== "string" || !args.browserId.trim())) throw new Error("browserId must be a non-empty string.");
-        if (args.tabId !== undefined && (typeof args.tabId !== "string" || !args.tabId.trim())) throw new Error("tabId must be a non-empty string.");
-        if (args.browserId !== undefined && args.tabId !== undefined) throw new Error("Use either tabId or browserId, not both.");
-        const browserId = typeof args.browserId === "string" ? args.browserId : typeof args.tabId === "string" && scope
-          ? this.orderedBrowsersInScope(scope)[resolveAgentBrowserTabIndex({ tabId: args.tabId }, scope.browsers.size)]?.id
-          : scope?.focusedBrowserId;
-        if (!browserId || !scope?.browsers.has(browserId)) throw new Error("Browser tab does not belong to this conversation.");
+        const browserId = requireAgentBrowserTabId(args);
+        this.requireAgentTab(threadId, browserId);
         if (toolName === "agent_browser_files_list") {
-          return agentBrowserTextResult(JSON.stringify({ browserId, files: this.downloads.list(browserId) }));
+          return agentBrowserTextResult(JSON.stringify({ tabId: browserId, files: this.downloads.list(browserId) }));
         }
         if (typeof args.fileId !== "string" || !args.fileId.trim()) throw new Error("fileId is required.");
         const file = this.downloads.getCompleted(browserId, args.fileId);
@@ -1889,11 +1862,13 @@ export class BrowserHost {
       case "agent_browser_list_devices":
         return agentBrowserTextResult(JSON.stringify({ devices: BROWSER_VIEWPORT_PRESETS }));
       case "agent_browser_set_viewport":
-        await this.ensureScopeGuestsReady(threadId);
-        return this.invokeNativeAgentBrowserViewport(threadId, args);
-      case "agent_browser_get_viewport":
-        await this.ensureScopeGuestsReady(threadId);
-        return this.invokeNativeAgentBrowserViewport(threadId);
+      case "agent_browser_get_viewport": {
+        const browserId = requireAgentBrowserTabId(args);
+        const { browser } = this.requireAgentTab(threadId, browserId);
+        await this.ensureAgentTabReady(threadId, browserId);
+        this.noteAgentPresence(browserId);
+        return this.invokeNativeAgentBrowserViewport(browser, toolName === "agent_browser_set_viewport" ? args : undefined);
+      }
       case "agent_browser_tab_list":
         return this.invokeNativeAgentBrowserTabList(threadId);
       case "agent_browser_tab_new":
@@ -1901,7 +1876,7 @@ export class BrowserHost {
       case "agent_browser_tab_switch":
         return this.invokeNativeAgentBrowserTabSwitch(threadId, args);
       case "agent_browser_tab_close":
-        return this.invokeNativeAgentBrowserTabClose(threadId);
+        return this.invokeNativeAgentBrowserTabClose(threadId, args);
       case "agent_browser_screenshot":
         return this.invokeNativeAgentBrowserScreenshot(threadId, args);
       case "agent_browser_open":
@@ -1934,7 +1909,7 @@ export class BrowserHost {
       return [];
     }
     return this.orderedBrowsersInScope(scope).map((browser) => ({
-      id: browser.id,
+      tabId: browser.id,
       url: this.resolveBrowserTabUrl(browser),
     }));
   }
@@ -1949,37 +1924,24 @@ export class BrowserHost {
     threadId: string,
     args: Record<string, unknown>,
   ): Promise<AgentBrowserMcpToolResult> {
-    const scopeId = threadId.trim();
-    const scope = this.scopes.get(scopeId);
-    if (!scope || scope.browsers.size === 0) {
-      throw new Error(
-        "No browser tabs in this session. Use agent_browser_open or agent_browser_tab_new first.",
-      );
+    const { scope, browser } = this.requireAgentTab(threadId, requireAgentBrowserTabId(args));
+    if (browser.windowed) {
+      this.deps.focusBrowserWindow?.(browser.id);
+    } else {
+      scope.focusedBrowserId = browser.id;
+      if (scope.threadId === this.uiScopeId) {
+        this.requestActivation(browser.id, true);
+      }
+      this.emit();
     }
-    const ordered = this.orderedBrowsersInScope(scope);
-    const index = resolveAgentBrowserTabIndex(args, ordered.length);
-    const browser = ordered[index];
-    if (!browser) {
-      throw new Error(`Tab t${index + 1} not found (${ordered.length} tab(s) open)`);
-    }
-    scope.focusedBrowserId = browser.id;
-    this.requestReveal(browser.id);
-    await this.ensureScopeGuestsReady(scopeId);
-    this.emit();
-    return agentBrowserTextResult(`Switched to t${index + 1}`);
+    return agentBrowserTextResult(`Switched to ${browser.id}`);
   }
 
-  private async invokeNativeAgentBrowserTabClose(threadId: string): Promise<AgentBrowserMcpToolResult> {
-    const scope = this.scopes.get(threadId.trim());
-    if (!scope || scope.browsers.size === 0) {
-      throw new Error("No tabs to close");
-    }
-    const browserId = scope.focusedBrowserId ?? this.orderedBrowsersInScope(scope)[0]?.id ?? undefined;
-    if (!browserId) {
-      throw new Error("No tabs to close");
-    }
-    await this.closeBrowser(browserId);
-    return agentBrowserTextResult("Tab closed");
+  private async invokeNativeAgentBrowserTabClose(threadId: string, args: Record<string, unknown>): Promise<AgentBrowserMcpToolResult> {
+    const { scope, browser } = this.requireAgentTab(threadId, requireAgentBrowserTabId(args));
+    this.assertAgentCanCloseTab(scope, browser);
+    await this.closeBrowser(browser.id);
+    return agentBrowserTextResult(`Closed tab ${browser.id}`);
   }
 
   private async invokeNativeAgentBrowserTabNew(
@@ -1994,18 +1956,12 @@ export class BrowserHost {
     }
     const viewport =
       args.width !== undefined || args.height !== undefined ? parseBrowserViewport(args) : undefined;
-    await this.openSharedSession({
-      threadId,
-      ...(url ? { url } : {}),
-      newBrowser: true,
-      ...(viewport ? { viewport } : {}),
-      revealUi: false,
-      updateUiFocus: false,
-      source: "agent",
-      waitForLoad: false,
-    });
-    await this.ensureScopeGuestsReady(threadId);
-    return agentBrowserTextResult(url ? `Opened new tab: ${url}` : "Opened new tab");
+    const scope = this.ensureScope(threadId.trim());
+    const browser = this.createBrowserInScope(scope, "agent");
+    await this.prepareAgentBrowserViewport(browser, viewport ?? undefined);
+    if (url) await this.loadUrlOnBrowser(scope, browser, url, { waitForLoad: false });
+    this.emit();
+    return agentBrowserTextResult(JSON.stringify({ tabId: browser.id, url: this.resolveBrowserTabUrl(browser) }));
   }
 
   private async invokeNativeAgentBrowserScreenshot(
@@ -2014,17 +1970,9 @@ export class BrowserHost {
   ): Promise<AgentBrowserMcpToolResult> {
     const outputPath = resolveAgentBrowserScreenshotPath(args);
     const full = isFullPageScreenshot(args);
-    await this.ensureScopeGuestsReady(threadId);
-    const scope = this.ensureScope(threadId.trim());
-    const browserId = scope.focusedBrowserId ?? scope.browsers.keys().next().value ?? undefined;
-    if (!browserId) {
-      throw new Error("No browser target available in this session");
-    }
-    const wc = await this.waitForGuestWebContents(browserId);
-    const found = this.findBrowser(browserId);
-    if (found) {
-      this.emit();
-    }
+    const browserId = requireAgentBrowserTabId(args);
+    const wc = await this.ensureAgentTabReady(threadId, browserId);
+    this.noteAgentPresence(browserId);
     const savedPath = await captureGuestScreenshot(wc, outputPath, full);
     const bytes = fs.statSync(savedPath).size;
     if (bytes < 512) {
@@ -2044,42 +1992,21 @@ export class BrowserHost {
     }
     const viewport =
       args.width !== undefined || args.height !== undefined ? parseBrowserViewport(args) : undefined;
+    const browserId = requireAgentBrowserTabId(args);
+    this.requireAgentTab(threadId, browserId);
     await this.openSharedSession({
       threadId,
+      browserId,
       url,
       ...(viewport ? { viewport } : {}),
       revealUi: false,
       updateUiFocus: false,
       source: "agent",
       waitForLoad: false,
-      // Navigate the UI-focused tab (user context); do not change which tab is shown.
     });
-    await this.ensureScopeGuestsReady(threadId);
-    this.noteAgentPresenceForThread(threadId);
-    return agentBrowserTextResult(`Navigated to ${url}`);
-  }
-
-  /** agent_browser_close ends CLI session — also tear down Eco scope pages. */
-  async disposeAllBrowsersInThread(threadId: string): Promise<void> {
-    const scopeId = threadId.trim();
-    if (!scopeId || isPersonalBrowserScopeId(scopeId)) {
-      return;
-    }
-    const scope = this.scopes.get(scopeId);
-    if (!scope) {
-      return;
-    }
-    await this.stopThreadAgentBrowserProcesses(scopeId);
-    await this.tearDownScopeCdp(scope);
-    for (const browser of [...scope.browsers.values()]) {
-      this.destroyBrowser(scope, browser);
-    }
-    scope.focusedBrowserId = undefined;
-    if (this.revealBrowserId && !scope.browsers.has(this.revealBrowserId)) {
-      this.revealBrowserId = undefined;
-    }
-    this.emit();
-    await this.drainBrowserCleanups();
+    await this.ensureAgentTabReady(threadId, browserId);
+    this.noteAgentPresence(browserId);
+    return agentBrowserTextResult(`Navigated ${browserId} to ${url}`);
   }
 
   isFeatureAvailable(): { available: boolean; reason?: string } {
