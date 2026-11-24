@@ -859,6 +859,9 @@ const api = {
     return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsSetAuthJson, { accountId, content });
   },
 
+  openAIAccountsUltrafastModels(accountId: string): Promise<string[]> {
+    return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsUltrafastModels, { accountId });
+  },
   openAIAccountsQueryQuota(accountId: string, reason: "manual" | "view" | "switch" | "reset" = "manual"): Promise<OpenAIAccountQuota> {
     return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsQueryQuota, { accountId, reason });
   },

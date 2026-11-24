@@ -71,7 +71,7 @@ export interface MainAgentModelOverride {
   modelId: string;
   thinkingEffort?: ThinkingEffort;
   /** ChatGPT Login speed preference; standard explicitly clears a previous Fast turn. */
-  serviceTier?: "fast" | "default";
+  serviceTier?: "fast" | "ultrafast" | "default";
   candidateModelId?: string;
 }
 
@@ -821,7 +821,7 @@ export function isMainAgentModelOverride(value: unknown): value is MainAgentMode
     typeof record.modelId === "string" &&
     Boolean(record.modelId.trim()) &&
     (record.serviceTier === undefined || record.providerId === "openai" &&
-      (record.serviceTier === "fast" || record.serviceTier === "default")) &&
+      (record.serviceTier === "fast" || record.serviceTier === "ultrafast" || record.serviceTier === "default")) &&
     (record.thinkingEffort === undefined ||
       (typeof record.thinkingEffort === "string" && isThinkingEffort(record.thinkingEffort))) &&
     (record.candidateModelId === undefined || typeof record.candidateModelId === "string")

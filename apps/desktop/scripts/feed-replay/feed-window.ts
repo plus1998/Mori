@@ -1,4 +1,4 @@
-import { decodeConversationCursor, estimateConversationBytes } from "@eco/shared";
+import { CONVERSATION_V2_MAX_PAGE_SIZE, decodeConversationCursor, estimateConversationBytes } from "@eco/shared";
 import type {
   ConversationFeedWindow,
   ConversationFeedWindowRequest,
@@ -13,6 +13,43 @@ export function replayFeedWindow(
   request: ConversationFeedWindowRequest,
 ): ConversationFeedWindow {
   if (request.conversationId !== source.conversationId) throw new Error("Replay Feed conversation mismatch.");
+  if (request.skeleton) {
+    const runs = [...source.runs.values()]
+      .sort((a, b) => b.versionSeq - a.versionSeq || b.runId.localeCompare(a.runId))
+      .slice(0, CONVERSATION_V2_MAX_PAGE_SIZE);
+    const counts = new Map(runs
+      .filter((run) => run.status === "queued" || run.status === "running")
+      .map((run) => [run.runId, 0]));
+    const tools = new Map([...source.tools].filter(([, tool]) => counts.has(tool.runId)));
+    for (const tool of tools.values()) counts.set(tool.runId, counts.get(tool.runId)! + 1);
+    const bounded = boundConversationFeedState({
+      ...source,
+      runs: new Map(runs.map((run) => [run.runId, run])),
+      tools,
+      toolSummaryCounts: counts,
+      feedWindow: { mode: "latest", request, skeleton: true, toolPages: {} },
+    });
+    return {
+      protocolVersion: 2,
+      conversationId: source.conversationId,
+      storeEpoch: source.storeEpoch,
+      snapshotSeq: source.appliedSeq,
+      historyRevision: source.historyRevision,
+      messages: [...bounded.messages.values()].sort(
+        (a, b) => a.createdSeq - b.createdSeq || a.messageId.localeCompare(b.messageId),
+      ),
+      runs,
+      tools: [...bounded.tools.values()],
+      turns: [],
+      agents: [...bounded.agents.values()],
+      todos: [...bounded.todos.values()],
+      details: [...bounded.details.values()],
+      toolSummaryCounts: Object.fromEntries(counts),
+      toolPages: bounded.feedWindow!.toolPages,
+      hasOlder: false,
+      skeleton: true,
+    };
+  }
   if (request.timeline) {
     const counts: Record<string, number> = {};
     for (const tool of source.tools.values()) counts[tool.runId] = (counts[tool.runId] ?? 0) + 1;

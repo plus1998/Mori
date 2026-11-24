@@ -1,3 +1,4 @@
+import { listCodexModelCatalog } from "@eco/runtime";
 import { AccountWakeBatches } from "./account-wake-batches";
 import { isSharedCodexAccountId, type SharedCodexAccountProvider, type SharedCodexTokens } from "../shared/codex-account-sharing";
 import { createHash } from "node:crypto";
@@ -676,6 +677,19 @@ export class OpenAIAccountService {
   saveImageQuota(accountId: string, authJson: string, quota: OpenAIAccountImageQuota): void {
     this.getStore().saveImageQuota(accountId, authJson, quota);
     this.onAccountsChanged?.();
+  }
+
+  async listUltrafastModels(accountId: string): Promise<string[]> {
+    if (isSharedCodexAccountId(accountId)) {
+      throw new Error("共享账号无法从本机确认超快模式资格。");
+    }
+    return this.runAccountWork(accountId, async () => {
+      await this.ensureAccountCredentialsUnlocked(accountId);
+      return this.withAccountClient(accountId, async (client) => {
+        const models = await listCodexModelCatalog(client, { modelProvider: "openai" });
+        return models.filter((model) => model.supportsUltrafast).map((model) => model.model);
+      });
+    });
   }
 
   queryQuota(accountId: string, reason: QuotaRefreshReason = "manual"): Promise<OpenAIAccountQuota> {

@@ -1,6 +1,8 @@
 import { encodeConversationCursor } from "@eco/shared";
 import type { ConversationMessage } from "@eco/shared";
-import { FEED_MESSAGE_LIMIT, FEED_TOOL_LIMIT, FEED_RESIDENT_BYTES } from "../shared/conversation-feed-window";
+import {
+  FEED_MESSAGE_LIMIT, FEED_TOOL_LIMIT, FEED_RESIDENT_BYTES, isStandaloneFeedSkeletonMessage,
+} from "../shared/conversation-feed-window";
 import type { ConversationV2RendererState } from "./conversation-v2-renderer-state";
 import { boundTimelineFeedState } from "./conversation-v2-feed-scroll-state";
 
@@ -39,11 +41,11 @@ export function boundConversationFeedState(state: ConversationV2RendererState): 
       ...(state.feedWindow.hydratedToolRunIds ?? []),
     ]);
     const finalAnswerByTurn = new Map<string, ConversationMessage>();
-    const userMessages = new Map<string, ConversationMessage>();
+    const messages = new Map<string, ConversationMessage>();
     for (const message of state.messages.values()) {
       if (message.isDeleted || message.status === "deleted") continue;
-      if (message.role === "user" && message.channel === "answer") {
-        userMessages.set(message.messageId, message);
+      if (isStandaloneFeedSkeletonMessage(message)) {
+        messages.set(message.messageId, message);
         continue;
       }
       if (message.role !== "assistant" || message.channel !== "answer") continue;
@@ -56,10 +58,9 @@ export function boundConversationFeedState(state: ConversationV2RendererState): 
         finalAnswerByTurn.set(message.turnId, message);
       }
     }
-    const messages = new Map([...userMessages.values(), ...finalAnswerByTurn.values()].map((message) => [
-      message.messageId,
-      message,
-    ]));
+    for (const message of finalAnswerByTurn.values()) {
+      messages.set(message.messageId, message);
+    }
     for (const message of state.messages.values()) {
       if (message.isDeleted || message.status === "deleted") continue;
       if (message.runId && residentRunIds.has(message.runId)) {

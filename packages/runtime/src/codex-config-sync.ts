@@ -214,7 +214,8 @@ export function buildCodexConfigToml(input: SyncCodexConfigFromEcoProvidersInput
   // Role definitions stay thread-scoped via thread/start.config & thread/resume.config.
   lines.push("[features]", "remote_plugin = false", "plugins = false", "apps = false");
   if (enableMultiAgent) {
-    lines.push("multi_agent = true", "hooks = true", "", "[agents]", "max_threads = 16", "max_depth = 1");
+    // V1 is on by default; keep explicit V1/V2 selection in thread overrides.
+    lines.push("hooks = true", "", "[agents]", "enabled = true", "max_threads = 16", "max_depth = 1");
   }
   lines.push("");
   // Codex 0.152+ disables update_plan by default; Eco Plan→Todo requires it.

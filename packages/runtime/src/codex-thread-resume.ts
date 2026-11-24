@@ -20,6 +20,8 @@ export interface CodexThreadResumeInput {
   config?: Record<string, unknown>;
   /** Same app-server client already created this thread with the exact config. */
   configAlreadyApplied?: boolean;
+  /** A managed main conversation may branch its saved history for a new provider. */
+  forkOnProviderChange?: boolean;
   /** Emits sanitized config/status evidence without changing resume behavior. */
   onDiagnostic?: (diagnostic: CodexResumeDiagnostic) => void;
   signal?: AbortSignal;
@@ -93,6 +95,7 @@ export interface CodexResumeDiagnostic {
     | "omit_known_config"
     | "resume_cold_with_config"
     | "reload_loaded_config"
+    | "fork_for_provider"
     | "reject_loaded_config"
     | "reload_failed";
   error?: string;
@@ -176,6 +179,41 @@ export async function resumeCodexThread(
     // turn/start can change the model, but cannot switch the loaded provider.
     const providerChanged =
       params.modelProvider !== undefined && params.modelProvider !== snapshot.modelProvider;
+    if (input.forkOnProviderChange && providerChanged && snapshot.modelProvider) {
+      if (
+        snapshot.kind !== "idle" &&
+        snapshot.kind !== "systemError" &&
+        snapshot.kind !== "notLoaded"
+      ) {
+        throw new CodexResumeNotAvailable("Cannot change the provider of an active Codex thread.", {
+          nextAction: "Stop the active turn before changing providers.",
+        });
+      }
+      emitResumeDiagnostic(input.onDiagnostic, {
+        threadId: params.threadId,
+        ...clientIdentity,
+        nextConfigFingerprint,
+        configAlreadyApplied: false,
+        status: snapshot.kind,
+        decision: "fork_for_provider",
+      });
+      input.signal?.throwIfAborted();
+      // Codex 0.171 binds a saved thread to its provider, even after unload.
+      // Fork the full transcript before remapping; the source and other turns stay intact.
+      const result = await client.request<CodexThreadResumeResult>("thread/fork", params);
+      input.signal?.throwIfAborted();
+      if (
+        !result.thread?.id?.trim() ||
+        result.thread.id === params.threadId ||
+        result.modelProvider !== params.modelProvider ||
+        (params.model !== undefined && result.model !== params.model)
+      ) {
+        throw new CodexResumeNotAvailable("Codex could not verify the new thread's provider or model.", {
+          nextAction: "Retry with the desired provider; the original thread was not remapped.",
+        });
+      }
+      return result;
+    }
     const configAlreadyApplied = hasConfigProof && !providerChanged;
     // A failed turn is terminal. Its loaded thread can reuse the exact config already owned by this client.
     const canReuseLoadedConfig = snapshot.kind === "idle" || snapshot.kind === "systemError";

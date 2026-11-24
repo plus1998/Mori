@@ -183,9 +183,16 @@ export function mergeTimelineFeedWindow(
     }
   }
   if (current.projectionExtras && bounded.projectionExtras) {
+    const answerRequestIds = Object.fromEntries(
+      Object.entries({
+        ...current.projectionExtras.answerRequestIds,
+        ...bounded.projectionExtras.answerRequestIds,
+      }).filter(([messageId]) => bounded.messages.has(messageId)),
+    );
     const visibleIds = new Set([
       ...bounded.runs.keys(),
       ...[...bounded.messages.values()].map((message) => message.turnId),
+      ...Object.values(answerRequestIds),
     ]);
     const spans = new Map(
       [...current.projectionExtras.requestSpans, ...bounded.projectionExtras.requestSpans].map((row) => [
@@ -195,6 +202,7 @@ export function mergeTimelineFeedWindow(
     );
     bounded.projectionExtras = {
       ...bounded.projectionExtras,
+      answerRequestIds,
       requestSpans: [...spans.values()].filter((row) => visibleIds.has(row.requestId)).slice(-120),
     };
   }

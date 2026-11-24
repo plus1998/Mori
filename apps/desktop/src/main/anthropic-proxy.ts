@@ -73,7 +73,7 @@ export interface ClaudeMessagesRouteEntry {
   apiCompat: UpstreamApiCompat;
   thinkingEffort?: ThinkingEffort;
   /** ChatGPT Login speed preference; standard explicitly clears a previous Fast turn. */
-  serviceTier?: "fast" | "default";
+  serviceTier?: "fast" | "ultrafast" | "default";
   maxOutputTokens?: number;
   bindingId: string;
 }
@@ -86,7 +86,7 @@ export interface AnthropicProxyRoute {
   apiCompat?: UpstreamApiCompat;
   thinkingEffort?: ThinkingEffort;
   /** ChatGPT Login speed preference; standard explicitly clears a previous Fast turn. */
-  serviceTier?: "fast" | "default";
+  serviceTier?: "fast" | "ultrafast" | "default";
   /** From RouteManualSpec; injected as Anthropic max_tokens on forwarded messages requests. */
   maxOutputTokens?: number;
   /** Resolved catalog/manual context window; drives SDK `[1m]` alias suffix when >= 1M. */
@@ -105,7 +105,7 @@ export interface RuntimeRouteProxySource {
   apiCompat?: UpstreamApiCompat;
   thinkingEffort?: ThinkingEffort;
   /** ChatGPT Login speed preference; standard explicitly clears a previous Fast turn. */
-  serviceTier?: "fast" | "default";
+  serviceTier?: "fast" | "ultrafast" | "default";
   manualSpec?: RouteManualSpec;
 }
 

@@ -3673,6 +3673,7 @@ app
       getGlobalUserRules: () => personalizationSettingsStore.get().globalRules,
       getGlobalContextWindowLimit: () => workflowSettingsStore.get().contextWindowLimitTokens,
       listAccountModels: () => getCodexModelCatalogService().listRuntimeModels(),
+      listAccountUltrafastModels: async (accountId) => (await getOpenAIAccountService()).listUltrafastModels(accountId),
       enrichCatalogRoutes: async (routes) => {
         const providers = providerStore.listProviders();
         const byId = new Map(providers.map((provider) => [provider.id, provider]));
@@ -9022,6 +9023,13 @@ function registerIpcHandlers(): void {
       return (await getOpenAIAccountService()).setAuthJson(payload.accountId, payload.content);
     },
   );
+
+  registerDesktopCommand(IPC_CHANNELS.openAIAccountsUltrafastModels, async (payload: unknown) => {
+    if (!isRecord(payload) || typeof payload.accountId !== "string" || !payload.accountId.trim()) {
+      throw new Error("超快模式查询缺少账号。");
+    }
+    return (await getOpenAIAccountService()).listUltrafastModels(payload.accountId.trim());
+  });
 
   registerDesktopCommand(IPC_CHANNELS.openAIAccountsQueryQuota, async (payload: { accountId: string; reason?: "manual" | "view" | "switch" | "reset" }) => {
     if (!payload || typeof payload.accountId !== "string" || !payload.accountId.trim() ||

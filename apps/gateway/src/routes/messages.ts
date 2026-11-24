@@ -78,6 +78,7 @@ import { forwardOpenAIChat } from "../upstream/openai-chat.js";
 import { headersWithLogicalRequestIdentity, readUpstreamRequestId } from "../upstream/request-id-headers.js";
 import {
   isDeepSeekResponsesUpstreamModel,
+  isOfficialOpenAIResponsesBaseUrl,
   sanitizeDeepSeekResponsesCustomTools,
   sanitizeDeepSeekResponsesReasoning,
 } from "../upstream/responses-passthrough.js";
@@ -536,6 +537,18 @@ async function forwardMessagesViaResponses(
   }
   let responsesBody = sanitizeDeepSeekResponsesCustomTools(reasoningSanitized.body, route.upstreamModelId);
   responsesBody.model = route.upstreamModelId;
+
+  // The bridge serializes plaintext Anthropic thinking as a reasoning item with
+  // non-empty content. OpenAI rejects that input; omit only those synthetic
+  // items, keeping encrypted reasoning and the tool call/result history intact.
+  if (
+    (route.provider.authMethod === "chatgpt_subscription" || isOfficialOpenAIResponsesBaseUrl(upstreamUrl)) &&
+    Array.isArray(responsesBody.input)
+  ) {
+    responsesBody.input = responsesBody.input.filter((item) =>
+      item.type !== "reasoning" || !Array.isArray(item.content) || item.content.length === 0
+    );
+  }
 
   // Subscription upstream requires SSE regardless of the Messages client's
   // response mode. Non-streaming clients receive the collected terminal JSON.

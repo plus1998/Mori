@@ -1152,7 +1152,7 @@ export function WorkspaceFloatingCards({
             <MultiAgentsRunPanel
               runs={multiAgentsRuns}
               loadError={multiAgentsLoadError}
-              onNavigate={onNavigateMultiAgentsThread}
+              {...(onNavigateMultiAgentsThread ? { onNavigate: onNavigateMultiAgentsThread } : {})}
             />
           </WorkspacePanelSection>
         ) : null}

@@ -10,6 +10,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { resolveNonRewindRetryUserMessage } from "../src/main/conversation-nonrewind-retry-command";
 import { appendLegacyThreadRunEventToConversationV2 } from "../src/main/conversation-v2-legacy-adapter";
+import { ConversationV2RuntimeWriter } from "../src/main/conversation-v2-runtime-writer";
 import { ConversationV2Store } from "../src/main/conversation-v2-store";
 import {
   ActivityLogView,
@@ -25,6 +26,7 @@ import {
 } from "../src/renderer/conversation-v2-projection-view";
 import type { ConversationV2RendererState } from "../src/renderer/conversation-v2-renderer-state";
 import { buildThreadRunTurnFeedSections } from "../src/renderer/conversation-v2-turn-feed";
+import { formatTokenSpeedStats } from "../src/renderer/token-speed";
 import {
   buildRequestFailureRetryTargets,
   isRetryableRequestFailureItem,
@@ -55,6 +57,65 @@ function queuedMessage(messageId: string, createdSeq: number): ConversationMessa
     status: "queued",
   };
 }
+
+test("the V2 Feed answer resolves its provider span for the speed badge", () => {
+  const db = new DatabaseSync(":memory:");
+  const store = new ConversationV2Store(db);
+  store.initialize();
+  const startedAt = "2026-09-14T00:00:01.000Z";
+  const endedAt = "2026-09-14T00:00:05.000Z";
+  store.append({
+    conversationId: "thread_merge",
+    eventId: "codex_run_started",
+    type: "run.started",
+    occurredAt: startedAt,
+    runId: "attempt_1",
+    turnId: "attempt_1",
+    payload: { phase: "execution", retryIndex: 0 },
+  });
+  new ConversationV2RuntimeWriter(db, store).append({
+    id: "codex_answer_event",
+    threadId: "thread_merge",
+    eventType: "message.final",
+    scope: "main",
+    streamState: "finalized",
+    message: "完成了。",
+    observedAt: endedAt,
+    role: "assistant",
+    runAttemptId: "attempt_1",
+    requestId: "native_turn_1",
+    streamKey: "codex_answer",
+  });
+  const answer = store.bootstrap("thread_merge").messages[0]!;
+  const answerRequestIds = store.listAnswerMessageRequestIds("thread_merge", ["attempt_1"]);
+  expect(answerRequestIds).toEqual({ [answer.messageId]: "native_turn_1" });
+  expect(store.listAnswerMessageRequestIds("thread_merge", ["attempt_2"])).toEqual({});
+
+  const projection = buildConversationV2OnlyProjection({
+    ...v2State([answer]),
+    projectionExtras: {
+      answerRequestIds,
+      requestSpans: [{
+        requestId: "native_turn_1",
+        status: "completed",
+        startedAt,
+        firstTokenAt: "2026-09-14T00:00:02.000Z",
+        endedAt,
+        ttftMs: 1_000,
+        generationMs: 3_000,
+        outputTokens: 100,
+      }],
+    },
+  });
+  const item = projection.timeline[0]!;
+  expect(item.requestId).toBe("native_turn_1");
+  const span = projection.requestSpans.find((candidate) => candidate.requestId === item.requestId)!;
+  expect(formatTokenSpeedStats(span, item.text, Date.parse(endedAt))).toMatchObject({
+    ttftMs: 1_000,
+    totalTps: 25,
+    tokenSource: "usage",
+  });
+});
 
 function legacyUserItem(id: string, sequence: number): ThreadRunProjectionTimelineItem {
   return {

@@ -171,12 +171,13 @@ test("unreachable MCP fails before any model request", async () => {
     result = await runScriptedPiSession({
       ...input,
       threadId: "mcp-unreachable",
+      mcpStartupWaitMs: 500,
       mcpServers: { mori_mcp: { type: "http", url: "http://127.0.0.1:1/mcp" } },
       turns: [{ text: "must not run" }],
     });
     expect(result.requests).toHaveLength(0);
     expect(terminal(result.events)).toMatchObject({ status: "failed" });
-    expect(terminal(result.events)?.error).toContain("mori_mcp");
+    expect(terminal(result.events)?.error).toContain("MCP servers are still connecting");
   } finally {
     await result?.dispose();
     await rm(input.workspace, { recursive: true, force: true });

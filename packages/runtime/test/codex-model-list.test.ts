@@ -40,7 +40,7 @@ describe("listCodexModelCatalog", () => {
       },
     };
 
-    await expect(listCodexModelCatalog(client, { pageSize: 1 })).resolves.toEqual([
+    await expect(listCodexModelCatalog(client, { pageSize: 1, modelProvider: " custom-gateway " })).resolves.toEqual([
       {
         id: "gpt-first",
         model: "gpt-first",
@@ -59,11 +59,11 @@ describe("listCodexModelCatalog", () => {
     expect(requests).toEqual([
       {
         method: CODEX_MODEL_LIST_METHOD,
-        params: { limit: 1, includeHidden: false },
+        params: { limit: 1, includeHidden: false, modelProvider: "custom-gateway" },
       },
       {
         method: CODEX_MODEL_LIST_METHOD,
-        params: { limit: 1, includeHidden: false, cursor: "cursor-2" },
+        params: { limit: 1, includeHidden: false, cursor: "cursor-2", modelProvider: "custom-gateway" },
       },
     ]);
   });

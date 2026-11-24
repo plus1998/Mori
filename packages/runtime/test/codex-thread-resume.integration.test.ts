@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { CodexAppServerClient } from "../src/codex-app-server-client";
 import { forkCodexThread } from "../src/codex-fork";
+import { listCodexModelCatalog } from "../src/codex-model-list";
 import { recordAppliedCodexThreadConfig } from "../src/codex-thread-config-fingerprint";
 import { resumeCodexThread } from "../src/codex-thread-resume";
 import {
@@ -106,6 +107,9 @@ realAppServerTest(
       // removed `codex-cli <version>` banner, so parse the server token, not a banner.
       expect(readCodexCliVersion(codexExecutable)).toBe(appCodexPin);
       expect(parseCodexAppServerUserAgentVersion(initialized.userAgent ?? "")).toBe(appCodexPin);
+      const accountCatalog = await listCodexModelCatalog(client, { modelProvider: "openai", includeHidden: true });
+      expect(accountCatalog.map(({ model }) => model)).toContain("gpt-6.2-sol");
+      expect(accountCatalog.map(({ model }) => model)).toContain("gpt-6.2-astra");
 
       const initialModel = "gpt-5.1-codex-mini";
       const resumedModel = "gpt-5.2-codex";
@@ -383,46 +387,48 @@ realAppServerTest(
       });
       await otherObserved;
       await waitForThreadStatus(client, other.thread.id, "active");
-      // Same static config still requires unloading when the provider changes.
+      // Changing provider forks the saved transcript and leaves the source thread intact.
       const switched = await resumeCodexThread(client, {
         threadId,
         model: "next-model",
         modelProvider: "next",
         config: oldConfig,
         configAlreadyApplied: true,
+        forkOnProviderChange: true,
         signal: AbortSignal.timeout(5_000),
       });
-      expect(switched.thread.id).toBe(threadId);
+      expect(switched.thread.id).not.toBe(threadId);
+      const switchedThreadId = switched.thread.id;
       expect(switched.model).toBe("next-model");
       expect(switched.modelProvider).toBe("next");
       await waitForThreadStatus(client, other.thread.id, "active");
-      const completed = waitForTurnCompleted(client, threadId);
+      const completed = waitForTurnCompleted(client, switchedThreadId);
       await client.request("turn/start", {
-        threadId,
+        threadId: switchedThreadId,
         input: [{ type: "text", text: "continue-after-switch" }],
         model: "next-model",
         approvalPolicy: "never",
         sandboxPolicy: { type: "readOnly" },
       });
       expect((await completed).turn.status).toBe("completed");
-      await waitForThreadStatus(client, threadId, "idle");
+      await waitForThreadStatus(client, switchedThreadId, "idle");
       const continued = requests.filter((entry) => entry.body.includes("continue-after-switch"));
       expect(continued).toHaveLength(1);
       expect(continued[0]).toMatchObject({ path: "/next/v1/responses", model: "next-model" });
       expect(continued[0]?.body).toContain("keep-history-before-quota");
       // Change static capabilities again while idle, retaining the same native thread.
       const changed = await resumeCodexThread(client, {
-        threadId,
+        threadId: switchedThreadId,
         model: "next-model",
         modelProvider: "next",
         config: { ...oldConfig, features: { view_image: false } },
         signal: AbortSignal.timeout(5_000),
       });
-      expect(changed.thread.id).toBe(threadId);
+      expect(changed.thread.id).toBe(switchedThreadId);
       await waitForThreadStatus(client, other.thread.id, "active");
-      const capabilitiesTurn = waitForTurnCompleted(client, threadId);
+      const capabilitiesTurn = waitForTurnCompleted(client, switchedThreadId);
       await client.request("turn/start", {
-        threadId,
+        threadId: switchedThreadId,
         input: [{ type: "text", text: "continue-after-capability-change" }],
         model: "next-model",
         approvalPolicy: "never",

@@ -1,3 +1,4 @@
+import { listCodexModelCatalog } from "./codex-model-list.js";
 import path from "node:path";
 import { type AgentEvent, createAgentEvent, isCompactCommand } from "../../shared/src";
 import {
@@ -90,7 +91,7 @@ export interface CodexTurnStartParams {
   model: string;
   /** Top-level reasoning override; persists for subsequent turns on the thread. */
   effort?: CodexTurnReasoningEffort;
-  serviceTier?: "fast" | "default";
+  serviceTier?: "fast" | "ultrafast" | "default";
   /** Codex Settings.model is required whenever collaborationMode is sent. */
   collaborationMode: CodexCollaborationMode;
   sandboxPolicy: CodexAppServerSandboxPolicy;
@@ -116,6 +117,7 @@ export interface CodexAppServerDriverOptions {
   /** Reapplied on both thread/start and thread/resume. */
   threadConfig?: Record<string, unknown>;
   existingCodexThreadId?: string;
+  forkOnProviderChange?: boolean;
   /** Exact immutable role config is known to own the existing child on this client. */
   threadConfigAlreadyApplied?: boolean;
   onThreadMapped?: (ecoThreadId: string, codexThreadId: string) => void;
@@ -196,6 +198,7 @@ export class CodexAppServerDriver implements AgentRuntimeDriver {
   private readonly threadConfig: Record<string, unknown> | undefined;
   private readonly existingCodexThreadId: string | undefined;
   private readonly threadConfigAlreadyApplied: boolean;
+  private readonly forkOnProviderChange: boolean;
   private readonly onThreadMapped: ((ecoThreadId: string, codexThreadId: string) => void) | undefined;
   private readonly onThreadRolloutPath: CodexAppServerDriverOptions["onThreadRolloutPath"];
   private readonly onThreadName: CodexAppServerDriverOptions["onThreadName"];
@@ -224,6 +227,7 @@ export class CodexAppServerDriver implements AgentRuntimeDriver {
     this.threadConfig = options.threadConfig;
     this.existingCodexThreadId = options.existingCodexThreadId;
     this.threadConfigAlreadyApplied = options.threadConfigAlreadyApplied ?? false;
+    this.forkOnProviderChange = options.forkOnProviderChange === true;
     this.onThreadMapped = options.onThreadMapped;
     this.onThreadRolloutPath = options.onThreadRolloutPath;
     this.onThreadName = options.onThreadName;
@@ -382,6 +386,14 @@ export class CodexAppServerDriver implements AgentRuntimeDriver {
       : overrides.existingCodexThreadId?.trim() || this.existingCodexThreadId?.trim();
 
     const manualCompact = isCompactCommand(input.prompt);
+    if (!manualCompact && route.serviceTier === "ultrafast") {
+      if (!isBuiltInOpenAi) throw new Error("超快模式仅支持 Codex Login。");
+      const models = await listCodexModelCatalog(this.client, { modelProvider: "openai" });
+      if (!models.some((entry) => entry.model === turnModel && entry.supportsUltrafast)) {
+        throw new Error(`当前 Codex Login 账号的模型目录未提供 ${turnModel} 超快模式，请选择标准或快速模式。`);
+      }
+      input.signal.throwIfAborted();
+    }
     if (manualCompact && !codexThreadId) {
       throw new Error("/compact 需要已有的 Codex 会话。");
     }
@@ -394,6 +406,7 @@ export class CodexAppServerDriver implements AgentRuntimeDriver {
       const resumed = await resumeCodexThread(this.client, {
         threadId: codexThreadId,
         cwd,
+        forkOnProviderChange: this.forkOnProviderChange,
         model: codexGatewayModel,
         ...(modelProvider ? { modelProvider } : {}),
         ...(this.developerInstructions ? { developerInstructions: this.developerInstructions } : {}),

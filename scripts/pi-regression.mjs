@@ -5,13 +5,13 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 /**
- * One entry point for the PI 1.5.1 upgrade regression.
+ * One entry point for the PI 1.6.0 upgrade regression.
  *
  * The upgrade spans four things that fail independently: the pinned dependency
  * graph, the deterministic adapter/session contracts, the real PI session against
  * a real MCP Hub, and the version each entry point actually loads at runtime.
  * Running them separately is how a green `bun test` hides a harness that resolves
- * a stale pre-1.5.1 build, so they are reported together and any red one fails the
+ * a stale pre-1.6.0 build, so they are reported together and any red one fails the
  * command.
  *
  * Usage:
@@ -27,9 +27,9 @@ const only = [...args].find((arg) => arg.startsWith("--only="))?.slice("--only="
 
 /** Versions the upgrade pins. A mismatch means the workspace resolved something else. */
 const EXPECTED_VERSIONS = {
-  "@earendil-works/pi-coding-agent": "1.5.1",
-  "@earendil-works/pi-ai": "1.5.1",
-  "@earendil-works/pi-mcp": "1.5.1",
+  "@earendil-works/pi-coding-agent": "1.6.0",
+  "@earendil-works/pi-ai": "1.6.0",
+  "@earendil-works/pi-mcp": "1.6.0",
   typebox: "1.3.27",
   "pi-web-search": "1.7.0",
 };
@@ -46,7 +46,7 @@ function record(name, status, detail) {
 /**
  * Declared versions come from the runtime manifest, installed ones from the tree
  * that package actually resolves. Checking both is the point: a manifest that says
- * 1.5.1 while the installed copy is older is exactly the state this guards against.
+ * 1.6.0 while the installed copy is older is exactly the state this guards against.
  */
 function checkVersions() {
   const declared = JSON.parse(readFileSync(join(runtimeDir, "package.json"), "utf8")).dependencies;

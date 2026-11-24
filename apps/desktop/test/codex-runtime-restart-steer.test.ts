@@ -42,7 +42,7 @@ test.skipIf(process.platform === "win32")("restarted account and provider runtim
   try {
     await fs.writeFile(executable, `#!${process.execPath}
 import { createInterface } from 'node:readline';
-if (process.argv.includes('--version')) { console.log('codex-cli 0.167.0'); process.exit(0); }
+if (process.argv.includes('--version')) { console.log('codex-cli 0.171.0'); process.exit(0); }
 if (process.argv.includes('--bundled')) {
   console.log(JSON.stringify({ models: [{ slug: 'gpt-6.1-sol', apply_patch_tool_type: 'freeform', context_window: 180000 }] }));
   process.exit(0);

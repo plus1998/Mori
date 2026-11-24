@@ -1,12 +1,16 @@
 import {
   ChevronRight,
+  ExternalLink,
   PanelLeft,
   RefreshCw,
   RotateCcw,
   Search,
+  Trash2,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
+import { type ContextMenuBox, contextMenuBoxForPoint } from "./context-menu-layout";
 import { MaterialFileIcon } from "./MaterialFileIcon";
 import { WorkspaceExplorerTree } from "./WorkspaceExplorerTree";
 import { type WorkspaceFile, WorkspaceFilePreview } from "./WorkspaceFilePreview";
@@ -17,6 +21,7 @@ import {
   buildWorkspaceRoot,
   collectRefreshDirectories,
   mergeWorkspaceEntries,
+  parentDirectory,
   type WorkspaceEntry,
   type WorkspacePathSegment,
   type WorkspaceTreeItem,
@@ -29,6 +34,8 @@ import "./workspace-file-browser.css";
 interface WorkspaceApi {
   listWorkspaceEntries(input: { workspacePath: string; directoryPath: string }): Promise<WorkspaceEntry[]>;
   readWorkspaceFile(input: { workspacePath: string; filePath: string }): Promise<WorkspaceFile>;
+  openContainingFolder(filePath: string): Promise<void>;
+  deleteWorkspacePath(input: { workspacePath: string; path: string }): Promise<void>;
   writeWorkspaceFile(input: {
     workspacePath: string;
     filePath: string;
@@ -95,6 +102,40 @@ export function WorkspaceFileBrowser({ workspacePath, threadId, target }: Worksp
   const appliedTargetRequestRef = useRef<number | undefined>(undefined);
   const [treeVisible, setTreeVisible] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{ path: string; isFolder: boolean; x: number; y: number; trigger: HTMLElement }>();
+  const [menuBox, setMenuBox] = useState<ContextMenuBox>();
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    if (!contextMenu || !menuRef.current) return;
+    setMenuBox(contextMenuBoxForPoint(contextMenu, { height: menuRef.current.getBoundingClientRect().height }, { width: window.innerWidth, height: window.innerHeight }));
+    menuRef.current.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
+  }, [contextMenu]);
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    const close = () => setContextMenu(undefined);
+    const onPointerDown = (event: PointerEvent) => {
+      if (!(event.target instanceof Node) || !menuRef.current?.contains(event.target)) close();
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" || event.key === "Tab") {
+        event.preventDefault();
+        contextMenu.trigger.focus();
+        close();
+      }
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("keydown", onKeyDown, true);
+    window.addEventListener("blur", close);
+    window.addEventListener("resize", close);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("blur", close);
+      window.removeEventListener("resize", close);
+    };
+  }, [contextMenu]);
 
   const confirmDiscardIfDirty = useCallback(() => {
     if (!dirtyRef.current) return true;
@@ -254,6 +295,37 @@ export function WorkspaceFileBrowser({ workspacePath, threadId, target }: Worksp
     workspacePath,
   ]);
 
+  const deletePath = async (path: string, isFolder: boolean) => {
+    if (!api) {
+      setTreeError(t("fileBrowser.apiUnavailable"));
+      return;
+    }
+    const deletesActiveFile = !!activeTarget && isWorkspacePathContained(path, activeTarget.path);
+    if (deletesActiveFile && !confirmDiscardIfDirty()) return;
+    if (!window.confirm(t(isFolder ? "fileBrowser.confirmDeleteDirectory" : "workspace.diff.confirmDeleteFile", { path }))) return;
+    const activeRequestId = requestRef.current;
+    try {
+      await api.deleteWorkspacePath({ workspacePath, path });
+      if (deletesActiveFile && activeRequestId === requestRef.current) {
+        ++requestRef.current;
+        setActiveTarget(undefined);
+        setFile(null);
+        setDirty(false);
+        setStatus("idle");
+        setSelectedItems([]);
+      }
+      setItems((current) => Object.fromEntries(
+        Object.entries(current).filter(([itemPath]) => !isWorkspacePathContained(path, itemPath)),
+      ));
+      setSelectedItems((current) => current.filter((item) => !isWorkspacePathContained(path, item)));
+      setExpandedItems((current) => current.filter((item) => !isWorkspacePathContained(path, item)));
+      setFocusedItem(parentDirectory(path));
+      await loadDirectory(parentDirectory(path));
+    } catch (error) {
+      setTreeError(error instanceof Error ? error.message : String(error));
+    }
+  };
+
   const visibleItems = useMemo(
     () => filterWorkspaceItems(items, workspacePath, treeQuery),
     [items, treeQuery, workspacePath],
@@ -351,10 +423,38 @@ export function WorkspaceFileBrowser({ workspacePath, threadId, target }: Worksp
             const selectedItem = items[index];
             if (selectedItem && !selectedItem.isFolder) selectFile(index);
           }}
+          onContextMenu={(event, item) => {
+            event.preventDefault();
+            setFocusedItem(item.index);
+            setMenuBox(undefined);
+            setContextMenu({ path: item.index, isFolder: Boolean(item.isFolder), x: event.clientX, y: event.clientY, trigger: event.currentTarget });
+          }}
           onDragFile={(event, item) => startWorkspaceFileDrag(event.dataTransfer, item.index)}
           onFocusItem={setFocusedItem}
         />
       </div>
+      ) : null}
+      {contextMenu ? createPortal(
+        <div ref={menuRef} className="workspace-diff-context-menu" role="menu"
+          aria-label={t("workspace.diff.fileMenuLabel")}
+          style={menuBox ?? { position: "fixed", visibility: "hidden" }}
+          onContextMenu={(event) => event.preventDefault()}>
+          <button type="button" role="menuitem" className="workspace-diff-context-menu-item" onClick={() => {
+            const path = contextMenu.path;
+            setContextMenu(undefined);
+            if (!api) { setTreeError(t("fileBrowser.apiUnavailable")); return; }
+            void api.openContainingFolder(path).catch((error: unknown) => setTreeError(error instanceof Error ? error.message : String(error)));
+          }}>
+            <ExternalLink size={14} aria-hidden />{t("workspace.diff.openContainingFolder")}
+          </button>
+          <button type="button" role="menuitem" className="workspace-diff-context-menu-item is-danger" onClick={() => {
+            const { path, isFolder } = contextMenu;
+            setContextMenu(undefined);
+            void deletePath(path, isFolder);
+          }}>
+            <Trash2 size={14} aria-hidden />{t("common.delete")}
+          </button>
+        </div>, document.body,
       ) : null}
       <div className="workspace-file-browser__preview">
         {breadcrumbs.length > 0 ? (

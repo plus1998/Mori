@@ -15,6 +15,7 @@ export type PiSessionEventLike = {
 export interface PiEventAdapterState {
   /** Monotonic assistant message generation (bumped on message_start / message_end). */
   messageSeq: number;
+  reasoningRemovals: number;
   /** last contentIndex for text / thinking within current message (for stable keys). */
   lastTextIndex: number | null;
   lastThinkingIndex: number | null;
@@ -49,6 +50,7 @@ interface PiToolCallArguments {
 export function createPiEventAdapterState(): PiEventAdapterState {
   return {
     messageSeq: 0,
+    reasoningRemovals: 0,
     lastTextIndex: null,
     lastThinkingIndex: null,
     openText: false,
@@ -523,6 +525,23 @@ export function mapPiSessionEventToAgentEvents(
       events.push(...closeOpenStreams(ctx, seq, "message_end"));
 
       if (isAssistantMessage(message)) {
+        const removals = readPiReasoningRemovals(message.diagnostics);
+        if (removals.length > state.reasoningRemovals) {
+          const reasons = [...new Set(removals)];
+          events.push(createAgentEvent({
+            id: `${ctx.threadId}:pi:${seq}:reasoning_removals`,
+            ...base,
+            type: "agent.started",
+            payload: {
+              type: "system",
+              subtype: "informational",
+              level: "info",
+              tag: "pi_openai_input_transformations",
+              content: `OpenAI 未重放 ${removals.length} 段推理（${reasons.join("、")}）。`,
+            },
+          }));
+        }
+        state.reasoningRemovals = removals.length;
         const text = extractAssistantText(message);
         // Only inject a full text snapshot when this message never streamed text deltas
         // (avoids re-pushing full body and double-merge into narrative).
@@ -969,10 +988,24 @@ function usageEventFromAssistantMessage(
   });
 }
 
+function readPiReasoningRemovals(diagnostics: unknown): string[] {
+  if (!Array.isArray(diagnostics)) return [];
+  return diagnostics.flatMap((diagnostic) => {
+    if (!isRecord(diagnostic) || diagnostic.type !== "openai_input_transformations" ||
+        !isRecord(diagnostic.details) || !Array.isArray(diagnostic.details.transformations)) return [];
+    return diagnostic.details.transformations.flatMap((item) => {
+      if (!isRecord(item) || item.type !== "reasoning" || item.action !== "removed" ||
+          item.reason === "turn_boundary") return [];
+      return [typeof item.reason === "string" && /^[a-z_]{1,64}$/.test(item.reason) ? item.reason : "unknown"];
+    });
+  });
+}
+
 function isAssistantMessage(value: unknown): value is {
   role: "assistant";
   content?: unknown;
   usage?: unknown;
+  diagnostics?: unknown;
   model?: string;
 } {
   return isRecord(value) && value.role === "assistant";

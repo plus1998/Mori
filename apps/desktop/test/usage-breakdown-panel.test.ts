@@ -76,6 +76,7 @@ test("buildLedgerEventSummary preserves the primary event token summary", () => 
     usageKind: "request_final",
     inputTokens: 1200,
     outputTokens: 300,
+    reasoningTokens: 225,
     cacheReadTokens: 500,
     cacheCreationTokens: 0,
     observedAt: "2026-07-29T08:00:00.000Z",

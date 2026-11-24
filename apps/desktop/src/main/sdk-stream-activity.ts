@@ -947,7 +947,11 @@ function resolveSdkAgentStatusActivity(
     return {
       type: "sdk.notice",
       message: record.content,
-      metadata: { activityOrigin: "sdk.informational", level: record.level, tag: record.tag },
+      metadata: {
+        activityOrigin: "sdk.informational",
+        ...(typeof record.level === "string" ? { level: record.level } : {}),
+        ...(typeof record.tag === "string" ? { tag: record.tag } : {}),
+      },
     };
   if (record.subtype === "session_state_changed")
     return {

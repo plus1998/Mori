@@ -9,11 +9,13 @@ export interface CodexModelCatalogEntry {
   displayName: string;
   defaultReasoningEffort: string;
   supportedReasoningEfforts: string[];
+  supportsUltrafast?: true;
 }
 
 export interface CodexModelListOptions {
   includeHidden?: boolean;
   pageSize?: number;
+  modelProvider?: string;
 }
 
 interface CodexModelListPage {
@@ -30,6 +32,11 @@ export async function listCodexModelCatalog(
     throw new Error(`Codex model/list pageSize must be a positive integer, received ${pageSize}.`);
   }
 
+  const modelProvider = options.modelProvider?.trim();
+  if (options.modelProvider !== undefined && !modelProvider) {
+    throw new Error("Codex model/list modelProvider must not be blank.");
+  }
+
   const entries: CodexModelCatalogEntry[] = [];
   const seenCursors = new Set<string>();
   let cursor: string | undefined;
@@ -39,6 +46,7 @@ export async function listCodexModelCatalog(
       limit: pageSize,
       includeHidden: options.includeHidden ?? false,
       ...(cursor ? { cursor } : {}),
+      ...(modelProvider !== undefined ? { modelProvider } : {}),
     });
     const page = parseCodexModelListPage(response);
     entries.push(...page.data);
@@ -109,6 +117,9 @@ function parseCatalogEntry(value: unknown, index: number): CodexModelCatalogEntr
     displayName,
     defaultReasoningEffort,
     supportedReasoningEfforts,
+    ...(Array.isArray(value.serviceTiers) && value.serviceTiers.some(
+      (tier) => isRecord(tier) && tier.id === "ultrafast",
+    ) ? { supportsUltrafast: true as const } : {}),
   };
 }
 

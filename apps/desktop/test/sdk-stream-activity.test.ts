@@ -146,7 +146,7 @@ test("SDK informational, rate limit and requires-action events reach the activit
   const bridge = new SdkStreamActivityBridge();
   const emitted: CapturedActivity[] = [];
   for (const payload of [
-    { type: "system", subtype: "informational", content: "Provider warning", level: "warning" },
+    { type: "system", subtype: "informational", content: "Provider warning", level: "warning", tag: "settings_not_in_effect" },
     { type: "rate_limit_event", rate_limit_info: { status: "rejected", resetsAt: 123 } },
     { type: "system", subtype: "session_state_changed", state: "requires_action" },
   ])
@@ -160,7 +160,7 @@ test("SDK informational, rate limit and requires-action events reach the activit
     "request.rate_limit",
     "sdk.session_state",
   ]);
-  expect(emitted[0]?.message).toBe("Provider warning");
+  expect(emitted[0]).toMatchObject({ message: "Provider warning", metadata: { tag: "settings_not_in_effect", level: "warning" } });
   expect(emitted[1]?.metadata?.rateLimitInfo).toEqual({ status: "rejected", resetsAt: 123 });
   expect(emitted[2]?.metadata?.state).toBe("requires_action");
   expect(emitted.every((event) => event.role === "system" && !event.agentId)).toBe(true);

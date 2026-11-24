@@ -29,7 +29,7 @@ export interface EcoModelRef {
   modelId: string;
   apiCompat?: string;
   thinkingEffort?: string;
-  serviceTier?: "fast" | "default";
+  serviceTier?: "fast" | "ultrafast" | "default";
 }
 
 export type EcoModelRequirementCapability = "reasoning" | "coding" | "long_context" | "vision" | "tool_use";

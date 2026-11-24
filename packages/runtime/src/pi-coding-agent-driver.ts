@@ -1023,7 +1023,7 @@ async function createDefaultPiSession(input: PiSessionFactoryInput): Promise<PiS
   // whenever eco-pi-agent is loaded, or the model only sees mcp/browser and never Agent.
   const toolsAllowlist = [...allowedTools];
 
-  const { session } = await createAgentSession({
+  const { session, extensionsResult, modelFallbackMessage } = await createAgentSession({
     cwd: input.cwd,
     agentDir: input.agentDir,
     model: input.model as never,
@@ -1041,6 +1041,12 @@ async function createDefaultPiSession(input: PiSessionFactoryInput): Promise<PiS
     sessionManager,
     settingsManager,
   });
+
+  const pendingDiagnostics = new Set([
+    ...extensionsResult.errors.map(({ path, error }) => `PI 扩展 ${path}：${error}`),
+    ...(extensionsResult.warnings ?? []).map(({ path, warning }) => `PI 扩展 ${path}：${warning}`),
+    ...(modelFallbackMessage ? [modelFallbackMessage] : []),
+  ]);
 
   // PI CLI modes call bindExtensions (emits session_start → MCP init). Eco creates
   // sessions headlessly and must do the same; otherwise mcp() stays "MCP not initialized".
@@ -1066,7 +1072,7 @@ async function createDefaultPiSession(input: PiSessionFactoryInput): Promise<PiS
       mode: "rpc",
       onError: (err: { extensionPath?: string; error?: string }) => {
         if (err.extensionPath?.includes("eco-pi-mcp")) mcpStartupError = err.error ?? "MCP extension failed";
-        console.error(`PI extension error (${err.extensionPath ?? "?"}): ${err.error ?? "unknown"}`);
+        pendingDiagnostics.add(`PI 扩展 ${err.extensionPath ?? "?"}：${err.error ?? "未知错误"}`);
       },
     });
   } catch (error) {
@@ -1167,6 +1173,24 @@ async function createDefaultPiSession(input: PiSessionFactoryInput): Promise<PiS
           return seq;
         },
       };
+
+      for (const content of pendingDiagnostics) {
+        pendingDiagnostics.delete(content);
+        yield createAgentEvent({
+          id: `${sessionId}:pi-diagnostic:${mapCtx.nextSeq()}`,
+          threadId: input.threadId,
+          agentId: eventAgentId,
+          role: eventRole,
+          type: "agent.started",
+          payload: {
+            type: "system",
+            subtype: "informational",
+            level: "warning",
+            tag: "pi_session_diagnostic",
+            content,
+          },
+        });
+      }
 
       try {
         const { done, runError } = yield* streamPiPromptEvents<AgentEvent>({

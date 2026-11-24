@@ -23,7 +23,7 @@ export interface ModelRef extends Pick<RuntimeRoleRouteConfig, "baseUrl" | "requ
   apiCompat?: UpstreamApiCompat;
   thinkingEffort?: ThinkingEffort;
   /** ChatGPT Login speed preference; standard explicitly clears a previous Fast turn. */
-  serviceTier?: "fast" | "default";
+  serviceTier?: "fast" | "ultrafast" | "default";
   modelsDevMapping?: ModelsDevMapping;
   manualSpec?: RouteManualSpec;
   /** 引用供应商候选模型的稳定 ID；不存在时必须重新选择 */
@@ -524,7 +524,7 @@ function isModelRef(value: unknown): value is ModelRef {
     typeof model.modelId === "string" && Boolean(model.modelId.trim()) &&
     (model.accountId === undefined || typeof model.accountId === "string") &&
     (model.serviceTier === undefined || model.providerId === "openai" &&
-      (model.serviceTier === "fast" || model.serviceTier === "default")) &&
+      (model.serviceTier === "fast" || model.serviceTier === "ultrafast" || model.serviceTier === "default")) &&
     (model.candidateModelId === undefined || typeof model.candidateModelId === "string");
 }
 

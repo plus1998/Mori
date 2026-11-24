@@ -35,6 +35,12 @@ export interface ConversationFeedWindow extends ConversationBootstrap {
   toolPages: Record<string, { total: number; hasOlder: boolean; olderCursor?: string }>;
 }
 
+/** Prompts and failure notices are visible even with no active run or assistant answer. */
+export function isStandaloneFeedSkeletonMessage(message: Pick<ConversationMessage, "role" | "channel">): boolean {
+  return (message.role === "user" && message.channel === "answer") ||
+    (message.role === "system" && message.channel === "system");
+}
+
 export type FeedTimelineEntry =
   | { key: string; seq: number; message: ConversationMessage; tool?: never }
   | { key: string; seq: number; tool: ConversationToolCall; message?: never };

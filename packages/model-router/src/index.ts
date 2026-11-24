@@ -22,7 +22,7 @@ export interface ResolvedModelRoute {
   primary: ModelProfile;
   fallbacks: ModelProfile[];
   thinkingEffort?: RouteThinkingEffort;
-  serviceTier?: "fast" | "default";
+  serviceTier?: "fast" | "ultrafast" | "default";
   /** Product-resolved model output ceiling, before per-request input subtraction. */
   maxOutputTokens?: number;
 }

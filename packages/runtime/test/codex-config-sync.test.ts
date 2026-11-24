@@ -223,7 +223,8 @@ test("buildCodexConfigToml enables multi-agent without leaking mutable global ro
   expect(toml).toContain("[features]");
   expect(toml).toContain("remote_plugin = false");
   expect(toml).toContain("plugins = false");
-  expect(toml).toContain("multi_agent = true");
+  expect(toml).not.toContain("multi_agent = true");
+  expect(toml).toContain("[agents]\nenabled = true");
   expect(toml).toContain("hooks = true");
   expect(toml).toContain("[agents]");
   expect(toml).toContain("max_threads = 16");
@@ -239,7 +240,8 @@ test("buildCodexConfigToml keeps process-global multi-agent support without glob
     enableMultiAgent: true,
   });
 
-  expect(toml).toContain("multi_agent = true");
+  expect(toml).not.toContain("multi_agent = true");
+  expect(toml).toContain("[agents]\nenabled = true");
   expect(toml).toContain("hooks = true");
   expect(toml).toContain("[agents]");
   expect(toml).not.toContain("[agents.");

@@ -1854,17 +1854,25 @@ test("CodexAppServerDriver surfaces turn/interrupt failure and does not pretend 
 });
 
 
-test("Login Fast can be enabled and cleared across resumed turns without affecting gateway routes", async () => {
+test("Login speed tiers can be enabled and cleared across resumed turns without affecting gateway routes", async () => {
   const stdin = new PassThrough();
   const stdout = new PassThrough();
   const client = new CodexAppServerClient(stdin, stdout);
   const tiers: unknown[] = [];
   let count = 0;
+  let ultrafastAvailable = true;
   stdin.on("data", (chunk) => {
     for (const line of String(chunk).trim().split("\n")) {
       const message = JSON.parse(line);
       if (!message.id) continue;
       if (message.method === "initialize") writeResponse(stdout, { id: message.id, result: {} });
+      else if (message.method === "model/list") {
+        expect(message.params.modelProvider).toBe("openai");
+        writeResponse(stdout, { id: message.id, result: { nextCursor: null, data: [{
+          id: "native", model: "gpt-5.4", displayName: "Native", defaultReasoningEffort: "medium",
+          supportedReasoningEfforts: [], serviceTiers: ultrafastAvailable ? [{ id: "ultrafast" }] : [],
+        }] } });
+      }
       else if (message.method === "thread/resume") writeResponse(stdout, { id: message.id, result: { thread: { id: "native-fast" } } });
       else if (message.method === "turn/start") {
         tiers.push(message.params.serviceTier);
@@ -1879,6 +1887,7 @@ test("Login Fast can be enabled and cleared across resumed turns without affecti
   try {
     for (const route of [
       plannerRoute({ providerId: "openai", serviceTier: "fast" }),
+      plannerRoute({ providerId: "openai", serviceTier: "ultrafast", upstreamModelId: "gpt-5.4" }),
       plannerRoute({ providerId: "openai", serviceTier: "default" }),
       plannerRoute({ providerId: "openai" }),
       plannerRoute({ serviceTier: "fast" }),
@@ -1888,6 +1897,16 @@ test("Login Fast can be enabled and cleared across resumed turns without affecti
       for await (const _event of driver.run({ threadId: "eco-fast", prompt: "hi", workspacePath: "/repo",
         worktreePath: "/repo", routes: [route], signal: new AbortController().signal })) { /* drain */ }
     }
-    expect(tiers).toEqual(["fast", "default", "default", undefined, undefined, undefined]);
+    ultrafastAvailable = false;
+    const runUnsupported = async (providerId: string) => {
+      for await (const _event of driver.run({
+        threadId: "eco-fast", prompt: "hi", workspacePath: "/repo", worktreePath: "/repo",
+        routes: [plannerRoute({ providerId, serviceTier: "ultrafast", upstreamModelId: "gpt-5.4" })],
+        signal: new AbortController().signal,
+      })) { /* drain */ }
+    };
+    await expect(runUnsupported("openai")).rejects.toThrow("未提供");
+    await expect(runUnsupported("custom-provider")).rejects.toThrow("仅支持 Codex Login");
+    expect(tiers).toEqual(["fast", "ultrafast", "default", "default", undefined, undefined, undefined]);
   } finally { driver.dispose(); client.close(); }
 });

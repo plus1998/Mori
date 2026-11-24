@@ -5210,3 +5210,12 @@ test("Claude session context windows override inherited settings without mutatin
     else process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS = inherited;
   }
 });
+
+
+test("Claude hook heartbeats never create tool activities", () => {
+  const heartbeat = { type: "tool_progress", tool_use_id: "hook-123", tool_name: "PreToolUse", uuid: "heartbeat" };
+  expect(mapSdkMessageToEvents(heartbeat, "thr_hooks")).toEqual([]);
+  expect(mapSdkMessageToEvents({ ...heartbeat, tool_use_id: "toolu_123", tool_name: "Bash" }, "thr_hooks")).toMatchObject([
+    { type: "tool.started", payload: { tool_use_id: "toolu_123", tool_name: "Bash" } },
+  ]);
+});

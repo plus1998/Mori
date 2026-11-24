@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { DatabaseSync } from "node:sqlite";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { replayFeedWindow } from "../scripts/feed-replay/feed-window";
 import { ConversationStore } from "../src/main/conversation-store";
 import { migrateThreadFailureNotices } from "../src/main/conversation-v2-failure-notice-migration";
 import {
@@ -116,6 +117,79 @@ test("startup blocker reaches the live Feed, reopen and replay with the full rea
   }
 });
 
+test("the Feed keeps failure notices across the terminal update, late blocker, and reopen", () => {
+  const db = new DatabaseSync(":memory:");
+  const store = new ConversationV2Store(db);
+  store.initialize();
+  const writer = new ConversationV2RuntimeWriter(db, store);
+  const conversationId = "live-thread";
+  const request = { conversationId, skeleton: true } as const;
+  const at = "2026-10-26T02:08:29.000Z";
+  const apiMessage = "模型不存在或无权访问，请检查 Provider 配置与模型 ID。";
+  const rawReason = "The selected model is not supported when using Codex with a ChatGPT account.";
+  try {
+    store.append({
+      conversationId, eventId: "live-prompt", messageId: "live-prompt", turnId: "live-user-turn",
+      type: "message.created", occurredAt: at,
+      payload: { role: "user", channel: "answer", body: "开始", status: "final" },
+    });
+    store.append({
+      conversationId, eventId: "live-run", runId: "live-run", turnId: "live-run",
+      type: "run.started", occurredAt: at, payload: { status: "running" },
+    });
+    const snapshot = store.feedWindow(request);
+    let state: ReturnType<typeof installConversationV2Bootstrap> = {
+      ...installConversationV2Bootstrap(snapshot),
+      feedWindow: { mode: "latest", request, toolPages: snapshot.toolPages, skeleton: true },
+    };
+    const sync = () => {
+      state = applyConversationV2Effects(
+        state,
+        store.sync(conversationId, state.storeEpoch, state.appliedSeq).effects,
+      );
+    };
+    const messages = () => [...state.messages.values()].map((message) => message.body);
+    writer.append(blocked({
+      threadId: conversationId, runAttemptId: "live-run", id: "api-error", eventType: "api.error",
+      message: apiMessage, observedAt: "2026-10-26T02:08:30.000Z",
+      metadata: { liveType: "thread.api_error" },
+    }));
+    sync();
+    expect(messages()).toEqual(["开始", apiMessage]);
+    store.append({
+      conversationId, eventId: "live-failed", runId: "live-run", turnId: "live-run",
+      type: "run.failed", occurredAt: "2026-10-26T02:08:30.010Z", payload: { status: "failed" },
+    });
+    sync();
+    expect(state.runs.get("live-run")?.status).toBe("failed");
+    expect(messages()).toEqual(["开始", apiMessage]);
+    const failedHtml = renderToStaticMarkup(createElement(ActivityLogView, { conversationV2: state }));
+    expect(failedHtml).toContain(apiMessage);
+    expect(failedHtml).toContain('role="alert"');
+    writer.append(blocked({
+      threadId: conversationId, runAttemptId: "live-run", id: "late-blocker",
+      message: rawReason, observedAt: "2026-10-26T02:08:30.020Z",
+    }));
+    sync();
+    expect(messages()).toEqual(["开始", apiMessage, rawReason]);
+
+    const reopened = store.feedWindow(request);
+    const replayed = replayFeedWindow(installConversationV2Bootstrap(store.bootstrap(conversationId)), request);
+    expect(replayed.skeleton).toBe(true);
+    for (const feed of [reopened, replayed]) {
+      expect(feed.messages.map((message) => message.body)).toEqual(["开始", apiMessage, rawReason]);
+      const html = renderToStaticMarkup(createElement(ActivityLogView, {
+        conversationV2: installConversationV2Bootstrap(feed),
+      }));
+      // The collapsed turn shows its latest (more specific) failure reason.
+      expect(html).toContain(rawReason);
+      expect(html).toContain('role="alert"');
+    }
+  } finally {
+    db.close();
+  }
+});
+
 test("a blocker without a started run and a plan execution failure remain notices", () => {
   const { db, store, writer } = setup();
   try {
@@ -127,8 +201,9 @@ test("a blocker without a started run and a plan execution failure remain notice
         metadata: { liveType: "thread.execution_failed" },
       }),
     );
+    const feed = store.feedWindow({ conversationId: "thread", skeleton: true });
     expect(
-      project(store)
+      buildConversationV2OnlyProjection(installConversationV2Bootstrap(feed))
         .timeline.filter((item) => item.eventType === "thread.status")
         .map((item) => projectionItemToDetailBlock(item)),
     ).toMatchObject([
@@ -153,7 +228,7 @@ test("API failure wrappers and empty blockers do not create duplicate notices", 
     );
     writer.append(blocked({ message: "API Error: 503 上游不可用，可在下方继续对话" }));
     writer.append(blocked({ id: "empty", message: " " }));
-    const rows = buildProjectionDisplayTimelineItems(project(store).timeline);
+    const rows = buildProjectionDisplayTimelineItems(project(store).timeline, new Map());
     expect(rows.filter((item) => item.eventType === "api.error")).toHaveLength(1);
     expect(rows.some((item) => item.eventType === "thread.status")).toBe(false);
   } finally {

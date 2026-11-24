@@ -30,7 +30,7 @@ test.skipIf(process.env.ECO_CODEX_REAL_APP_SERVER_TEST !== "1")(
         manualSpec: { contextTokens: 262_144 },
       },
     ]);
-    expect(catalog.models.find((model) => model.slug === alias)?.auto_compact_token_limit).toBe(212_821);
+    expect(catalog.models.find((model) => model.slug === alias)?.auto_compact_token_limit).toBe(238_012);
     const catalogPath = path.join(directory, "models.json");
     await fs.writeFile(catalogPath, JSON.stringify(catalog));
     const requests: Array<{ compact: boolean; summaryPresent: boolean }> = [];
@@ -52,7 +52,7 @@ test.skipIf(process.env.ECO_CODEX_REAL_APP_SERVER_TEST !== "1")(
             modelContextTokens: { "deepseek-flash": 262_144 },
           },
         ],
-        countInputTokens: async () => ({ tokens: 1_000, precision: "heuristic", source: "test:controlled" }),
+        countInputTokens: async () => ({ tokens: 1_000, precision: "tokenizer_exact", source: "test:controlled" }),
       },
       async (_url, init) => {
         const body = JSON.parse(String(init?.body));
@@ -78,7 +78,7 @@ test.skipIf(process.env.ECO_CODEX_REAL_APP_SERVER_TEST !== "1")(
             { type: "output_text", text: compact ? "NATIVE_SUMMARY_MARKER" : "TASK_OK", annotations: [] },
           ],
         };
-        const inputTokens = lowUsage ? 150_000 : requests.length === 1 ? 230_000 : 1_000;
+        const inputTokens = lowUsage ? 150_000 : requests.length === 1 ? 245_000 : 1_000;
         const response = {
           id,
           object: "response",

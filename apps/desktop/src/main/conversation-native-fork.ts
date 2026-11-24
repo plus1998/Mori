@@ -90,21 +90,20 @@ export async function forkNativeConversation(
       input.onCreated(result);
       return result;
     }
-    // A preserved assistant can precede compact_boundary physically, even when it is
-    // the user's parent in the logical chain. Forking at that assistant would drop
-    // the summary and resurrect pre-compaction context. Keep the last main-thread
-    // message physically before this user, including the compact summary.
+    // A retained assistant can precede compact_boundary on disk while following
+    // the summary in the model's effective history. Find both boundaries.
     const physicalTargetIndex = sourceRows.findLastIndex(
       (row) => row.uuid === nativeTarget && row.isSidechain !== true,
     );
-    let anchor = sourceRows
+    const physicalAnchor = sourceRows
       .slice(0, physicalTargetIndex)
       .findLast(
         (row) =>
           (row.type === "user" || row.type === "assistant") &&
           row.isSidechain !== true &&
           typeof row.uuid === "string",
-      )?.uuid;
+      );
+    let anchor = physicalAnchor?.uuid;
     if (afterAssistant) {
       const nextUserId = userRows[targetIndex + 1]?.uuid;
       const nextUserIndex = nextUserId
@@ -122,9 +121,17 @@ export async function forkNativeConversation(
     const effectiveTargetIndex = effectiveSource.findIndex(
       (message) => message.uuid === (afterAssistant ? anchor : nativeTarget),
     );
+    // Since SDK 0.3.323, a summary anchor deliberately omits retained messages
+    // after it. Fork through the boundary user so the SDK remaps the complete
+    // compacted chain, then remove that exact user from the new transcript.
+    const trimBoundaryUser =
+      !afterAssistant &&
+      physicalAnchor?.isCompactSummary === true &&
+      effectiveTargetIndex > 0 &&
+      effectiveSource[effectiveTargetIndex - 1]?.uuid !== anchor;
     const forked = await sdk.forkSession(input.sessionId, {
       dir: input.cwd,
-      upToMessageId: anchor,
+      upToMessageId: trimBoundaryUser ? nativeTarget : anchor,
       title: input.recoveryTitle,
     });
     if (!forked.sessionId || forked.sessionId === input.sessionId)
@@ -138,6 +145,10 @@ export async function forkNativeConversation(
       userIds: {},
     };
     input.onCreated(result);
+    const childFile = await claudeFile(forked.sessionId, input.cwd);
+    if (trimBoundaryUser) {
+      await removeClaudeForkBoundaryUser(childFile, input.sessionId, nativeTarget);
+    }
     if (effectiveTargetIndex >= 0) {
       const effectiveChild = await sdk.getSessionMessages(forked.sessionId, { dir: input.cwd });
       const content = (messages: typeof effectiveSource) =>
@@ -148,7 +159,7 @@ export async function forkNativeConversation(
       )
         throw new Error("Claude 分支的有效上下文与所选节点之前的历史不一致。");
     }
-    const childRows = uniqueUserRows(await readJsonl(await claudeFile(forked.sessionId, input.cwd)));
+    const childRows = uniqueUserRows(await readJsonl(childFile));
     if (childRows.length !== keptRows.length)
       throw new Error("Claude 分支包含了边界之后的历史或缺失保留消息。");
     const remapped = new Map<string, string>();
@@ -383,6 +394,36 @@ async function readJsonl(file: string): Promise<Record<string, unknown>[]> {
     .filter((line) => line.trim())
     .map((line) => JSON.parse(line) as Record<string, unknown>);
 }
+/** Mutate only the unpublished SDK fork, and only at its verified final user node. */
+async function removeClaudeForkBoundaryUser(
+  file: string,
+  sourceSessionId: string,
+  sourceUserId: string,
+): Promise<void> {
+  const rows = await readJsonl(file);
+  const index = rows.findLastIndex((row) => row.type === "user" || row.type === "assistant");
+  const row = rows[index];
+  const origin = row?.forkedFrom as { sessionId?: unknown; messageUuid?: unknown } | undefined;
+  if (
+    row?.type !== "user" ||
+    row.isCompactSummary === true ||
+    row.isSidechain === true ||
+    origin?.sessionId !== sourceSessionId ||
+    origin.messageUuid !== sourceUserId ||
+    rows.slice(index + 1).some((later) => later.type !== "custom-title")
+  ) {
+    throw new Error("Claude 分支的末尾用户节点与所选边界不一致，未改写分支历史。");
+  }
+  const tmp = `${file}.${randomUUID()}.tmp`;
+  try {
+    const contents = rows.filter((_, i) => i !== index).map((entry) => JSON.stringify(entry)).join("\n");
+    await fs.writeFile(tmp, `${contents}\n`, { mode: 0o600, flag: "wx" });
+    await fs.rename(tmp, file);
+  } finally {
+    await fs.rm(tmp, { force: true });
+  }
+}
+
 function uniqueUserRows(rows: readonly Record<string, unknown>[]): Record<string, unknown>[] {
   const result = new Map<string, Record<string, unknown>>();
   for (const row of rows)

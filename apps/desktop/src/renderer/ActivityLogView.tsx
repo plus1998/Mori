@@ -724,6 +724,7 @@ export interface ActivityLogViewProps {
 function conversationV2MessageToTimelineItem(
   message: ConversationMessage,
   at: string,
+  requestId?: string,
 ): ThreadRunProjectionTimelineItem {
   const isThinking = message.channel === "thinking";
   // A subagent's narration belongs to that agent's transcript, not to the main
@@ -770,6 +771,7 @@ function conversationV2MessageToTimelineItem(
       : normalizeAgentRole(message.providerRole?.trim() || (isThinking ? "thinking" : message.role)),
     ...(agentId ? { agentId } : {}),
     ...(message.runId ? { runAttemptId: message.runId } : {}),
+    ...(requestId ? { requestId } : {}),
     streamKey: message.messageId,
     text: message.body,
     summary: message.body,
@@ -1024,7 +1026,11 @@ export function buildConversationV2OnlyProjection(
     }
     const ownerAgentId = message.agentId?.trim();
     const agentId = ownerAgentId && cardAgentIds.has(ownerAgentId) ? ownerAgentId : undefined;
-    const item = conversationV2MessageToTimelineItem(message, message.occurredAt ?? at);
+    const item = conversationV2MessageToTimelineItem(
+      message,
+      message.occurredAt ?? at,
+      conversationV2.projectionExtras?.answerRequestIds?.[message.messageId],
+    );
     if (!agentId) {
       mainTimeline.push(item);
       continue;

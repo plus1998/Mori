@@ -1,4 +1,8 @@
-import type { ConversationFeedWindow, ConversationFeedWindowRequest } from "../shared/conversation-feed-window";
+import {
+  isStandaloneFeedSkeletonMessage,
+  type ConversationFeedWindow,
+  type ConversationFeedWindowRequest,
+} from "../shared/conversation-feed-window";
 import { boundConversationFeedState } from "./conversation-v2-feed-window-state";
 import type {
   ConversationAgent,
@@ -126,6 +130,7 @@ export function installConversationV2ProjectionExtras(
     ...state,
     projectionExtras: {
       requestSpans: [...extras.requestSpans],
+      ...(extras.answerRequestIds ? { answerRequestIds: { ...extras.answerRequestIds } } : {}),
       ...(extras.billing ? { billing: extras.billing } : {}),
       ...(extras.ledgerEvents ? { ledgerEvents: [...extras.ledgerEvents] } : {}),
       ...(extras.context ? { context: extras.context } : {}),
@@ -621,7 +626,7 @@ export function applyConversationV2Effects(
       state.feedWindow?.skeleton &&
       envelope.effect.type === "message.create" &&
       (
-        (envelope.effect.message.role === "user" && envelope.effect.message.channel === "answer") ||
+        isStandaloneFeedSkeletonMessage(envelope.effect.message) ||
         (envelope.effect.message.role === "assistant" && envelope.effect.message.channel === "answer") ||
         (envelope.effect.message.runId !== undefined &&
           ["queued", "running"].includes(runs.get(envelope.effect.message.runId)?.status ?? "") ) ||

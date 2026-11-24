@@ -910,11 +910,13 @@ export class ConversationStore {
     // This keeps streaming state current without a second write for every token
     // delta, and never consults the legacy event/projection tables.
     const derivedRequestSpans = this.requestSpanCache.read(this.v2.head(id), thread.status, agents);
-    const scope = requestIds ? new Set(requestIds) : undefined;
+    const answerRequestIds = this.v2.listAnswerMessageRequestIds(id, requestIds);
+    const scope = requestIds ? new Set([...requestIds, ...Object.values(answerRequestIds)]) : undefined;
     const visibleSpans = scope ? derivedRequestSpans.filter(span => scope.has(span.requestId)).slice(-100) : derivedRequestSpans;
     const ledgerViews = this.listConversationV2UsageLedgerEventViews(ledgerEvents, derivedRequestSpans);
     return {
       requestSpans: visibleSpans,
+      answerRequestIds,
       // The billing panel is conversation-wide, just like its total above.
       // Feed window IDs only scope request timing; they may be Mori run IDs
       // rather than the provider request IDs carried by ledger observations.

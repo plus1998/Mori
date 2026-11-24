@@ -2129,3 +2129,23 @@ test("Pi recreates the same chat in the user-selected directory after worktree d
   expect(directories).toEqual(["/isolated-selected", "/project"]);
   expect(openedFiles).toEqual([undefined, undefined]);
 });
+
+
+test("Pi reports unavailable replayed reasoning without retaining raw diagnostics or repeating the notice", () => {
+  const ctx = makeCtx();
+  const message = {
+    role: "assistant",
+    diagnostics: [{
+      type: "openai_input_transformations",
+      details: { transformations: [
+        { type: "reasoning", id: "opaque-1", action: "removed", reason: "prefix_mismatch" },
+        { type: "reasoning", id: "opaque-2", action: "removed", reason: "turn_boundary" },
+      ] },
+    }],
+  };
+  const event = { type: "message_end", message };
+  const notice = mapPiSessionEventToAgentEvents(event, ctx).find((entry) => entry.type === "agent.started");
+  expect(notice?.payload).toMatchObject({ tag: "pi_openai_input_transformations", content: "OpenAI 未重放 1 段推理（prefix_mismatch）。" });
+  expect(JSON.stringify(notice)).not.toContain("opaque-1");
+  expect(mapPiSessionEventToAgentEvents(event, ctx)).not.toContainEqual(expect.objectContaining({ type: "agent.started" }));
+});

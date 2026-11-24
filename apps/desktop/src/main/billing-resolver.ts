@@ -37,7 +37,7 @@ export interface RuntimeRoute {
   apiCompat: UpstreamApiCompat;
   thinkingEffort?: ThinkingEffort;
   /** ChatGPT Login speed preference; standard explicitly clears a previous Fast turn. */
-  serviceTier?: "fast" | "default";
+  serviceTier?: "fast" | "ultrafast" | "default";
   modelsDevMapping?: ModelsDevMapping;
   manualSpec?: RouteManualSpec;
 }

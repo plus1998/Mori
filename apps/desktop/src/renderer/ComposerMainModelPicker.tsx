@@ -166,6 +166,7 @@ export function ComposerMainModelPicker({
   const [loginModels, setLoginModels] = useState<Array<{
     modelId: string; displayName: string; reasoningEfforts: string[]; supportsFast?: boolean }>>([]);
   const [accountModels, setAccountModels] = useState<{ accountId: string; models: PickerModel[] }>();
+  const [ultrafast, setUltrafast] = useState<{ accountId: string; modelIds: string[]; error?: string }>();
   const [accountModelsLoading, setAccountModelsLoading] = useState(false);
   const switchAccountIntent = useRef(false);
   const supportsThinking = purpose === "main" || purpose === "subagent";
@@ -271,6 +272,19 @@ export function ComposerMainModelPicker({
     return () => { cancelled = true; };
   }, [open, purpose]);
 
+  useEffect(() => {
+    if (!open || source !== "login" || purpose !== "main" || !accountId || !window.eco) return;
+    let cancelled = false;
+    setUltrafast(undefined);
+    void window.eco.openAIAccountsUltrafastModels(accountId).then((modelIds) => {
+      if (!cancelled) setUltrafast({ accountId, modelIds });
+    }).catch((cause: unknown) => {
+      if (!cancelled) setUltrafast({ accountId, modelIds: [], error: cause instanceof Error ? cause.message : String(cause) });
+    });
+    return () => { cancelled = true; };
+  }, [open, source, purpose, accountId]);
+
+  const ultrafastForAccount = ultrafast?.accountId === accountId ? ultrafast : undefined;
   const loginAccountIds = loginAccounts.map((account) => account.id).join("\0");
   useEffect(() => {
     if (!open || purpose !== "main" || source !== "login" || !loginAccountIds || !window.eco) return;
@@ -341,6 +355,14 @@ export function ComposerMainModelPicker({
     ? availableModels.find((entry) => entry.id === activeChoice?.modelId &&
       (!entry.candidateModelId || entry.candidateModelId === activeChoice?.candidateModelId))
     : undefined;
+  const supportsUltrafast = Boolean(activeModel && ultrafastForAccount?.modelIds.includes(activeModel.id));
+  const speedTier = activeChoice?.serviceTier ?? "default";
+  const speedName = (tier: NonNullable<ModelRef["serviceTier"]>) => tier === "default"
+    ? t("composer.mainPicker.standardSpeed") : tier === "fast" ? "Fast" : "Ultrafast";
+  const nextSpeed = speedTier === "default" && activeModel?.supportsFast ? "fast"
+    : speedTier !== "ultrafast" && supportsUltrafast ? "ultrafast" : "default";
+  const unavailableSpeed = speedTier === "ultrafast" && ultrafastForAccount && !supportsUltrafast;
+
   const supportedEfforts = thinkingEffortsForModel(activeModel, candidateCapabilities);
   const capabilitiesLoading = Boolean((source === "oauth" && loadingData.has("loginModels")) ||
     (source !== "oauth" && activeModel?.candidateModelId &&
@@ -391,8 +413,8 @@ export function ComposerMainModelPicker({
       ...(entry.candidateModelId ? { candidateModelId: entry.candidateModelId } : {}),
       ...(accountSource ? { accountId } : {}),
       ...(initialEffort ? { thinkingEffort: initialEffort } : {}),
-      ...(source === "login" ? { serviceTier: entry.supportsFast && activeChoice?.serviceTier === "fast"
-        ? "fast" : "default" } : {}),
+      ...(source === "login" ? { serviceTier: activeChoice?.serviceTier === "ultrafast" && ultrafastForAccount?.modelIds.includes(entry.id)
+        ? "ultrafast" : entry.supportsFast && activeChoice?.serviceTier === "fast" ? "fast" : "default" } : {}),
     };
     setActiveChoice(choice);
     if (initialEffort) setPreferredEffort(initialEffort);
@@ -404,7 +426,9 @@ export function ComposerMainModelPicker({
     switchAccountIntent.current = true;
     setAccountId(nextAccountId);
     if (source === "login" && !readOnly && activeChoice?.providerId === "openai") {
-      const choice = { ...activeChoice, accountId: nextAccountId };
+      const choice: ModelRef = { ...activeChoice, accountId: nextAccountId,
+        ...(activeChoice.serviceTier === "ultrafast" ? { serviceTier: "default" } : {}),
+      };
       setActiveChoice(choice);
       void saveChoice(choice);
     }
@@ -474,7 +498,9 @@ export function ComposerMainModelPicker({
     : model?.providerId === "openai" ? purpose === "subagent" ? t("composer.mainPicker.inheritMainAccount")
       : loginAccounts.find((account) => account.id === model.accountId)?.name
     : undefined;
-  const hoverDetails = [providerName, accountName, model?.providerId === "openai" && model.serviceTier === "fast" ? "Fast" : undefined,
+  const speedLabel = model?.providerId === "openai" && model.serviceTier === "ultrafast" ? "Ultrafast"
+    : model?.providerId === "openai" && model.serviceTier === "fast" ? "Fast" : undefined;
+  const hoverDetails = [providerName, accountName, speedLabel,
     invalid ? invalidLabel : bindingError].filter(Boolean).join(" · ");
   const trigger = (
     <button ref={triggerRef} type="button"
@@ -487,7 +513,7 @@ export function ComposerMainModelPicker({
       {model ? <span className="composer-model-picker-selection">
         {!compactLabel ? (model.providerId === "eco-coding-chatgpt" ? `ChatGPT · ${selectedAccount?.name ?? (model.accountId && oauthAccountsLoaded ? t("composer.mainPicker.accountRemoved") : model.accountId ? t("composer.mainPicker.selectedAccount") : t("composer.route.selectAccount"))} · `
           : purpose !== "main" ? `${providerName} · ` : "") : null}
-        {model.providerId === "openai" && model.serviceTier === "fast" ? <span className="composer-model-fast-badge" role="img" aria-label="Fast" title="Fast"><FastModeIcon enabled width={14} height={14} /></span> : null}
+        {speedLabel ? <span className="composer-model-fast-badge" role="img" aria-label={speedLabel} title={speedLabel}><FastModeIcon enabled ultrafast={model.serviceTier === "ultrafast"} width={14} height={14} /></span> : null}
         {supportsThinking ? <ComposerModelLabel modelId={model.modelId} thinkingEffort={model.thinkingEffort} size="medium" />
           : <span>{formatComposerModelName(model.modelId)}</span>}
       </span> : <span className="composer-model-empty-label">{t("composer.route.selectModel")}</span>}
@@ -620,11 +646,15 @@ export function ComposerMainModelPicker({
           {supportsThinking ? <div className="composer-main-model-picker-effort">
             <ComposerThinkingEffortControl key={`${source}:${accountId}:${activeModel?.candidateModelId ?? activeModel?.id ?? "none"}`}
               fast={source === "login" && activeModel && activeChoice ? {
-                enabled: activeChoice.serviceTier === "fast",
-                disabled: readOnly || (!activeModel.supportsFast && activeChoice.serviceTier !== "fast"),
-                hint: t(activeModel.supportsFast ? "composer.mainPicker.fastHint" : "composer.mainPicker.fastUnavailable"),
-                onChange: enabled => {
-                  const choice: ModelRef = { ...activeChoice, serviceTier: enabled ? "fast" : "default" };
+                enabled: speedTier !== "default",
+                ultrafast: speedTier === "ultrafast",
+                disabled: readOnly || nextSpeed === speedTier,
+                label: `${t("composer.mainPicker.speed")}: ${speedName(speedTier)}`,
+                hint: ultrafastForAccount?.error ?? (nextSpeed === speedTier
+                  ? t("composer.mainPicker.fastUnavailable")
+                  : `${speedName(speedTier)} → ${speedName(nextSpeed)} · ${t("composer.mainPicker.fastHint")}`),
+                onChange: () => {
+                  const choice: ModelRef = { ...activeChoice, serviceTier: nextSpeed };
                   setActiveChoice(choice);
                   void saveChoice(choice);
                 },
@@ -637,6 +667,9 @@ export function ComposerMainModelPicker({
                   : activeModel && supportedEfforts.length === 0
                     ? { statusLabel: t("composer.mainPicker.noThinkingEfforts") } : {})}
               onCommit={chooseEffort} />
+            {source === "login" && unavailableSpeed ? <p className="composer-main-model-picker-hint" role="status">
+              {ultrafastForAccount.error ?? t("composer.mainPicker.ultrafastUnavailable")}
+            </p> : null}
             {activeModel?.unsupportedCatalogEfforts?.length ? <p className="composer-main-model-picker-hint">
               {t("composer.mainPicker.unsupportedCatalogEfforts", { efforts: activeModel.unsupportedCatalogEfforts.join(", ") })}
             </p> : null}

@@ -31,6 +31,7 @@ export interface CodexRuntimeLifecycleOptions {
   /** Exact Codex provider selected by the conversation; omitted only for control-plane runtimes. */
   modelProvider?: string;
   codexExecutable?: string;
+  modelCatalogPath?: string;
   clientOptions?: Omit<CodexAppServerClientOptions, "onNotification">;
   /** The client that emitted this notification, including after an idle restart. */
   onNotification?: (method: string, params: unknown, client: CodexAppServerClient) => void;
@@ -194,6 +195,8 @@ export class CodexRuntimeLifecycle {
       throw new Error("Codex runtime requires a non-empty selected model provider.");
     }
     const providerArgs = modelProvider ? ["-c", `model_provider=${JSON.stringify(modelProvider)}`] : [];
+    const catalogArgs = this.options.modelCatalogPath
+      ? ["-c", `model_catalog_json=${JSON.stringify(this.options.modelCatalogPath)}`] : [];
     const codexHomeDir = this.codexHomeDir;
     await import("node:fs/promises").then((fs) => fs.mkdir(codexHomeDir, { recursive: true }));
     if (generation !== this.generation) {
@@ -254,7 +257,7 @@ export class CodexRuntimeLifecycle {
     }
     let child: ChildProcessWithoutNullStreams;
     try {
-      child = spawn(executable, ["app-server", "--stdio", ...providerArgs, ...buildCodexProxyArgs(proxyEnvironment), ...(externalAuthProvider ? ["-c", 'cli_auth_credentials_store="ephemeral"'] : [])], {
+      child = spawn(executable, ["app-server", "--stdio", ...providerArgs, ...catalogArgs, ...buildCodexProxyArgs(proxyEnvironment), ...(externalAuthProvider ? ["-c", 'cli_auth_credentials_store="ephemeral"'] : [])], {
         env,
         stdio: ["pipe", "pipe", "pipe"],
       });

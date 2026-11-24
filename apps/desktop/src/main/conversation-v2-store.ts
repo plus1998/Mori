@@ -1,5 +1,6 @@
 import {
   FEED_MESSAGE_LIMIT, FEED_TOOL_LIMIT, FEED_PAGE_BYTES, FEED_TIMELINE_PAGE_LIMIT, buildTimelineFeedWindow,
+  isStandaloneFeedSkeletonMessage,
   type ConversationFeedWindow, type ConversationFeedWindowRequest,
 } from "../shared/conversation-feed-window";
 import crypto from "node:crypto";
@@ -2824,10 +2825,9 @@ export class ConversationV2Store {
   }
 
   /**
-   * Complete lightweight Feed rows. The renderer needs every user message and one
-   * answer row per turn for stable navigation. A queued or running turn is the
-   * exception: it remains fully expanded until its lifecycle becomes terminal, so
-   * its thinking messages, tools and detail items are included in this snapshot.
+   * Complete lightweight Feed rows: user prompts, one answer per turn, and failure
+   * notices. A queued or running turn remains fully expanded until it settles, so
+   * its thinking messages, tools and detail items are also included.
    */
   private feedSkeleton(conversationId: string): ConversationFeedWindow {
     const stream = this.requireExistingStream(conversationId);
@@ -2840,16 +2840,17 @@ export class ConversationV2Store {
         `SELECT * FROM conversation_messages_v2
          WHERE conversation_id = ? AND is_deleted = 0
            AND ((role = 'user' AND channel = 'answer') OR
-                (role = 'assistant' AND channel = 'answer'))
+                (role = 'assistant' AND channel = 'answer') OR
+                (role = 'system' AND channel = 'system'))
          ORDER BY created_seq ASC, message_id ASC`,
       )
       .all(conversationId) as unknown as MessageRow[];
-    const skeletonMessages = rows.map(rowToMessage);
     const finalAnswerByTurn = new Map<string, ConversationMessage>();
-    const userMessages: ConversationMessage[] = [];
-    for (const message of skeletonMessages) {
-      if (message.role === "user") {
-        userMessages.push(message);
+    const retainedMessagesById = new Map<string, ConversationMessage>();
+    for (const row of rows) {
+      const message = rowToMessage(row);
+      if (isStandaloneFeedSkeletonMessage(message)) {
+        retainedMessagesById.set(message.messageId, message);
         continue;
       }
       const previous = finalAnswerByTurn.get(message.turnId);
@@ -2861,9 +2862,9 @@ export class ConversationV2Store {
         finalAnswerByTurn.set(message.turnId, message);
       }
     }
-    const retainedMessagesById = new Map(
-      [...userMessages, ...finalAnswerByTurn.values()].map((message) => [message.messageId, message]),
-    );
+    for (const message of finalAnswerByTurn.values()) {
+      retainedMessagesById.set(message.messageId, message);
+    }
     if (activeRunIds.length > 0) {
       const activeRows = this.db
         .prepare(
@@ -4511,6 +4512,31 @@ export class ConversationV2Store {
       .all(id, normalizedRequestId) as Array<{ run_id: string | null }>;
     const candidates = [...new Set(rows.map((row) => row.run_id?.trim()).filter(Boolean))] as string[];
     return candidates.length === 1 ? candidates[0] : undefined;
+  }
+
+  /** Recover the request identity omitted by normalized Feed answer records. */
+  listAnswerMessageRequestIds(
+    conversationId: string,
+    scope?: readonly string[],
+  ): Record<string, string> {
+    const rows = this.db.prepare(`
+      SELECT m.message_id, MIN(json_extract(p.source_json, '$.requestId')) AS request_id
+      FROM conversation_messages_v2 m
+      JOIN conversation_provider_inputs_v2 p
+        ON p.conversation_id = m.conversation_id AND p.message_id = m.message_id
+      WHERE m.conversation_id = ? AND m.is_deleted = 0
+        AND m.role = 'assistant' AND m.channel = 'answer' AND p.visible = 1
+        AND json_type(p.source_json, '$.requestId') = 'text'
+        AND trim(json_extract(p.source_json, '$.requestId')) <> ''
+      GROUP BY m.message_id
+      HAVING COUNT(DISTINCT json_extract(p.source_json, '$.requestId')) = 1
+        ${scope ? `AND EXISTS (SELECT 1 FROM json_each(?)
+          WHERE value IN (m.run_id, m.turn_id, request_id))` : ""}
+    `).all(conversationId, ...(scope ? [JSON.stringify(scope)] : [])) as Array<{
+      message_id: string;
+      request_id: string;
+    }>;
+    return Object.fromEntries(rows.map(({ message_id, request_id }) => [message_id, request_id]));
   }
 
   /** Recover identity from the original turn, never from today's model selection. */

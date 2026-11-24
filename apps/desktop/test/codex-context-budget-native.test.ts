@@ -9,7 +9,7 @@ import { CodexAppServerClient } from "@eco/runtime";
 
 // Launches the installed native binary against an isolated local Gateway; no model/API access.
 test.skipIf(process.env.ECO_CODEX_REAL_APP_SERVER_TEST !== "1")(
-  "native Codex reduces an overflowing compact request and resumes with the 10% reserve intact",
+  "native Codex reduces an overflowing compact request and resumes with the exact-count reserve intact",
   async () => {
     const directory = await fs.mkdtemp(path.join(os.tmpdir(), "eco-codex-context-budget-"));
     let compacting = false;
@@ -34,9 +34,9 @@ test.skipIf(process.env.ECO_CODEX_REAL_APP_SERVER_TEST !== "1")(
         ],
         countInputTokens: async ({ body }) => {
           const hasOldHistory = JSON.stringify(body.input).includes("OLD_HISTORY_BUDGET_MARKER");
-          const tokens = compacting && hasOldHistory ? 893_615 : 1_000;
+          const tokens = compacting && hasOldHistory ? 945_615 : 1_000;
           if (compacting) compactInputs.push({ tokens, hasOldHistory });
-          return { tokens, precision: "heuristic", source: "test:controlled-input" };
+          return { tokens, precision: "tokenizer_exact", source: "test:controlled-input" };
         },
       },
       async (_url, init) => {
@@ -161,7 +161,7 @@ test.skipIf(process.env.ECO_CODEX_REAL_APP_SERVER_TEST !== "1")(
       const compact = completed(thread.id);
       await client.request("thread/compact/start", { threadId: thread.id });
       expect(await compact).toMatchObject({ status: "completed" });
-      expect(compactInputs[0]).toEqual({ tokens: 893_615, hasOldHistory: true });
+      expect(compactInputs[0]).toEqual({ tokens: 945_615, hasOldHistory: true });
       expect(compactInputs.at(-1)).toEqual({ tokens: 1_000, hasOldHistory: false });
       expect(compactInputs.length).toBeLessThan(20);
       compacting = false;

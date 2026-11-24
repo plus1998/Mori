@@ -248,7 +248,8 @@ test("multi-agent config keeps roles thread-scoped and heterogeneous models immu
 
   const configToml = await fs.readFile(configSync.configPath, "utf8");
   expect(configToml).not.toContain("multi_agent_v2");
-  expect(configToml).toContain("multi_agent = true");
+  expect(configToml).not.toContain("multi_agent = true");
+  expect(configToml).toContain("[agents]\nenabled = true");
   expect(configToml).toContain("[features]");
   expect(configToml).toContain("[agents]");
   expect(configToml).toContain("max_threads = 16");

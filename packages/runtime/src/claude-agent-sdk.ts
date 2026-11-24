@@ -1359,6 +1359,7 @@ export class ClaudeAgentSdkDriver implements AgentRuntimeDriver {
 
     if (Object.keys(session.mcpServers).length > 0) {
       queryOptions.mcpServers = session.mcpServers;
+      queryOptions.mcpServersDelivery = "initialize";
     }
     if (effectiveDynamicDefinitions) {
       queryOptions.agents = applyClaudeSubagentCompactionWindows(effectiveDynamicDefinitions, input.routes);
@@ -3464,6 +3465,10 @@ export function mapSdkMessageToEvents(
   }
 
   if (message.type === "tool_progress") {
+    // The SDK emits hook heartbeats even before a real tool starts. They have no tool result.
+    if (typeof message.tool_use_id === "string" && message.tool_use_id.startsWith("hook-")) {
+      return [];
+    }
     const streamRole = resolveSdkMessageStreamRole(message, streamCtx, role);
     const toolUseId = typeof message.tool_use_id === "string" ? message.tool_use_id : uuid;
     const toolUseDescriptor = streamCtx?.toolUseById.get(toolUseId);

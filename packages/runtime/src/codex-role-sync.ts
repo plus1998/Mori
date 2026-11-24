@@ -685,7 +685,7 @@ export function buildCodexRoleToml(input: {
   providerId: string;
   apiCompat?: CodexGatewayApiCompat;
   reasoningEffort?: string;
-  serviceTier?: "fast" | "default";
+  serviceTier?: "fast" | "ultrafast" | "default";
   supportsImageInput?: boolean;
   toolPolicy: EcoToolPolicy;
   mcpVisibility?: Readonly<Record<string, CodexMcpServerVisibilityOverride>>;

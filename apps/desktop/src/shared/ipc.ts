@@ -152,6 +152,7 @@ export const IPC_CHANNELS = {
   openAIAccountsSubmitLoginCallback: "openai-accounts:submit-login-callback",
   openAIAccountsCancelLogin: "openai-accounts:cancel-login",
   openAIAccountsSetAuthJson: "openai-accounts:set-auth-json",
+  openAIAccountsUltrafastModels: "openai-accounts:ultrafast-models",
   openAIAccountsQueryQuota: "openai-accounts:query-quota",
   openAIAccountsWake: "openai-accounts:wake",
   openAIAccountsWakeBatchesList: "openai-accounts:wake-batches:list",
@@ -655,6 +656,8 @@ export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];
 /** V2-owned projection extras used by the desktop Feed panels. */
 export interface ConversationV2ProjectionExtras {
   requestSpans: ThreadRunProjectionRequestSpan[];
+  /** Provider request IDs indexed by durable assistant answer message ID. */
+  answerRequestIds?: Record<string, string>;
   billing?: ThreadBillingSnapshot;
   /** V2-owned per-request billing observations used by the events breakdown. */
   ledgerEvents?: ThreadUsageLedgerEventView[];
@@ -1848,7 +1851,7 @@ export interface RuntimeRoleRouteConfig {
   tokenCountMode?: ProviderTokenCountMode;
   thinkingEffort?: ThinkingEffort;
   /** ChatGPT Login speed preference; standard explicitly clears a previous Fast turn. */
-  serviceTier?: "fast" | "default";
+  serviceTier?: "fast" | "ultrafast" | "default";
   modelsDevMapping?: ModelsDevMapping;
   manualSpec?: RouteManualSpec;
   candidateModelId?: string;

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -42,15 +43,20 @@ import {
   type EcoProviderForCodexConfig,
   ensureCodexSkillsExtraRoots,
   forkCodexThread,
+  listCodexModelCatalog,
   listCodexSkills,
   mergeMainAgentAppendParts,
   normalizeCodexToolPolicy,
   parseCodexGatewayModelAlias,
   readCodexThreadStatus,
+  readCodexThreadStatusSnapshot,
   recordAppliedCodexThreadConfig,
   requireCodexAccountContextWindow,
   requireCodexSubagentThreadId,
   resolveCodexHomeDir,
+  resolveEcoModelCatalogPath,
+  writeEcoCodexModelCatalog,
+  type EcoCodexModelCatalogDocument,
   resumeCodexThread,
   syncCodexConfigFromEcoProviders,
   syncEcoCodexModelCatalog,
@@ -185,6 +191,7 @@ export interface CodexRuntimeRunDeps {
   }) => void | Promise<void>;
   ecoDataDir: string;
   /** Refresh managed ChatGPT credentials before a native OpenAI turn. */
+  listAccountUltrafastModels?: (accountId: string) => Promise<string[]>;
   ensureAccountReady?: (accountId?: string) => Promise<void>;
   onAccountRateLimitsUpdated?: (accountId: string, chatgptAccountId: string, params: unknown) => void;
   listProviders: () => readonly EcoProviderForCodexCatalog[];
@@ -296,6 +303,7 @@ export interface PrepareCodexRuntimeInput {
   /** Main thread's selected provider (the built-in `openai` route retains native image viewing). */
   mainProviderId?: string;
   mainModelId?: string;
+  mainServiceTier?: "default" | "fast" | "ultrafast";
   mainCandidateModelId?: string;
   mainApiCompat?: EcoProviderForCodexConfig["apiCompat"];
   mainSupportsImageInput?: boolean;
@@ -901,8 +909,9 @@ export async function forkCodexThreadForEcoThread(input: {
     });
   }
   const client = getCodexRuntimeClientForThread(codexThreadId) ?? (await ensureCodexControlPlaneClient());
-  const status = await readCodexThreadStatus(client, codexThreadId);
-  if (status === "notLoaded") {
+  const { kind: status, modelProvider: savedProvider } = await readCodexThreadStatusSnapshot(client, codexThreadId);
+  const providerChanged = Boolean(savedProvider && savedProvider !== prepared.mainThreadModel.modelProvider);
+  if (status === "notLoaded" && !providerChanged) {
     await resumeCodexThread(client, {
       threadId: codexThreadId,
       ...prepared.mainThreadModel,
@@ -911,7 +920,7 @@ export async function forkCodexThreadForEcoThread(input: {
     const appliedByThread = controlPlaneAppliedConfigByClient.get(client) ?? new Map<string, object>();
     appliedByThread.set(codexThreadId, prepared.threadConfig);
     controlPlaneAppliedConfigByClient.set(client, appliedByThread);
-  } else if (status !== "idle" && status !== "systemError") {
+  } else if (status !== "idle" && status !== "systemError" && status !== "notLoaded") {
     throw new CodexForkNotAvailable(`Codex fork requires an idle thread; current status is ${status}.`, {
       nextAction: "Wait for the active turn to finish, then retry rewind.",
     });
@@ -1058,7 +1067,11 @@ export function isCodexCliAvailable(): boolean {
   return resolveCodexExecutable() !== undefined;
 }
 
-export async function listCodexModels(): Promise<CodexModelCatalogEntryView[]> {
+export async function listCodexModels(modelProvider?: string): Promise<CodexModelCatalogEntryView[]> {
+  if (modelProvider !== undefined) {
+    const client = await ensureCodexControlPlaneClient();
+    return listCodexModelCatalog(client, { modelProvider });
+  }
   return getCodexModelCatalogService().list();
 }
 
@@ -1482,9 +1495,8 @@ async function prepareCodexRuntimeUnlocked(input: PrepareCodexRuntimeInput): Pro
   if (roleSync && roleSync.agentRoles.length > 0) {
     const hasStableMultiAgent =
       configToml.includes("[features]") &&
-      configToml.includes("multi_agent = true") &&
       configToml.includes("hooks = true") &&
-      configToml.includes("[agents]") &&
+      configToml.includes("[agents]\nenabled = true") &&
       configToml.includes("max_threads = 16") &&
       configToml.includes("max_depth = 1");
     if (!hasStableMultiAgent) {
@@ -1651,9 +1663,40 @@ async function finishPreparedRuntime(
     : undefined;
   // The shared client is control-plane only. Every conversation binds its exact
   // provider in the app-server's launch config, including provider admission checks.
+  let speedCatalog: { path: string; revision: string } | undefined;
+  if (input.mainServiceTier === "ultrafast") {
+    const runtimeDeps = requireDeps();
+    const modelId = input.mainModelId;
+    if (modelProvider !== "openai" || !input.accountId || !modelId || !runtimeDeps.listAccountUltrafastModels) {
+      throw new Error("超快模式需要可验证资格的 Codex Login 账号。");
+    }
+    const eligible = new Set(await runtimeDeps.listAccountUltrafastModels(input.accountId));
+    if (!eligible.has(modelId)) throw new Error(`当前账号未提供 ${modelId} 的超快模式，请选择其他速度。`);
+    input.signal?.throwIfAborted();
+    const catalogPath = resolveEcoModelCatalogPath(runtimeDeps.ecoDataDir);
+    const catalog = JSON.parse(fs.readFileSync(catalogPath, "utf8")) as EcoCodexModelCatalogDocument;
+    if (!catalog.models.some((model) => model.slug === modelId)) {
+      throw new Error(`Mori 运行时目录缺少 ${modelId}，无法开启超快模式。`);
+    }
+    const accountKey = createHash("sha256").update(input.accountId).digest("hex");
+    const scopedPath = path.join(path.dirname(catalogPath), `eco-model-catalog-${accountKey}.json`);
+    const written = await writeEcoCodexModelCatalog(scopedPath, {
+      models: catalog.models.map((model) => {
+        const tiers = (Array.isArray(model.service_tiers) ? model.service_tiers : [])
+          .filter((tier) => tier?.id !== "ultrafast");
+        return {
+          ...model,
+          service_tiers: eligible.has(model.slug)
+            ? [...tiers, { id: "ultrafast", name: "Ultrafast", description: "Faster responses with higher account usage" }]
+            : tiers,
+        };
+      }),
+    });
+    speedCatalog = { path: scopedPath, revision: written.fingerprint };
+  }
   const client = !input.globalOnly && modelProvider
     ? await startSharedCodexRuntimeLifecycle(
-        requireDeps(), resolveCodexExecutable()!, false, input.accountId, modelProvider,
+        requireDeps(), resolveCodexExecutable()!, false, input.accountId, modelProvider, speedCatalog,
       )
     : sharedClient;
   const release = input.reserveRuntime ? retainCodexRuntimeClient(client) : undefined;
@@ -1907,9 +1950,10 @@ async function startSharedCodexRuntimeLifecycle(
   replace = false,
   accountId?: string,
   modelProvider?: string,
+  speedCatalog?: { path: string; revision: string },
 ): Promise<CodexAppServerClient> {
   const revision = JSON.stringify([
-    loadedGlobalRuntimeRevision, lastPreparedModelCatalogFingerprint, lastPreparedGlobalConfigFingerprint,
+    loadedGlobalRuntimeRevision, lastPreparedModelCatalogFingerprint, lastPreparedGlobalConfigFingerprint, speedCatalog?.revision,
   ]);
   const start = accountId
     ? (options: import("./codex-runtime-lifecycle").CodexRuntimeLifecycleOptions) =>
@@ -1924,6 +1968,7 @@ async function startSharedCodexRuntimeLifecycle(
     ecoDataDir: runtimeDeps.ecoDataDir,
     codexExecutable,
     ...(modelProvider ? { modelProvider } : {}),
+    ...(speedCatalog ? { modelCatalogPath: speedCatalog.path } : {}),
     ...(runtimeDeps.onAccountRateLimitsUpdated
       ? { onAccountRateLimitsUpdated: runtimeDeps.onAccountRateLimitsUpdated }
       : {}),
@@ -2067,6 +2112,7 @@ export async function runThreadRequestWithRuntimeProxy(
         ...(selectedRoute
           ? {
               mainModelId: selectedRoute.modelId,
+              ...(selectedRoute.serviceTier ? { mainServiceTier: selectedRoute.serviceTier } : {}),
               ...(selectedRoute.candidateModelId
                 ? { mainCandidateModelId: selectedRoute.candidateModelId }
                 : {}),
@@ -2187,6 +2233,7 @@ export function createCodexRuntimeDriver(
     client,
     turnRouteRegistry,
     sessionMode,
+    forkOnProviderChange: !options?.existingCodexThreadId,
     ...(existingCodexThreadId ? { existingCodexThreadId } : {}),
     ...(options?.threadConfigAlreadyApplied || controlPlaneConfigApplied
       ? { threadConfigAlreadyApplied: true }

@@ -44,7 +44,7 @@ export function ComposerThinkingEffortControl({
   disabled?: boolean;
   statusLabel?: string;
   onCommit(value: ThinkingEffort): void;
-  fast?: { enabled: boolean; disabled: boolean; hint: string; onChange(enabled: boolean): void } | undefined;
+  fast?: { enabled: boolean; disabled: boolean; hint: string; label: string; ultrafast: boolean; onChange(): void } | undefined;
 }) {
   const { t } = useTranslation();
   const reducedMotion = Boolean(useReducedMotion());
@@ -201,13 +201,13 @@ export function ComposerThinkingEffortControl({
             <button
               className="composer-power-fast"
               type="button"
-              aria-label="Fast"
+              aria-label={fast.label}
               aria-pressed={fast.enabled}
               disabled={fast.disabled}
-              onClick={() => fast.onChange(!fast.enabled)}
+              onClick={fast.onChange}
             >
               <span>
-                <FastModeIcon enabled={fast.enabled} />
+                <FastModeIcon enabled={fast.enabled} ultrafast={fast.ultrafast} />
               </span>
             </button>
           </ComposerHoverTooltip>

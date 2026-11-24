@@ -263,6 +263,7 @@ test.skipIf(process.env.ECO_CLAUDE_NATIVE_SMOKE !== "1")(
           allowedTools: ["mcp__native_smoke__echo"],
           includePartialMessages: true,
           systemPrompt: { type: "preset", preset: "claude_code", snapshot: false },
+          mcpServersDelivery: "initialize",
           mcpServers: {
             native_smoke: {
               ...mcpServer,

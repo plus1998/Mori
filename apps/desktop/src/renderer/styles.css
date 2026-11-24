@@ -21202,7 +21202,8 @@ a.run-log-web-search-detail-result-url:focus-visible {
   min-width: 0;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 2px 8px;
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
   line-height: 1.25;

@@ -37,7 +37,7 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-const EXPECTED_PI_VERSION = "1.5.1";
+const EXPECTED_PI_VERSION = "1.6.0";
 const MAX_SEARCH_DEPTH = 8;
 
 const args = process.argv.slice(2);

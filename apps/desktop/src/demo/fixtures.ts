@@ -507,8 +507,8 @@ export const demoSubagentMetrics: ThreadSubagentMetricsSummary[] = [
 ];
 
 export const demoCoreAvailability: CoreAvailabilitySnapshot = {
-  codex: { available: true, version: "0.167.0" },
-  claude: { available: true, version: "0.3.322" },
+  codex: { available: true, version: "0.171.0" },
+  claude: { available: true, version: "0.3.330" },
   pi: { available: true, version: "2.23.0" },
   cursor: { available: false, reason: "演示模式未启用 Cursor ACP" },
 };
