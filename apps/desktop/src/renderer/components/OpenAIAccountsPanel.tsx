@@ -1,3 +1,4 @@
+import { LoginAccountEditor, LoginAccountProfileFields } from "./LoginAccountEditor";
 import { codexQuotaPeriod } from "../codex-quota-reminder";
 import { AccountWakeBatchesPanel } from "./AccountWakeBatchesPanel";
 import { canUseOpenAIAccountCredentials, canUseOpenAIAccountWebCredentials } from "../../shared/openai-account";
@@ -22,9 +23,6 @@ import {
   Globe2,
   ShieldCheck,
   UserRound,
-  Copy,
-  Eye,
-  EyeOff,
   Mail,
   KeyRound,
   Inbox,
@@ -141,156 +139,7 @@ export function OpenAIAccountQuotaSummary({ quota, isLoggedIn, loading, error, s
   </span>;
 }
 
-function ProfileSecretInput({
-  label,
-  value,
-  onChange,
-  placeholder,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  placeholder?: string;
-}) {
-  const { t } = useTranslation();
-  const [visible, setVisible] = useState(false);
-  return (
-    <label className="mcp-field">
-      <span className="mcp-field-label">{label}</span>
-      <div className="openai-secret-field">
-        <input
-          className="mcp-field-input"
-          type={visible ? "text" : "password"}
-          value={value}
-          placeholder={placeholder}
-          onChange={(event) => onChange(event.target.value)}
-        />
-        <button type="button" className="mcp-icon-button" aria-label={visible ? t("common.hideValue") : t("common.showValue")} onClick={() => setVisible((shown) => !shown)}>
-          {visible ? <EyeOff size={15} /> : <Eye size={15} />}
-        </button>
-        <button type="button" className="mcp-icon-button" aria-label={t("common.copyNamed", { name: label })} disabled={!value} onClick={() => void navigator.clipboard.writeText(value)}>
-          <Copy size={14} />
-        </button>
-      </div>
-    </label>
-  );
-}
-
-export function OpenAIAccountProxyFields({
-  mode,
-  proxyUrl,
-  onModeChange,
-  onProxyUrlChange,
-  disabled = false,
-}: {
-  mode: OpenAIAccountProxyMode;
-  proxyUrl: string;
-  onModeChange: (mode: OpenAIAccountProxyMode) => void;
-  onProxyUrlChange: (value: string) => void;
-  disabled?: boolean;
-}) {
-  const { t } = useTranslation();
-  const options: Array<{ mode: OpenAIAccountProxyMode; label: string; hint: string }> = [
-    {
-      mode: "system",
-      label: t("settings.openaiAccounts.proxyModeSystem"),
-      hint: t("settings.openaiAccounts.proxyModeSystemHint"),
-    },
-    {
-      mode: "direct",
-      label: t("settings.openaiAccounts.proxyModeDirect"),
-      hint: t("settings.openaiAccounts.proxyModeDirectHint"),
-    },
-    {
-      mode: "manual",
-      label: t("settings.openaiAccounts.proxyModeManual"),
-      hint: t("settings.openaiAccounts.proxyModeManualHint"),
-    },
-  ];
-  const selected = options.find((option) => option.mode === mode) ?? options[0]!;
-  return (
-    <div className="openai-proxy-fields">
-      <span className="mcp-field-label">{t("settings.openaiAccounts.proxyMode")}</span>
-      <div
-        className="openai-proxy-mode-toggle"
-        role="radiogroup"
-        aria-label={t("settings.openaiAccounts.proxyMode")}
-      >
-        {options.map((option) => (
-          <button
-            key={option.mode}
-            type="button"
-            role="radio"
-            aria-checked={option.mode === mode}
-            className={option.mode === mode ? "is-active" : ""}
-            disabled={disabled}
-            onClick={() => onModeChange(option.mode)}
-          >
-            {option.label}
-          </button>
-        ))}
-      </div>
-      <p className="mcp-field-hint">{selected.hint}</p>
-      {mode === "manual" ? (
-        <label className="mcp-field openai-manual-proxy-field">
-          <span className="mcp-field-label">{t("settings.openaiAccounts.proxyUrl")}</span>
-          <input
-            className="mcp-field-input"
-            type="url"
-            value={proxyUrl}
-            placeholder="http://127.0.0.1:7890"
-            disabled={disabled}
-            onChange={(event) => onProxyUrlChange(event.target.value)}
-          />
-        </label>
-      ) : null}
-    </div>
-  );
-}
-
-export function OpenAIAccountProfileFields({
-  email,
-  password,
-  pickupUrl,
-  twoFactorSecret,
-  instanceKey,
-  onEmailChange,
-  onPasswordChange,
-  onPickupUrlChange,
-  onTwoFactorSecretChange,
-}: {
-  email: string;
-  password: string;
-  pickupUrl: string;
-  twoFactorSecret: string;
-  instanceKey: string;
-  onEmailChange: (value: string) => void;
-  onPasswordChange: (value: string) => void;
-  onPickupUrlChange: (value: string) => void;
-  onTwoFactorSecretChange: (value: string) => void;
-}) {
-  const { t } = useTranslation();
-  return (
-    <fieldset className="openai-profile-fields">
-      <legend>
-        {t("settings.openaiAccounts.profileLegend")} <span>{t("settings.openaiAccounts.optionalBadge")}</span>
-      </legend>
-      <p>{t("settings.openaiAccounts.profileHint")}</p>
-      <div className="openai-profile-grid">
-      <label className="mcp-field openai-profile-wide">
-        <span className="mcp-field-label">{t("settings.openaiAccounts.emailField")}</span>
-        <input className="mcp-field-input" type="email" autoComplete="off" value={email} onChange={(event) => onEmailChange(event.target.value)} placeholder="name@example.com" />
-      </label>
-      <ProfileSecretInput key={`password-${instanceKey}`} label={t("settings.openaiAccounts.passwordField")} value={password} onChange={onPasswordChange} />
-      <ProfileSecretInput key={`twofa-${instanceKey}`} label={t("settings.openaiAccounts.twoFactorField")} value={twoFactorSecret} onChange={onTwoFactorSecretChange} placeholder="Base32" />
-      <label className="mcp-field openai-profile-wide">
-        <span className="mcp-field-label">{t("settings.openaiAccounts.pickupField")}</span>
-        <input className="mcp-field-input" type="url" value={pickupUrl} onChange={(event) => onPickupUrlChange(event.target.value)} placeholder="https://example.com" />
-      </label>
-      </div>
-    </fieldset>
-  );
-}
+export { LoginAccountProxyFields as OpenAIAccountProxyFields, LoginAccountProfileFields as OpenAIAccountProfileFields } from "./LoginAccountEditor";
 
 export function OpenAIAccountProfilePresence({ fields }: { fields: OpenAIAccount["profileFields"] }) {
   const { t } = useTranslation();
@@ -1558,140 +1407,39 @@ function OpenAIAccountsContent({ onError, data, onOpenConnection }: {
         </div>
       ) : null}
 
-      {/* Add Account Modal */}
       {modalOpen && (
-        <div className="settings-modal-backdrop">
-          <button
-            type="button"
-            className="settings-modal-backdrop-close"
-            onClick={() => setModalOpen(false)}
-            aria-label={t("common.close")}
-            disabled={busy}
-          />
-          <div
-            className="settings-modal settings-modal-provider-editor codex-account-editor"
-            role="dialog"
-            aria-modal="true"
-          >
-            <header className="settings-modal-header">
-              <h2 className="settings-modal-title">
-                {modalEditId
-                  ? t("settings.openaiAccounts.editAccount")
-                  : t("settings.openaiAccounts.addAccount")}
-              </h2>
-              <div className="settings-modal-header-actions">
-                <button
-                  type="button"
-                  className="mcp-icon-button"
-                  onClick={() => setModalOpen(false)}
-                  aria-label={t("common.close")}
-                >
-                  <X size={18} />
-                </button>
-              </div>
-            </header>
-
-            <div className="settings-modal-body openai-account-modal-body">
-              {operationError ? <div className="codex-account-sync-error">{operationError}</div> : null}
-              <label className="mcp-field">
-                <span className="mcp-field-label">
-                  {t("settings.openaiAccounts.name")}
-                </span>
-                <input
-                  className="mcp-field-input"
-                  type="text"
-                  value={modalName}
-                  placeholder={t("settings.openaiAccounts.namePlaceholder")}
-                  onChange={(e) => setModalName(e.target.value)}
-                  autoFocus
-                />
-              </label>
-
-              <OpenAIAccountProfileFields
-                email={modalEmail}
-                password={modalPassword}
-                pickupUrl={modalPickupUrl}
-                twoFactorSecret={modalTwoFactorSecret}
-                instanceKey={modalEditId ?? "new"}
-                onEmailChange={setModalEmail}
-                onPasswordChange={setModalPassword}
-                onPickupUrlChange={setModalPickupUrl}
-                onTwoFactorSecretChange={setModalTwoFactorSecret}
-              />
-
-              <OpenAIAccountProxyFields
-                mode={modalProxyMode}
-                proxyUrl={modalProxy}
-                disabled={busy}
-                onModeChange={setModalProxyMode}
-                onProxyUrlChange={setModalProxy}
-              />
-
-              {/* Mode toggle */}
-              <div className="modal-mode-toggle">
-                <button
-                  type="button"
-                  className={
-                    modalMode === "login"
-                      ? "modal-mode-btn active"
-                      : "modal-mode-btn"
-                  }
-                  onClick={() => setModalMode("login")}
-                >
-                  <LogIn size={14} />
-                  {t("settings.openaiAccounts.loginMode")}
-                </button>
-                <button type="button" className={modalMode === "external" ? "modal-mode-btn active" : "modal-mode-btn"} onClick={() => setModalMode("external")}>
-                  <Globe2 size={14} />
-                  {t("settings.openaiAccounts.externalLogin")}
-                </button>
-                <button
-                  type="button"
-                  className={
-                    modalMode === "manual"
-                      ? "modal-mode-btn active"
-                      : "modal-mode-btn"
-                  }
-                  onClick={() => setModalMode("manual")}
-                >
-                  <FileUp size={14} />
-                  {t("settings.openaiAccounts.manualMode")}
-                </button>
-              </div>
-
-              {modalMode === "manual" && (
-                <label className="mcp-field">
-                  <span className="mcp-field-label">auth.json</span>
-                  <textarea
-                    className="mcp-field-input mcp-field-textarea"
-                    value={modalAuthJson}
-                    placeholder='{"auth_mode":"chatgpt","tokens":{"access_token":"..."}}'
-                    onChange={(e) => setModalAuthJson(e.target.value)}
-                    rows={5}
-                  />
-                </label>
-              )}
-            </div>
-
-            <footer className="settings-modal-footer settings-modal-footer-split">
+        <LoginAccountEditor
+          editing={Boolean(modalEditId)}
+          name={modalName}
+          onNameChange={setModalName}
+          mode={modalProxyMode}
+          proxyUrl={modalProxy}
+          onModeChange={setModalProxyMode}
+          onProxyUrlChange={setModalProxy}
+          busy={busy}
+          error={operationError}
+          onClose={() => setModalOpen(false)}
+          profileFields={
+            <LoginAccountProfileFields
+              email={modalEmail}
+              pickupUrl={modalPickupUrl}
+              secrets={{ password: modalPassword, twoFactorSecret: modalTwoFactorSecret, instanceKey: modalEditId ?? "new",
+                onPasswordChange: setModalPassword, onTwoFactorSecretChange: setModalTwoFactorSecret }}
+              onEmailChange={setModalEmail}
+              onPickupUrlChange={setModalPickupUrl}
+            />
+          }
+          actions={
+            <>
               <button
                 type="button"
                 className="settings-modal-cancel"
-                onClick={() => setModalOpen(false)}
-                disabled={busy}
+                onClick={() => void handleCreate(true)}
+                disabled={busy || !modalName.trim() || (modalProxyMode === "manual" && !modalProxy.trim())}
               >
-                {t("common.cancel")}
+                {busy ? t("settings.openaiAccounts.saving") : t("settings.openaiAccounts.saveProfileOnly")}
               </button>
-              <div className="settings-modal-footer-actions">
-                <button
-                  type="button"
-                  className="settings-modal-cancel"
-                  onClick={() => void handleCreate(true)}
-                  disabled={busy || !modalName.trim() || (modalProxyMode === "manual" && !modalProxy.trim())}
-                >
-                  {busy ? t("settings.openaiAccounts.saving") : t("settings.openaiAccounts.saveProfileOnly")}
-                </button>
-                {!modalEditId ? (
+              {!modalEditId ? (
                 <button
                   type="button"
                   className="plan-button primary"
@@ -1710,15 +1458,59 @@ function OpenAIAccountsContent({ onError, data, onOpenConnection }: {
                       : t("settings.openaiAccounts.createAndLogin")
                       : t("settings.openaiAccounts.createWithAuth")}
                 </button>
-                ) : modalMode === "manual" && modalAuthJson.trim() ? (
-                  <button type="button" className="plan-button primary" onClick={() => void handleCreate(false)} disabled={busy}>
-                    {busy ? t("settings.openaiAccounts.saving") : t("settings.openaiAccounts.saveAccountAndAuth")}
-                  </button>
-                ) : null}
-              </div>
-            </footer>
+              ) : modalMode === "manual" && modalAuthJson.trim() ? (
+                <button type="button" className="plan-button primary" onClick={() => void handleCreate(false)} disabled={busy}>
+                  {busy ? t("settings.openaiAccounts.saving") : t("settings.openaiAccounts.saveAccountAndAuth")}
+                </button>
+              ) : null}
+            </>
+          }
+        >
+          {/* Mode toggle */}
+          <div className="modal-mode-toggle">
+            <button
+              type="button"
+              className={
+                modalMode === "login"
+                  ? "modal-mode-btn active"
+                  : "modal-mode-btn"
+              }
+              onClick={() => setModalMode("login")}
+            >
+              <LogIn size={14} />
+              {t("settings.openaiAccounts.loginMode")}
+            </button>
+            <button type="button" className={modalMode === "external" ? "modal-mode-btn active" : "modal-mode-btn"} onClick={() => setModalMode("external")}>
+              <Globe2 size={14} />
+              {t("settings.openaiAccounts.externalLogin")}
+            </button>
+            <button
+              type="button"
+              className={
+                modalMode === "manual"
+                  ? "modal-mode-btn active"
+                  : "modal-mode-btn"
+              }
+              onClick={() => setModalMode("manual")}
+            >
+              <FileUp size={14} />
+              {t("settings.openaiAccounts.manualMode")}
+            </button>
           </div>
-        </div>
+
+          {modalMode === "manual" && (
+            <label className="mcp-field">
+              <span className="mcp-field-label">auth.json</span>
+              <textarea
+                className="mcp-field-input mcp-field-textarea"
+                value={modalAuthJson}
+                placeholder='{"auth_mode":"chatgpt","tokens":{"access_token":"..."}}'
+                onChange={(e) => setModalAuthJson(e.target.value)}
+                rows={5}
+              />
+            </label>
+          )}
+        </LoginAccountEditor>
       )}
     </section>
   );

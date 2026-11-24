@@ -1,0 +1,41 @@
+.claude-login-actions,
+.claude-login-actions .codex-account-status-popover,
+.claude-login-actions .codex-account-actions-menu {
+  -webkit-app-region: no-drag;
+}
+
+.claude-login-confirm {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.claude-login-session-key {
+  display: grid;
+  gap: 12px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.claude-login-session-key > .codex-account-header-actions {
+  justify-self: end;
+}
+
+.claude-login-panel .settings-modal-footer-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+@container login-accounts (max-width: 400px) {
+  .claude-login-panel .codex-account-card .codex-account-header-actions {
+    grid-column: 2 / -1;
+    justify-content: flex-start;
+  }
+
+  .claude-login-panel .codex-account-identity {
+    grid-column: 2 / -1;
+  }
+}

@@ -1,7 +1,7 @@
 import { BrowserWindow, clipboard, dialog, screen } from "electron";
 import type { AccountBrowserPage } from "./account-browser-page";
 import type { I18nKey } from "../shared/i18n-catalogs";
-import type { OpenAIAccountAssistantAction, OpenAIAccountAssistantActionResult, OpenAIAccountAssistantState, OpenAIAccountDetails } from "../shared/openai-account";
+import type { OpenAIAccountAssistantAction, OpenAIAccountAssistantActionResult, OpenAIAccountAssistantState, OpenAIAccountProfile } from "../shared/openai-account";
 import { accountLoginFillScript, generateAccountTotp, isAccountLoginPage, TotpSecretError } from "./openai-account-assistant-data";
 
 export class OpenAIAccountAssistant {
@@ -12,7 +12,8 @@ export class OpenAIAccountAssistant {
   private readonly pickupAccountNames = new Map<string, string>();
 
   constructor(private readonly deps: {
-    getDetails: (accountId: string) => Promise<OpenAIAccountDetails>;
+    getDetails: (accountId: string) => Promise<OpenAIAccountProfile & { name: string; provider?: "claude" }>;
+    isClaudeLogin?: (accountId: string) => boolean;
     preloadPath: string;
     loadRenderer: (window: BrowserWindow, accountId: string) => Promise<void>;
     parent: () => BrowserWindow | undefined;
@@ -30,7 +31,7 @@ export class OpenAIAccountAssistant {
     }
     const window = new BrowserWindow({
       width: 352, height: 592, minWidth: 352, minHeight: 592,
-      title: this.deps.text("assistant.windowTitle"), alwaysOnTop: true, resizable: false, show: false,
+      title: this.windowTitle(accountId), alwaysOnTop: true, resizable: false, show: false,
       ...(process.platform === "darwin" ? { type: "panel" as const, titleBarStyle: "hiddenInset" as const, trafficLightPosition: { x: 14, y: 15 } } : { autoHideMenuBar: true }),
       // The helper remains useful while the login page or another app has focus.
       // Keep its TOTP countdown running rather than throttling background timers.
@@ -98,10 +99,10 @@ export class OpenAIAccountAssistant {
     const hasLoginWindow = Boolean(login && !login.isDestroyed());
     const contents = this.loginContents(accountId);
     const state: OpenAIAccountAssistantState = {
-      accountId, name: account.name, ...(account.email ? { email: account.email } : {}),
+      accountId, ...(account.provider ? { provider: account.provider } : {}), name: account.name, ...(account.email ? { email: account.email } : {}),
       hasPassword: Boolean(account.password), hasPickupUrl: Boolean(account.pickupUrl),
       hasTwoFactorSecret: Boolean(account.twoFactorSecret),
-      canFill: Boolean(contents && isAccountLoginPage(contents.getURL())),
+      canFill: Boolean(contents && isAccountLoginPage(contents.getURL(), account.provider)),
       hasLoginWindow,
       pinned: assistant?.isAlwaysOnTop() ?? true,
     };
@@ -130,14 +131,17 @@ export class OpenAIAccountAssistant {
    * the previous language on screen.
    */
   refreshTitles(): void {
-    const assistantTitle = this.deps.text("assistant.windowTitle");
-    for (const window of this.windows.values()) {
-      if (!window.isDestroyed()) window.setTitle(assistantTitle);
+    for (const [accountId, window] of this.windows) {
+      if (!window.isDestroyed()) window.setTitle(this.windowTitle(accountId));
     }
     for (const [accountId, window] of this.pickupWindows) {
       if (window.isDestroyed()) continue;
       window.setTitle(this.deps.text("assistant.inboxWindowTitle", { name: this.pickupAccountNames.get(accountId) ?? "" }));
     }
+  }
+
+  private windowTitle(accountId: string): string {
+    return this.deps.text(this.deps.isClaudeLogin?.(accountId) ? "settings.claudeLogin.assistantTitle" : "assistant.windowTitle");
   }
 
   async action(accountId: string, action: OpenAIAccountAssistantAction): Promise<OpenAIAccountAssistantActionResult> {
@@ -200,10 +204,12 @@ export class OpenAIAccountAssistant {
     }
     const login = this.loginPages.get(accountId);
     const contents = this.loginContents(accountId);
-    if (!login || !contents || !isAccountLoginPage(contents.getURL())) {
+    const url = contents?.getURL();
+    if (!login || !contents || !url || !isAccountLoginPage(url, account.provider)) {
       throw new Error(this.deps.text("assistant.fillNeedsLoginPage"));
     }
-    const filled = await contents.executeJavaScript(accountLoginFillScript(action.field, value), true) as boolean;
+    const { origin, pathname } = new URL(url);
+    const filled = await contents.executeJavaScript(accountLoginFillScript(action.field, value, origin, pathname), true) as boolean;
     if (!filled) throw new Error(this.deps.text("assistant.fillNoInput", { name: label }));
     login.focus();
     return { message: this.deps.text("assistant.filledNamed", { name: label }) };

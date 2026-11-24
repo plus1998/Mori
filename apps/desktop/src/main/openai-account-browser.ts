@@ -3,6 +3,17 @@ import type { AccountBrowserPage } from "./account-browser-page";
 import fs from "node:fs/promises";
 import { ChatGptWebSessionError, parseChatGptWebSession } from "./chatgpt-web-session";
 
+type AccountBrowserProfile = ({ path: string } | { partition: string }) & {
+  name: string;
+  proxyMode: string;
+  proxyUrl?: string;
+  siteTitle?: string;
+};
+
+function browserSession(profile: AccountBrowserProfile): Session {
+  return "partition" in profile ? session.fromPartition(profile.partition) : session.fromPath(profile.path);
+}
+
 const backgroundWindows = new WeakSet<BrowserWindow>();
 export const isOpenAIAccountBackgroundWindow = (window: BrowserWindow): boolean => backgroundWindows.has(window);
 
@@ -13,9 +24,9 @@ export class OpenAIAccountBrowser {
   private readonly pages = new Map<string, AccountBrowserPage>();
 
   constructor(private readonly deps: {
-    getProfile: (accountId: string) => Promise<{ path: string; name: string; proxyMode: string; proxyUrl?: string }>;
+    getProfile: (accountId: string) => Promise<AccountBrowserProfile>;
     configureProxy: (session: Session, proxyMode: string, proxyUrl?: string) => Promise<() => void>;
-    openPage: (input: { accountId: string; name: string; session: Session; windowed: boolean; presentationLocked: boolean }) => Promise<AccountBrowserPage>;
+    openPage: (input: { accountId: string; name: string; session: Session; windowed: boolean; presentationLocked: boolean; siteTitle?: string; allowNavigation?: (url: string) => boolean }) => Promise<AccountBrowserPage>;
     closePages: (accountId: string) => Promise<void>;
     reportError: (error: unknown) => void;
   }) {}
@@ -36,8 +47,8 @@ export class OpenAIAccountBrowser {
     const proxyKey = JSON.stringify([profile.proxyMode, profile.proxyUrl]);
     const existing = this.profiles.get(accountId);
     if (existing?.proxyKey === proxyKey) return existing.session;
-    await fs.mkdir(profile.path, { recursive: true });
-    const ses = existing?.session ?? session.fromPath(profile.path);
+    if ("path" in profile) await fs.mkdir(profile.path, { recursive: true });
+    const ses = existing?.session ?? browserSession(profile);
     if (existing) {
       // Retain the session if configuration fails so a subsequent settings edit
       // can retry applying the proxy to tabs that are still open.
@@ -50,7 +61,7 @@ export class OpenAIAccountBrowser {
     return ses;
   }
 
-  async open(accountId: string): Promise<void> {
+  async open(accountId: string, url = "https://chatgpt.com/", prepare?: (page: AccountBrowserPage) => Promise<void>): Promise<void> {
     return this.run(accountId, async () => {
       await this.getSession(accountId);
       const existing = this.pages.get(accountId);
@@ -64,7 +75,8 @@ export class OpenAIAccountBrowser {
         if (this.pages.get(accountId) === page) this.pages.delete(accountId);
       });
       try {
-        await page.webContents.loadURL("https://chatgpt.com/");
+        await prepare?.(page);
+        await page.webContents.loadURL(url);
       } catch (error) {
         await page.close();
         throw error;
@@ -73,10 +85,14 @@ export class OpenAIAccountBrowser {
   }
 
   /** Caller serializes this with account deletion and login setup via run(). */
-  async createPage(accountId: string, login = false): Promise<AccountBrowserPage> {
+  async createPage(accountId: string, login = false, allowNavigation?: (url: string) => boolean): Promise<AccountBrowserPage> {
     const ses = await this.getSession(accountId);
     const profile = await this.deps.getProfile(accountId);
-    const page = await this.deps.openPage({ accountId, name: profile.name, session: ses, windowed: true, presentationLocked: login });
+    const page = await this.deps.openPage({
+      accountId, name: profile.name, session: ses, windowed: true, presentationLocked: login,
+      ...(profile.siteTitle ? { siteTitle: profile.siteTitle } : {}),
+      ...(allowNavigation ? { allowNavigation } : {}),
+    });
     page.onClosed(() => {
       ses.flushStorageData();
       void ses.cookies.flushStore().catch(this.deps.reportError);
@@ -134,14 +150,14 @@ export class OpenAIAccountBrowser {
   async clear(accountId: string): Promise<void> {
     const profile = await this.deps.getProfile(accountId);
     const entry = this.profiles.get(accountId);
-    if (!entry) {
+    if (!entry && "path" in profile) {
       try { await fs.stat(profile.path); }
       catch (error) {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
         throw error;
       }
     }
-    const ses = entry?.session ?? session.fromPath(profile.path);
+    const ses = entry?.session ?? browserSession(profile);
     await this.deps.closePages(accountId);
     for (const window of BrowserWindow.getAllWindows()) {
       if (!window.isDestroyed() && window.webContents.session === ses) window.destroy();

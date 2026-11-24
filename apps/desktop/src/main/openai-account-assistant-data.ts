@@ -40,23 +40,32 @@ export function generateAccountTotp(secret: string, now = Date.now(), digits = 6
   return { code: String(number % (10 ** digits)).padStart(digits, "0"), remainingSeconds: 30 - (seconds % 30) };
 }
 
-export function isAccountLoginPage(url: string): boolean {
+export function isAccountLoginPage(url: string, provider?: "claude"): boolean {
   try {
     const parsed = new URL(url);
-    return parsed.protocol === "https:" && ["auth.openai.com", "auth0.openai.com", "chatgpt.com"].includes(parsed.hostname);
+    if (parsed.protocol !== "https:" || parsed.port || parsed.username || parsed.password) return false;
+    if (provider === "claude") {
+      return parsed.hostname === "auth.claude.com" || (
+        ["claude.com", "claude.ai", "platform.claude.com"].includes(parsed.hostname)
+        && /^\/(?:oauth|login|sign-in|auth)(?:\/|$)/u.test(parsed.pathname)
+      );
+    }
+    return ["auth.openai.com", "auth0.openai.com", "chatgpt.com"].includes(parsed.hostname);
   } catch {
     return false;
   }
 }
 
 /** Fill only the requested visible field; never submit the form. */
-export function accountLoginFillScript(field: "email" | "password" | "code", value: string): string {
+export function accountLoginFillScript(field: "email" | "password" | "code", value: string, expectedOrigin?: string, expectedPath?: string): string {
   const selectors = {
     email: 'input[type="email"],input[autocomplete="username"],input[name="email"],input[name="username"]',
     password: 'input[type="password"],input[autocomplete="current-password"]',
     code: 'input[autocomplete="one-time-code"],input[name="code"],input[name="otp"],input[name="totp"],input[inputmode="numeric"]',
   };
   return `(() => {
+    if (${JSON.stringify(expectedOrigin)} && location.origin !== ${JSON.stringify(expectedOrigin)}) return false;
+    if (${JSON.stringify(expectedPath)} && location.pathname !== ${JSON.stringify(expectedPath)}) return false;
     const value = ${JSON.stringify(value)};
     const fields = Array.from(document.querySelectorAll(${JSON.stringify(selectors[field])})).filter(
       input => !input.disabled && !input.readOnly && input.getClientRects().length > 0

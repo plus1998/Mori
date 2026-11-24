@@ -811,6 +811,24 @@ const api = {
   openAIAccountsSharingSave(accountId: string, deviceIds: string[]): Promise<import("../shared/codex-account-sharing").CodexSharingSnapshot> {
     return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsSharingSave, { accountId, deviceIds });
   },
+  claudeLoginList(): Promise<import("../shared/claude-login").ClaudeLoginAccount[]> {
+    return ipcRenderer.invoke(IPC_CHANNELS.claudeLoginList);
+  },
+
+  claudeLoginDetails(accountId: string): Promise<import("../shared/claude-login").ClaudeLoginProfileInput> {
+    return ipcRenderer.invoke(IPC_CHANNELS.claudeLoginDetails, accountId);
+  },
+
+  onClaudeLoginResult(callback: (result: import("../shared/claude-login").ClaudeLoginResult) => void): () => void {
+    const listener = (_event: Electron.IpcRendererEvent, result: import("../shared/claude-login").ClaudeLoginResult) => callback(result);
+    ipcRenderer.on(IPC_CHANNELS.claudeLoginResult, listener);
+    return () => ipcRenderer.off(IPC_CHANNELS.claudeLoginResult, listener);
+  },
+
+  claudeLoginAction(action: import("../shared/claude-login").ClaudeLoginAction): Promise<string | void> {
+    return ipcRenderer.invoke(IPC_CHANNELS.claudeLoginAction, action);
+  },
+
   openAIAccountsList(): Promise<
     OpenAIAccount[]
   > {

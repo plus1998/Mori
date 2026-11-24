@@ -54,7 +54,7 @@ export function OpenAIAccountAssistantView({ state, busy, password, notice, erro
         ) : null}
         <div className="assistant-identity">
           <div className="assistant-monogram">{(state.email || state.name).slice(0, 1).toUpperCase()}</div>
-          <div><span className="assistant-eyebrow">{t("settings.models.tab.openaiAccounts")}</span><h1 title={state.name}>{state.name}</h1></div>
+          <div><span className="assistant-eyebrow">{state.provider === "claude" ? "Claude Login" : t("settings.models.tab.openaiAccounts")}</span><h1 title={state.name}>{state.name}</h1></div>
           <span className={`assistant-connection ${state.hasLoginWindow ? "is-connected" : ""}`} title={state.hasLoginWindow ? t("assistant.connectionConnected") : t("assistant.connectionDetached")}><i /></span>
         </div>
         <div className="assistant-credentials">
@@ -63,7 +63,7 @@ export function OpenAIAccountAssistantView({ state, busy, password, notice, erro
             <div className="assistant-field-value" title={state.email}>{state.email || t("assistant.emailMissing")}</div>
             {fieldActions("email", Boolean(state.email))}
           </section>
-          <section className="assistant-field">
+          {state.provider !== "claude" && <section className="assistant-field">
             <div className="assistant-field-label"><KeyRound size={13} />{t("settings.openaiAccounts.passwordField")}
               <button className="assistant-reveal" type="button" disabled={busy || !state.hasPassword} aria-label={password ? t("assistant.hidePassword") : t("assistant.showPassword")} onClick={() => password ? onHidePassword() : onAction({ type: "revealPassword" })}>
                 {password ? <EyeOff size={13} /> : <Eye size={13} />}
@@ -71,16 +71,16 @@ export function OpenAIAccountAssistantView({ state, busy, password, notice, erro
             </div>
             <div className={`assistant-field-value ${state.hasPassword && !password ? "is-masked" : ""}`}>{password || (state.hasPassword ? "••••••••••••" : t("assistant.passwordMissing"))}</div>
             {fieldActions("password", state.hasPassword)}
-          </section>
+          </section>}
         </div>
-        <section className={`assistant-otp ${state.remainingSeconds !== undefined && state.remainingSeconds <= 5 ? "is-expiring" : ""}`}>
+        {state.provider !== "claude" && <section className={`assistant-otp ${state.remainingSeconds !== undefined && state.remainingSeconds <= 5 ? "is-expiring" : ""}`}>
           <div className="assistant-otp-heading"><span><ShieldCheck size={14} />{t("assistant.twoFactorCode")}</span>
             {state.code ? <span className="assistant-countdown" style={{ "--remaining": `${((state.remainingSeconds ?? 0) / 30) * 100}%` } as CSSProperties}>{state.remainingSeconds}s</span> : null}
           </div>
           {state.code ? <div className="assistant-code" aria-label={t("assistant.currentCodeAria", { code: state.code })}><span>{state.code.slice(0, 3)}</span><span>{state.code.slice(3)}</span></div>
             : <div className="assistant-code-empty">{state.codeError || t("assistant.twoFactorEmpty")}</div>}
           <div className="assistant-otp-footer"><span>{state.code ? t("assistant.twoFactorRefresh") : t("assistant.twoFactorAddSecret")}</span>{fieldActions("code", Boolean(state.code))}</div>
-        </section>
+        </section>}
         <button className="assistant-inbox" type="button" disabled={busy || !state.hasPickupUrl} onClick={() => onAction({ type: "openPickup" })}>
           <span className="assistant-inbox-icon"><Inbox size={19} /></span>
           <span><strong>{t("assistant.openInbox")}</strong><small>{state.pickupHost || t("assistant.inboxMissing")}</small></span>

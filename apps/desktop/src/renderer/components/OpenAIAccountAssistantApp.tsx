@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { OpenAIAccountAssistantAction, OpenAIAccountAssistantState } from "../../shared/openai-account";
+import { isClaudeLoginAccountId, type ClaudeLoginResult } from "../../shared/claude-login";
 import { readStoredLocalePreference } from "../../shared/locale";
 import { getResolvedRendererLocale, i18n } from "../i18n";
 import { OpenAIAccountAssistantView } from "./OpenAIAccountAssistantView";
@@ -22,6 +23,7 @@ function syncLocale(): void {
 export function OpenAIAccountAssistantApp() {
   const accountId = new URLSearchParams(window.location.search).get("accountId");
   const eco = window.eco;
+  const claude = isClaudeLoginAccountId(accountId);
   const { t } = useTranslation();
   const [state, setState] = useState<OpenAIAccountAssistantState>();
   const [error, setError] = useState("");
@@ -42,14 +44,15 @@ export function OpenAIAccountAssistantApp() {
     void refresh();
     const timer = setInterval(() => void refresh(), 1_000);
     const unsubscribe = eco?.onOpenAIAccountsChanged(() => void refresh());
-    const unsubscribeLogin = eco?.onCodexOauthLoginResult((result) => {
+    const onResult = (result: Omit<ClaudeLoginResult, "accountId"> & { accountId?: string }) => {
       if (result.accountId !== accountId) return;
       setNotice(result.success ? result.message : "");
       setError(result.success ? "" : result.message);
       void refresh();
-    });
+    };
+    const unsubscribeLogin = claude ? eco?.onClaudeLoginResult(onResult) : eco?.onCodexOauthLoginResult(onResult);
     return () => { clearInterval(timer); unsubscribe?.(); unsubscribeLogin?.(); };
-  }, [eco, accountId, refresh]);
+  }, [eco, accountId, claude, refresh]);
   useEffect(() => {
     if (!password) return;
     const hide = () => setPassword("");
@@ -75,8 +78,12 @@ export function OpenAIAccountAssistantApp() {
     if (!eco || !accountId) return;
     setBusy(true); setError("");
     try {
-      const result = await eco.openAIAccountsStartLogin(accountId);
-      if (!result.success) throw new Error(result.message);
+      if (claude) {
+        await eco.claudeLoginAction({ kind: "login", id: accountId });
+      } else {
+        const result = await eco.openAIAccountsStartLogin(accountId);
+        if (!result.success) throw new Error(result.message);
+      }
       await refresh();
     } catch (error) { setError(error instanceof Error ? error.message : String(error)); }
     finally { setBusy(false); }

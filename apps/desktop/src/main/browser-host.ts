@@ -155,6 +155,14 @@ export interface BrowserHostDeps {
   }) => Promise<void>;
 }
 
+interface BrowserAccount {
+  id: string;
+  name: string;
+  session: Session;
+  siteTitle?: string;
+  allowNavigation?: (url: string) => boolean;
+}
+
 interface SessionBrowser {
   attachmentPartition?: string;
   windowed?: boolean;
@@ -162,7 +170,7 @@ interface SessionBrowser {
   presentationUpdate?: Promise<BrowserViewState> | undefined;
   navigationToRestore?: { entries: Electron.NavigationEntry[]; index: number } | undefined;
   restoringNavigation?: Promise<void> | undefined;
-  account?: { id: string; name: string; session: Session } | undefined;
+  account?: BrowserAccount | undefined;
   closable?: boolean;
   closedListeners?: Set<() => void>;
   partition?: string | undefined;
@@ -437,10 +445,15 @@ export class BrowserHost {
 
   async openAccountPage(input: {
     accountId: string; name: string; session: Session; windowed?: boolean; presentationLocked?: boolean;
+    siteTitle?: string; allowNavigation?: (url: string) => boolean;
   }): Promise<AccountBrowserPage> {
     let scope = this.ensureScope(this.uiScopeId, this.uiWorkspacePath);
     const browser = this.createBrowserInScope(scope, "human");
-    browser.account = { id: input.accountId, name: input.name, session: input.session };
+    browser.account = {
+      id: input.accountId, name: input.name, session: input.session,
+      ...(input.siteTitle ? { siteTitle: input.siteTitle } : {}),
+      ...(input.allowNavigation ? { allowNavigation: input.allowNavigation } : {}),
+    };
     this.accountSessions.set(input.accountId, input.session);
     // This opaque key is only a renderer identity. The attach bridge supplies the
     // existing fromPath session so stored cookies never need to be copied/migrated.
@@ -850,7 +863,7 @@ export class BrowserHost {
           ...(browser.closable === false ? { closeBlocked: true } : {}),
           url,
           title: browser.account
-            ? `${browser.account.name} · ${alive ? wc.getTitle() || "ChatGPT" : "ChatGPT"}`
+            ? `${browser.account.name} · ${(alive && wc.getTitle()) || browser.account.siteTitle || "ChatGPT"}`
             : alive ? wc.getTitle() || "" : "",
           ...(faviconUrl ? { faviconUrl } : {}),
           isLoading: Boolean(alive && wc.isLoading()),
@@ -1004,7 +1017,7 @@ export class BrowserHost {
     wc.setWindowOpenHandler(({ url }) => {
       // Auth popups need their real opener for postMessage/close callbacks.
       // Keep those in the account profile rather than replacing them with tabs.
-      if (browser.account) return this.accountPopupOptions(url, browser.account.session);
+      if (browser.account) return this.accountPopupOptions(url, browser.account);
       if (isBrowserHttpUrl(url)) {
         try {
           // Electron does not distinguish Agent input from a human click here.
@@ -1031,7 +1044,9 @@ export class BrowserHost {
       return { action: "deny" };
     });
     if (browser.account) {
-      wc.on("did-create-window", popup => this.wireAccountPopup(popup, browser.account!.session));
+      const account = browser.account;
+      this.wireAccountNavigation(wc, account);
+      wc.on("did-create-window", popup => this.wireAccountPopup(popup, account));
     }
 
     const onNav = (_event: unknown, url?: string) => {
@@ -1111,24 +1126,35 @@ export class BrowserHost {
     });
   }
 
-  private accountPopupOptions(url: string, accountSession: Session): Electron.WindowOpenHandlerResponse {
-    return isBrowserHttpUrl(url) ? {
+  private wireAccountNavigation(contents: WebContents, account: BrowserAccount): void {
+    if (!account.allowNavigation) return;
+    const allowNavigation = account.allowNavigation;
+    const restrict = (event: { url: string; preventDefault(): void }) => {
+      if (!allowNavigation(event.url)) event.preventDefault();
+    };
+    contents.on("will-frame-navigate", restrict);
+    contents.on("will-redirect", restrict);
+  }
+
+  private accountPopupOptions(url: string, account: BrowserAccount): Electron.WindowOpenHandlerResponse {
+    return isBrowserHttpUrl(url) && (account.allowNavigation?.(url) ?? true) ? {
       action: "allow",
       overrideBrowserWindowOptions: {
         autoHideMenuBar: true,
-        webPreferences: { session: accountSession, nodeIntegration: false, contextIsolation: true, sandbox: true },
+        webPreferences: { session: account.session, nodeIntegration: false, contextIsolation: true, sandbox: true },
       },
     } : { action: "deny" };
   }
 
-  private wireAccountPopup(window: BrowserWindow, accountSession: Session): void {
+  private wireAccountPopup(window: BrowserWindow, account: BrowserAccount): void {
     const wc = window.webContents;
     wc.setWebRTCIPHandlingPolicy("disable_non_proxied_udp");
-    wc.setWindowOpenHandler(({ url }) => this.accountPopupOptions(url, accountSession));
-    wc.on("did-create-window", popup => this.wireAccountPopup(popup, accountSession));
+    this.wireAccountNavigation(wc, account);
+    wc.setWindowOpenHandler(({ url }) => this.accountPopupOptions(url, account));
+    wc.on("did-create-window", popup => this.wireAccountPopup(popup, account));
     window.on("closed", () => {
-      accountSession.flushStorageData();
-      void accountSession.cookies.flushStore().catch(error => console.error("[browser] Account popup flush failed", error));
+      account.session.flushStorageData();
+      void account.session.cookies.flushStore().catch(error => console.error("[browser] Account popup flush failed", error));
     });
   }
 

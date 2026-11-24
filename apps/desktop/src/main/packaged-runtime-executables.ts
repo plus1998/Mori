@@ -76,6 +76,12 @@ const CLAUDE_TARGET_PACKAGES: Readonly<Record<string, string>> = {
   "win32:x64": "@anthropic-ai/claude-agent-sdk-win32-x64",
 };
 
+export function resolveDevClaudeExecutable(appPath: string): string | undefined {
+  const packageName = CLAUDE_TARGET_PACKAGES[`${process.platform}:${process.arch}`];
+  if (!packageName) return;
+  return path.join(appPath, "node_modules", packageName, process.platform === "win32" ? "claude.exe" : "claude");
+}
+
 interface PackagedExecutableInput {
   resourcesPath: string | undefined;
   platform?: NodeJS.Platform;

@@ -23768,6 +23768,22 @@ button.composer-session-mode-tag:focus-visible {
   line-height: 20px;
 }
 
+.models-settings-tab-group {
+  position: relative;
+}
+
+.models-settings-tab-menu {
+  right: auto;
+  left: 0;
+  width: max-content;
+  min-width: 170px;
+  -webkit-app-region: no-drag;
+}
+
+.models-settings-tab-menu .codex-account-actions-menu-item {
+  justify-content: space-between;
+}
+
 .models-settings-tab-count {
   color: var(--text-muted);
   font-size: 11px;

@@ -85,6 +85,9 @@ import { canDispatchScheduledMessage } from "./scheduling-dispatch-policy";
 import { SchedulingStore } from "./scheduling-store";
 import { TtsMcpGateway } from "./tts-mcp-gateway";
 import { createTtsStore, type TtsStore } from "./tts-store";
+import { ClaudeLoginService, prepareClaudeBrowser } from "./claude-login";
+import { openClaudeSessionKeyNetwork } from "./claude-session-key-transport";
+import { isClaudeLoginAccountId, type ClaudeLoginAction, type ClaudeLoginResult } from "../shared/claude-login";
 import { WebChatProxyController } from "./web-chat-proxy";
 import { isDevFeedReplayFrameUrl } from "../shared/dev-feed-replay";
 import { createImageDisplayThumbnail } from "./image-display-thumbnail";
@@ -232,6 +235,7 @@ import { isReloadShortcutInput } from "./packaged-window-shortcuts";
 import {
   readElectronResourcesPath,
   resolvePackagedClaudeExecutableCandidate,
+  resolveDevClaudeExecutable,
 } from "./packaged-runtime-executables";
 import { assertSdkSessionRetainedOnRunFailure } from "./sdk-session-run-failure";
 import { isAllowedSessionPermission, isLocalRendererUrl } from "./session-permissions";
@@ -8713,8 +8717,48 @@ function registerIpcHandlers(): void {
   });
   void moriAssistantHost.initialize().then(() => { moriAssistantReady = true; }, error => logEcoDiag("mori-assistant.initialize.failed", { error: errorMessage(error) }));
 
+  const claudeBrowserPartition = (id: string) => `persist:mori-${id}`;
+  const claudeLogin: ClaudeLoginService = new ClaudeLoginService(
+    path.join(app.getPath("userData"), "claude-login"),
+    () => {
+      const executable = app.isPackaged
+        ? resolvePackagedClaudeExecutableCandidate({ resourcesPath: readElectronResourcesPath() })
+        : resolveDevClaudeExecutable(app.getAppPath());
+      if (!executable || !existsSync(executable)) throw new Error("未找到 Mori 随附的 Claude Code。");
+      return executable;
+    },
+    () => session.defaultSession.resolveProxy("https://platform.claude.com/"),
+    {
+      open: (id, allowNavigation) => accountBrowser.run(id, () => accountBrowser.createPage(id, true, allowNavigation)),
+      attachAssistant: async (id, page, expiresAt) => {
+        const assistant = requireAccountAssistant();
+        assistant.attachLogin(id, page, expiresAt);
+        await assistant.open(id);
+      },
+      clear: id => accountBrowser.run(id, async () => {
+        await accountBrowser.clear(id);
+        requireAccountAssistant().closeAccount(id);
+      }),
+    },
+    openClaudeSessionKeyNetwork,
+    {
+      open: id => accountBrowser.open(id, "https://claude.ai/", prepareClaudeBrowser),
+      hasSession: async id => {
+        const cookies = await session.fromPartition(claudeBrowserPartition(id)).cookies.get({ name: "sessionKey" });
+        return cookies.some(cookie => cookie.value && /^\.?claude\.(?:ai|com)$/u.test(cookie.domain ?? ""));
+      },
+      clear: id => accountBrowser.run(id, () => accountBrowser.clear(id)),
+    },
+  );
   openaiAccountAssistant = new OpenAIAccountAssistant({
-    getDetails: async (accountId) => (await getOpenAIAccountService()).getAccountDetails(accountId),
+    isClaudeLogin: isClaudeLoginAccountId,
+    getDetails: async (accountId) => {
+      if (isClaudeLoginAccountId(accountId)) {
+        const account = await claudeLogin.read(accountId);
+        return { ...account.signInProfile, name: account.name, provider: "claude" as const };
+      }
+      return (await getOpenAIAccountService()).getAccountDetails(accountId);
+    },
     preloadPath: path.join(__dirname, "../preload/index.cjs"),
     parent: getMainWindow,
     text: mainText,
@@ -8737,6 +8781,14 @@ function registerIpcHandlers(): void {
   };
   const accountBrowser = new OpenAIAccountBrowser({
     getProfile: async accountId => {
+      if (isClaudeLoginAccountId(accountId)) {
+        const { name, proxy } = await claudeLogin.read(accountId);
+        return {
+          partition: claudeBrowserPartition(accountId), name, siteTitle: "Claude",
+          proxyMode: proxy === "direct" ? "direct" : proxy ? "manual" : "system",
+          ...(proxy && proxy !== "direct" ? { proxyUrl: proxy } : {}),
+        };
+      }
       const svc = await getOpenAIAccountService();
       const account = await svc.getAccountDetails(accountId);
       return { path: await svc.getBrowserDataPath(accountId), name: account.name,
@@ -8827,6 +8879,42 @@ function registerIpcHandlers(): void {
     if (!codexAccountSharing) throw new Error("账号共享服务尚未初始化。");
     return codexAccountSharing.save(payload.accountId, payload.deviceIds);
   });
+  app.once("before-quit", () => claudeLogin.dispose());
+  registerDesktopCommand(IPC_CHANNELS.claudeLoginList, () => claudeLogin.list());
+  registerDesktopCommand(IPC_CHANNELS.claudeLoginDetails, (id: string) => claudeLogin.read(id));
+  const sendClaudeLoginResult = (result: ClaudeLoginResult) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.claudeLoginResult, result);
+    }
+  };
+  registerDesktopCommand(IPC_CHANNELS.claudeLoginAction, async (action: ClaudeLoginAction): Promise<string | void> => {
+    switch (action?.kind) {
+      case "save": return claudeLogin.save(action.profile, action.id);
+      case "login":
+      case "loginWithSessionKey": {
+        try {
+          const success = action.kind === "loginWithSessionKey"
+            ? await claudeLogin.loginWithSessionKey(action.id, action.sessionKey)
+            : await claudeLogin.login(action.id);
+          sendClaudeLoginResult({
+            accountId: action.id, success,
+            message: mainText(success ? "settings.claudeLogin.loginSucceeded" : "settings.claudeLogin.loginCanceled"),
+          });
+        } catch (error) {
+          sendClaudeLoginResult({ accountId: action.id, success: false, message: errorMessage(error) });
+          throw error;
+        }
+        return;
+      }
+      case "cancel": return claudeLogin.cancel(action.id);
+      case "logout": return claudeLogin.logout(action.id);
+      case "openWeb": return claudeLogin.openWeb(action.id);
+      case "logoutWeb": return claudeLogin.logoutWeb(action.id);
+      case "remove": return claudeLogin.logout(action.id, true);
+      default: throw new Error("无效的 Claude 登录操作。");
+    }
+  });
+
   registerDesktopCommand(IPC_CHANNELS.openAIAccountsList, async () => {
     const svc = await getOpenAIAccountService();
     return svc.listAccounts();

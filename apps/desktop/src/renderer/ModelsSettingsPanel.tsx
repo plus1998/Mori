@@ -6,8 +6,10 @@ import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { LazyOpenAIAccountsPanel } from "./lazy-app-panels";
 import { MainModelControl } from "./ComposerRoutePopover";
 import { ChatGPTSubscriptionAccountsPanel } from "./ChatGPTSubscriptionAccountsPanel";
+import { ClaudeLoginPanel } from "./ClaudeLoginPanel";
 import { CursorApiKeysPanel } from "./CursorApiKeysPanel";
 import {
+  Check,
   ChevronDown,
   ChevronRight,
   Eraser,
@@ -83,6 +85,7 @@ export type ModelsSettingsTab =
   | "providers"
   | "compositionParts"
   | "openaiAccounts"
+  | "claudeLogin"
   | "chatgptAccounts"
   | "cursorApiKeys";
 
@@ -233,12 +236,13 @@ export function ModelsSettingsPanel({
 }: ModelsSettingsPanelProps) {
   const { t } = useTranslation();
   const providerSettingsTabItems: Array<{ id: ModelsSettingsTab; label: string; icon?: string }> = [
-    { id: "providers", label: t("settings.models.providers") },
+    { id: "providers", label: t("settings.providers") },
     {
       id: "openaiAccounts" as ModelsSettingsTab,
       label: t("settings.models.tab.openaiAccounts"),
       icon: "./provider-icons/openai.svg",
     },
+    { id: "claudeLogin", label: "Anthropic", icon: "./provider-icons/claude.ico" },
     {
       id: "chatgptAccounts",
       label: t("settings.models.tab.chatgptAccounts"),
@@ -246,7 +250,7 @@ export function ModelsSettingsPanel({
     },
     {
       id: "cursorApiKeys",
-      label: t("settings.models.tab.cursorApiKeys"),
+      label: "Cursor",
       icon: "./agent-icons/cursor.ico",
     },
   ];
@@ -260,6 +264,19 @@ export function ModelsSettingsPanel({
       ? providerSettingsTabItems.some((tab) => tab.id === initialTab) ? initialTab : "providers"
       : initialTab === "providers" ? "subagents" : initialTab;
   const [activeTab, setActiveTab] = useState<ModelsSettingsTab>(resolvedInitialTab);
+  const [chatgptMenuOpen, setChatgptMenuOpen] = useState(false);
+  const chatgptMenuRef = useRef<HTMLDivElement>(null);
+  const chatgptTriggerRef = useRef<HTMLButtonElement>(null);
+  const chatgptTabs = providerSettingsTabItems.filter(tab => tab.id === "openaiAccounts" || tab.id === "chatgptAccounts");
+  const chatgptTabActive = chatgptTabs.some(tab => tab.id === activeTab);
+  useEffect(() => {
+    if (!chatgptMenuOpen) return;
+    function dismissOutside(event: PointerEvent) {
+      if (event.target instanceof Node && !chatgptMenuRef.current?.contains(event.target)) setChatgptMenuOpen(false);
+    }
+    document.addEventListener("pointerdown", dismissOutside);
+    return () => document.removeEventListener("pointerdown", dismissOutside);
+  }, [chatgptMenuOpen]);
   const openAIAccountsData = useOpenAIAccountsData(mode === "providerSettings" || activeTab === "openaiAccounts");
   const [cursorKeysRevision, setCursorKeysRevision] = useState(0);
   const [runtimeConfigTab, setRuntimeConfigTab] = useState<RuntimeConfigTab>("defaults");
@@ -695,16 +712,47 @@ export function ModelsSettingsPanel({
           role="tablist"
           aria-label={t("settings.models.providerCategories")}
         >
-          {providerSettingsTabItems.map((tab) => (
+          {providerSettingsTabItems.filter(tab => tab.id !== "chatgptAccounts").map((tab) => tab.id === "openaiAccounts" ? (
+            <div key={tab.id} ref={chatgptMenuRef} className="models-settings-tab-group" onBlur={event => {
+              if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) setChatgptMenuOpen(false);
+            }} onKeyDown={event => {
+              if (event.key !== "Escape" || !chatgptMenuOpen) return;
+              event.stopPropagation();
+              chatgptTriggerRef.current?.focus();
+              setChatgptMenuOpen(false);
+            }}>
+              <button ref={chatgptTriggerRef} type="button" role="tab" aria-selected={chatgptTabActive} aria-haspopup="menu"
+                aria-expanded={chatgptMenuOpen} className={chatgptTabActive ? "models-settings-tab active" : "models-settings-tab"}
+                onClick={() => setChatgptMenuOpen(open => !open)}>
+                <img className="models-settings-tab-icon" src="./provider-icons/openai.svg" alt="" width="14" height="14" />
+                <span>ChatGPT</span><ChevronDown size={13} />
+              </button>
+              {chatgptMenuOpen && (
+                <div className="codex-account-actions-menu models-settings-tab-menu" role="menu" aria-label="ChatGPT">
+                  {chatgptTabs.map(option => (
+                    <button key={option.id} type="button" role="menuitemradio" aria-checked={activeTab === option.id}
+                      className="codex-account-actions-menu-item" onClick={() => {
+                        setActiveTab(option.id);
+                        setChatgptMenuOpen(false);
+                        chatgptTriggerRef.current?.focus();
+                      }}>
+                      <span>{option.label}</span>{activeTab === option.id && <Check size={14} />}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
             <button
               key={tab.id}
               type="button"
               role="tab"
               aria-selected={activeTab === tab.id}
               className={activeTab === tab.id ? "models-settings-tab active" : "models-settings-tab"}
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => { setChatgptMenuOpen(false); setActiveTab(tab.id); }}
             >
               {tab.icon ? <img className="models-settings-tab-icon" src={tab.icon} alt="" width="14" height="14" /> : null}
+              {tab.id === "providers" && <Settings2 className="models-settings-tab-icon" size={14} aria-hidden="true" />}
               <span>{tab.label}</span>
             </button>
           ))}
@@ -844,6 +892,8 @@ export function ModelsSettingsPanel({
           <LazyOpenAIAccountsPanel onError={showAppMessageError} data={openAIAccountsData} onOpenConnection={onOpenConnection} />
         </Suspense>
       )}
+
+      {activeTab === "claudeLogin" && <ClaudeLoginPanel />}
 
       {activeTab === "chatgptAccounts" && (
         <ChatGPTSubscriptionAccountsPanel

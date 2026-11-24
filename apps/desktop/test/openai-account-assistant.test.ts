@@ -57,6 +57,18 @@ function runFill(field: "email" | "password" | "code", value: string, inputs: Ar
   return { filled, elements };
 }
 
+test("Claude Login fill is restricted to official sign-in pages and the current document", () => {
+  expect(isAccountLoginPage("https://claude.ai/login?returnTo=%2Foauth", "claude")).toBe(true);
+  expect(isAccountLoginPage("https://claude.com/oauth/authorize", "claude")).toBe(true);
+  for (const url of ["https://claude.ai/new", "https://claude.ai.example.test/login", "https://auth.openai.com/login", "http://claude.ai/login"]) {
+    expect(isAccountLoginPage(url, "claude")).toBe(false);
+  }
+  expect(isAccountLoginPage("https://claude.ai/login")).toBe(false);
+  const script = accountLoginFillScript("email", "fixture@example.test", "https://claude.ai", "/login");
+  expect(vm.runInNewContext(script, { location: { origin: "https://example.test", pathname: "/login" } })).toBe(false);
+  expect(vm.runInNewContext(script, { location: { origin: "https://claude.ai", pathname: "/new" } })).toBe(false);
+});
+
 test("fill skips hidden and disabled fields, preserves literal passwords, and does not submit", () => {
   const value = 'password " \\ ${literal}';
   const { filled, elements } = runFill("password", value, [{ visible: false }, { disabled: true }, {}]);

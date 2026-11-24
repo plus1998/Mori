@@ -139,6 +139,7 @@ export interface OpenAIAccount {
 }
 
 export interface OpenAIAccountAssistantState {
+  provider?: "claude";
   accountId: string;
   name: string;
   email?: string;
@@ -148,7 +149,7 @@ export interface OpenAIAccountAssistantState {
   hasTwoFactorSecret: boolean;
   code?: string;
   remainingSeconds?: number;
-  /** Seconds remaining before the active Codex OAuth login expires. */
+  /** Seconds remaining before the active login expires. */
   loginRemainingSeconds?: number;
   codeError?: string;
   canFill: boolean;
