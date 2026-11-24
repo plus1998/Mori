@@ -26,6 +26,7 @@ import {
   getSelectionOffsets,
   handleFileChipDeletion,
   renderEditablePrompt,
+  scrollEditorCaretIntoView,
   serializeEditable,
   setSelectionAtPoint,
   setSelectionOffsets,
@@ -183,6 +184,9 @@ export const ComposerSkillsInput = forwardRef<ComposerSkillsInputHandle, Compose
       renderEditablePrompt(editor, next, skillsByNameRef.current);
       setSelectionOffsets(editor, start + text.length, start + text.length);
       commitEditorValue();
+      if (inputType === "insertLineBreak" || inputType === "insertParagraph") {
+        scrollEditorCaretIntoView(editor);
+      }
     }, [captureEdit, commitEditorValue]);
 
     useEffect(() => {

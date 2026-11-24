@@ -270,6 +270,40 @@ export function setSelectionOffsets(root: HTMLElement, start: number, end: numbe
   selection.setBaseAndExtent(startPos.node, startPos.offset, endPos.node, endPos.offset);
 }
 
+export function scrollEditorCaretIntoView(root: HTMLElement): void {
+  const selection = window.getSelection();
+  const focus = selection?.focusNode;
+  if (!selection?.rangeCount || !selection.isCollapsed || !focus || !root.contains(focus) ||
+    root.scrollHeight <= root.clientHeight) return;
+
+  const range = selection.getRangeAt(0);
+  let { top, bottom, height } = range.getBoundingClientRect();
+  if (!height && focus instanceof HTMLElement && focus !== root && !focus.hasChildNodes()) {
+    // Large drafts render blank lines as empty blocks with an explicit line height.
+    ({ top, bottom, height } = focus.getBoundingClientRect());
+  }
+  if (!height && focus instanceof Text && selection.focusOffset === focus.length && focus.data.endsWith("\n")) {
+    // Chromium gives the end of a text node after a newline no range rectangle.
+    const next = focus.nextSibling;
+    if (next instanceof HTMLElement && isTrailingBreak(next)) {
+      ({ top, bottom, height } = next.getBoundingClientRect());
+    } else {
+      const newline = range.cloneRange();
+      newline.setStart(focus, focus.length - 1);
+      ({ top, bottom, height } = newline.getBoundingClientRect());
+      const lineHeight = Number.parseFloat(getComputedStyle(root).lineHeight);
+      top += lineHeight;
+      bottom += lineHeight;
+    }
+  }
+  if (!height) return;
+
+  const visibleTop = root.getBoundingClientRect().top + root.clientTop;
+  const visibleBottom = visibleTop + root.clientHeight;
+  if (top < visibleTop) root.scrollTop -= Math.ceil(visibleTop - top);
+  else if (bottom > visibleBottom) root.scrollTop += Math.ceil(bottom - visibleBottom);
+}
+
 export function handleFileChipDeletion(
   root: HTMLElement,
   direction: "backward" | "forward",
@@ -534,6 +568,8 @@ export function renderEditablePrompt(
     // The break only positions the caret; the newline in the text node owns serialization.
     const trailingBreak = document.createElement("br");
     trailingBreak.setAttribute(TRAILING_BREAK_ATTR, "");
-    root.appendChild(trailingBreak);
+    const last = root.lastChild;
+    // Chunked text needs its last line box inside the final inline block.
+    (last instanceof HTMLSpanElement ? last : root).appendChild(trailingBreak);
   }
 }

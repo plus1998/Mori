@@ -1,12 +1,14 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { ComposerSkillsInput } from "../../src/renderer/ComposerSkillsInput";
+import { ComposerSkillsInput, type ComposerSkillsInputHandle } from "../../src/renderer/ComposerSkillsInput";
+import { shortcutMatches } from "../../src/renderer/keyboard-shortcuts";
 
 const skills = new Map();
 const seed = Array.from({ length: 8 }, (_, index) => `Line ${index + 1}: editable draft`).join("\n");
 
 function ComposerHeightFixture() {
   const [value, setValue] = useState(seed);
+  const composerRef = useRef<ComposerSkillsInputHandle>(null);
   return (
     <>
       <div style={{ display: "flex", flexDirection: "column", height: 480, width: 600 }}>
@@ -17,7 +19,20 @@ function ComposerHeightFixture() {
           <div style={{ height: 3000 }}>Recorded feed content</div>
         </div>
         <div style={{ flex: "0 0 auto" }}>
-          <ComposerSkillsInput value={value} onChange={setValue} skillsByName={skills} maxHeight={200} />
+          <ComposerSkillsInput
+            ref={composerRef}
+            value={value}
+            onChange={setValue}
+            skillsByName={skills}
+            maxHeight={200}
+            onKeyDown={(event) => {
+              if (shortcutMatches(event, "composer-newline")) {
+                event.preventDefault();
+                composerRef.current?.insertNewline();
+                composerRef.current?.focus();
+              }
+            }}
+          />
         </div>
       </div>
       <output hidden data-testid="draft-value">
