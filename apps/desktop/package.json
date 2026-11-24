@@ -31,7 +31,7 @@
     "cdp:shot": "playwright cli screenshot",
     "build": "vite build && bun run build:main && bun run build:preload",
     "build:browser-focus-hook": "node scripts/build-browser-focus-hook.mjs",
-    "build:main": "bun run build:browser-focus-hook && bun build src/main/index.ts --target=node --external electron --external electron-updater --external @anthropic-ai/claude-agent-sdk --external node-pty --external @napi-rs/keyring --external koffi --external @earendil-works/pi-coding-agent --external @earendil-works/pi-mcp --outdir dist/main && node scripts/verify-main-bundle.mjs",
+    "build:main": "bun run build:browser-focus-hook && node scripts/build-mac-window-frame-fix.mjs && bun build src/main/index.ts --target=node --external electron --external electron-updater --external @anthropic-ai/claude-agent-sdk --external node-pty --external @napi-rs/keyring --external koffi --external @earendil-works/pi-coding-agent --external @earendil-works/pi-mcp --outdir dist/main && node scripts/verify-main-bundle.mjs",
     "build:demo-main": "bun build src/main/demo.ts --target=node --external electron --outdir dist/demo-main",
     "build:preload": "bun build src/preload/index.ts --target=node --format=cjs --external electron --outfile dist/preload/index.cjs",
     "feed:parity": "bun scripts/feed-skeleton-parity-audit.mjs",

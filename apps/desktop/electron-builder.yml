@@ -22,6 +22,7 @@ asar: true
 asarUnpack:
   # In-process Agent focus interception must be loaded from a real signed dylib.
   - "dist/native/browser-focus-hook/**"
+  - "dist/native/mac-window-frame-fix.dylib"
   - "**/node_modules/@anthropic-ai/**"
   # Native Codex CLI + platform binaries (and code-mode host) cannot run from inside asar.
   - "**/node_modules/@openai/**"

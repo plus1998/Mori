@@ -1,6 +1,7 @@
 import { BrowserWindow } from "electron";
 import type { BrowserHost } from "./browser-host";
 import { installBrowserGuestBridge } from "./browser-guest-bridge";
+import { fixMacWindowFrame } from "./mac-window-frame-fix";
 
 const browserWindows = new WeakSet<BrowserWindow>();
 export const isBrowserWindow = (window: BrowserWindow): boolean => browserWindows.has(window);
@@ -31,6 +32,12 @@ export class BrowserWindows {
         contextIsolation: true, sandbox: true, webviewTag: true,
       },
     });
+    try {
+      fixMacWindowFrame(window);
+    } catch (error) {
+      window.destroy();
+      throw error;
+    }
     browserWindows.add(window);
     this.windows.set(browserId, window);
     const releaseBridge = installBrowserGuestBridge(window, this.deps.host(), browserId);
