@@ -14,9 +14,9 @@ import {
   type BrowserViewportResizeEdge,
   resizeBrowserViewport,
 } from "../shared/browser-viewport";
+import { startPointerDragSession } from "./pointer-drag-session";
 
 type ResizeStart = {
-  pointerId: number;
   x: number;
   y: number;
   viewport: BrowserViewportInput & { width: number; height: number };
@@ -40,7 +40,7 @@ export function BrowserViewportResizeFrame({
   style: CSSProperties;
 }) {
   const { t } = useTranslation();
-  const drag = useRef<ResizeStart | undefined>(undefined);
+  const stopDrag = useRef<(() => void) | undefined>(undefined);
   const queued = useRef<BrowserViewportInput | undefined>(undefined);
   const frame = useRef<number | undefined>(undefined);
   const applying = useRef(false);
@@ -52,8 +52,12 @@ export function BrowserViewportResizeFrame({
     active.current = true;
     return () => {
       active.current = false;
+      stopDrag.current?.();
       queued.current = undefined;
-      if (frame.current !== undefined) cancelAnimationFrame(frame.current);
+      if (frame.current !== undefined) {
+        cancelAnimationFrame(frame.current);
+        frame.current = undefined;
+      }
     };
   }, []);
 
@@ -85,11 +89,10 @@ export function BrowserViewportResizeFrame({
   }
 
   function start(event: PointerEvent<HTMLButtonElement>, edge: BrowserViewportResizeEdge) {
-    if (event.button !== 0) return;
+    if (event.button !== 0 || !event.isPrimary) return;
     event.preventDefault();
-    event.currentTarget.setPointerCapture(event.pointerId);
-    drag.current = {
-      pointerId: event.pointerId,
+    stopDrag.current?.();
+    const origin = {
       x: event.clientX,
       y: event.clientY,
       viewport,
@@ -97,13 +100,27 @@ export function BrowserViewportResizeFrame({
       edge,
       centered,
     };
+    stopDrag.current = startPointerDragSession({
+      handle: event.currentTarget,
+      pointerId: event.pointerId,
+      onMove: point => move(origin, point),
+      onEnd: point => {
+        stopDrag.current = undefined;
+        if (!active.current) return;
+        if (point) move(origin, point);
+        setDragging(undefined);
+        if (frame.current !== undefined) {
+          cancelAnimationFrame(frame.current);
+          frame.current = undefined;
+        }
+        void flush();
+      },
+    });
     setError(undefined);
     setDragging(edge);
   }
 
-  function move(event: PointerEvent<HTMLButtonElement>) {
-    const origin = drag.current;
-    if (!origin || origin.pointerId !== event.pointerId) return;
+  function move(origin: ResizeStart, event: globalThis.PointerEvent) {
     enqueue({
       ...origin.viewport,
       preset: "custom",
@@ -115,20 +132,6 @@ export function BrowserViewportResizeFrame({
         origin.centered,
       ),
     });
-  }
-
-  function stop(event: PointerEvent<HTMLButtonElement>, commit: boolean) {
-    if (!drag.current || drag.current.pointerId !== event.pointerId) return;
-    if (commit) move(event);
-    drag.current = undefined;
-    setDragging(undefined);
-    if (event.currentTarget.hasPointerCapture(event.pointerId))
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    if (frame.current !== undefined) {
-      cancelAnimationFrame(frame.current);
-      frame.current = undefined;
-    }
-    void flush();
   }
 
   function keyResize(event: KeyboardEvent<HTMLButtonElement>, edge: BrowserViewportResizeEdge) {
@@ -168,10 +171,6 @@ export function BrowserViewportResizeFrame({
             aria-label={t(`browser.viewportResize.${edge}`)}
             title={t("browser.viewportResizeHint")}
             onPointerDown={(event) => start(event, edge)}
-            onPointerMove={move}
-            onPointerUp={(event) => stop(event, true)}
-            onPointerCancel={(event) => stop(event, false)}
-            onLostPointerCapture={(event) => stop(event, false)}
             onKeyDown={(event) => keyResize(event, edge)}
           >
             {edge === "right" ? (

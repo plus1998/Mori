@@ -7030,6 +7030,16 @@ function App() {
     [activeThread?.id, currentProjectPath, showAppMessageError],
   );
 
+  const detachTaskPanelBrowserTab = useCallback((tabId: string) => {
+    const eco = window.eco;
+    const browserId = parseBrowserTaskTabId(tabId);
+    const state = browserStateStore.getState();
+    if (!eco || !browserId || !state || state.uiScopeId !== browserScopeIdRef.current) return;
+    const instance = state.instances.find(page => page.id === browserId);
+    if (!instance || instance.windowed || instance.presentationLocked || instance.closeBlocked) return;
+    void eco.browserSetWindowed(browserId, true).catch(error => showAppMessageError(errorMessage(error)));
+  }, [showAppMessageError]);
+
   const toggleTaskPanelForCurrentProject = useCallback(() => {
     if (!currentProjectPath) {
       return;
@@ -8366,6 +8376,7 @@ function App() {
       }
     };
     const onPointerMove = (event: PointerEvent) => {
+      if (event.pointerType === "mouse" && (event.buttons & 1) === 0) scrollbarDragging = false;
       if (touchStartY === undefined) return;
       userScrollUntil = performance.now() + 500;
       const deltaY = event.clientY - touchStartY;
@@ -8389,6 +8400,7 @@ function App() {
     container.addEventListener("pointermove", onPointerMove, { passive: true });
     window.addEventListener("pointerup", onPointerUp);
     window.addEventListener("pointercancel", onPointerUp);
+    window.addEventListener("blur", onPointerUp);
     syncActivityFeedBoot(container);
     syncActivityFeedScrollJump(container);
     syncActivityUserMessageNavigator(container);
@@ -8403,6 +8415,7 @@ function App() {
       container.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("pointerup", onPointerUp);
       window.removeEventListener("pointercancel", onPointerUp);
+      window.removeEventListener("blur", onPointerUp);
     };
   }, [
     activeThread?.id,
@@ -12640,6 +12653,7 @@ function App() {
             onReorderTabs={(source, target, position) =>
               setOpenTaskPanelTabIds((current) => moveOpenTaskPanelTab(current, source, target, position))
             }
+            onDetachTab={detachTaskPanelBrowserTab}
             {...(runProjection && { projection: runProjection })}
             {...(activeThread && { threadStatus: activeThread.status })}
             agentDisplayNames={activeRuntimeAgentDisplayNames}

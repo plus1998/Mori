@@ -70,6 +70,7 @@ for (const reason of [
   "hidden",
   "escape",
   "missed release",
+  "next press after a missed release",
   "dispose",
 ] as const) {
   test(`${reason} ends resizing and restores the other controls`, () => {
@@ -97,6 +98,9 @@ for (const reason of [
       }
       case "missed release":
         env.win.dispatchEvent(pointer("pointermove", 7, 0));
+        break;
+      case "next press after a missed release":
+        env.win.dispatchEvent(pointer("pointerdown"));
         break;
       case "dispose":
         stop();

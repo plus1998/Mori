@@ -171,6 +171,12 @@ export function ComposerThinkingEffortControl({
       return;
     }
     if (event.pointerId !== session.id) return;
+    if ((event.buttons & 1) === 0) {
+      cancel();
+      if (event.currentTarget.hasPointerCapture(event.pointerId))
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      return;
+    }
     event.preventDefault();
     if ((event.clientX - session.startX) ** 2 + (event.clientY - session.startY) ** 2 < 16 && !dragging)
       return;
@@ -322,10 +328,14 @@ export function ComposerThinkingEffortControl({
               commit();
           }}
           onFocus={(event) => setKeyboardFocused(event.currentTarget.matches(":focus-visible"))}
-          onBlur={() => {
+          onBlur={(event) => {
             setKeyboardFocused(false);
-            if (pointer.current) cancel();
-            else if (preview.current !== undefined) commit();
+            const session = pointer.current;
+            if (session) {
+              cancel();
+              if (event.currentTarget.hasPointerCapture(session.id))
+                event.currentTarget.releasePointerCapture(session.id);
+            } else if (preview.current !== undefined) commit();
           }}
         />
       </div>

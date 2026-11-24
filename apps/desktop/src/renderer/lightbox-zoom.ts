@@ -1,3 +1,4 @@
+import { startPointerDragSession } from "./pointer-drag-session";
 export const LIGHTBOX_ZOOM_MIN = 0.25;
 export const LIGHTBOX_ZOOM_MAX = 8;
 export const LIGHTBOX_ZOOM_STEP = 1.2;
@@ -209,8 +210,7 @@ export function attachLightboxZoom(options: {
 }): LightboxZoomController {
   let transform = createLightboxZoomTransform();
   let dragging = false;
-  let lastPointer: { x: number; y: number } | null = null;
-  let activePointerId: number | null = null;
+  let stopDrag: (() => void) | undefined;
 
   const refit = () => {
     if (transform.scale !== LIGHTBOX_ZOOM_DEFAULT || transform.x !== 0 || transform.y !== 0) {
@@ -259,31 +259,25 @@ export function attachLightboxZoom(options: {
   };
 
   const onPointerDown = (event: PointerEvent) => {
-    if (event.button !== 0) return;
-    if (transform.scale <= LIGHTBOX_ZOOM_DEFAULT) return;
+    if (event.button !== 0 || !event.isPrimary || transform.scale <= LIGHTBOX_ZOOM_DEFAULT) return;
+    stopDrag?.();
+    let lastPointer = { x: event.clientX, y: event.clientY };
+    stopDrag = startPointerDragSession({
+      handle: options.stage,
+      pointerId: event.pointerId,
+      onMove: point => {
+        const delta = { x: point.clientX - lastPointer.x, y: point.clientY - lastPointer.y };
+        lastPointer = { x: point.clientX, y: point.clientY };
+        setTransform(panLightboxZoom(transform, delta));
+      },
+      onEnd: () => {
+        dragging = false;
+        stopDrag = undefined;
+        options.stage.classList.remove("is-panning");
+      },
+    });
     dragging = true;
-    activePointerId = event.pointerId;
-    lastPointer = { x: event.clientX, y: event.clientY };
-    options.stage.setPointerCapture(event.pointerId);
     options.stage.classList.add("is-panning");
-  };
-
-  const onPointerMove = (event: PointerEvent) => {
-    if (!dragging || activePointerId !== event.pointerId || !lastPointer) return;
-    const delta = { x: event.clientX - lastPointer.x, y: event.clientY - lastPointer.y };
-    lastPointer = { x: event.clientX, y: event.clientY };
-    setTransform(panLightboxZoom(transform, delta));
-  };
-
-  const endDrag = (event: PointerEvent) => {
-    if (activePointerId !== event.pointerId) return;
-    dragging = false;
-    activePointerId = null;
-    lastPointer = null;
-    options.stage.classList.remove("is-panning");
-    if (options.stage.hasPointerCapture(event.pointerId)) {
-      options.stage.releasePointerCapture(event.pointerId);
-    }
   };
 
   const onDoubleClick = (event: MouseEvent) => {
@@ -314,9 +308,6 @@ export function attachLightboxZoom(options: {
 
   options.stage.addEventListener("wheel", onWheel, { passive: false });
   options.stage.addEventListener("pointerdown", onPointerDown);
-  options.stage.addEventListener("pointermove", onPointerMove);
-  options.stage.addEventListener("pointerup", endDrag);
-  options.stage.addEventListener("pointercancel", endDrag);
   options.stage.addEventListener("dblclick", onDoubleClick);
   options.canvas.style.transformOrigin = "0 0";
   apply();
@@ -336,15 +327,13 @@ export function attachLightboxZoom(options: {
       apply();
     },
     destroy: () => {
+      stopDrag?.();
       if (img instanceof HTMLImageElement) {
         img.removeEventListener("load", onImgLoad);
       }
       resizeObserver?.disconnect();
       options.stage.removeEventListener("wheel", onWheel);
       options.stage.removeEventListener("pointerdown", onPointerDown);
-      options.stage.removeEventListener("pointermove", onPointerMove);
-      options.stage.removeEventListener("pointerup", endDrag);
-      options.stage.removeEventListener("pointercancel", endDrag);
       options.stage.removeEventListener("dblclick", onDoubleClick);
       options.canvas.style.transform = "";
       options.canvas.style.transformOrigin = "";

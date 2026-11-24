@@ -153,6 +153,18 @@ export function installTerminalSelectionEnhancements(terminal: GhosttyTerminalTy
   const originalCopyToClipboard = manager.copyToClipboard;
   manager.copyToClipboard = async () => undefined;
 
+  const view = canvas.ownerDocument.defaultView;
+  const stopSelectionDrag = () => {
+    if (!manager.isSelecting) return;
+    // Ghostty's autoscroll interval also stops when selection mode ends.
+    // Keep the selected text so it can still be copied explicitly.
+    manager.isSelecting = false;
+    if (manager.hasSelection()) manager.selectionChangedEmitter.fire();
+  };
+  const onMouseMove = (event: MouseEvent) => {
+    if ((event.buttons & 1) === 0) stopSelectionDrag();
+  };
+
   const onMouseDownCapture = (event: MouseEvent) => {
     if (event.button !== 0 || !event.shiftKey) {
       return;
@@ -186,9 +198,14 @@ export function installTerminalSelectionEnhancements(terminal: GhosttyTerminalTy
   };
 
   canvas.addEventListener("mousedown", onMouseDownCapture, true);
+  view?.addEventListener("mousemove", onMouseMove, true);
+  view?.addEventListener("blur", stopSelectionDrag);
 
   return () => {
     canvas.removeEventListener("mousedown", onMouseDownCapture, true);
+    view?.removeEventListener("mousemove", onMouseMove, true);
+    view?.removeEventListener("blur", stopSelectionDrag);
+    stopSelectionDrag();
     manager.selectAll = originalSelectAll;
     manager.copyToClipboard = originalCopyToClipboard;
   };

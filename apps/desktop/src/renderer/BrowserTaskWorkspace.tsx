@@ -1,10 +1,11 @@
-import { useEffect, useRef, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { BROWSER_WEBVIEW_TAB_ID_ATTR, browserTaskTabId } from "../shared/browser";
 import { BrowserPanel } from "./BrowserPanel";
 import type { TaskPanelBrowserInstance } from "./SubagentTaskDrawer";
 import { clampBrowserSplitRatio, type BrowserSplitLayout } from "./browser-split-layout";
 import type { TaskPanelHomeTool } from "./task-panel-tabs";
+import { startPointerDragSession } from "./pointer-drag-session";
 
 export function BrowserTaskWorkspace({
   instances, activeBrowserId, surfaceActive, split, splitBusy = false,
@@ -22,7 +23,9 @@ export function BrowserTaskWorkspace({
 }) {
   const { t } = useTranslation();
   const rootRef = useRef<HTMLDivElement>(null);
-  const dragRef = useRef<{ pointerId: number; left: number; width: number; handle: HTMLElement } | undefined>(undefined);
+  const stopDrag = useRef<(() => void) | undefined>(undefined);
+  const latestSplit = useRef(split);
+  latestSplit.current = split;
   const splitVisible = Boolean(
     activeBrowserId && split?.browserIds.includes(activeBrowserId) &&
     split.browserIds.every(id => instances.some(instance => instance.id === id)),
@@ -45,23 +48,7 @@ export function BrowserTaskWorkspace({
     return () => document.removeEventListener("focus", onFocus, true);
   }, [activeBrowserId, leftId, rightId, surfaceActive, onSelectBrowser]);
 
-  function endDrag() {
-    const drag = dragRef.current;
-    dragRef.current = undefined;
-    document.body.classList.remove("is-resizing-browser-split");
-    if (drag?.handle.hasPointerCapture(drag.pointerId)) drag.handle.releasePointerCapture(drag.pointerId);
-  }
-
-  useEffect(() => {
-    if (!splitVisible || !surfaceActive) endDrag();
-    return endDrag;
-  }, [splitVisible, surfaceActive]);
-
-  function moveDivider(event: ReactPointerEvent<HTMLElement>) {
-    const drag = dragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId || !split) return;
-    onChangeSplit({ ...split, ratio: clampBrowserSplitRatio((event.clientX - drag.left) / drag.width) });
-  }
+  useEffect(() => () => stopDrag.current?.(), [splitVisible, surfaceActive, leftId, rightId]);
 
   return (
     <div ref={rootRef} className={`browser-task-workspace${splitVisible ? " is-split" : ""}`}
@@ -108,13 +95,29 @@ export function BrowserTaskWorkspace({
           aria-label={t("browser.split.resize")} aria-orientation="vertical"
           aria-valuemin={25} aria-valuemax={75} aria-valuenow={Math.round(ratio * 100)}
           onPointerDown={event => {
-            if (event.button !== 0 || !rootRef.current) return;
+            if (!surfaceActive || !event.isPrimary || event.button !== 0 || !rootRef.current) return;
             event.preventDefault();
             const rect = rootRef.current.getBoundingClientRect();
-            dragRef.current = { pointerId: event.pointerId, left: rect.left, width: rect.width - 7, handle: event.currentTarget };
-            document.body.classList.add("is-resizing-browser-split");
-            event.currentTarget.setPointerCapture(event.pointerId);
-          }} onPointerMove={moveDivider} onPointerUp={endDrag} onPointerCancel={endDrag} onLostPointerCapture={endDrag}
+            if (rect.width <= 7) return;
+            const body = event.currentTarget.ownerDocument.body;
+            stopDrag.current?.();
+            stopDrag.current = startPointerDragSession({
+              handle: event.currentTarget,
+              pointerId: event.pointerId,
+              onMove: point => {
+                const current = latestSplit.current;
+                if (current) {
+                  const ratio = clampBrowserSplitRatio((point.clientX - rect.left) / (rect.width - 7));
+                  if (ratio !== current.ratio) onChangeSplit({ ...current, ratio });
+                }
+              },
+              onEnd: () => {
+                stopDrag.current = undefined;
+                body.classList.remove("is-resizing-browser-split");
+              },
+            });
+            body.classList.add("is-resizing-browser-split");
+          }}
           onDoubleClick={() => onChangeSplit({ ...split, ratio: 0.5 })}
           onKeyDown={event => {
             const next = event.key === "ArrowLeft" ? ratio - 0.05 : event.key === "ArrowRight" ? ratio + 0.05 :

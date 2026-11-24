@@ -1,3 +1,4 @@
+import { startPointerDragSession } from "./pointer-drag-session";
 import type { ConversationMessage } from "@eco/shared";
 import {
   ArrowDown,
@@ -1698,7 +1699,8 @@ export function MoriAssistantSurface({ mode }: { mode: "ball" | "panel" | "notic
   const [greeting, setGreeting] = useState(false);
   const reactionTimers = useRef<Array<ReturnType<typeof setTimeout>>>([]);
   const greetingTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const drag = useRef<{ x: number; y: number; moved: boolean } | undefined>(undefined);
+  const stopDrag = useRef<(() => void) | undefined>(undefined);
+  useEffect(() => () => stopDrag.current?.(), [mode]);
   const inputHitMap = useRef<MoriPetHitMap | undefined>(undefined);
   const bodyHitMap = useRef<MoriPetHitMap | undefined>(undefined);
   const pointerInBody = useRef(false);
@@ -1849,7 +1851,7 @@ export function MoriAssistantSurface({ mode }: { mode: "ball" | "panel" | "notic
     screenY: number;
     currentTarget: HTMLButtonElement;
   }) => {
-    if (event.pointerType !== "mouse" || drag.current) return;
+    if (event.pointerType !== "mouse" || stopDrag.current) return;
     const previous = pointerPosition.current;
     pointerPosition.current = { x: event.screenX, y: event.screenY };
     if (previous?.x === event.screenX && previous.y === event.screenY) return;
@@ -1877,52 +1879,33 @@ export function MoriAssistantSurface({ mode }: { mode: "ball" | "panel" | "notic
         pointerPosition.current = { x: event.screenX, y: event.screenY };
       }}
       onPointerDown={(event) => {
-        if (event.button !== 0 || !pointerHits(event, inputHitMap.current)) return;
-        event.currentTarget.setPointerCapture(event.pointerId);
-        void desktopApi()
-          .moriAssistantPetDragging(true)
-          .catch((error) => setPetError(String(error)));
-        drag.current = { x: event.screenX, y: event.screenY, moved: false };
+        if (!event.isPrimary || event.button !== 0 || !pointerHits(event, inputHitMap.current)) return;
+        stopDrag.current?.();
+        let { screenX, screenY } = event;
+        let moved = false;
+        stopDrag.current = startPointerDragSession({
+          handle: event.currentTarget,
+          pointerId: event.pointerId,
+          onMove: point => {
+            const dx = point.screenX - screenX;
+            const dy = point.screenY - screenY;
+            if (Math.abs(dx) + Math.abs(dy) <= 3) return;
+            moved = true;
+            screenX = point.screenX;
+            screenY = point.screenY;
+            if (dx !== 0) setDragAnimation(dx > 0 ? "drag-right" : "drag-left");
+            void desktopApi().moriAssistantMoveBall(dx, dy).catch(error => setPetError(String(error)));
+          },
+          onEnd: release => {
+            stopDrag.current = undefined;
+            setDragAnimation(undefined);
+            void desktopApi().moriAssistantPetDragging(false).catch(error => setPetError(String(error)));
+            if (release && !moved) void desktopApi().moriAssistantToggleFloating();
+          },
+        });
+        void desktopApi().moriAssistantPetDragging(true).catch(error => setPetError(String(error)));
       }}
-      onPointerMove={(event) => {
-        if (!drag.current) {
-          greetOnBodyEntry(event);
-          return;
-        }
-        const dx = event.screenX - drag.current.x;
-        const dy = event.screenY - drag.current.y;
-        if (Math.abs(dx) + Math.abs(dy) > 3) {
-          drag.current.moved = true;
-          drag.current.x = event.screenX;
-          drag.current.y = event.screenY;
-          if (dx !== 0) setDragAnimation(dx > 0 ? "drag-right" : "drag-left");
-          void desktopApi().moriAssistantMoveBall(dx, dy);
-        }
-      }}
-      onPointerUp={() => {
-        if (drag.current && !drag.current.moved) {
-          void desktopApi().moriAssistantToggleFloating();
-        }
-        drag.current = undefined;
-        setDragAnimation(undefined);
-        void desktopApi()
-          .moriAssistantPetDragging(false)
-          .catch((error) => setPetError(String(error)));
-      }}
-      onPointerCancel={() => {
-        drag.current = undefined;
-        setDragAnimation(undefined);
-        void desktopApi()
-          .moriAssistantPetDragging(false)
-          .catch((error) => setPetError(String(error)));
-      }}
-      onLostPointerCapture={() => {
-        drag.current = undefined;
-        setDragAnimation(undefined);
-        void desktopApi()
-          .moriAssistantPetDragging(false)
-          .catch((error) => setPetError(String(error)));
-      }}
+      onPointerMove={greetOnBodyEntry}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();

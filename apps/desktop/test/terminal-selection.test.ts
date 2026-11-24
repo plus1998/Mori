@@ -27,7 +27,7 @@ interface StubSelectionManager {
   selectionChangedEmitter: { fire: () => void };
 }
 
-function createStubTerminal(): { terminal: GhosttyTerminalType; manager: StubSelectionManager } {
+function createStubTerminal(): { terminal: GhosttyTerminalType; manager: StubSelectionManager; view: EventTarget } {
   const manager: StubSelectionManager = {
     selectionStart: null,
     selectionEnd: null,
@@ -49,7 +49,9 @@ function createStubTerminal(): { terminal: GhosttyTerminalType; manager: StubSel
     },
     selectionChangedEmitter: { fire: () => undefined },
   };
+  const view = new EventTarget();
   const canvas = {
+    ownerDocument: { defaultView: view },
     addEventListener: () => undefined,
     removeEventListener: () => undefined,
   };
@@ -60,7 +62,7 @@ function createStubTerminal(): { terminal: GhosttyTerminalType; manager: StubSel
     selectionManager: manager,
     canvas,
   } as unknown as GhosttyTerminalType;
-  return { terminal, manager };
+  return { terminal, manager, view };
 }
 
 describe("computeSelectAllRange", () => {
@@ -79,6 +81,21 @@ describe("computeSelectAllRange", () => {
 });
 
 describe("installTerminalSelectionEnhancements", () => {
+  test("a missed mouseup ends selection mode and retains the highlight", () => {
+    const { terminal, manager, view } = createStubTerminal();
+    const uninstall = installTerminalSelectionEnhancements(terminal);
+    manager.isSelecting = true;
+    manager.selectionStart = { col: 1, absoluteRow: 2 };
+    manager.selectionEnd = { col: 3, absoluteRow: 2 };
+
+    view.dispatchEvent(Object.assign(new Event("mousemove"), { buttons: 0 }));
+
+    expect(manager.isSelecting).toBe(false);
+    expect(manager.selectionEnd).toEqual({ col: 3, absoluteRow: 2 });
+    expect(manager.copied).toEqual([]);
+    uninstall();
+  });
+
   test("silences the library's copy-on-selection-end clipboard write", async () => {
     const { terminal, manager } = createStubTerminal();
     const uninstall = installTerminalSelectionEnhancements(terminal);

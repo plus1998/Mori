@@ -416,7 +416,8 @@ function ProjectSidebarTreeView({
     event.stopPropagation();
     event.dataTransfer.dropEffect = "move";
     const position = resolveDropPosition(event, event.currentTarget);
-    setDropTarget({ path: projectPath, position });
+    setDropTarget((current) => current?.path === projectPath && current.position === position
+      ? current : { path: projectPath, position });
   }
 
   function handleProjectRowDrop(event: DragEvent<HTMLElement>, projectPath: string, isHome?: boolean) {
@@ -493,6 +494,10 @@ function ProjectSidebarTreeView({
             onDragStart={(event) => handleProjectDragStart(event, project.path, project.isHome)}
             onDragEnd={handleProjectDragEnd}
             onDragOver={(event) => handleProjectRowDragOver(event, project.path, project.isHome)}
+            onDragLeave={(event) => {
+              if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
+              setDropTarget((current) => current?.path === project.path ? undefined : current);
+            }}
             onDrop={(event) => handleProjectRowDrop(event, project.path, project.isHome)}
           >
             {renamingPath === project.path ? (

@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, type KeyboardEvent, type MouseEvent, type PointerEvent, type RefObject } from "react";
+import { startPointerDragSession } from "./pointer-drag-session";
 
 export interface FloatingConversationPosition {
   centerX: number;
@@ -87,57 +88,22 @@ export function useFloatingConversationPosition({
       centerX: surfaceRect.left + surfaceRect.width / 2 - paneRect.left,
       bottom: paneRect.bottom - surfaceRect.bottom,
     };
-    let active = true;
-    const stop = () => {
-      if (!active) return;
-      active = false;
-      pane.removeAttribute("data-floating-conversation-dragging");
-      window.removeEventListener("pointermove", move, true);
-      window.removeEventListener("pointerup", end, true);
-      window.removeEventListener("pointercancel", end, true);
-      window.removeEventListener("blur", stop);
-      window.removeEventListener("keydown", key, true);
-      document.removeEventListener("visibilitychange", visibility);
-      handle.removeEventListener("lostpointercapture", end);
-      if (handle.hasPointerCapture(pointerId)) handle.releasePointerCapture(pointerId);
-      stopDragRef.current = undefined;
-    };
-    const move = (next: globalThis.PointerEvent) => {
-      if (next.pointerId !== pointerId) return;
-      if ((next.buttons & 1) === 0) return stop();
-      const dx = next.clientX - clientX;
-      const dy = next.clientY - clientY;
-      if (!suppressClickRef.current && Math.hypot(dx, dy) < 4) return;
-      suppressClickRef.current = true;
-      pane.setAttribute("data-floating-conversation-dragging", "");
-      place({ centerX: start.centerX + dx, bottom: start.bottom - dy });
-    };
-    const end = (next: globalThis.PointerEvent) => {
-      if (next.pointerId === pointerId) stop();
-    };
-    const key = (next: globalThis.KeyboardEvent) => {
-      if (next.key !== "Escape") return;
-      next.preventDefault();
-      next.stopPropagation();
-      stop();
-    };
-    const visibility = () => {
-      if (document.visibilityState === "hidden") stop();
-    };
-    stopDragRef.current = stop;
-    window.addEventListener("pointermove", move, true);
-    window.addEventListener("pointerup", end, true);
-    window.addEventListener("pointercancel", end, true);
-    window.addEventListener("blur", stop);
-    window.addEventListener("keydown", key, true);
-    document.addEventListener("visibilitychange", visibility);
-    handle.addEventListener("lostpointercapture", end);
-    try {
-      handle.setPointerCapture(pointerId);
-    } catch (error) {
-      stop();
-      throw error;
-    }
+    stopDragRef.current = startPointerDragSession({
+      handle,
+      pointerId,
+      onMove(next) {
+        const dx = next.clientX - clientX;
+        const dy = next.clientY - clientY;
+        if (!suppressClickRef.current && Math.hypot(dx, dy) < 4) return;
+        suppressClickRef.current = true;
+        pane.setAttribute("data-floating-conversation-dragging", "");
+        place({ centerX: start.centerX + dx, bottom: start.bottom - dy });
+      },
+      onEnd() {
+        pane.removeAttribute("data-floating-conversation-dragging");
+        stopDragRef.current = undefined;
+      },
+    });
     event.preventDefault();
   };
 

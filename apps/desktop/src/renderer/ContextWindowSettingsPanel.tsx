@@ -170,6 +170,8 @@ function TokenSlider({
     event.preventDefault();
     const track = event.currentTarget;
     const rect = track.getBoundingClientRect();
+    track.focus({ preventScroll: true });
+    track.setPointerCapture(event.pointerId);
     const handleX = rect.left + ((latestValueRef.current - min) / (max - min)) * rect.width;
     const grabbingHandle = Math.abs(event.clientX - handleX) <= 12;
     pointerRef.current = {
@@ -181,15 +183,19 @@ function TokenSlider({
         ? latestValueRef.current
         : null,
     };
-    track.focus({ preventScroll: true });
-    track.setPointerCapture(event.pointerId);
     keyboardEditingRef.current = false;
     setIsDragging(true);
     if (!grabbingHandle) preview(valueFromClientX(event.clientX));
   }
 
   function handlePointerMove(event: React.PointerEvent<HTMLDivElement>) {
-    if (pointerRef.current?.id !== event.pointerId || disabled) {
+    if (pointerRef.current?.id !== event.pointerId) {
+      return;
+    }
+    if (disabled || (event.buttons & 1) === 0) {
+      cancelPointer();
+      if (event.currentTarget.hasPointerCapture(event.pointerId))
+        event.currentTarget.releasePointerCapture(event.pointerId);
       return;
     }
     preview(valueFromClientX(event.clientX));
@@ -202,12 +208,13 @@ function TokenSlider({
     const next = valueFromClientX(event.clientX);
     pointerRef.current = null;
     setIsDragging(false);
-    event.currentTarget.releasePointerCapture(event.pointerId);
+    if (event.currentTarget.hasPointerCapture(event.pointerId))
+      event.currentTarget.releasePointerCapture(event.pointerId);
     void commit(next);
   }
 
-  function cancelPointer(event: React.PointerEvent<HTMLDivElement>) {
-    if (pointerRef.current?.id !== event.pointerId) return;
+  function cancelPointer() {
+    if (!pointerRef.current) return;
     pointerRef.current = null;
     cancelFrame();
     latestValueRef.current = value;
@@ -267,11 +274,19 @@ function TokenSlider({
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
-        onPointerCancel={cancelPointer}
-        onLostPointerCapture={cancelPointer}
+        onPointerCancel={event => { if (pointerRef.current?.id === event.pointerId) cancelPointer(); }}
+        onLostPointerCapture={event => { if (pointerRef.current?.id === event.pointerId) cancelPointer(); }}
         onKeyDown={handleKeyDown}
         onKeyUp={finishKeyboardEdit}
-        onBlur={finishKeyboardEdit}
+        onBlur={event => {
+          const pointer = pointerRef.current;
+          if (pointer) {
+            cancelPointer();
+            if (event.currentTarget.hasPointerCapture(pointer.id))
+              event.currentTarget.releasePointerCapture(pointer.id);
+          }
+          finishKeyboardEdit();
+        }}
       >
         <div
           className="token-slider-fill"

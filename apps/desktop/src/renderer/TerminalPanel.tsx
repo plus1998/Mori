@@ -1,3 +1,4 @@
+import { startPointerDragSession } from "./pointer-drag-session";
 import { Clock3, Loader2, Plus, Server, Terminal as TerminalIcon, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -52,7 +53,8 @@ export function TerminalPanel({
   onInjectedSessionConsumed,
 }: TerminalPanelProps) {
   const { t } = useTranslation();
-  const dragStateRef = useRef<{ startY: number; startHeight: number } | undefined>(undefined);
+  const stopResize = useRef<(() => void) | undefined>(undefined);
+  useEffect(() => () => stopResize.current?.(), [state.open, workspacePath]);
   const [sessionsByTabId, setSessionsByTabId] = useState<Record<string, string>>(() =>
     state.open
       ? listTerminalSessionsForProject(
@@ -361,28 +363,21 @@ export function TerminalPanel({
   }, [autoCloseByTabId, onStateChange, workspacePath]);
 
   const handleResizePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!event.isPrimary || event.button !== 0) return;
     event.preventDefault();
-    dragStateRef.current = { startY: event.clientY, startHeight: state.height };
-    event.currentTarget.setPointerCapture(event.pointerId);
-  };
-
-  const handleResizePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
-    const drag = dragStateRef.current;
-    if (!drag) {
-      return;
-    }
-    const delta = drag.startY - event.clientY;
-    onStateChange({
-      ...state,
-      height: clampTerminalHeight(drag.startHeight + delta),
+    stopResize.current?.();
+    const startY = event.clientY;
+    const startHeight = state.height;
+    stopResize.current = startPointerDragSession({
+      handle: event.currentTarget,
+      pointerId: event.pointerId,
+      onMove: point => {
+        const current = stateRef.current;
+        const height = clampTerminalHeight(startHeight + startY - point.clientY);
+        if (current.height !== height) onStateChange({ ...current, height });
+      },
+      onEnd: () => { stopResize.current = undefined; },
     });
-  };
-
-  const handleResizePointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
-    dragStateRef.current = undefined;
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
   };
 
   if (state.tabs.length === 0 || !activeTab) {
@@ -405,9 +400,6 @@ export function TerminalPanel({
         aria-orientation="horizontal"
         aria-label={t("terminal.resize")}
         onPointerDown={handleResizePointerDown}
-        onPointerMove={handleResizePointerMove}
-        onPointerUp={handleResizePointerUp}
-        onPointerCancel={handleResizePointerUp}
       />
       <div className="terminal-panel-tabs" role="tablist" aria-label={t("terminal.tabs")}>
         {state.tabs.map((tab) => {

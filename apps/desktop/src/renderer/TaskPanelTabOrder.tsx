@@ -8,16 +8,20 @@ export function TaskPanelTabOrder({
   openTabIds,
   children,
   label,
+  dragEnabled,
   onReorder,
+  onDetach,
   onCloseTabs,
 }: {
   openTabIds: readonly string[];
   children: ReactNode;
   label: string;
+  dragEnabled: boolean;
   onCloseTabs?: ((ids: readonly string[]) => void) | undefined;
   onReorder?: ((source: string, target: string, position: "before" | "after") => void) | undefined;
+  onDetach?: ((id: string) => void) | undefined;
 }) {
-  const dragHandlers = useTaskPanelTabDrag(openTabIds, onReorder);
+  const dragHandlers = useTaskPanelTabDrag(openTabIds, dragEnabled, onReorder, onDetach);
   const [menu, setMenu] = useState<TaskPanelTabMenuAnchor>();
   const closeMenu = useCallback(() => setMenu(undefined), []);
   const orderedChildren = Children.toArray(children);
@@ -61,6 +65,8 @@ export function TaskPanelTabOrder({
           });
         }}
         onKeyDown={(event) => {
+          dragHandlers.onKeyDown(event);
+          if (event.defaultPrevented) return;
           if (
             !onCloseTabs ||
             !(event.target instanceof Element) ||

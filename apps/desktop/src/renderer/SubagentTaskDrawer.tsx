@@ -606,6 +606,7 @@ export function SubagentTaskDrawer({
   activeTab,
   openTabIds,
   onReorderTabs,
+  onDetachTab,
   threadStatus,
   agentDisplayNames,
   agentThemes,
@@ -678,6 +679,7 @@ export function SubagentTaskDrawer({
   activeTab: TaskPanelActiveTab;
   openTabIds: readonly TaskPanelActiveTab[];
   onReorderTabs?: (source: string, target: string, position: "before" | "after") => void;
+  onDetachTab?: (tabId: string) => void;
   threadStatus?: ThreadStatus;
   agentDisplayNames?: RuntimeAgentDisplayNames;
   agentThemes?: RuntimeAgentThemes;
@@ -847,7 +849,9 @@ export function SubagentTaskDrawer({
         <TaskPanelTabOrder
           openTabIds={openTabIds}
           label={t("task.tabs")}
+          dragEnabled={surfaceActive}
           onReorder={onReorderTabs}
+          onDetach={onDetachTab}
           onCloseTabs={onCloseTabs}
         >
           {newTabIds.map((tabId) => (

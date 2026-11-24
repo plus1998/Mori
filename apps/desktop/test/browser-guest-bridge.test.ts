@@ -159,7 +159,7 @@ test("task panel resize blocks browser webview pointer capture", () => {
   expect(stylesSource).toMatch(/body\.is-resizing-task-panel::before[\s\S]*?z-index:\s*92/);
   expect(appSource).toContain("handleTaskPanelResizePointerDown");
   expect(appSource).toContain("startTaskPanelResizeSession");
-  expect(taskPanelResizeSource).toContain("setPointerCapture");
+  expect(taskPanelResizeSource).toContain("startPointerDragSession");
 });
 
 test("browser webview pool attaches when host slot registers after ensure", () => {
