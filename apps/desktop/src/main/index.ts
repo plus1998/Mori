@@ -4311,6 +4311,24 @@ app
         if (thread.coreKind) await threadRuntimeCoordinator.cancel(thread.coreKind, id);
         cancelPlanApprovalsForThreadKeepPending(id, "Multi-Agents stopped by user");
       },
+      cancelNotifications: (threadId, runId) => {
+        if (!conversationStore.getThread(threadId)) return;
+        const queued = conversationStore.listThreadFollowUps(threadId, { statuses: ["queued"] });
+        if (!queued.length) return;
+        const v2 = conversationStore.conversationV2();
+        const messageIds = new Set([
+          ...v2.listMessageIdsByCommandPrefix(threadId, "eco-multi-agents", `${runId}:results:`),
+          ...v2.listMessageIdsByCommandPrefix(threadId, "eco-multi-agents", `${runId}:resume:`),
+        ]);
+        for (const row of queued) {
+          if (!row.conversationMessageId || !messageIds.has(row.conversationMessageId)) continue;
+          const cancelled = conversationStore.cancelThreadFollowUp(threadId, row.id);
+          if (!cancelled) continue;
+          if (editingThreadFollowUpByThread.get(threadId) === row.id) editingThreadFollowUpByThread.delete(threadId);
+          emitThreadFollowUpEvent(cancelled, "thread.follow_up.cancelled", "协作已停止，取消排队的协作消息。");
+        }
+        releaseFollowUpQueuePauseWhenEmpty(threadId);
+      },
       changed: threadId => desktopEventCenter.publishThreadLiveEvent({ threadId, type: MULTI_AGENTS_CHANGED, message: "", role: "system", stream: false }),
       validateMember: config => {
         if (config.mode !== "sessions") return;
@@ -12867,6 +12885,12 @@ async function startPiThreadRunFromCoordinator(input: ThreadCoreStartRunInput): 
     );
   } catch (error) {
     if (!(error instanceof ThreadRunPreparationCancelled)) throw error;
+    // No Pi run reached its runtime cleanup when preparation was cancelled.
+    if (!activeRunRuntimeState.hasRun(input.thread.id) && !threadRunPreparations.has(input.thread.id) &&
+        conversationStore.getThread(input.thread.id)?.status === "running") {
+      autoPauseFollowUpQueueWhenQueuedRemain(input.thread.id);
+      updateThread(input.thread.id, { status: "idle", message: "" });
+    }
   }
 }
 

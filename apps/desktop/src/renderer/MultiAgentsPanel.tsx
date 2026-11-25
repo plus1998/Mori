@@ -859,7 +859,7 @@ export function MultiAgentsRunPanel({
             </div>
             {!["completed", "cancelled"].includes(run.status) && (
               <footer className="multi-agents-run-footer">
-                {["paused", "interrupted"].includes(run.status) ? (
+                {run.status === "stopping" ? null : ["paused", "interrupted"].includes(run.status) ? (
                   <SettingsButton
                     variant="ghost"
                     disabled={busy}
@@ -885,7 +885,7 @@ export function MultiAgentsRunPanel({
                   onClick={() => void control(run.id, "stop")}
                 >
                   <Square size={12} aria-hidden />
-                  {t("multiAgents.stopAll")}
+                  {t(run.status === "stopping" ? "multiAgents.retryStop" : "multiAgents.stopAll")}
                 </SettingsButton>
               </footer>
             )}

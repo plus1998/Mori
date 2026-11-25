@@ -65,7 +65,7 @@ export interface MultiAgentsRun {
   /** Agent-mode request selected through an explicit @Multi-Agents reference. */
   request?: string;
   additionalMessage: string;
-  status: "planning" | "running" | "awaiting_review" | "completed" | "paused" | "cancelled" | "interrupted";
+  status: "planning" | "running" | "awaiting_review" | "completed" | "paused" | "stopping" | "cancelled" | "interrupted";
   tasks: MultiAgentsTask[];
   baselineCommit?: string;
   workspacePath: string;
@@ -74,6 +74,11 @@ export interface MultiAgentsRun {
   revision: number;
   notifiedRevision: number;
   pendingNotification?: { id: string; text: string };
+  stop?: {
+    includeSource: boolean;
+    requestsIssued: boolean;
+    failures: { threadId: string; message: string }[];
+  };
   createdAt: string;
 }
 
@@ -91,6 +96,7 @@ export const MULTI_AGENTS_STATUS_LABELS: Record<MultiAgentsRun["status"] | Multi
   awaiting_review: "待主代理验收",
   completed: "已验收",
   paused: "已暂停",
+  stopping: "停止中",
   cancelled: "已停止",
   interrupted: "已中断",
   queued: "等待依赖 / 调度",

@@ -130,7 +130,7 @@ test("Multi-Agents search and prompt resolution use current saved configuration 
   expect(disposed).toBe("current");
   expect(() => setup().search({ query: "", kind: "multi_agents" })).toThrow("尚未连接");
 });
-test("context MCP exposes and routes Multi-Agents start under authenticated conversation identity", async () => {
+test("context MCP exposes and routes Multi-Agents start and stop under authenticated conversation identity", async () => {
   const { ContextReferenceMcpGateway } = await import("../src/main/context-reference-mcp-gateway");
   const calls: unknown[][] = [];
   const gateway = new ContextReferenceMcpGateway(setup(), {
@@ -150,6 +150,8 @@ test("context MCP exposes and routes Multi-Agents start under authenticated conv
     const catalog = await call("tools/list");
     const start = catalog.result.tools.find((tool: { name: string }) => tool.name === "multi_agents_start");
     expect(start.inputSchema.required).toEqual(["configId", "requestId"]);
+    const stop = catalog.result.tools.find((tool: { name: string }) => tool.name === "multi_agents_stop");
+    expect(stop.inputSchema.required).toEqual(["runId"]);
     const args = { configId: "pair", requestId: "ref-1" };
     const result = await call("tools/call", { name: "multi_agents_start", arguments: args });
     expect(calls).toEqual([["current", "multi_agents_start", args]]);
@@ -157,6 +159,9 @@ test("context MCP exposes and routes Multi-Agents start under authenticated conv
     const forged = await call("tools/call", { name: "multi_agents_start", arguments: { ...args, threadId: "other" } });
     expect(forged.result.isError).toBe(true);
     expect(calls).toHaveLength(1);
+    const stopArgs = { runId: "run-1" };
+    await call("tools/call", { name: "multi_agents_stop", arguments: stopArgs });
+    expect(calls[1]).toEqual(["current", "multi_agents_stop", stopArgs]);
   } finally {
     await gateway.close();
   }

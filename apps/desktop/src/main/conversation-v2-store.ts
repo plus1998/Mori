@@ -3480,6 +3480,17 @@ export class ConversationV2Store {
     return row ? rowToMessage(row) : undefined;
   }
 
+  listMessageIdsByCommandPrefix(conversationId: string, principalId: string, prefix: string): string[] {
+    const id = this.requireExistingStream(conversationId).conversation_id;
+    const rows = this.db.prepare(
+      `SELECT json_extract(result_json, '$.messageId') AS message_id
+         FROM conversation_command_receipts_v2
+         WHERE conversation_id = ? AND principal_id = ?
+           AND substr(client_command_id, 1, length(?)) = ?`,
+    ).all(id, principalId, prefix, prefix) as { message_id: string }[];
+    return rows.map((row) => row.message_id);
+  }
+
   /** Freeze main conversation text without tool payloads, thinking or internal metadata. */
   snapshotForSharing(conversationId: string): import("../shared/conversation-share").ConversationShareMessage[] {
     return this.readTransaction(() => {

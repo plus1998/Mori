@@ -19,11 +19,12 @@ interface Host {
   start(request: ThreadStartRequest, id: string, title: string, baseline: string): Promise<unknown>;
   resume(threadId: string, prompt: string, requestId: string): Promise<unknown>;
   cancel(threadId: string): Promise<void>;
+  cancelNotifications(threadId: string, runId: string): void;
   changed(threadId: string): void;
   validateMember(config: MultiAgentsConfig): void;
   nativeAgentKeys(threadId: string): string[];
 }
-const activeStatuses = new Set(["planning", "running", "awaiting_review", "paused", "interrupted"]);
+const activeStatuses = new Set(["planning", "running", "awaiting_review", "paused", "interrupted", "stopping"]);
 const memberTrackingStatuses = new Set(["running", "awaiting_review", "paused"]);
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -31,6 +32,7 @@ export class MultiAgentsService {
   private timer?: ReturnType<typeof setInterval>;
   private ticking = false;
   private readonly pending = new Map<string, Promise<unknown>>();
+  private readonly stopRequests = new Map<string, { scope: { includeSource: boolean }; result: Promise<MultiAgentsRun> }>();
   private readonly referenceGrants = new Map<string, Map<string, { configId: string; prompt: string }>>();
   private async exclusive<T>(id: string, task: () => Promise<T>): Promise<T> {
     const previous = this.pending.get(id) ?? Promise.resolve();
@@ -50,8 +52,11 @@ export class MultiAgentsService {
     db.exec(`CREATE TABLE IF NOT EXISTS multi_agents_configs (id TEXT PRIMARY KEY, value_json TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS multi_agents_runs (id TEXT PRIMARY KEY, value_json TEXT NOT NULL);`);
     // A process restart never silently redispatches an uncertain attempt.
-    for (const run of this.runs())
-      if (run.status === "running" || run.status === "planning") {
+    for (const run of this.runs()) {
+      if (run.status === "stopping" && !run.stop?.requestsIssued) {
+        run.message = "应用重启时停止请求尚未确认，请重试停止。";
+        this.save(run);
+      } else if (run.status === "running" || run.status === "planning") {
         run.status = "interrupted";
         run.message = "应用重启中断了调度，请检查成员会话后恢复。";
         for (const task of run.tasks)
@@ -61,6 +66,7 @@ export class MultiAgentsService {
           }
         this.save(run);
       }
+    }
   }
   start() {
     this.timer ??= setInterval(() => {
@@ -128,9 +134,11 @@ export class MultiAgentsService {
     ));
     return {
       run,
-      instructions: activeStatuses.has(run.status)
-        ? this.prompt(threadId)
-        : "此请求已结束，请根据返回的状态说明结果；不要重复派发任务。",
+      instructions: run.status === "stopping"
+        ? "协作正在停止，请查看状态。"
+        : activeStatuses.has(run.status)
+          ? this.prompt(threadId)
+          : "此请求已结束，请根据返回的状态说明结果；不要重复派发任务。",
     };
   }
   runs(): MultiAgentsRun[] {
@@ -376,7 +384,7 @@ export class MultiAgentsService {
   }
   prompt(threadId: string): string {
     const run = this.runs().find(
-      (value) => value.sourceThreadId === threadId && activeStatuses.has(value.status),
+      (value) => value.sourceThreadId === threadId && activeStatuses.has(value.status) && value.status !== "stopping",
     );
     if (!run) return "";
     const members =
@@ -395,23 +403,44 @@ export class MultiAgentsService {
         : run.config.agentKeys;
     return `\n<Multi-Agents runId="${run.id}">\n用户选择了 ${run.config.name}。你负责拆分、派发、整合和最终验收。成员之间不直接通信。可用成员：${JSON.stringify(members)}\n并发上限 ${run.config.maxConcurrency}。成员池不要求人人分配任务。补充要求：${run.additionalMessage}\n${this.requestContext(run)}\n${
       run.config.mode === "sessions"
-        ? "先调用 mori_context.multi_agents_submit_tasks，提交结构化任务（id, memberId, title, instructions, scope, dependsOn, acceptance）。只能指定上述 memberId，账号和 Harness 由宿主固定。宿主为每个任务创建独立会话和工作树，包含协作启动时的未提交改动；同一任务返工复用原会话。任务已启动后结束本轮等待；宿主会在结果就绪时发送后续消息，不要轮询。通过 multi_agents_status 查看状态和成员结果，按依赖顺序调用 multi_agents_integrate 将结果合入你的工作目录，冲突时先解决再继续；multi_agents_retry 给同一个成员会话返工。所有任务完成后实际检查代码和测试，再调用 multi_agents_accept 提交验收证据。模型回合结束不代表完成。"
+        ? "先调用 mori_context.multi_agents_submit_tasks，提交结构化任务（id, memberId, title, instructions, scope, dependsOn, acceptance）。只能指定上述 memberId，账号和 Harness 由宿主固定。宿主为每个任务创建独立会话和工作树，包含协作启动时的未提交改动；同一任务返工复用原会话。任务已启动后结束本轮等待；宿主会在结果就绪时发送后续消息，不要轮询。通过 multi_agents_status 查看状态和成员结果，按依赖顺序调用 multi_agents_integrate 将结果合入你的工作目录，冲突时先解决再继续；multi_agents_retry 给同一个成员会话返工。需要停止协作时，调用 multi_agents_stop 并传入本次 runId，按返回状态告知用户停止进度。所有任务完成后实际检查代码和测试，再调用 multi_agents_accept 提交验收证据。模型回合结束不代表完成。"
         : `使用当前 Harness 原生子代理工具，将任务拆给选中的 ${run.config.agentKeys.join(", ")}，最多 ${run.config.maxConcurrency} 个并行。每个子代理只收到自己的任务和相关上下文，等待真实结果后统一检查代码和测试，最后调用 mori_context.multi_agents_accept 提交验收证据。原生子代理的具体进度由 Harness 子代理面板展示。`
     }\n</Multi-Agents>`;
   }
   async tool(threadId: string, name: string, args: Record<string, unknown>) {
     if (name === "multi_agents_start") return this.startReferenced(threadId, args);
-    const related = this.forThread(threadId);
-    if (name === "multi_agents_status" && related[0]?.sourceThreadId === threadId)
+    if (name === "multi_agents_stop") {
+      if (typeof args.runId !== "string" || !args.runId.trim()) throw new Error("需要本次协作的 runId。");
+      const run = this.runs().find((value) => value.id === args.runId && value.sourceThreadId === threadId);
+      if (!run) throw new Error("只能停止当前主会话发起的 Multi-Agents 执行。");
+      if (run.config.mode !== "sessions")
+        throw new Error("当前配置使用原生子代理，请通过 Harness 的子代理控制停止。");
+      const stopped = await this.stopSessions(run.id, false);
       return {
-        ...related[0],
-        tasks: related[0].tasks.map((task) => ({
+        runId: stopped.id,
+        status: stopped.status,
+        message: stopped.message,
+        failures: stopped.stop?.failures ?? [],
+        tasks: stopped.tasks.map(({ id, status }) => ({ id, status })),
+      };
+    }
+    const related = this.forThread(threadId);
+    if (name === "multi_agents_status") {
+      if (args.runId !== undefined && (typeof args.runId !== "string" || !args.runId.trim()))
+        throw new Error("runId 无效。");
+      const run = related.find((value) => value.sourceThreadId === threadId &&
+        (args.runId === undefined || value.id === args.runId));
+      if (!run) throw new Error("当前主会话没有对应的 Multi-Agents 执行。");
+      return {
+        ...run,
+        tasks: run.tasks.map((task) => ({
           ...task,
           worktreePath: task.threadId
             ? this.host.thread(task.threadId)?.workLocation?.worktree?.worktreePath
             : undefined,
         })),
       };
+    }
     if (
       name === "multi_agents_accept" &&
       related[0]?.sourceThreadId === threadId &&
@@ -421,7 +450,14 @@ export class MultiAgentsService {
       return { accepted: true };
     const run = related.find((run) => activeStatuses.has(run.status));
     if (!run) throw new Error("当前会话没有进行中的 Multi-Agents 执行。");
-    return this.exclusive(run.id, () => this.executeTool(threadId, name, args));
+    return this.exclusive(run.id, () => {
+      const current = this.runs().find((value) => value.id === run.id);
+      if (this.stopRequests.has(run.id) || current?.status === "stopping")
+        throw new Error("协作正在停止，请查看停止状态。");
+      if (!current || !activeStatuses.has(current.status))
+        throw new Error("本次 Multi-Agents 执行已结束。");
+      return this.executeTool(threadId, name, args);
+    });
   }
   private async executeTool(threadId: string, name: string, args: Record<string, unknown>) {
     if (name === "multi_agents_report") {
@@ -440,7 +476,6 @@ export class MultiAgentsService {
       return { accepted: true, message: "结果已记录，宿主将在本轮实际结束后回收。" };
     }
     const run = this.source(threadId);
-    if (name === "multi_agents_status") return run;
     if (["paused", "interrupted", "cancelled"].includes(run.status))
       throw new Error("调度已暂停或中断，请先在界面恢复。");
     if (name === "multi_agents_submit_tasks") {
@@ -573,7 +608,94 @@ export class MultiAgentsService {
     throw new Error("未知 Multi-Agents 工具。");
   }
   async control(id: string, action: "pause" | "resume" | "stop") {
+    if (action === "stop" && this.runs().find((run) => run.id === id)?.config.mode === "sessions")
+      return this.stopSessions(id, true);
     return this.exclusive(id, () => this.executeControl(id, action));
+  }
+  private async stopSessions(id: string, includeSource: boolean): Promise<MultiAgentsRun> {
+    const pending = this.stopRequests.get(id);
+    if (pending) {
+      pending.scope.includeSource ||= includeSource;
+      return pending.result;
+    }
+    // The current dispatch can be awaiting worktree preparation or a host call.
+    // Signal it before joining the run lock so it cannot start the next task.
+    const scope = { includeSource };
+    const result = this.exclusive(id, () => this.executeSessionStop(id, scope));
+    this.stopRequests.set(id, { scope, result });
+    try {
+      return await result;
+    } finally {
+      if (this.stopRequests.get(id)?.result === result) this.stopRequests.delete(id);
+    }
+  }
+  private async executeSessionStop(id: string, scope: { includeSource: boolean }): Promise<MultiAgentsRun> {
+    const run = this.runs().find((value) => value.id === id);
+    if (!run) throw new Error("Multi-Agents 执行不存在。");
+    if (!activeStatuses.has(run.status) || (run.stop?.includeSource && !scope.includeSource)) return run;
+
+    const stop: NonNullable<MultiAgentsRun["stop"]> = {
+      includeSource: scope.includeSource,
+      requestsIssued: false,
+      failures: [],
+    };
+    run.stop = stop;
+    run.status = "stopping";
+    run.message = "正在停止协作，等待会话退出。";
+    delete run.pendingNotification;
+    for (const task of run.tasks)
+      if (task.status === "queued") task.status = "cancelled";
+    this.update(run);
+
+    try {
+      this.host.cancelNotifications(run.sourceThreadId, id);
+    } catch (error) {
+      stop.failures.push({ threadId: run.sourceThreadId, message: `撤销协作通知失败：${message(error)}` });
+    }
+    const cancel = async (threadId: string) => {
+      try {
+        await this.host.cancel(threadId);
+      } catch (error) {
+        stop.failures.push({ threadId, message: message(error) });
+      }
+    };
+    const targets = run.tasks.flatMap((task) => task.status === "running" && task.threadId ? [task.threadId] : []);
+    if (stop.includeSource) targets.push(run.sourceThreadId);
+    await Promise.all(targets.map(cancel));
+    if (scope.includeSource && !stop.includeSource) {
+      stop.includeSource = true;
+      this.update(run);
+      await cancel(run.sourceThreadId);
+    }
+    stop.requestsIssued = true;
+    if (stop.failures.length)
+      run.message = `部分停止操作失败，可以重试：${stop.failures.map(({ threadId, message }) => `${threadId}: ${message}`).join("；")}`;
+    this.reconcileStop(run);
+    this.update(run);
+    return run;
+  }
+  private reconcileStop(run: MultiAgentsRun): boolean {
+    const stop = run.stop;
+    if (!stop?.requestsIssued) return false;
+    const active = (threadId: string) => {
+      const status = this.host.thread(threadId)?.status;
+      return this.host.busy(threadId) || status === "running" || status === "queued" ||
+        this.host.latestAttempt(threadId)?.status === "running";
+    };
+    let changed = false;
+    for (const task of run.tasks) {
+      if (task.status !== "running") continue;
+      if (task.threadId && (active(task.threadId) || stop.failures.some(({ threadId }) => threadId === task.threadId)))
+        continue;
+      task.status = "cancelled";
+      changed = true;
+    }
+    if (stop.failures.length || run.tasks.some((task) => task.status === "running") ||
+        (stop.includeSource && active(run.sourceThreadId))) return changed;
+    run.status = "cancelled";
+    delete run.stop;
+    delete run.message;
+    return true;
   }
   private async executeControl(id: string, action: "pause" | "resume" | "stop") {
     const run = this.runs().find((value) => value.id === id);
@@ -602,6 +724,7 @@ export class MultiAgentsService {
       this.update(latest);
       return latest;
     }
+    if (run.status === "stopping" || this.stopRequests.has(id)) throw new Error("协作正在停止。");
     if (action === "pause") {
       run.status = "paused";
       this.update(run);
@@ -637,6 +760,13 @@ export class MultiAgentsService {
     this.ticking = true;
     try {
       for (const initial of this.runs()) {
+        if (initial.status === "stopping") {
+          await this.exclusive(initial.id, async () => {
+            const run = this.runs().find((value) => value.id === initial.id)!;
+            if (run.status === "stopping" && this.reconcileStop(run)) this.update(run);
+          });
+          continue;
+        }
         if (
           !memberTrackingStatuses.has(initial.status) ||
           initial.config.mode !== "sessions"
@@ -644,7 +774,7 @@ export class MultiAgentsService {
           continue;
         await this.exclusive(initial.id, async () => {
           let run = this.runs().find((value) => value.id === initial.id)!;
-          if (!memberTrackingStatuses.has(run.status)) return;
+          if (!memberTrackingStatuses.has(run.status) || this.stopRequests.has(run.id)) return;
           if (!this.host.thread(run.sourceThreadId)) {
             run.status = "interrupted";
             run.message = "来源主会话已删除，调度已中断。";
@@ -652,6 +782,7 @@ export class MultiAgentsService {
             return;
           }
           for (const task of run.tasks) {
+            if (this.stopRequests.has(run.id)) return;
             if (task.status !== "running" || !task.threadId) continue;
             const thread = this.host.thread(task.threadId);
             if (thread?.status === "awaiting_plan") {
@@ -695,7 +826,7 @@ export class MultiAgentsService {
             }
             this.update(run);
           }
-          if (run.status === "paused") return;
+          if (run.status === "paused" || this.stopRequests.has(run.id)) return;
           for (const task of run.tasks)
             if (
               task.status === "blocked" &&
@@ -720,6 +851,7 @@ export class MultiAgentsService {
               this.update(run);
             }
           for (const taskId of run.tasks.map((task) => task.id)) {
+            if (this.stopRequests.has(run.id)) return;
             const task = run.tasks.find((value) => value.id === taskId)!;
             if (
               task.status !== "queued" ||
@@ -753,6 +885,7 @@ export class MultiAgentsService {
                   run.baselineCommit!,
                   dependencies.map((dep) => ({ base: dep.baseCommit!, result: dep.resultCommit! })),
                 );
+                if (this.stopRequests.has(run.id)) return;
                 if (task.threadId && task.baseCommit && task.baseCommit !== baseline) {
                   const cwd = this.host.thread(task.threadId)?.workLocation?.worktree?.worktreePath;
                   if (!cwd) throw new Error("成员工作树已丢失，不能复用会话返工。");
@@ -760,6 +893,7 @@ export class MultiAgentsService {
                 }
                 task.baseCommit = baseline;
               }
+              if (this.stopRequests.has(run.id)) return;
               const existingThreadId = task.threadId;
               task.threadId ??= `thr_${randomUUID()}`;
               task.status = "running";
@@ -801,6 +935,7 @@ export class MultiAgentsService {
             // report_result may have updated durable data while a host call awaited.
             run = this.runs().find((value) => value.id === run.id)!;
           }
+          if (this.stopRequests.has(run.id)) return;
           if (
             run.status === "running" &&
             run.tasks.length &&

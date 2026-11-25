@@ -138,6 +138,7 @@ async function setup() {
     resumed: { id: string; key: string }[] = [],
     cancelled: string[] = [];
   let notifyFails = false;
+  const cancelledNotifications: { threadId: string; runId: string }[] = [];
   const workspace = new MultiAgentsWorkspace();
   const host = {
     nativeAgentKeys: () => ["coder"],
@@ -177,6 +178,9 @@ async function setup() {
       const item = threads.get(id);
       if (item) item.status = "idle";
     },
+    cancelNotifications: (threadId: string, runId: string) => {
+      cancelledNotifications.push({ threadId, runId });
+    },
   };
   const service = new MultiAgentsService(new DatabaseSync(database), host);
   services.push(service);
@@ -208,6 +212,7 @@ async function setup() {
     started,
     resumed,
     cancelled,
+    cancelledNotifications,
     service,
     plan,
     finish,
@@ -267,6 +272,7 @@ test("Agent references reject plan mode, stale configurations, missing native me
   expect(native.run.config.mode).toBe("subagents");
   expect(native.instructions).toContain("原生子代理工具");
   expect(native.instructions).toContain("最多 2 个并行");
+  await expect(service.tool("main", "multi_agents_stop", { runId: native.run.id })).rejects.toThrow("原生子代理");
   await service.control(native.run.id, "stop");
   service.saveConfig(config());
   const next = service.resolveReference("main", "pair", "another task");
@@ -461,6 +467,88 @@ test("restart preserves identities and never silently restarts uncertain member 
   expect(reopened.runs()[0]!.tasks[0]).toMatchObject({ threadId: id, status: "failed" });
   await reopened.tick();
   expect(started).toHaveLength(1);
+});
+
+test("Agent stop keeps the main turn alive and waits for member exit", async () => {
+  const { service, host, threads, started, cancelled, cancelledNotifications } = await setup();
+  await service.tool("main", "multi_agents_submit_tasks", { tasks: [task("first"), task("next")] });
+  await service.tick();
+  const child = started[0]!;
+  threads.get("main")!.status = "running";
+  host.cancel = async (id) => { cancelled.push(id); };
+  const args = { runId: "run-1" };
+  await expect(service.tool(child.id, "multi_agents_stop", args)).rejects.toThrow("当前主会话发起");
+  expect(await service.tool("main", "multi_agents_stop", args)).toMatchObject({
+    status: "stopping",
+    tasks: [{ id: "first", status: "running" }, { id: "next", status: "cancelled" }],
+  });
+  expect(cancelled).toEqual([child.id]);
+  expect(cancelledNotifications).toEqual([{ threadId: "main", runId: "run-1" }]);
+  await service.tick();
+  expect(service.runs()[0]!.status).toBe("stopping");
+  threads.get(child.id)!.status = "idle";
+  await service.tick();
+  expect(await service.tool("main", "multi_agents_status", args)).toMatchObject({ status: "cancelled" });
+  expect(await service.tool("main", "multi_agents_stop", args)).toMatchObject({ status: "cancelled" });
+  expect(started).toHaveLength(1);
+  expect(cancelled).toEqual([child.id]);
+  expect(threads.get("main")!.status).toBe("running");
+});
+
+test("stop during member launch prevents the next dispatch and reports a retryable cancellation failure", async () => {
+  const { service, host, started, threads } = await setup();
+  const start = host.start;
+  const entering = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  host.start = async (...args) => {
+    entering.resolve();
+    await release.promise;
+    await start(...args);
+  };
+  await service.tool("main", "multi_agents_submit_tasks", { tasks: [task("first"), task("next", "b")] });
+  const tick = service.tick();
+  await entering.promise;
+  const cancel = host.cancel;
+  host.cancel = async () => { throw new Error("runtime unavailable"); };
+  const args = { runId: "run-1" };
+  const stopping = service.tool("main", "multi_agents_stop", args);
+  const duplicate = service.tool("main", "multi_agents_stop", args);
+  release.resolve();
+  await tick;
+  expect(await stopping).toMatchObject({
+    status: "stopping",
+    failures: [{ threadId: started[0]!.id, message: "runtime unavailable" }],
+  });
+  expect(await duplicate).toEqual(await stopping);
+  await expect(service.control("run-1", "resume")).rejects.toThrow("正在停止");
+  expect(started).toHaveLength(1);
+  expect(threads.get(started[0]!.id)!.status).toBe("running");
+  host.cancel = cancel;
+  expect(await service.tool("main", "multi_agents_stop", args)).toMatchObject({ status: "cancelled", failures: [] });
+});
+
+test("desktop stop all during Agent stop also cancels the main turn", async () => {
+  const { service, host, started, cancelled } = await setup();
+  await service.tool("main", "multi_agents_submit_tasks", { tasks: [task("first")] });
+  await service.tick();
+  const entering = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const cancel = host.cancel;
+  host.cancel = async (id) => {
+    if (id !== "main") {
+      entering.resolve();
+      await release.promise;
+    }
+    await cancel(id);
+  };
+
+  const agentStop = service.tool("main", "multi_agents_stop", { runId: "run-1" });
+  await entering.promise;
+  const desktopStop = service.control("run-1", "stop");
+  release.resolve();
+  expect(await desktopStop).toMatchObject({ status: "cancelled" });
+  expect(await agentStop).toMatchObject({ status: "cancelled" });
+  expect(cancelled).toEqual([started[0]!.id, "main"]);
 });
 
 test("a cancelled runtime cannot become success merely because it reported a result earlier", async () => {

@@ -68,6 +68,22 @@ function createProviderPatchStore() {
 const providerPatchMethods = ["appendProviderInputPatch", "appendRuntimeProviderInputPatch"] as const;
 
 describe("conversation storage V2", () => {
+  test("command prefix lookup scopes queued collaboration messages by run and principal", () => {
+    const { db, store } = createStore();
+    try {
+      const send = (principalId: string, clientCommandId: string) =>
+        store.sendMessage({ conversationId: "thread", principalId, clientCommandId, text: "message" });
+      const result = send("eco-multi-agents", "multi_run:results:1");
+      send("eco-multi-agents", "multi_run2:results:1");
+      send("eco-multi-agents", "multiXrun:results:1");
+      send("desktop-local", "multi_run:results:1");
+      expect(store.listMessageIdsByCommandPrefix("thread", "eco-multi-agents", "multi_run:results:"))
+        .toEqual([result.messageId]);
+    } finally {
+      db.close();
+    }
+  });
+
   test("an image-only send survives request validation, durable storage, replay and runtime scheduling", () => {
     const { db, store } = createStore();
     try {
