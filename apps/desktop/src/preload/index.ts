@@ -193,6 +193,7 @@ import {
   type ProjectIntegrationsSettingsSnapshot,
   type ProjectMcpSettingsSnapshot,
   type ProjectOrchestrationSettingsSnapshot,
+  type ProjectOrchestrationSettingsUpdate,
   type ProjectSkillsSettingsSnapshot,
   type ProjectTerminalSettingsSnapshot,
   type PromptImageAttachment,
@@ -1096,7 +1097,7 @@ const api = {
     return ipcRenderer.invoke(IPC_CHANNELS.projectOrchestrationSettingsGet, workspacePath);
   },
   saveProjectOrchestrationSettings(
-    snapshot: ProjectOrchestrationSettingsSnapshot,
+    snapshot: ProjectOrchestrationSettingsUpdate,
   ): Promise<ProjectOrchestrationSettingsSnapshot> {
     return ipcRenderer.invoke(IPC_CHANNELS.projectOrchestrationSettingsSave, snapshot);
   },

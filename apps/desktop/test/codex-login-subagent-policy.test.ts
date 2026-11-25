@@ -23,8 +23,14 @@ describe("Codex Login subagent policy", () => {
   });
   test("only a Codex Login main may use a Login subagent", () => {
     expect(() => validate("codex", "openai")).not.toThrow();
-    for (const [core, main] of [["codex", "api"], ["codex", "eco-coding-chatgpt"], ["pi", "openai"], ["claude", "api"]]) {
+    for (const [core, main] of [["codex", "api"], ["codex", "eco-coding-chatgpt"], ["claude", "api"]]) {
       expect(() => validate(core!, main!)).toThrow("审查员");
+    }
+  });
+  test("rejects a Codex Login main model on Claude and Pi even without Login subagents", () => {
+    for (const core of ["claude", "pi"]) {
+      expect(() => validate(core, "openai", agent("api"))).toThrow("当前 Harness 无法使用 Codex Login");
+      expect(() => validate(core, "openai", agent("api"), () => false)).not.toThrow();
     }
   });
   test("allows disabled Login agents and ordinary providers", () => {

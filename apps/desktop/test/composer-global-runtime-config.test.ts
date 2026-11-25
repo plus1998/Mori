@@ -119,3 +119,27 @@ test("does not fall back to project settings when the global Eco config is missi
 
   expect(config).toBeUndefined();
 });
+
+test("uses the global default of the selected Harness and skips incompatible legacy Login", () => {
+  const selection = (providerId: string, modelId: string) => ({
+    mainModel: { providerId, modelId },
+    mainPrompt: { mode: "builtin" as const },
+    subagents: { mode: "none" as const },
+  });
+  const input = {
+    settings: emptySettings,
+    workflowDefaults: workflowDefaults({
+      defaultOrchestrationSelection: selection("openai", "legacy-login"),
+      harnessSelections: {
+        codex: selection("openai", "codex-login"),
+        claude: selection("api", "claude"),
+      },
+    }),
+    mcpServers: [],
+  };
+  expect(buildComposerGlobalRuntimeConfig({ ...input, coreKind: "codex" })
+    ?.resolvedOrchestrationSnapshot?.mainAgent.modelRef.modelId).toBe("codex-login");
+  expect(buildComposerGlobalRuntimeConfig({ ...input, coreKind: "claude" })
+    ?.resolvedOrchestrationSnapshot?.mainAgent.modelRef.modelId).toBe("claude");
+  expect(buildComposerGlobalRuntimeConfig({ ...input, coreKind: "pi" })).toBeUndefined();
+});

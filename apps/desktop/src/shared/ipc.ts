@@ -1279,6 +1279,7 @@ export interface WorkflowSettingsSnapshot {
    * `queue` only enqueues for post-turn drain. Escalated / "handle now" still tries mid-turn first.
    */
   followUpDeliveryMode: FollowUpDeliveryMode;
+  harnessSelections?: import("./project-orchestration-settings").HarnessSelections;
   defaultOrchestrationSelection?: import("./agent-orchestration").OrchestrationSelection;
   defaultAuxiliaryModel?: import("./auxiliary-model").AuxiliaryModelSelection;
   defaultApprovalModel?: import("./approval-model").ApprovalModelSelection;
@@ -1647,7 +1648,7 @@ export type { ProjectMcpSettingsSnapshot } from "./composer-mcp";
 export type { ProjectSkillsSettingsSnapshot } from "./composer-skills-settings";
 export type { ProjectTerminalSettingsSnapshot } from "./project-terminal-settings";
 export type { ProjectIntegrationsSettingsSnapshot } from "./integrations";
-export type { ProjectOrchestrationSettingsSnapshot } from "./project-orchestration-settings";
+export type { ProjectOrchestrationSettingsSnapshot, ProjectOrchestrationSettingsUpdate } from "./project-orchestration-settings";
 export type { ProviderTokenCountMode, UpstreamApiCompat };
 
 export interface CursorApiKeyView {

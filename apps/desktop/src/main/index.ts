@@ -20,6 +20,7 @@ import { resolveGenerationToolContext } from "./generation-tool-context";
 import type { ImageGenerationToolInput } from "../shared/image-generation";
 import type { TtsToolInput } from "../shared/tts";
 import { codexAccountIdForThread } from "../shared/codex-auth-thread";
+import { isOrchestrationHarness, resolveHarnessOrchestrationSelection } from "../shared/project-orchestration-settings";
 import { assertCodexLoginSubagentPolicy, isCodexLoginProvider } from "../shared/codex-login-subagent-policy";
 import { createAccountUsagePricingLookup } from "./account-usage-pricing";
 import { ChatGptModelCatalogService, resolveChatGptModelCatalogCachePath } from "./chatgpt-model-catalog";
@@ -460,7 +461,7 @@ import {
   type WorktreeStatusResult,
   withAgentSessionMode,
 } from "../shared/ipc";
-import { resolveThreadRuntimeConfigUpdate } from "../shared/thread-runtime-config";
+import { materializeThreadOrchestrationSnapshot, resolveThreadRuntimeConfigUpdate } from "../shared/thread-runtime-config";
 import { pruneThreadRuntimeConfigReferences, resolveThreadRuntimeConfigEdit } from "../shared/thread-runtime-config-references";
 import {
   type AppLocale,
@@ -705,7 +706,7 @@ import { explicitlyRequestsWechat } from "./mori-assistant-service";
 import { isMoriAssistantWindow } from "./mori-assistant-windows";
 import { MORI_ASSISTANT_CHANNELS } from "../shared/mori-assistant";
 import { MoriNotificationUncertainError } from "../shared/mori-scheduled-action";
-import { buildThreadRuntimeConfigFromDefaults } from "../shared/thread-runtime-config";
+import { buildAcpThreadRuntimeConfig, buildThreadRuntimeConfigFromDefaults } from "../shared/thread-runtime-config";
 import { DEFAULT_CORE_KIND } from "../shared/default-core-kind";
 import { connectCodexImageAccount, disposeCodexImageConnections } from "./codex-image-electron-transport";
 import { ChatGptWebImageModelCatalogService } from "./chatgpt-web-image-model-catalog";
@@ -4773,9 +4774,10 @@ async function codexModelCatalogSnapshot(): Promise<CodexModelCatalogSnapshot> {
 
 function listCodexCatalogRoutesFromSettings(): CodexGatewayCatalogRoute[] {
   const settings = getModelSettingsSnapshot();
+  const workflow = workflowSettingsStore.get();
   const refs = [
-    ...(workflowSettingsStore.get().defaultOrchestrationSelection?.mainModel
-      ? [workflowSettingsStore.get().defaultOrchestrationSelection!.mainModel!] : []),
+    ...[workflow.defaultOrchestrationSelection, ...Object.values(workflow.harnessSelections ?? {})]
+      .flatMap((selection) => selection?.mainModel ? [selection.mainModel] : []),
     ...settings.subagentOrchestrations.flatMap((orchestration) =>
       orchestration.agents.map((agent) => agent.modelRef),
     ),
@@ -4961,7 +4963,7 @@ function repairThreadRuntimeConfigReferences(thread: ThreadSummary): ThreadSumma
     return thread;
   }
   const settings = getModelSettingsSnapshot();
-  const workflow = workflowSettingsStore.get();
+  const workflow = workflowDefaultsForThreadHarness(settings, thread.coreKind);
   const repaired = pruneThreadRuntimeConfigReferences(
     settings,
     config,
@@ -4993,15 +4995,52 @@ function parseThreadRuntimeConfigInput(value: unknown): ThreadRuntimeConfig {
   return normalizeThreadRuntimeConfig(value);
 }
 
+function workflowDefaultsForThreadHarness(
+  settings: ModelSettingsSnapshot,
+  coreKind: string | undefined,
+) {
+  const { defaultOrchestrationSelection, harnessSelections, ...defaults } = workflowSettingsStore.get();
+  if (!coreKind) return { ...defaults, ...(defaultOrchestrationSelection ? { defaultOrchestrationSelection } : {}) };
+  const selection = resolveHarnessOrchestrationSelection(coreKind, settings, {
+    harnessSelections,
+    orchestrationSelection: defaultOrchestrationSelection,
+  });
+  return { ...defaults, ...(selection ? { defaultOrchestrationSelection: selection } : {}) };
+}
+
+function buildTaskRuntimeDefaults(
+  coreKind: import("@eco/runtime/core-runtime").CoreKind,
+  workspacePath?: string,
+): ThreadRuntimeConfig {
+  const settings = getModelSettingsSnapshot();
+  const workflow = workflowDefaultsForThreadHarness(settings, coreKind);
+  const project = workspacePath ? projectOrchestrationSettingsStore.get(workspacePath) : undefined;
+  if (coreKind === "acp") {
+    const cursorModelId = project?.cursorModelId === undefined ? workflow.acpCursorModelId : project.cursorModelId;
+    return buildAcpThreadRuntimeConfig({
+      ...(cursorModelId ? { cursorModelId } : {}),
+      ...(workflow.defaultBashReviewMode ? { bashReviewMode: workflow.defaultBashReviewMode } : {}),
+      ...(workflow.defaultAuxiliaryModel ? { auxiliaryModel: workflow.defaultAuxiliaryModel } : {}),
+      ...(workflow.defaultApprovalModel ? { approvalModel: workflow.defaultApprovalModel } : {}),
+      ...(workflow.defaultVisionModel ? { visionModel: workflow.defaultVisionModel } : {}),
+      ...(workflow.mcpServersEnabled ? { mcpServersEnabled: workflow.mcpServersEnabled } : {}),
+      ...(workflow.integrationsEnabled ? { integrationsEnabled: workflow.integrationsEnabled } : {}),
+    });
+  }
+  const selection = project && resolveHarnessOrchestrationSelection(coreKind, settings, project);
+  return buildThreadRuntimeConfigFromDefaults({
+    settings,
+    workflowDefaults: { ...workflow, sessionMode: "agent" },
+    ...(selection ? { orchestrationSelection: selection } : {}),
+    mcpServers: mcpStore.listServers(),
+  });
+}
+
 /**
  * Materialize component selection + resolved snapshot for persistence.
  * Callers that only change bashReviewMode while a snapshot already exists should
  * keep the existing snapshot instead of re-resolving.
  */
-function getDefaultOrchestrationSelection(): OrchestrationSelection | undefined {
-  return workflowSettingsStore.get().defaultOrchestrationSelection;
-}
-
 function materializeThreadRuntimeConfig(
   settings: ModelSettingsSnapshot,
   config: ThreadRuntimeConfig,
@@ -5015,7 +5054,7 @@ function resolveContinueThreadRuntimeConfig(
   incoming: ThreadRuntimeConfig,
   coreKind: string | undefined,
 ): ThreadRuntimeConfig {
-  const fallbacks = workflowSettingsStore.get();
+  const fallbacks = workflowDefaultsForThreadHarness(settings, coreKind);
   const cleaned = pruneThreadRuntimeConfigReferences(
     settings,
     incoming,
@@ -5025,6 +5064,20 @@ function resolveContinueThreadRuntimeConfig(
   const config = resolveThreadRuntimeConfigUpdate(settings, existing, cleaned);
   assertThreadCodexLoginSubagents(coreKind, settings, config);
   return pruneThreadRuntimeConfigReferences(settings, config, threadModelReferenceIsAvailable, fallbacks);
+}
+
+function assertHarnessOrchestrationSelection(
+  coreKind: string,
+  settings: ModelSettingsSnapshot,
+  selection: OrchestrationSelection,
+): void {
+  const { resolvedOrchestrationSnapshot: snapshot } = materializeThreadOrchestrationSnapshot(settings, selection);
+  assertCodexLoginSubagentPolicy({
+    coreKind,
+    snapshot,
+    routes: runtimeRoleRoutesFromOrchestrationSnapshot(snapshot),
+    isCodexLoginProvider: isBuiltInCodexCatalogProvider,
+  });
 }
 
 function assertThreadCodexLoginSubagents(
@@ -8106,7 +8159,7 @@ function registerIpcHandlers(): void {
           const threadId = request.threadId;
           const settings = getModelSettingsSnapshot();
           const busyThread = thread.status === "running" || thread.status === "queued";
-          const workflow = workflowSettingsStore.get();
+          const workflow = workflowDefaultsForThreadHarness(settings, thread.coreKind);
           const isModelAvailable = threadModelReferenceIsAvailable;
           const stored = ensureThreadRuntimeConfig(thread).runtimeConfig;
           const clean = (config: ThreadRuntimeConfig) => busyThread
@@ -8661,12 +8714,12 @@ function registerIpcHandlers(): void {
     currentProject: () => currentWorkspace?.path,
     computerUse: new MoriComputerUse({ gateway: computerUseGateway, settings: () => computerUseSettingsStore.get(), imageView: imageViewGateway }),
     mcp: new MoriAssistantMcp(mcpStore, new McpHubGateway()),
-    defaultRuntimeConfig: () => buildThreadRuntimeConfigFromDefaults({ settings: getModelSettingsSnapshot(), workflowDefaults: { ...workflowSettingsStore.get(), sessionMode: "agent" }, mcpServers: mcpStore.listServers() }),
+    defaultRuntimeConfig: (coreKind = "codex", workspacePath) => buildTaskRuntimeDefaults(coreKind, workspacePath),
     manageModels: (name, args) => modelManagementService.invoke(name, args),
-    defaultScheduleProfile: () => ({
-      coreKind: workflowSettingsStore.get().defaultCoreKind ?? DEFAULT_CORE_KIND,
-      runtimeConfig: buildThreadRuntimeConfigFromDefaults({ settings: getModelSettingsSnapshot(), workflowDefaults: { ...workflowSettingsStore.get(), sessionMode: "agent" }, mcpServers: mcpStore.listServers() }),
-    }),
+    defaultScheduleProfile: (requestedCoreKind, workspacePath) => {
+      const coreKind = requestedCoreKind ?? workflowSettingsStore.get().defaultCoreKind ?? DEFAULT_CORE_KIND;
+      return { coreKind, runtimeConfig: buildTaskRuntimeDefaults(coreKind, workspacePath) };
+    },
     modelSettings: () => {
       const settings = getModelSettingsSnapshot();
       return {
@@ -9731,17 +9784,27 @@ function registerIpcHandlers(): void {
   });
 
   registerDesktopCommand(IPC_CHANNELS.projectOrchestrationSettingsSave, async (payload: unknown) => {
-    if (
-      !isRecord(payload) ||
-      typeof payload.workspacePath !== "string" ||
-      !isOrchestrationSelection(payload.orchestrationSelection)
-    ) {
+    if (!isRecord(payload) || typeof payload.workspacePath !== "string" || !payload.workspacePath.trim()) {
       throw new Error("Invalid project orchestration settings.");
     }
-    return projectOrchestrationSettingsStore.save({
-      workspacePath: payload.workspacePath,
-      orchestrationSelection: payload.orchestrationSelection,
-    });
+    const { workspacePath, coreKind } = payload;
+    if (coreKind === "acp") {
+      const cursorModelId = payload.cursorModelId;
+      if (cursorModelId !== null && (typeof cursorModelId !== "string" || !cursorModelId.trim() || cursorModelId.trim().length > 256)) {
+        throw new Error("Invalid project Cursor model.");
+      }
+      return projectOrchestrationSettingsStore.save({ workspacePath, coreKind, cursorModelId: cursorModelId?.trim() ?? null });
+    }
+    if ((coreKind !== undefined && !isOrchestrationHarness(coreKind)) ||
+        !isOrchestrationSelection(payload.orchestrationSelection)) {
+      throw new Error("Invalid project orchestration settings.");
+    }
+    const orchestrationSelection = payload.orchestrationSelection;
+    if (coreKind) {
+      const settings = getModelSettingsSnapshot();
+      assertHarnessOrchestrationSelection(coreKind, settings, orchestrationSelection);
+    }
+    return projectOrchestrationSettingsStore.save({ workspacePath, ...(coreKind ? { coreKind } : {}), orchestrationSelection });
   });
 
   registerDesktopCommand(IPC_CHANNELS.workflowSettingsGet, async () => workflowSettingsStore.get());
@@ -9762,6 +9825,14 @@ function registerIpcHandlers(): void {
     // Legacy acpAgentsEnabled.cursor is no longer a user-facing gate; Cursor ACP
     // is allowed whenever the CLI probe succeeds (checked below for default=acp).
     const gated: typeof normalized = { ...normalized };
+    if (normalized.harnessSelections) {
+      const settings = getModelSettingsSnapshot();
+      for (const coreKind of ["codex", "claude", "pi"] as const) {
+        const selection = normalized.harnessSelections[coreKind];
+        if (!selection || JSON.stringify(selection) === JSON.stringify(previous.harnessSelections?.[coreKind])) continue;
+        assertHarnessOrchestrationSelection(coreKind, settings, selection);
+      }
+    }
     // Older clients omit this device preference when saving other workflow settings.
     if (!("codexAuthModel" in payload) && previous.codexAuthModel) {
       gated.codexAuthModel = previous.codexAuthModel;

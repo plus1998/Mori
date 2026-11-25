@@ -7,6 +7,7 @@ import {
   DEFAULT_GLOBAL_MAX_OUTPUT_LIMIT,
   type GlobalMaxOutputTokens,
   type EcoOrchestrationMode,
+  CORE_KINDS,
   isCoreKind,
   isGlobalContextWindowLimit,
   isGlobalMaxOutputTokens,
@@ -27,6 +28,7 @@ import {
 } from "../shared/auxiliary-model";
 import { type BashReviewMode, isBashReviewMode, normalizeBashReviewMode } from "../shared/bash-review-ui";
 import { ECO_AGENT_BROWSER_MCP_SERVER } from "../shared/browser";
+import { isHarnessSelections, normalizeHarnessSelections, type HarnessSelections } from "../shared/project-orchestration-settings";
 import { DEFAULT_CORE_KIND } from "../shared/default-core-kind";
 import { type McpServersEnabledSettings, normalizeMcpServersEnabled } from "../shared/composer-mcp";
 import { type IntegrationsEnabledSettings, normalizeIntegrationsEnabled } from "../shared/integrations";
@@ -84,6 +86,7 @@ export interface WorkflowSettingsSnapshot {
   contextWindowLimitTokens: number;
   maxOutputLimitTokens: GlobalMaxOutputTokens;
   followUpDeliveryMode: FollowUpDeliveryMode;
+  harnessSelections?: HarnessSelections;
   defaultOrchestrationSelection?: OrchestrationSelection;
   defaultAuxiliaryModel?: AuxiliaryModelSelection;
   defaultApprovalModel?: ApprovalModelSelection;
@@ -139,6 +142,7 @@ export class WorkflowSettingsStore {
     const contextWindowLimitTokens = this.readContextWindowLimitTokens();
     const maxOutputLimitTokens = this.readMaxOutputLimitTokens();
     const defaultOrchestrationSelection = this.readDefaultOrchestrationSelection();
+    const harnessSelections = this.readHarnessSelections();
     const defaultAuxiliaryModel = this.readDefaultAuxiliaryModel();
     const defaultApprovalModel = this.readDefaultApprovalModel();
     const defaultVisionModel = this.readDefaultVisionModel();
@@ -172,6 +176,7 @@ export class WorkflowSettingsStore {
       contextWindowLimitTokens,
       maxOutputLimitTokens,
       followUpDeliveryMode,
+      ...(harnessSelections ? { harnessSelections } : {}),
       ...(defaultOrchestrationSelection ? { defaultOrchestrationSelection } : {}),
       ...(defaultAuxiliaryModel ? { defaultAuxiliaryModel } : {}),
       ...(defaultApprovalModel ? { defaultApprovalModel } : {}),
@@ -297,6 +302,13 @@ export class WorkflowSettingsStore {
          ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at`,
       )
       .run("follow_up_delivery_mode", JSON.stringify(normalized.followUpDeliveryMode), now);
+    if (normalized.harnessSelections) {
+      this.db.prepare(
+        `INSERT INTO workflow_settings (key, value_json, updated_at)
+         VALUES (?, ?, ?)
+         ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at`,
+      ).run("harness_selections", JSON.stringify({ ...this.readHarnessSelections(), ...normalized.harnessSelections }), now);
+    }
     if (normalized.defaultOrchestrationSelection) {
       this.db
         .prepare(
@@ -371,53 +383,49 @@ export class WorkflowSettingsStore {
   }
 
   clearDefaultSubagentOrchestrationReference(orchestrationId: string): boolean {
-    const trimmedId = orchestrationId.trim();
-    const selection = this.readDefaultOrchestrationSelection();
-    if (
-      !trimmedId ||
-      !selection ||
-      selection.subagents.mode !== "orchestration" ||
-      selection.subagents.orchestrationId !== trimmedId
-    ) {
-      return false;
-    }
-    this.save({
-      ...this.get(),
-      defaultOrchestrationSelection: { ...selection, subagents: { mode: "none" } },
-    });
-    return true;
+    const id = orchestrationId.trim();
+    return Boolean(id) && this.updateOrchestrationSelections((selection) =>
+      selection.subagents.mode === "orchestration" && selection.subagents.orchestrationId === id
+        ? { ...selection, subagents: { mode: "none" } }
+        : selection);
   }
 
-  /** Clear the global default when its selected model belongs to a deleted provider. */
   clearDefaultMainModelProviderReference(providerId: string): boolean {
-    const trimmedId = providerId.trim();
-    const selection = this.readDefaultOrchestrationSelection();
-    if (!trimmedId || !selection || selection.mainModel?.providerId !== trimmedId) {
-      return false;
-    }
-    const current = this.get();
-    const { defaultOrchestrationSelection: _removed, ...rest } = current;
-    this.save(rest);
-    return true;
+    const id = providerId.trim();
+    return Boolean(id) && this.updateOrchestrationSelections((selection) =>
+      selection.mainModel?.providerId === id ? null : selection);
   }
 
-  /** Reset the global default prompt to builtin when it points at a deleted prompt. */
   clearDefaultMainAgentPromptReference(promptId: string): boolean {
-    const trimmedId = promptId.trim();
-    const selection = this.readDefaultOrchestrationSelection();
-    if (
-      !trimmedId ||
-      !selection ||
-      selection.mainPrompt.mode !== "custom_append" ||
-      selection.mainPrompt.promptId !== trimmedId
-    ) {
-      return false;
+    const id = promptId.trim();
+    return Boolean(id) && this.updateOrchestrationSelections((selection) =>
+      selection.mainPrompt.mode === "custom_append" && selection.mainPrompt.promptId === id
+        ? { ...selection, mainPrompt: { mode: "builtin" } }
+        : selection);
+  }
+
+  private updateOrchestrationSelections(
+    update: (selection: OrchestrationSelection) => OrchestrationSelection | null,
+  ): boolean {
+    const { defaultOrchestrationSelection, harnessSelections, ...rest } = this.get();
+    const nextDefault = defaultOrchestrationSelection && update(defaultOrchestrationSelection);
+    const nextHarnessSelections = { ...harnessSelections };
+    let changed = nextDefault !== defaultOrchestrationSelection;
+    for (const kind of CORE_KINDS) {
+      if (kind === "acp") continue;
+      const selection = harnessSelections?.[kind];
+      if (!selection) continue;
+      const next = update(selection);
+      if (next === selection) continue;
+      nextHarnessSelections[kind] = next;
+      changed = true;
     }
-    this.save({
-      ...this.get(),
-      defaultOrchestrationSelection: { ...selection, mainPrompt: { mode: "builtin" } },
+    if (changed) this.save({
+      ...rest,
+      ...(nextDefault ? { defaultOrchestrationSelection: nextDefault } : {}),
+      harnessSelections: nextHarnessSelections,
     });
-    return true;
+    return changed;
   }
 
   private readSessionMode(): SessionMode {
@@ -628,6 +636,15 @@ export class WorkflowSettingsStore {
     }
   }
 
+  private readHarnessSelections(): HarnessSelections | undefined {
+    const row = this.db.prepare(`SELECT value_json FROM workflow_settings WHERE key = ?`)
+      .get("harness_selections") as { value_json: string } | undefined;
+    if (!row) return undefined;
+    const parsed: unknown = JSON.parse(row.value_json);
+    if (!isHarnessSelections(parsed)) throw new Error("全局 Harness 编排配置无效。");
+    return normalizeHarnessSelections(parsed);
+  }
+
   private readDefaultOrchestrationSelection(): OrchestrationSelection | undefined {
     const row = this.db
       .prepare(`SELECT value_json FROM workflow_settings WHERE key = ?`)
@@ -758,6 +775,7 @@ export function normalizeWorkflowSettingsSnapshot(value: unknown): WorkflowSetti
   const acpCursorApiKeyPart = acpCursorApiKey ? { acpCursorApiKey } : {};
   const mcpPart = mcpServersEnabled ? { mcpServersEnabled } : {};
   const integrationsPart = integrationsEnabled ? { integrationsEnabled } : {};
+  const harnessSelections = normalizeHarnessSelections(record.harnessSelections);
   const defaultOrchestrationPart = defaultOrchestrationSelection ? { defaultOrchestrationSelection } : {};
   const defaultAuxiliaryPart = defaultAuxiliaryModel ? { defaultAuxiliaryModel } : {};
   const defaultApprovalPart = defaultApprovalModel ? { defaultApprovalModel } : {};
@@ -775,6 +793,7 @@ export function normalizeWorkflowSettingsSnapshot(value: unknown): WorkflowSetti
       contextWindowLimitTokens,
       maxOutputLimitTokens,
       followUpDeliveryMode,
+      ...(harnessSelections ? { harnessSelections } : {}),
       ...defaultOrchestrationPart,
       ...defaultAuxiliaryPart,
       ...defaultApprovalPart,
@@ -897,6 +916,7 @@ export function isWorkflowSettingsSnapshot(value: unknown): value is WorkflowSet
       isGlobalContextWindowLimit(record.contextWindowLimitTokens)) &&
     (record.maxOutputLimitTokens === undefined || isGlobalMaxOutputTokens(record.maxOutputLimitTokens)) &&
     (record.followUpDeliveryMode === undefined || isFollowUpDeliveryMode(record.followUpDeliveryMode)) &&
+    (record.harnessSelections === undefined || isHarnessSelections(record.harnessSelections)) &&
     (record.defaultOrchestrationSelection === undefined ||
       isOrchestrationSelection(record.defaultOrchestrationSelection)) &&
     (record.defaultAuxiliaryModel === undefined || isAuxiliaryModelSelection(record.defaultAuxiliaryModel)) &&

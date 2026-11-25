@@ -1,3 +1,4 @@
+import { isCoreKind, type CoreKind } from "@eco/runtime/core-runtime";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type { ConversationEventType, ConversationMessage } from "@eco/shared";
@@ -167,10 +168,10 @@ export interface MoriAssistantDeps {
   executable(): string | undefined;
   resolveSystemProxy: SystemProxyResolver;
   invoke(channel: string, args: unknown[]): Promise<unknown>;
-  defaultRuntimeConfig(): ThreadRuntimeConfig;
+  defaultRuntimeConfig(coreKind?: CoreKind, workspacePath?: string): ThreadRuntimeConfig;
   modelSettings(): unknown;
   manageModels(name: string, args: Record<string, unknown>): Promise<unknown>;
-  defaultScheduleProfile(): ScheduleExecutionProfile;
+  defaultScheduleProfile(coreKind?: CoreKind, workspacePath?: string): ScheduleExecutionProfile;
   customProviders(): MoriAssistantSnapshot["customProviders"];
   prepareCustomProvider(providerId: string): Promise<AssistantCustomProviderRoute>;
   onUsage?(record: AccountUsageRecord, aggregate: boolean): void;
@@ -1125,7 +1126,9 @@ export class MoriAssistantService {
         throw new Error("只有当前请求来自微信或用户明确要求完成后发微信时，才能启用微信通知。");
       if (args.notifyWechat === true && !this.canNotifyWechat?.())
         throw new Error("请先连接微信，并从微信向 Mori 发一条消息后再设置微信通知。");
-      const config = this.deps.defaultRuntimeConfig();
+      const coreKind = str("coreKind") || "codex";
+      if (!isCoreKind(coreKind)) throw new Error(`Unsupported Harness: ${coreKind}`);
+      const config = this.deps.defaultRuntimeConfig(coreKind, projectPath);
       if (str("modelId")) {
         if (!str("providerId")) throw new Error("指定模型时必须同时指定 providerId，请先读取模型配置。");
         config.mainAgentModelOverride = { providerId: str("providerId"), modelId: str("modelId") };
@@ -1135,7 +1138,7 @@ export class MoriAssistantService {
           workspacePath: projectPath,
           prompt: todo?.prompt ?? str("prompt"),
           ...(attachments.length ? { attachments } : {}),
-          coreKind: str("coreKind") || "codex",
+          coreKind,
           runtimeConfig: config,
         },
       ])) as { thread: ThreadSummary };

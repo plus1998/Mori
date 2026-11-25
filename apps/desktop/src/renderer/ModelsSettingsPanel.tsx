@@ -1,3 +1,4 @@
+import { isOrchestrationHarness, type OrchestrationHarness } from "../shared/project-orchestration-settings";
 import { ModelFieldLabel } from "./ModelFieldLabel";
 import { StatelessModelControl } from "./StatelessModelControl";
 import { Switch } from "./components/Switch";
@@ -105,6 +106,7 @@ interface ModelsSettingsPanelProps {
   onSettingsChange: (settings: ModelSettingsSnapshot) => void;
   defaultOrchestrationSelection?: OrchestrationSelection | undefined;
   defaultCoreKind?: string | undefined;
+  onDefaultModelHarnessChange?: (coreKind: OrchestrationHarness) => void;
   onDefaultOrchestrationSelectionChange?:
     | ((selection: OrchestrationSelection | undefined) => void | Promise<void>)
     | undefined;
@@ -222,6 +224,7 @@ export function ModelsSettingsPanel({
   onSettingsChange,
   defaultOrchestrationSelection,
   defaultCoreKind,
+  onDefaultModelHarnessChange,
   onDefaultOrchestrationSelectionChange,
   defaultAuxiliaryModel,
   onDefaultAuxiliaryModelChange,
@@ -323,7 +326,7 @@ export function ModelsSettingsPanel({
         subagents: { mode: "none" },
       },
     );
-  }, [defaultOrchestrationSelection]);
+  }, [defaultOrchestrationSelection, defaultCoreKind]);
 
   const updateDefaultOrchestrationDraft = useCallback(
     (patch: Partial<OrchestrationSelection>) => {
@@ -959,8 +962,25 @@ export function ModelsSettingsPanel({
                 </button>
               </div>
               <div className="settings-global-orchestration-list">
+                {onDefaultModelHarnessChange && (
+                  <label className="settings-global-orchestration-row">
+                    <span className="settings-global-orchestration-label">{t("settings.defaultAgent.runtimeSection")}</span>
+                    <ComposerFieldSelect
+                      value={defaultCoreKind ?? "codex"}
+                      disabled={busy}
+                      onChange={(value) => {
+                        if (isOrchestrationHarness(value)) onDefaultModelHarnessChange(value);
+                      }}
+                    >
+                      <option value="codex">Codex</option>
+                      <option value="claude">Claude</option>
+                      <option value="pi">Pi</option>
+                    </ComposerFieldSelect>
+                  </label>
+                )}
                 <div className="settings-global-orchestration-row">
                   <MainModelControl
+                    key={defaultCoreKind}
                     model={defaultOrchestrationDraft.mainModel}
                     coreKind={defaultCoreKind}
                     disabled={busy}

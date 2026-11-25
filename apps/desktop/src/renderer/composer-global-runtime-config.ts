@@ -1,4 +1,5 @@
 import type { CoreKind } from "@eco/runtime/core-runtime";
+import { resolveHarnessOrchestrationSelection } from "../shared/project-orchestration-settings";
 import { withDefaultBrowserIntegration } from "../shared/integrations";
 import type {
   McpServerConfigView,
@@ -39,7 +40,10 @@ export function buildComposerGlobalRuntimeConfig(input: {
     });
   }
 
-  const selection = workflowDefaults.defaultOrchestrationSelection;
+  const selection = resolveHarnessOrchestrationSelection(input.coreKind, input.settings, {
+    harnessSelections: workflowDefaults.harnessSelections,
+    orchestrationSelection: workflowDefaults.defaultOrchestrationSelection,
+  });
   if (!hasCompleteOrchestrationSelection(selection)) {
     return undefined;
   }

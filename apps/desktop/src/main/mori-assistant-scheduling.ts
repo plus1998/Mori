@@ -98,7 +98,7 @@ export const MORI_SCHEDULING_INSTRUCTIONS =
 
 interface SchedulingAccess {
   invoke(channel: string, args: unknown[]): Promise<unknown>;
-  defaultProfile(): ScheduleExecutionProfile;
+  defaultProfile(coreKind?: ScheduleExecutionProfile["coreKind"], workspacePath?: string): ScheduleExecutionProfile;
   projectPath(value: string): string;
   workThread(id: string): ThreadSummary | undefined;
   assistantContext?(): { threadId: string; channel: "desktop" | "wechat"; messageId?: string };
@@ -162,10 +162,11 @@ export class MoriAssistantScheduling {
         const source = input.sourceThreadId ? this.requireThread(input.sourceThreadId) : undefined;
         const projectPath = input.projectPath ?? source?.workspacePath;
         if (!projectPath) throw new Error("独立定时任务必须明确 projectPath 或 sourceThreadId。");
+        const workspacePath = this.access.projectPath(projectPath);
         target = {
           kind: "scheduled_task",
-          workspacePath: this.access.projectPath(projectPath),
-          executionProfile: this.profile(input, source ? this.threadProfile(source) : undefined),
+          workspacePath,
+          executionProfile: this.profile(input, source ? this.threadProfile(source) : undefined, workspacePath),
         };
       }
       signal.throwIfAborted();
@@ -261,16 +262,18 @@ export class MoriAssistantScheduling {
     const source = sourceThreadId ? this.requireThread(sourceThreadId) : undefined;
     if (executionChanged && !source && !current.executionProfile)
       throw new Error("任务缺少原运行配置，请指定完整的来源工作会话。");
+    const workspacePath = projectPath !== undefined || source
+      ? this.access.projectPath(projectPath ?? this.requireProject(source))
+      : undefined;
     const updated = {
       ...changes,
-      ...(projectPath !== undefined || source
-        ? { workspacePath: this.access.projectPath(projectPath ?? this.requireProject(source)) }
-        : {}),
+      ...(workspacePath ? { workspacePath } : {}),
       ...(executionChanged
         ? {
             executionProfile: this.profile(
               input,
               source ? this.threadProfile(source) : current.executionProfile,
+              workspacePath ?? this.scheduleProject(current),
             ),
           }
         : {}),
@@ -303,8 +306,10 @@ export class MoriAssistantScheduling {
   private profile(
     input: Partial<ExecutionFields>,
     base?: ScheduleExecutionProfile,
+    workspacePath?: string,
   ): ScheduleExecutionProfile {
-    const profile = structuredClone(base ?? this.access.defaultProfile());
+    const inherit = base && (!input.coreKind || input.coreKind === base.coreKind);
+    const profile = structuredClone(inherit ? base : this.access.defaultProfile(input.coreKind, workspacePath));
     if (input.coreKind) profile.coreKind = input.coreKind;
     const config = profile.runtimeConfig;
     if ((input.providerId === undefined) !== (input.modelId === undefined))

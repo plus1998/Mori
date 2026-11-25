@@ -1596,7 +1596,7 @@ export const i18nCatalogs = {
       "settings.models.resources.noOrchestration": "尚未设置默认协作配置。",
       "settings.models.resources.globalOrchestration": "全局默认编排",
       "settings.models.resources.globalOrchestrationHint":
-        "仅用于尚未保存项目编排配置的新对话。Composer 中的选择不会修改这里。",
+        "新对话会优先使用当前 Harness 的项目编排。项目未配置时，使用这里的全局默认。",
       "settings.models.resources.clearGlobalOrchestration": "清除全局默认编排",
       "settings.models.resources.missingMainAgentOption": "缺失引用：{{id}}",
       "settings.models.resources.missingMainAgentHint":
@@ -5645,7 +5645,7 @@ export const i18nCatalogs = {
       "settings.models.resources.noOrchestration": "No default orchestration combination has been set.",
       "settings.models.resources.globalOrchestration": "Global default orchestration",
       "settings.models.resources.globalOrchestrationHint":
-        "Used only for new sessions in projects without a saved orchestration. Composer selections do not modify this setting.",
+        "New sessions use the project orchestration for the selected Harness when available and the global default otherwise.",
       "settings.models.resources.clearGlobalOrchestration": "Clear global default orchestration",
       "settings.models.resources.missingMainAgentOption": "Missing reference: {{id}}",
       "settings.models.resources.missingMainAgentHint":

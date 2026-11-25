@@ -444,3 +444,35 @@ test.skipIf(!sqliteAvailable)(
     await fs.rm(dir, { recursive: true, force: true });
   },
 );
+
+test.skipIf(!sqliteAvailable)("merges global Harness defaults independently and persists an explicit clear", async () => {
+  const { DatabaseSync } = await import("node:sqlite");
+  const db = new DatabaseSync(":memory:");
+  try {
+    const store = new WorkflowSettingsStore(db);
+    store.initialize();
+    const selection = (providerId: string, modelId: string) => ({
+      mainModel: { providerId, modelId },
+      mainPrompt: { mode: "builtin" as const },
+      subagents: { mode: "none" as const },
+    });
+    store.save({ ...store.get(), harnessSelections: { codex: selection("openai", "codex") } });
+    store.save({ ...store.get(), harnessSelections: { claude: selection("api", "claude") } });
+    store.save({ ...store.get(), harnessSelections: { pi: null } });
+
+    const reopened = new WorkflowSettingsStore(db);
+    expect(reopened.get().harnessSelections).toEqual({
+      codex: selection("openai", "codex"),
+      claude: selection("api", "claude"),
+      pi: null,
+    });
+    expect(reopened.clearDefaultMainModelProviderReference("openai")).toBe(true);
+    expect(reopened.get().harnessSelections).toEqual({
+      codex: null,
+      claude: selection("api", "claude"),
+      pi: null,
+    });
+  } finally {
+    db.close();
+  }
+});

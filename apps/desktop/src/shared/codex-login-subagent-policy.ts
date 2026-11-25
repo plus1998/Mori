@@ -7,6 +7,14 @@ export function isCodexLoginProvider(providerId: string, providers: readonly Pro
   return !stored || (stored.authMethod === "auth_json" && !stored.hasApiKey);
 }
 
+export function supportsMainModelProvider(
+  coreKind: string | undefined,
+  providerId: string,
+  isLoginProvider: (providerId: string) => boolean,
+): boolean {
+  return (coreKind !== "claude" && coreKind !== "pi") || !isLoginProvider(providerId);
+}
+
 /** Validate the actual per-thread combination, not reusable orchestration resources. */
 export function assertCodexLoginSubagentPolicy(input: {
   coreKind: string | undefined;
@@ -15,6 +23,9 @@ export function assertCodexLoginSubagentPolicy(input: {
   isCodexLoginProvider: (providerId: string) => boolean;
 }): void {
   const main = input.routes.find((route) => route.role === "main");
+  if (main && !supportsMainModelProvider(input.coreKind, main.providerId, input.isCodexLoginProvider)) {
+    throw new Error("当前 Harness 无法使用 Codex Login 模型，请重新选择主模型。");
+  }
   if (input.coreKind === "codex" && main && input.isCodexLoginProvider(main.providerId)) return;
   const conflict = input.snapshot.agents.find((agent) => {
     if (!agent.enabled || agent.agentKey === "main") return false;

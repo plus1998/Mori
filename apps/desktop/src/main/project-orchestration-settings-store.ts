@@ -3,8 +3,11 @@ import path from "node:path";
 import type { DatabaseSync as DatabaseSyncType } from "node:sqlite";
 import type { OrchestrationSelection } from "../shared/agent-orchestration";
 import {
+  isOrchestrationHarness,
   normalizeProjectOrchestrationSelection,
+  type OrchestrationHarness,
   type ProjectOrchestrationSettingsSnapshot,
+  type ProjectOrchestrationSettingsUpdate,
 } from "../shared/project-orchestration-settings";
 
 export async function createProjectOrchestrationSettingsStore(
@@ -27,6 +30,13 @@ export class ProjectOrchestrationSettingsStore {
         selection_json TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS project_harness_settings (
+        workspace_path TEXT NOT NULL,
+        core_kind TEXT NOT NULL,
+        selection_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (workspace_path, core_kind)
+      );
     `);
   }
 
@@ -35,171 +45,140 @@ export class ProjectOrchestrationSettingsStore {
     const row = this.db
       .prepare(`SELECT selection_json FROM project_orchestration_settings WHERE workspace_path = ?`)
       .get(normalizedPath) as { selection_json: string } | undefined;
-    if (!row) {
-      return { workspacePath: normalizedPath };
+    const snapshot: ProjectOrchestrationSettingsSnapshot = { workspacePath: normalizedPath };
+    if (row) snapshot.orchestrationSelection = this.parseSelection(row.selection_json, normalizedPath);
+    const harnessRows = this.db
+      .prepare(`SELECT core_kind, selection_json FROM project_harness_settings WHERE workspace_path = ?`)
+      .all(normalizedPath) as Array<{ core_kind: string; selection_json: string }>;
+    for (const { core_kind, selection_json } of harnessRows) {
+      if (core_kind === "acp") {
+        const model: unknown = JSON.parse(selection_json);
+        if (model !== null && (typeof model !== "string" || !model.trim())) {
+          throw new Error(`项目 Cursor 模型配置无效：${normalizedPath}`);
+        }
+        snapshot.cursorModelId = model;
+      } else if (isOrchestrationHarness(core_kind)) {
+        (snapshot.harnessSelections ??= {})[core_kind] = this.parseSelection(selection_json, normalizedPath);
+      }
     }
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(row.selection_json) as unknown;
-    } catch {
-      throw new Error(`项目编排配置损坏：${normalizedPath}`);
-    }
-    const orchestrationSelection = normalizeProjectOrchestrationSelection(parsed);
-    if (!orchestrationSelection) {
-      throw new Error(`项目编排配置无效：${normalizedPath}`);
-    }
-    return { workspacePath: normalizedPath, orchestrationSelection };
+    return snapshot;
   }
 
-  save(snapshot: {
-    workspacePath: string;
-    orchestrationSelection: OrchestrationSelection;
-  }): ProjectOrchestrationSettingsSnapshot {
+  save(snapshot: ProjectOrchestrationSettingsUpdate): ProjectOrchestrationSettingsSnapshot {
+    this.write(snapshot);
+    return this.get(snapshot.workspacePath);
+  }
+
+  private write(snapshot: ProjectOrchestrationSettingsUpdate): void {
     const workspacePath = path.resolve(snapshot.workspacePath);
-    const orchestrationSelection = normalizeProjectOrchestrationSelection(snapshot.orchestrationSelection);
-    if (!orchestrationSelection) {
+    const selection = snapshot.coreKind === "acp"
+      ? snapshot.cursorModelId
+      : normalizeProjectOrchestrationSelection(snapshot.orchestrationSelection);
+    if (selection === undefined) {
       throw new Error("项目编排配置必须是完整有效的编排组合。");
     }
-    this.db
-      .prepare(
+    const json = JSON.stringify(selection);
+    const now = new Date().toISOString();
+    if (snapshot.coreKind) {
+      this.db.prepare(
+        `INSERT INTO project_harness_settings (workspace_path, core_kind, selection_json, updated_at)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(workspace_path, core_kind) DO UPDATE SET
+           selection_json = excluded.selection_json, updated_at = excluded.updated_at`,
+      ).run(workspacePath, snapshot.coreKind, json, now);
+    } else {
+      this.db.prepare(
         `INSERT INTO project_orchestration_settings (workspace_path, selection_json, updated_at)
          VALUES (?, ?, ?)
          ON CONFLICT(workspace_path) DO UPDATE SET
-           selection_json = excluded.selection_json,
-           updated_at = excluded.updated_at`,
-      )
-      .run(workspacePath, JSON.stringify(orchestrationSelection), new Date().toISOString());
-    return { workspacePath, orchestrationSelection };
+           selection_json = excluded.selection_json, updated_at = excluded.updated_at`,
+      ).run(workspacePath, json, now);
+    }
   }
 
   listSelections(): OrchestrationSelection[] {
     return this.listSelectionEntries().map((entry) => entry.selection);
   }
 
-  /** Selections with workspace paths — used for actionable delete-guard errors. */
   listSelectionEntries(): Array<{ workspacePath: string; selection: OrchestrationSelection }> {
-    const rows = this.db
-      .prepare(`SELECT workspace_path, selection_json FROM project_orchestration_settings`)
-      .all() as Array<{ workspace_path: string; selection_json: string }>;
-    const entries: Array<{ workspacePath: string; selection: OrchestrationSelection }> = [];
-    for (const row of rows) {
-      try {
-        const selection = normalizeProjectOrchestrationSelection(JSON.parse(row.selection_json) as unknown);
-        if (selection) {
-          entries.push({ workspacePath: row.workspace_path, selection });
-        }
-      } catch {
-        // Skip corrupt rows; get() will still surface them for that workspace.
-      }
-    }
-    return entries;
+    return this.readSelectionEntries().map(({ workspacePath, selection }) => ({ workspacePath, selection }));
   }
 
   clearSubagentOrchestrationReference(orchestrationId: string): number {
-    const trimmedId = orchestrationId.trim();
-    if (!trimmedId) {
-      return 0;
-    }
-
-    const rows = this.db
-      .prepare(`SELECT workspace_path, selection_json FROM project_orchestration_settings`)
-      .all() as Array<{ workspace_path: string; selection_json: string }>;
-    let cleared = 0;
-    const update = this.db.prepare(
-      `UPDATE project_orchestration_settings
-       SET selection_json = ?, updated_at = ?
-       WHERE workspace_path = ?`,
-    );
-
-    for (const row of rows) {
-      let selection: OrchestrationSelection | undefined;
-      try {
-        selection = normalizeProjectOrchestrationSelection(JSON.parse(row.selection_json) as unknown);
-      } catch {
-        continue;
-      }
-      if (
-        selection?.subagents.mode !== "orchestration" ||
-        selection.subagents.orchestrationId !== trimmedId
-      ) {
-        continue;
-      }
-      update.run(
-        JSON.stringify({ ...selection, subagents: { mode: "none" } }),
-        new Date().toISOString(),
-        row.workspace_path,
-      );
-      cleared += 1;
-    }
-    return cleared;
+    const id = orchestrationId.trim();
+    if (!id) return 0;
+    return this.updateSelections((selection) =>
+      selection.subagents.mode === "orchestration" && selection.subagents.orchestrationId === id
+        ? { ...selection, subagents: { mode: "none" } }
+        : selection);
   }
 
-  /**
-   * Drop project orchestration rows that point at a deleted main-agent config so
-   * those workspaces fall back to the global default.
-   */
   clearMainModelProviderReference(providerId: string): number {
-    const trimmedId = providerId.trim();
-    if (!trimmedId) {
-      return 0;
-    }
-
-    const rows = this.db
-      .prepare(`SELECT workspace_path, selection_json FROM project_orchestration_settings`)
-      .all() as Array<{ workspace_path: string; selection_json: string }>;
-    let cleared = 0;
-    const remove = this.db.prepare(`DELETE FROM project_orchestration_settings WHERE workspace_path = ?`);
-
-    for (const row of rows) {
-      let selection: OrchestrationSelection | undefined;
-      try {
-        selection = normalizeProjectOrchestrationSelection(JSON.parse(row.selection_json) as unknown);
-      } catch {
-        continue;
-      }
-      if (selection?.mainModel?.providerId !== trimmedId) {
-        continue;
-      }
-      remove.run(row.workspace_path);
-      cleared += 1;
-    }
-    return cleared;
+    const id = providerId.trim();
+    if (!id) return 0;
+    return this.updateSelections((selection) => selection.mainModel?.providerId === id ? undefined : selection);
   }
 
-  /** Reset custom main prompts that point at a deleted prompt resource to builtin. */
   clearMainAgentPromptReference(promptId: string): number {
-    const trimmedId = promptId.trim();
-    if (!trimmedId) {
-      return 0;
+    const id = promptId.trim();
+    if (!id) return 0;
+    return this.updateSelections((selection) =>
+      selection.mainPrompt.mode === "custom_append" && selection.mainPrompt.promptId === id
+        ? { ...selection, mainPrompt: { mode: "builtin" } }
+        : selection);
+  }
+
+  private parseSelection(json: string, workspacePath: string): OrchestrationSelection {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(json);
+    } catch {
+      throw new Error(`项目编排配置损坏：${workspacePath}`);
     }
+    const selection = normalizeProjectOrchestrationSelection(parsed);
+    if (!selection) throw new Error(`项目编排配置无效：${workspacePath}`);
+    return selection;
+  }
 
-    const rows = this.db
-      .prepare(`SELECT workspace_path, selection_json FROM project_orchestration_settings`)
-      .all() as Array<{ workspace_path: string; selection_json: string }>;
-    let cleared = 0;
-    const update = this.db.prepare(
-      `UPDATE project_orchestration_settings
-       SET selection_json = ?, updated_at = ?
-       WHERE workspace_path = ?`,
-    );
-
-    for (const row of rows) {
-      let selection: OrchestrationSelection | undefined;
+  private readSelectionEntries(): Array<{
+    workspacePath: string;
+    coreKind?: OrchestrationHarness;
+    selection: OrchestrationSelection;
+  }> {
+    const rows = this.db.prepare(
+      `SELECT workspace_path, NULL AS core_kind, selection_json FROM project_orchestration_settings
+       UNION ALL
+       SELECT workspace_path, core_kind, selection_json FROM project_harness_settings WHERE core_kind <> 'acp'`,
+    ).all() as Array<{ workspace_path: string; core_kind: string | null; selection_json: string }>;
+    return rows.flatMap((row) => {
       try {
-        selection = normalizeProjectOrchestrationSelection(JSON.parse(row.selection_json) as unknown);
+        return [{
+          workspacePath: row.workspace_path,
+          ...(isOrchestrationHarness(row.core_kind) ? { coreKind: row.core_kind } : {}),
+          selection: this.parseSelection(row.selection_json, row.workspace_path),
+        }];
       } catch {
-        continue;
+        // Keep corrupt rows available for get() to report.
+        return [];
       }
-      if (selection?.mainPrompt.mode !== "custom_append" || selection.mainPrompt.promptId !== trimmedId) {
-        continue;
+    });
+  }
+
+  private updateSelections(update: (selection: OrchestrationSelection) => OrchestrationSelection | undefined): number {
+    let count = 0;
+    for (const { workspacePath, coreKind, selection } of this.readSelectionEntries()) {
+      const next = update(selection);
+      if (next === selection) continue;
+      if (next) {
+        this.write({ workspacePath, ...(coreKind ? { coreKind } : {}), orchestrationSelection: next });
+      } else if (coreKind) {
+        this.db.prepare(`DELETE FROM project_harness_settings WHERE workspace_path = ? AND core_kind = ?`)
+          .run(workspacePath, coreKind);
+      } else {
+        this.db.prepare(`DELETE FROM project_orchestration_settings WHERE workspace_path = ?`).run(workspacePath);
       }
-      update.run(
-        JSON.stringify({ ...selection, mainPrompt: { mode: "builtin" } }),
-        new Date().toISOString(),
-        row.workspace_path,
-      );
-      cleared += 1;
+      count += 1;
     }
-    return cleared;
+    return count;
   }
 }

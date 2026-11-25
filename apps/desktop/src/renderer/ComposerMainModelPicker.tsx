@@ -169,6 +169,7 @@ export function ComposerMainModelPicker({
   const [ultrafast, setUltrafast] = useState<{ accountId: string; modelIds: string[]; error?: string }>();
   const [accountModelsLoading, setAccountModelsLoading] = useState(false);
   const switchAccountIntent = useRef(false);
+  const includeLogin = purpose === "subagent" || (purpose === "main" && coreKind === "codex");
   const supportsThinking = purpose === "main" || purpose === "subagent";
   const selectionLabel = t(purpose === "subagent" ? "composer.route.subagentModel" : purpose === "main" ? "composer.route.mainModel" : purpose === "auxiliary"
     ? "composer.route.auxiliaryModel" : purpose === "vision" ? "composer.route.visionModel" : "composer.route.approvalModel");
@@ -190,7 +191,7 @@ export function ComposerMainModelPicker({
         }
       }).catch((cause: unknown) => { if (!cancelled) setError(String(cause)); });
     } else if (model.providerId === "openai") {
-      if (purpose === "subagent") return;
+      if (!includeLogin || purpose === "subagent") return;
       void window.eco.openAIAccountsList().then((accounts) => {
         if (!cancelled) setLoginAccounts(accounts.map((account) => ({ id: account.id, name: account.name })));
       }).catch((cause: unknown) => { if (!cancelled) setError(String(cause)); });
@@ -200,7 +201,7 @@ export function ComposerMainModelPicker({
       }).catch((cause: unknown) => { if (!cancelled) setError(String(cause)); });
     }
     return () => { cancelled = true; };
-  }, [model?.providerId, purpose]);
+  }, [model?.providerId, purpose, includeLogin]);
 
   useEffect(() => {
     if (!open) return;
@@ -219,7 +220,7 @@ export function ComposerMainModelPicker({
     loadedAccountSourcesRef.current.clear();
     accountPositionedRef.current = false;
     setLoadingData(new Set<PickerDataKey>(["custom", "oauthAccounts", "loginModels",
-      ...(purpose === "main" ? ["loginAccounts" as const] : [])]));
+      ...(purpose === "main" && includeLogin ? ["loginAccounts" as const] : [])]));
     setLoadErrors({});
     setError(undefined);
     function load<T>(key: PickerDataKey, request: Promise<T>, apply: (value: T) => void) {
@@ -241,7 +242,7 @@ export function ComposerMainModelPicker({
     // Each local read publishes immediately; unrelated accounts and pricing never gate it.
     load("custom", (purpose === "approval" ? eco.listApprovalModelOptions({ includePricing: false }) : eco.listGitCommitModelOptions({ includePricing: false })),
       (result) => setCandidates(result.options));
-    if (purpose === "main") load("loginAccounts", eco.openAIAccountsList(), (accounts) => {
+    if (purpose === "main" && includeLogin) load("loginAccounts", eco.openAIAccountsList(), (accounts) => {
       loadedAccountSourcesRef.current.add("login");
       setLoginAccounts(accounts.filter((account) => account.isLoggedIn || account.authState === "refreshable" ||
         account.authState === "refreshing")
@@ -270,10 +271,10 @@ export function ComposerMainModelPicker({
         ...(entry.supportsFast !== undefined ? { supportsFast: entry.supportsFast } : {}) }))));
 
     return () => { cancelled = true; };
-  }, [open, purpose]);
+  }, [open, purpose, includeLogin]);
 
   useEffect(() => {
-    if (!open || source !== "login" || purpose !== "main" || !accountId || !window.eco) return;
+    if (!open || !includeLogin || source !== "login" || purpose !== "main" || !accountId || !window.eco) return;
     let cancelled = false;
     setUltrafast(undefined);
     void window.eco.openAIAccountsUltrafastModels(accountId).then((modelIds) => {
@@ -282,12 +283,12 @@ export function ComposerMainModelPicker({
       if (!cancelled) setUltrafast({ accountId, modelIds: [], error: cause instanceof Error ? cause.message : String(cause) });
     });
     return () => { cancelled = true; };
-  }, [open, source, purpose, accountId]);
+  }, [open, source, purpose, accountId, includeLogin]);
 
   const ultrafastForAccount = ultrafast?.accountId === accountId ? ultrafast : undefined;
   const loginAccountIds = loginAccounts.map((account) => account.id).join("\0");
   useEffect(() => {
-    if (!open || purpose !== "main" || source !== "login" || !loginAccountIds || !window.eco) return;
+    if (!open || !includeLogin || purpose !== "main" || source !== "login" || !loginAccountIds || !window.eco) return;
     let cancelled = false;
     const eco = window.eco;
     for (const id of loginAccountIds.split("\0")) {
@@ -300,7 +301,7 @@ export function ComposerMainModelPicker({
       });
     }
     return () => { cancelled = true; };
-  }, [open, source, loginAccountIds, purpose]);
+  }, [open, source, loginAccountIds, purpose, includeLogin]);
 
   useEffect(() => {
     if (!open || source === "login" || source === "oauth" || !source || !window.eco) return;
@@ -321,7 +322,7 @@ export function ComposerMainModelPicker({
   }, [open, source]);
 
   const providers = useMemo(() => buildMainModelProviderOptions(candidates, loginModels,
-    purpose === "subagent" || (purpose === "main" && coreKind === "codex")), [candidates, loginModels, coreKind, purpose]);
+    includeLogin), [candidates, loginModels, includeLogin]);
   const selectedProvider = providers.find((provider) => provider.id === source);
   const accountMode = modelPickerAccountMode(source, purpose);
   const accountSource = accountMode === "select";
@@ -392,6 +393,7 @@ export function ComposerMainModelPicker({
   }, [open, source, accountId, activeProviderId, activeChoice?.accountId, accounts]);
 
   const saveChoice = (choice: ModelRef): Promise<boolean> => {
+    if (choice.providerId === "openai" && !includeLogin) return Promise.resolve(false);
     const { accountId: _accountId, ...withoutAccount } = choice;
     const selection = purpose === "subagent" && choice.providerId === "openai" ? withoutAccount : choice;
     const next = saveQueueRef.current.catch(() => {}).then(() => onSelect(selection));
@@ -403,7 +405,7 @@ export function ComposerMainModelPicker({
   };
 
   const chooseModel = (entry: PickerModel) => {
-    if (readOnly) return;
+    if (readOnly || (source === "login" && !includeLogin)) return;
     const providerId = source === "login" ? "openai" : source === "oauth"
       ? "eco-coding-chatgpt" : source;
     if (!providerId || (accountSource && !accountId)) return;

@@ -32,7 +32,13 @@ import {
   latestCodexCapacityRetryNotice as readLatestCodexCapacityRetryNotice,
 } from "../shared/codex-capacity-retry";
 import { CodexCapacityAutoRetry } from "./codex-capacity-auto-retry";
-import { assertCodexLoginSubagentPolicy, isCodexLoginProvider } from "../shared/codex-login-subagent-policy";
+import {
+  isOrchestrationHarness,
+  resolveHarnessOrchestrationSelection,
+  type OrchestrationHarness,
+  type ProjectHarnessSelection,
+} from "../shared/project-orchestration-settings";
+import { assertCodexLoginSubagentPolicy, isCodexLoginProvider, supportsMainModelProvider } from "../shared/codex-login-subagent-policy";
 import type { CoreKind } from "@eco/runtime/core-runtime";
 import {
   listPlanDelegationAgents,
@@ -1656,6 +1662,7 @@ function App() {
   const [titleGeneratingThreadIds, setTitleGeneratingThreadIds] = useState<Set<string>>(() => new Set());
   const [settings, setSettings] = useState<ModelSettingsSnapshot>(emptySettings);
   const [mcpSettings, setMcpSettings] = useState<McpSettingsSnapshot>(emptyMcpSettings);
+  const [globalModelHarness, setGlobalModelHarness] = useState<OrchestrationHarness>();
   const [workflowSettings, setWorkflowSettings] = useState<WorkflowSettingsSnapshot>({
     sessionMode: "agent",
     defaultCoreKind: DEFAULT_CORE_KIND,
@@ -5311,11 +5318,32 @@ function App() {
   ]);
 
   const composerCoreKind = activeThread?.coreKind ?? newThreadCoreKind;
-  const effectiveDefaultOrchestrationSelection = workflowSettings.defaultOrchestrationSelection;
-  const projectOrchestrationSelection =
-    projectOrchestrationSettings?.workspacePath === currentProjectPath
-      ? projectOrchestrationSettings?.orchestrationSelection
-      : undefined;
+  const defaultModelHarness = globalModelHarness ?? (isOrchestrationHarness(workflowSettings.defaultCoreKind)
+    ? workflowSettings.defaultCoreKind
+    : DEFAULT_CORE_KIND);
+  const supportsComposerModel = useCallback((coreKind: CoreKind, providerId: string) =>
+    supportsMainModelProvider(coreKind, providerId, (id) => isCodexLoginProvider(id, settings.providers)),
+  [settings.providers]);
+  const compatibleOrchestrationSelection = useCallback((
+    coreKind: CoreKind,
+    orchestrationSelection: OrchestrationSelection,
+  ) => resolveHarnessOrchestrationSelection(coreKind, settings, { orchestrationSelection }), [settings]);
+  const globalSelectionForHarness = useCallback((defaults: WorkflowSettingsSnapshot, coreKind: CoreKind) =>
+    resolveHarnessOrchestrationSelection(coreKind, settings, {
+      harnessSelections: defaults.harnessSelections,
+      orchestrationSelection: defaults.defaultOrchestrationSelection,
+    }), [settings]);
+  const effectiveDefaultOrchestrationSelection = globalSelectionForHarness(workflowSettings, defaultModelHarness);
+  const composerGlobalOrchestrationSelection = globalSelectionForHarness(workflowSettings, composerCoreKind);
+  const projectModelSettings = projectOrchestrationSettings?.workspacePath === currentProjectPath
+    ? projectOrchestrationSettings : undefined;
+  const projectOrchestrationSelection = projectModelSettings
+    ? resolveHarnessOrchestrationSelection(composerCoreKind, settings, projectModelSettings)
+    : undefined;
+  const composerProjectSelectionReady = Boolean(activeThread || !currentProjectPath || projectModelSettings);
+  const draftCursorModelId = projectModelSettings?.cursorModelId === undefined
+    ? workflowSettings.acpCursorModelId
+    : projectModelSettings.cursorModelId ?? undefined;
   const composerAvailableSkills = useMemo(() => {
     const projectSkills = skillsSnapshot?.projectSkills ?? [];
     const userSkills = skillsSnapshot?.userSkills ?? [];
@@ -5396,8 +5424,16 @@ function App() {
     }): ThreadRuntimeConfig | undefined => {
       try {
         const defaults = options?.workflowDefaults ?? workflowSettings;
-        if (currentProjectPath && projectOrchestrationSettings?.workspacePath !== currentProjectPath) {
-          return undefined;
+        if (currentProjectPath && !projectModelSettings) return undefined;
+        if (composerCoreKind === "acp") {
+          return buildAcpThreadRuntimeConfig({
+            ...(draftCursorModelId ? { cursorModelId: draftCursorModelId } : {}),
+            sessionMode: options?.planModeOverride ? "plan" : "agent",
+            bashReviewMode: normalizeBashReviewMode(defaults.defaultBashReviewMode),
+            ...(defaults.defaultAuxiliaryModel ? { auxiliaryModel: defaults.defaultAuxiliaryModel } : {}),
+            ...(defaults.defaultApprovalModel ? { approvalModel: defaults.defaultApprovalModel } : {}),
+            ...(defaults.defaultVisionModel ? { visionModel: defaults.defaultVisionModel } : {}),
+          });
         }
         const projectMcpServersEnabled =
           projectMcpSettings?.workspacePath === currentProjectPath
@@ -5414,7 +5450,7 @@ function App() {
         const orchestrationSelection =
           options?.orchestrationSelection ??
           projectOrchestrationSelection ??
-          defaults.defaultOrchestrationSelection;
+          globalSelectionForHarness(defaults, composerCoreKind);
         if (!hasCompleteOrchestrationSelection(orchestrationSelection)) {
           return undefined;
         }
@@ -5442,7 +5478,10 @@ function App() {
       projectMcpSettings,
       projectIntegrationsSettings,
       projectOrchestrationSelection,
-      projectOrchestrationSettings?.workspacePath,
+      projectModelSettings,
+      composerCoreKind,
+      draftCursorModelId,
+      globalSelectionForHarness,
     ],
   );
 
@@ -5450,7 +5489,11 @@ function App() {
     setComposerRuntimeConfig(buildComposerDefaultConfig() ?? null);
   }, [buildComposerDefaultConfig]);
 
-  useEffect(() => {
+  const composerRuntimeScope = activeThread?.id ?? JSON.stringify([currentProjectPath, composerCoreKind]);
+  const lastComposerRuntimeScope = useRef<string | undefined>(undefined);
+  useLayoutEffect(() => {
+    const scopeChanged = lastComposerRuntimeScope.current !== composerRuntimeScope;
+    lastComposerRuntimeScope.current = composerRuntimeScope;
     if (activeThread?.runtimeConfig) {
       setComposerRuntimeConfig((current) => {
         const next = activeThread.runtimeConfig!;
@@ -5458,34 +5501,12 @@ function App() {
       });
       return;
     }
+    if (scopeChanged) {
+      setComposerRuntimeConfig(buildComposerDefaultConfig() ?? null);
+      return;
+    }
     if (composerCoreKind === "acp") {
-      setComposerRuntimeConfig((current) => {
-        const keepDraftModel =
-          Boolean(current) && !hasCompleteOrchestrationSelection(current?.orchestrationSelection);
-        const next = buildAcpThreadRuntimeConfig({
-          ...(keepDraftModel && current?.cursorModelId
-            ? { cursorModelId: current.cursorModelId }
-            : !keepDraftModel && (current?.cursorModelId ?? workflowSettings.acpCursorModelId)
-              ? { cursorModelId: current?.cursorModelId ?? workflowSettings.acpCursorModelId }
-              : {}),
-          sessionMode: current?.sessionMode ?? "agent",
-          bashReviewMode: current?.bashReviewMode ?? "always",
-          ...(current?.subagentEnabled ? { subagentEnabled: current.subagentEnabled } : {}),
-          ...((current ? current.auxiliaryModel : workflowSettings.defaultAuxiliaryModel)
-            ? { auxiliaryModel: current ? current.auxiliaryModel : workflowSettings.defaultAuxiliaryModel }
-            : {}),
-          ...((current?.approvalModel ?? workflowSettings.defaultApprovalModel)
-            ? { approvalModel: current?.approvalModel ?? workflowSettings.defaultApprovalModel }
-            : {}),
-          ...((current ? current.visionModel : workflowSettings.defaultVisionModel)
-            ? { visionModel: current ? current.visionModel : workflowSettings.defaultVisionModel }
-            : {}),
-          ...(current?.mcpServersEnabled ? { mcpServersEnabled: current.mcpServersEnabled } : {}),
-          ...(current?.integrationsEnabled ? { integrationsEnabled: current.integrationsEnabled } : {}),
-          ...(current?.skillsEnabled ? { skillsEnabled: current.skillsEnabled } : {}),
-        });
-        return current && threadRuntimeConfigsEquivalent(current, next) ? current : next;
-      });
+      setComposerRuntimeConfig((current) => current ?? buildComposerDefaultConfig() ?? null);
       return;
     }
     setComposerRuntimeConfig((current) => {
@@ -5494,6 +5515,9 @@ function App() {
         hasCompleteOrchestrationSelection(current.orchestrationSelection)
       ) {
         try {
+          if (!compatibleOrchestrationSelection(composerCoreKind, current.orchestrationSelection)) {
+            return buildComposerDefaultConfig() ?? null;
+          }
           const refreshed = materializeThreadOrchestrationSnapshot(settings, current.orchestrationSelection);
           const next: ThreadRuntimeConfig = {
             ...current,
@@ -5518,9 +5542,10 @@ function App() {
       return current && threadRuntimeConfigsEquivalent(current, defaults) ? current : defaults;
     });
   }, [
-    activeThread?.id,
     activeThread?.runtimeConfig,
     buildComposerDefaultConfig,
+    compatibleOrchestrationSelection,
+    composerRuntimeScope,
     composerCoreKind,
     settings.mainAgentConfigs,
     settings.mainAgentPrompts,
@@ -5605,6 +5630,7 @@ function App() {
     ],
   );
   const resolveComposerRuntimeConfigForSend = useCallback((): ThreadRuntimeConfig | null => {
+    if (!composerProjectSelectionReady) return null;
     const base = effectiveComposerRuntimeConfig ?? composerRuntimeConfig;
     if (composerCoreKind === "acp") {
       const resolvedCursorModelId = resolveAcpCursorModelIdForSend({
@@ -5643,10 +5669,9 @@ function App() {
         (hasCompleteOrchestrationSelection(projectOrchestrationSelection)
           ? projectOrchestrationSelection
           : undefined) ??
-        (hasCompleteOrchestrationSelection(workflowSettings.defaultOrchestrationSelection)
-          ? workflowSettings.defaultOrchestrationSelection
-          : undefined));
-    if (!hasCompleteOrchestrationSelection(selection)) {
+        composerGlobalOrchestrationSelection);
+    if (!hasCompleteOrchestrationSelection(selection) ||
+        !compatibleOrchestrationSelection(composerCoreKind, selection)) {
       return null;
     }
     try {
@@ -5665,6 +5690,9 @@ function App() {
             resolvedOrchestrationSnapshot: lockedSnapshot,
           }
         : materializeThreadOrchestrationSnapshot(settings, selection);
+      if (!supportsComposerModel(composerCoreKind, materialized.resolvedOrchestrationSnapshot.mainAgent.modelRef.providerId)) {
+        return null;
+      }
       return {
         ...shell,
         ...materialized,
@@ -5691,6 +5719,10 @@ function App() {
   }, [
     composerRuntimeConfig,
     composerCoreKind,
+    composerGlobalOrchestrationSelection,
+    composerProjectSelectionReady,
+    compatibleOrchestrationSelection,
+    supportsComposerModel,
     effectiveComposerRuntimeConfig,
     activeThread,
     mcpSettings.servers,
@@ -5797,7 +5829,7 @@ function App() {
   );
   const composerNeedsOrchestration = composerRequiresOrchestration(composerCoreKind);
   const composerShowsRoute = composerShowsRouteConfig(composerCoreKind);
-  const composerRoutesReady = !composerNeedsOrchestration || routesReady;
+  const composerRoutesReady = composerProjectSelectionReady && (!composerNeedsOrchestration || routesReady);
   const threadAcceptsInput = !activeThread || isContinuableThreadStatus(activeThread.status);
   const showBashApproval = Boolean(pendingBashApproval);
   const composerHasContent = Boolean(prompt.trim() || composerAttachments.length > 0);
@@ -10661,7 +10693,7 @@ function App() {
     const current: OrchestrationSelection =
       composerRuntimeConfig?.orchestrationSelection ??
       projectOrchestrationSelection ??
-      workflowSettings.defaultOrchestrationSelection ??
+      composerGlobalOrchestrationSelection ??
       emptyOrchestrationSelection();
     const requestedSelection: OrchestrationSelection = {
       ...(!patch.mainModel && current.mainAgentConfigId
@@ -10785,13 +10817,16 @@ function App() {
         return;
       }
     }
-    await persistComposerRuntimeConfig(next, { pendingPlanModel });
-    if (!activeThread && hasCompleteOrchestrationSelection(nextSelection)) {
-      await saveProjectOrchestrationSelection(nextSelection);
+    if (!await persistComposerRuntimeConfig(next, { pendingPlanModel })) return;
+    if (!activeThread && isOrchestrationHarness(composerCoreKind)) {
+      await saveProjectOrchestrationSettings({ coreKind: composerCoreKind, orchestrationSelection: nextSelection });
     }
   }
 
   async function selectComposerMainModel(model: ModelRef) {
+    if (!supportsComposerModel(composerCoreKind, model.providerId)) {
+      throw new Error("当前 Harness 无法使用 Codex Login 模型，请重新选择主模型。");
+    }
     await applyComposerOrchestrationSelection({ mainModel: model });
   }
 
@@ -10929,10 +10964,13 @@ function App() {
         ...(modelId ? { cursorModelId: modelId } : {}),
       });
     const { cursorModelId: _current, ...rest } = base;
-    await persistComposerRuntimeConfig({
+    const persisted = await persistComposerRuntimeConfig({
       ...rest,
       ...(modelId ? { cursorModelId: modelId } : {}),
     });
+    if (persisted && !activeThread) {
+      await saveProjectOrchestrationSettings({ coreKind: "acp", cursorModelId: modelId ?? null });
+    }
   }
 
   async function toggleComposerSubagent(role: SubagentRole, enabled: boolean) {
@@ -11060,25 +11098,15 @@ function App() {
     setIsSavingSettings(true);
     setError(undefined);
     try {
-      const nextWorkflowSettings: WorkflowSettingsSnapshot = {
+      const saved = await window.eco.saveWorkflowSettings({
         ...workflowSettings,
-      };
-      if (selection && hasCompleteOrchestrationSelection(selection)) {
-        nextWorkflowSettings.defaultOrchestrationSelection = selection;
-      } else {
-        delete nextWorkflowSettings.defaultOrchestrationSelection;
-      }
-      const saved = await window.eco.saveWorkflowSettings(nextWorkflowSettings);
+        harnessSelections: {
+          [defaultModelHarness]: selection && hasCompleteOrchestrationSelection(selection) ? selection : null,
+        },
+      });
       setWorkflowSettings(saved);
-      if (!activeThread && !projectOrchestrationSelection) {
-        setComposerRuntimeConfig(
-          selection
-            ? (buildComposerDefaultConfig({
-                workflowDefaults: saved,
-                orchestrationSelection: selection,
-              }) ?? null)
-            : null,
-        );
+      if (!activeThread && composerCoreKind === defaultModelHarness && !projectOrchestrationSelection) {
+        setComposerRuntimeConfig(buildComposerDefaultConfig({ workflowDefaults: saved }) ?? null);
       }
     } catch (caught) {
       setError(errorMessage(caught));
@@ -11201,22 +11229,16 @@ function App() {
     }
   }
 
-  async function saveProjectOrchestrationSelection(selection: OrchestrationSelection): Promise<void> {
-    if (
-      !window.eco?.saveProjectOrchestrationSettings ||
-      !currentProjectPath ||
-      !hasCompleteOrchestrationSelection(selection)
-    ) {
-      return;
-    }
+  async function saveProjectOrchestrationSettings(
+    update: ProjectHarnessSelection,
+  ): Promise<void> {
+    if (!window.eco?.saveProjectOrchestrationSettings || !currentProjectPath) return;
     setIsSavingSettings(true);
     setError(undefined);
     try {
-      const saved = await window.eco.saveProjectOrchestrationSettings({
-        workspacePath: currentProjectPath,
-        orchestrationSelection: selection,
-      });
-      setProjectOrchestrationSettings(saved);
+      const saved = await window.eco.saveProjectOrchestrationSettings({ workspacePath: currentProjectPath, ...update });
+      setProjectOrchestrationSettings((current) =>
+        current?.workspacePath === saved.workspacePath ? saved : current);
     } catch (caught) {
       setError(errorMessage(caught));
     } finally {
@@ -11256,6 +11278,9 @@ function App() {
         acpCursorModelId: acpCursorModelId ?? "",
       });
       setWorkflowSettings(saved);
+      if (!activeThread && composerCoreKind === "acp" && projectModelSettings?.cursorModelId === undefined) {
+        setComposerRuntimeConfig(null);
+      }
     } catch (caught) {
       setError(errorMessage(caught));
     } finally {
@@ -13169,10 +13194,11 @@ function App() {
       />
     ) : (
       <ComposerMainModelPicker
+        key={composerCoreKind}
         panelZIndex={floatingMenu ? 10001 : undefined}
         showTooltip={!floatingMenu}
         anchorRef={anchorRef}
-        model={composerPickerModel}
+        model={composerPickerModel && supportsComposerModel(composerCoreKind, composerPickerModel.providerId) ? composerPickerModel : undefined}
         compactLabel
         openRequest={modelPickerOpenRequest}
         coreKind={composerCoreKind}
@@ -15100,7 +15126,8 @@ function App() {
                   (proxyBridgeSettings ? (
                     <LazyModelsSettingsPanel
                       settings={settings}
-                      defaultCoreKind={workflowSettings.defaultCoreKind}
+                      defaultCoreKind={defaultModelHarness}
+                      onDefaultModelHarnessChange={setGlobalModelHarness}
                       mcpServers={mcpSettings.servers}
                       skillsSnapshot={skillsSnapshot}
                       initialTab={
