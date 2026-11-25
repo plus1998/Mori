@@ -123,7 +123,7 @@ export class ClaudeLoginService {
       const [code, webStatus] = await Promise.all([
         this.operations.get(profile.id)?.login
           ? { status: "signingIn" as const }
-          : this.status(profile.id).catch(() => ({ status: "unavailable" as const })),
+          : this.readStatus(profile).catch(() => ({ status: "unavailable" as const })),
         this.web.hasSession(profile.id).then(present => present ? "hasSession" as const : "noSession" as const)
           .catch(() => "unavailable" as const),
       ]);
@@ -162,18 +162,15 @@ export class ClaudeLoginService {
       const loginSignal = AbortSignal.any([signal, browserAbort.signal, AbortSignal.timeout(LOGIN_TIMEOUT_MS)]);
       let page: AccountBrowserPage | undefined;
       let stopWatchingClose: (() => void) | undefined;
-      let socks: Awaited<ReturnType<typeof startSocksToHttpBridge>> | undefined;
+      let proxy: Awaited<ReturnType<ClaudeLoginService["openCliProxy"]>> | undefined;
       let result: ReturnType<typeof launch> | undefined;
       try {
         await fs.writeFile(launcher, windows
           ? '@echo off\r\nset "MORI_CLAUDE_AUTH_URL=%~1"\r\n>"%MORI_CLAUDE_AUTH_OUTPUT%" set MORI_CLAUDE_AUTH_URL\r\n'
           : '#!/bin/sh\numask 077\nprintf "%s\\n" "$1" > "$MORI_CLAUDE_AUTH_OUTPUT"\n', { mode: 0o700 });
-        const upstream = await this.resolveLoginProxy(profile);
-        if (upstream?.startsWith("socks5:")) socks = await startSocksToHttpBridge(upstream);
-        const endpoint = socks ? `http://127.0.0.1:${socks.port}` : upstream;
-        const env = buildCodexProxyEnv(this.cliEnv(configDir), endpoint ? { mode: "proxy", url: endpoint } : { mode: "direct" });
+        proxy = await this.openCliProxy(profile, configDir);
         result = launch(executable, ["auth", "login", "--claudeai"], configDir, {
-          ...env, BROWSER: launcher, MORI_CLAUDE_AUTH_OUTPUT: output,
+          ...proxy.env, BROWSER: launcher, MORI_CLAUDE_AUTH_OUTPUT: output,
         }, loginSignal);
         const url = await Promise.race([
           this.waitForLauncher(output, AbortSignal.any([loginSignal, AbortSignal.timeout(LAUNCHER_TIMEOUT_MS)])),
@@ -195,7 +192,7 @@ export class ClaudeLoginService {
         ]).then(({ code }) => {
           if (code !== 0) throw new Error("Claude Code 授权失败，请检查登录页面和账号代理。");
         });
-        if ((await this.status(id)).status !== "signedIn") throw new Error("Claude Code 未确认订阅账号登录。");
+        if ((await this.status(configDir, proxy.env)).status !== "signedIn") throw new Error("Claude Code 未确认订阅账号登录。");
         completed = true;
       } catch (error) {
         if (!signal.aborted && !browserAbort.signal.aborted) {
@@ -209,7 +206,7 @@ export class ClaudeLoginService {
         try {
           await page?.close();
         } finally {
-          socks?.close();
+          proxy?.socks?.close();
           await fs.rm(directory, { recursive: true, force: true });
         }
       }
@@ -222,32 +219,29 @@ export class ClaudeLoginService {
     let completed = false;
     await this.withOperation(id, async signal => {
       const loginSignal = AbortSignal.any([signal, AbortSignal.timeout(LOGIN_TIMEOUT_MS)]);
-      let socks: Awaited<ReturnType<typeof startSocksToHttpBridge>> | undefined;
+      let proxy: Awaited<ReturnType<ClaudeLoginService["openCliProxy"]>> | undefined;
       let network: ClaudeSessionKeyNetwork | undefined;
       try {
         const profile = await this.read(id);
         const executable = this.resolveExecutable();
         const configDir = await this.configDir(id);
-        const upstream = await this.resolveLoginProxy(profile);
-        if (upstream?.startsWith("socks5:")) socks = await startSocksToHttpBridge(upstream);
-        const endpoint = socks ? `http://127.0.0.1:${socks.port}` : upstream;
-        network = await this.openSessionKeyNetwork(id, endpoint);
+        proxy = await this.openCliProxy(profile, configDir);
+        network = await this.openSessionKeyNetwork(id, proxy.endpoint);
         const { refreshToken, scopes } = await exchangeClaudeSessionKey(network.fetch, sessionKey, loginSignal);
         loginSignal.throwIfAborted();
-        const env = buildCodexProxyEnv(this.cliEnv(configDir), endpoint ? { mode: "proxy", url: endpoint } : { mode: "direct" });
         const result = await launch(executable, ["auth", "login", "--claudeai"], configDir, {
-          ...env,
+          ...proxy.env,
           CLAUDE_CODE_OAUTH_REFRESH_TOKEN: refreshToken,
           CLAUDE_CODE_OAUTH_SCOPES: scopes,
         }, loginSignal);
         if (result.code !== 0) throw new Error("Claude Code 未能用换取的 OAuth refresh token 登录。");
-        if ((await this.status(id)).status !== "signedIn") throw new Error("Claude Code 未确认订阅账号登录。");
+        if ((await this.status(configDir, proxy.env)).status !== "signedIn") throw new Error("Claude Code 未确认订阅账号登录。");
         completed = true;
       } catch (error) {
         if (signal.aborted) return;
         if (loginSignal.aborted) throw new Error("Claude sessionKey 登录超时。");
         if (error instanceof ClaudeSessionKeyConnectionError) {
-          const failure = socks?.getLastFailure();
+          const failure = proxy?.socks?.getLastFailure();
           if (failure?.code === "ETIMEDOUT" && failure.phase !== "tunnel") {
             const stage = failure.phase === "socks-handshake" ? "握手" : "TCP 连接";
             throw new Error(`${error.step}失败，账号的 SOCKS5 代理${stage}超时（${Math.round(failure.elapsedMs / 1000)} 秒）。`);
@@ -258,7 +252,7 @@ export class ClaudeLoginService {
         try {
           await network?.close();
         } finally {
-          socks?.close();
+          proxy?.socks?.close();
         }
       }
     }, true);
@@ -297,11 +291,16 @@ export class ClaudeLoginService {
 
   async logout(id: string, remove = false): Promise<void> {
     await this.withOperation(id, async (signal) => {
-      await this.read(id);
+      const profile = await this.read(id);
       const configDir = await this.configDir(id);
-      const result = await launch(this.resolveExecutable(), ["auth", "logout"], configDir, this.cliEnv(configDir),
-        AbortSignal.any([signal, AbortSignal.timeout(CLI_TIMEOUT_MS)]));
-      if (result.code !== 0) throw new Error("Claude Code 退出登录失败。");
+      const proxy = await this.openCliProxy(profile, configDir);
+      try {
+        const result = await launch(this.resolveExecutable(), ["auth", "logout"], configDir, proxy.env,
+          AbortSignal.any([signal, AbortSignal.timeout(CLI_TIMEOUT_MS)]));
+        if (result.code !== 0) throw new Error("Claude Code 退出登录失败。");
+      } finally {
+        proxy.socks?.close();
+      }
       if (remove) {
         await this.browser.clear(id);
         await fs.rm(configDir, { recursive: true, force: true });
@@ -310,9 +309,18 @@ export class ClaudeLoginService {
     });
   }
 
-  private async status(id: string): Promise<Pick<ClaudeLoginAccount, "status" | "email">> {
-    const configDir = await this.configDir(id);
-    const result = await launch(this.resolveExecutable(), ["auth", "status"], configDir, this.cliEnv(configDir),
+  private async readStatus(profile: Profile): Promise<Pick<ClaudeLoginAccount, "status" | "email">> {
+    const configDir = await this.configDir(profile.id);
+    const proxy = await this.openCliProxy(profile, configDir);
+    try {
+      return await this.status(configDir, proxy.env);
+    } finally {
+      proxy.socks?.close();
+    }
+  }
+
+  private async status(configDir: string, env: NodeJS.ProcessEnv): Promise<Pick<ClaudeLoginAccount, "status" | "email">> {
+    const result = await launch(this.resolveExecutable(), ["auth", "status"], configDir, env,
       AbortSignal.timeout(CLI_TIMEOUT_MS), true);
     const info = JSON.parse(result.stdout);
     if (info.configDirectory !== configDir || ![0, 1].includes(result.code ?? -1)
@@ -339,10 +347,14 @@ export class ClaudeLoginService {
     return directory;
   }
 
-  private cliEnv(configDir: string): NodeJS.ProcessEnv {
+  private async openCliProxy(profile: Profile, configDir: string) {
+    const upstream = await this.resolveLoginProxy(profile);
+    const socks = upstream?.startsWith("socks5:") ? await startSocksToHttpBridge(upstream) : undefined;
+    const endpoint = socks ? `http://127.0.0.1:${socks.port}` : upstream;
     const clean = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
       !/^(ANTHROPIC_|CLAUDE_|CLAUDECODE$|BROWSER$|NODE_OPTIONS$|BUN_OPTIONS$)/iu.test(key)));
-    return { ...buildCodexProxyEnv(clean, { mode: "direct" }), CLAUDE_CONFIG_DIR: configDir };
+    const env = buildCodexProxyEnv(clean, endpoint ? { mode: "proxy", url: endpoint } : { mode: "direct" });
+    return { endpoint, socks, env: { ...env, CLAUDE_CONFIG_DIR: configDir } };
   }
 
   private async withOperation(id: string, action: (signal: AbortSignal) => Promise<void>, login = false): Promise<void> {

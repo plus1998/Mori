@@ -1,4 +1,4 @@
-import { BrowserWindow, clipboard, dialog, screen } from "electron";
+import { BrowserWindow, clipboard, dialog, screen, type Session } from "electron";
 import type { AccountBrowserPage } from "./account-browser-page";
 import type { I18nKey } from "../shared/i18n-catalogs";
 import type { OpenAIAccountAssistantAction, OpenAIAccountAssistantActionResult, OpenAIAccountAssistantState, OpenAIAccountProfile } from "../shared/openai-account";
@@ -14,6 +14,7 @@ export class OpenAIAccountAssistant {
   constructor(private readonly deps: {
     getDetails: (accountId: string) => Promise<OpenAIAccountProfile & { name: string; provider?: "claude" }>;
     isClaudeLogin?: (accountId: string) => boolean;
+    getClaudeBrowserSession: (accountId: string) => Promise<Session>;
     preloadPath: string;
     loadRenderer: (window: BrowserWindow, accountId: string) => Promise<void>;
     parent: () => BrowserWindow | undefined;
@@ -161,13 +162,17 @@ export class OpenAIAccountAssistant {
       if (!account.pickupUrl) throw new Error(this.deps.text("assistant.noPickupUrlSaved"));
       const url = new URL(account.pickupUrl);
       if (!["https:", "http:"].includes(url.protocol)) throw new Error(this.deps.text("assistant.pickupUrlInvalid"));
+      const claudeSession = account.provider === "claude" ? await this.deps.getClaudeBrowserSession(accountId) : undefined;
       const existing = this.pickupWindows.get(accountId);
       if (existing && !existing.isDestroyed()) { existing.show(); existing.focus(); return { message: this.deps.text("assistant.inboxOpened") }; }
       const window = new BrowserWindow({
         width: 920, height: 700, title: this.deps.text("assistant.inboxWindowTitle", { name: account.name }), autoHideMenuBar: true,
         // Keep the inbox as a standalone window. On macOS, an owned child
         // window can disappear when it is moved to another display.
-        webPreferences: { partition: `openai-pickup-${accountId}`, nodeIntegration: false, contextIsolation: true, sandbox: true },
+        webPreferences: {
+          ...(claudeSession ? { session: claudeSession } : { partition: `openai-pickup-${accountId}` }),
+          nodeIntegration: false, contextIsolation: true, sandbox: true,
+        },
       });
       this.pickupWindows.set(accountId, window);
       this.pickupAccountNames.set(accountId, account.name);

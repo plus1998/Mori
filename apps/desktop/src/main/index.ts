@@ -8823,6 +8823,10 @@ function registerIpcHandlers(): void {
   );
   openaiAccountAssistant = new OpenAIAccountAssistant({
     isClaudeLogin: isClaudeLoginAccountId,
+    getClaudeBrowserSession: async (accountId) => {
+      if (!isClaudeLoginAccountId(accountId)) throw new Error("Claude 账号 ID 无效。");
+      return accountBrowser.run(accountId, () => accountBrowser.getSession(accountId));
+    },
     getDetails: async (accountId) => {
       if (isClaudeLoginAccountId(accountId)) {
         const account = await claudeLogin.read(accountId);
@@ -8960,7 +8964,11 @@ function registerIpcHandlers(): void {
   };
   registerDesktopCommand(IPC_CHANNELS.claudeLoginAction, async (action: ClaudeLoginAction): Promise<string | void> => {
     switch (action?.kind) {
-      case "save": return claudeLogin.save(action.profile, action.id);
+      case "save": {
+        const id = await claudeLogin.save(action.profile, action.id);
+        await accountBrowser.run(id, () => accountBrowser.refreshProxy(id));
+        return id;
+      }
       case "login":
       case "loginWithSessionKey": {
         try {

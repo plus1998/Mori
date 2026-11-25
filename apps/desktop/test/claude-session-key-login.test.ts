@@ -10,7 +10,10 @@ const personalOrg = "10000000-0000-4000-8000-000000000000";
 const teamOrg = "20000000-0000-4000-8000-000000000000";
 const scopes = "user:profile user:inference user:sessions:claude_code";
 
-test.skipIf(process.platform === "win32")("sessionKey sign-in hands the exchanged refresh token to the account-scoped CLI", async () => {
+test.skipIf(process.platform === "win32").each([
+  { mode: "direct", proxy: "direct", endpoint: undefined },
+  { mode: "manual", proxy: "http://account-proxy.example:8080/", endpoint: "http://account-proxy.example:8080/" },
+])("sessionKey sign-in and auth commands use the account's $mode route", async ({ proxy, endpoint }) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "mori-claude-session-key-test-"));
   const executable = path.join(root, "claude");
   const requests: string[] = [];
@@ -43,6 +46,9 @@ test.skipIf(process.platform === "win32")("sessionKey sign-in hands the exchange
   };
   try {
     await fs.writeFile(executable, `#!/bin/sh
+[ "$HTTPS_PROXY" = '${endpoint ?? ""}' ] || exit 8
+[ "$https_proxy" = '${endpoint ?? ""}' ] || exit 9
+[ "$NO_PROXY" = '${endpoint ? "127.0.0.1,localhost,::1" : "*"}' ] || exit 10
 case "$*" in
   'auth login --claudeai')
     [ . -ef "$CLAUDE_CONFIG_DIR" ] || exit 2
@@ -62,22 +68,22 @@ case "$*" in
   *) exit 7 ;;
 esac
 `, { mode: 0o700 });
-    const unavailable = async () => { throw new Error("Direct sessionKey login should not open a browser or resolve the system proxy"); };
+    const unavailable = async () => { throw new Error("An explicit sessionKey login route should not open a browser or resolve the system proxy"); };
     let hasWebSession = false;
     const service = new ClaudeLoginService(root, () => executable, unavailable, {
       open: unavailable, attachAssistant: unavailable, clear: unavailable,
-    }, async (_id, proxy) => {
-      expect(proxy).toBeUndefined();
+    }, async (_id, networkProxy) => {
+      expect(networkProxy).toBe(endpoint);
       return { fetch: fetcher, close: async () => {} };
     }, {
       open: async () => { hasWebSession = true; },
       hasSession: async () => hasWebSession,
       clear: async () => { hasWebSession = false; },
     });
-    const id = await service.save({ name: "Example", proxy: "direct" });
+    const id = await service.save({ name: "Example", proxy });
     expect(await service.loginWithSessionKey(id, " example-session-cookie ")).toBe(true);
     expect(requests).toHaveLength(3);
-    expect(await service.list()).toEqual([{ id, name: "Example", proxy: "direct", status: "signedIn", webStatus: "noSession" }]);
+    expect(await service.list()).toEqual([{ id, name: "Example", proxy, status: "signedIn", webStatus: "noSession" }]);
     await service.openWeb(id);
     await service.logoutWeb(id);
     expect((await service.list())[0]).toMatchObject({ status: "signedIn", webStatus: "noSession" });
@@ -85,7 +91,7 @@ esac
     await service.logout(id);
     expect((await service.list())[0]).toMatchObject({ status: "signedOut", webStatus: "hasSession" });
     const profile = await fs.readFile(path.join(root, id, "profile.json"), "utf8");
-    expect(JSON.parse(profile)).toEqual({ id, name: "Example", proxy: "direct", signInProfile: {} });
+    expect(JSON.parse(profile)).toEqual({ id, name: "Example", proxy, signInProfile: {} });
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
