@@ -19,7 +19,11 @@ afterEach(() => {
   for (const dir of directories.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
-function harness(coreKind: "claude" | "codex" | "pi" = "claude", filename = ":memory:") {
+function harness(
+  coreKind: "claude" | "codex" | "pi" = "claude",
+  filename = ":memory:",
+  latestStatus: "completed" | "failed" = "completed",
+) {
   const db = new DatabaseSync(filename);
   databases.push(db);
   const store = new ConversationStore(db, { freshStorageMode: "v2_only" });
@@ -30,7 +34,7 @@ function harness(coreKind: "claude" | "codex" | "pi" = "claude", filename = ":me
     title: "Source",
     prompt: "U1",
     workspacePath: "/tmp",
-    status: "completed",
+    status: latestStatus,
     message: "",
     createdAt: "2026-10-15T00:00:00Z",
     updatedAt: "2026-10-15T00:00:00Z",
@@ -76,7 +80,7 @@ function harness(coreKind: "claude" | "codex" | "pi" = "claude", filename = ":me
     });
     return id;
   }
-  function answer(threadId: string, n: number) {
+  function answer(threadId: string, n: number, status: "completed" | "failed" = "completed") {
     const runId = `${threadId}-r${n}`;
     store.upsertRunAttempt({
       threadId,
@@ -103,7 +107,7 @@ function harness(coreKind: "claude" | "codex" | "pi" = "claude", filename = ":me
       attemptId: runId,
       phase: "execution",
       retryIndex: 0,
-      status: "completed",
+      status,
       startedAt: `2026-10-15T00:0${n}:01Z`,
       endedAt: `2026-10-15T00:0${n}:03Z`,
     });
@@ -113,7 +117,7 @@ function harness(coreKind: "claude" | "codex" | "pi" = "claude", filename = ":me
   user(source.id, 2);
   answer(source.id, 2);
   user(source.id, 3);
-  answer(source.id, 3);
+  answer(source.id, 3, latestStatus);
   let forks = 0;
   const cleaned: NativeConversationFork[] = [];
   const deps: ConversationForkCommandDeps = {
@@ -246,6 +250,51 @@ describe("independent conversation fork", () => {
     const result = await h.commands.execute({ ...h.request, activityLineId: "source-u1" });
     expect(h.v2.bootstrap(result.thread.id).messages).toEqual([]);
     expect(result.draft.prompt).toBe("U1");
+  });
+
+  test("switching Codex provider before a failed turn keeps its prompt as a draft", async () => {
+    const h = harness("codex", ":memory:", "failed");
+    h.v2.appendRuntime({
+      conversationId: h.source.id,
+      eventId: "unfinished-tool",
+      type: "tool.started",
+      runId: "source-r3",
+      toolCallId: "unfinished-tool",
+      occurredAt: "2026-10-15T00:03:02Z",
+      payload: { name: "test tool" },
+    });
+    const before = h.v2.bootstrap(h.source.id);
+    const answer = before.messages.find((message) => message.body === "A3")!;
+    const runtimeConfig = {
+      sessionMode: "agent",
+      bashReviewMode: "auto",
+      subagentEnabled: { explore: false, architect: false, coder: false, reviewer: false, tester: false },
+    } as const;
+    await expect(
+      h.commands.execute({
+        ...h.request,
+        activityLineId: answer.messageId,
+        runtimeConfig,
+      }),
+    ).rejects.toThrow("分叉节点之前仍有未结束的消息或工具执行。");
+    expect(h.forks()).toBe(0);
+
+    const result = await h.commands.execute({
+      ...h.request,
+      clientCommandId: "switch-provider",
+      activityLineId: "source-u3",
+      runtimeConfig,
+    });
+
+    expect(h.v2.bootstrap(result.thread.id).messages.map((message) => message.body)).toEqual([
+      "U1",
+      "A1",
+      "U2",
+      "A2",
+    ]);
+    expect(result.draft.prompt).toBe("U3");
+    expect(result.thread.runtimeConfig?.sessionMode).toBe("agent");
+    expect(h.v2.getTool(h.source.id, "unfinished-tool").status).toBe("running");
   });
 
   test("second-generation fork uses the child's persisted identities", async () => {

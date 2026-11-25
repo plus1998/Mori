@@ -10776,24 +10776,28 @@ function App() {
     const providerChanged =
       activeThread?.coreKind === "codex" &&
       Boolean(currentMainProvider && nextMainProvider && currentMainProvider !== nextMainProvider);
-    if (providerChanged && activeThread && !latestCodexForkTarget) {
-      setError("当前 Codex 历史尚未加载到可分叉的已完成回复，请刷新会话后再切换 provider。");
-      return;
-    }
-    if (providerChanged && activeThread && latestCodexForkTarget) {
-      const targetLabel = nextSelection.mainModel?.providerId ?? nextMainProvider;
-      if (
-        !window.confirm(
-          `Codex 不支持直接修改已有会话的 provider。将保留当前会话，并使用 ${targetLabel} 创建一个分支继续。是否继续？`,
-        )
-      ) {
+    if (providerChanged && activeThread) {
+      const forkTarget = lastRunInterrupted
+        ? composerContinueTarget?.activityLineId
+        : latestCodexForkTarget;
+      if (!forkTarget) {
+        setError(
+          lastRunInterrupted
+            ? "当前 Codex 历史尚未加载到中断轮次的用户消息，请刷新会话后再切换供应商。"
+            : "当前 Codex 历史尚未加载到可分叉的已完成回复，请刷新会话后再切换供应商。",
+        );
         return;
       }
+      const targetLabel = nextSelection.mainModel?.providerId ?? nextMainProvider;
+      const confirmation = lastRunInterrupted
+        ? `将使用 ${targetLabel} 从中断轮次前创建分支，并将该轮的用户消息放入新分支的草稿。是否继续？`
+        : `将使用 ${targetLabel} 从最近一条已完成回复创建分支。是否继续？`;
+      if (!window.confirm(confirmation)) return;
       setIsStarting(true);
       setError(undefined);
       try {
         await activityForkMessage({
-          activityLineId: latestCodexForkTarget,
+          activityLineId: forkTarget,
           expectedHistoryRevision: displayProjection?.historyRevision ?? 0,
           runtimeConfig: next,
         });
