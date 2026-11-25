@@ -140,6 +140,42 @@ test("orchestration runtime key includes snapshot content but ignores resolution
   );
 });
 
+test("reordering main model fields does not report orchestration drift", () => {
+  const selection = {
+    mainModel: {
+      providerId: "openai",
+      modelId: "gpt-6.2-sol",
+      accountId: "account",
+      thinkingEffort: "high",
+      serviceTier: "fast",
+    },
+    mainPrompt: { mode: "builtin" },
+    subagents: { mode: "none" },
+  } as const;
+  const snapshot = resolveOrchestrationSnapshot(selection, settings);
+  const storedSnapshot = {
+    ...snapshot,
+    selection: {
+      ...selection,
+      mainModel: {
+        accountId: "account",
+        modelId: "gpt-6.2-sol",
+        providerId: "openai",
+        serviceTier: "fast",
+        thinkingEffort: "high",
+      } as const,
+    },
+  };
+  expect(
+    resolvePromptCacheConfigDrift({
+      baseline: config(bundleA, { resolvedOrchestrationSnapshot: storedSnapshot }),
+      current: config(bundleA, { resolvedOrchestrationSnapshot: snapshot }),
+      settings,
+      mcpServers,
+    }),
+  ).toEqual([]);
+});
+
 test("resolvePromptCacheConfigDrift detects model, prompt, Skill and MCP changes", () => {
   const baseline = config();
   expect(

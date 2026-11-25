@@ -1,3 +1,4 @@
+import { stableJson } from "@eco/shared";
 import { listEnabledGlobalMcpServerKeys } from "./composer-mcp";
 import type {
   McpServerConfigView,
@@ -71,11 +72,14 @@ export function buildOrchestrationRuntimeKey(
             orchestrationId: resolvedSelection.subagents.orchestrationId.trim(),
           },
   };
-  if (!snapshot) {
-    return JSON.stringify({ selection: normalizedSelection });
-  }
-  const { resolvedAt: _resolvedAt, selection: _selection, ...snapshotContent } = snapshot;
-  return JSON.stringify({ selection: normalizedSelection, snapshot: snapshotContent });
+  const { resolvedAt: _resolvedAt, selection: _selection, ...snapshotContent } = snapshot ?? {};
+  const runtime = {
+    selection: normalizedSelection,
+    ...(snapshot ? { snapshot: snapshotContent } : {}),
+  };
+  // Canonicalize the serialized data so property order and omitted optional fields
+  // have the same semantics for persisted and in-memory snapshots.
+  return stableJson(JSON.parse(JSON.stringify(runtime)));
 }
 
 export function resolveMainAgentModelKey(
