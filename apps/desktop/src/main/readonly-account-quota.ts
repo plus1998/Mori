@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { CODEX_QUOTA_REFRESH_MS } from "../shared/codex-quota-refresh";
-import type { CodexQuotaClient } from "./codex-account-quota";
+import { codexQuotaReadParams, type CodexQuotaClient } from "./codex-account-quota";
 
 /** Internal main-process input, never returned by the tool. */
 export interface ReadonlyQuotaAccount {
@@ -87,7 +87,7 @@ export async function readReadonlyQuota(client: CodexQuotaClient, rawAuth: strin
   const tokens = readTokens(rawAuth);
   try {
     await client.request("account/login/start", { type: "chatgptAuthTokens", ...tokens }, { timeoutMs: 30_000 });
-    const raw = await client.request("account/rateLimits/read", undefined, { timeoutMs: 30_000 });
+    const raw = await client.request("account/rateLimits/read", codexQuotaReadParams, { timeoutMs: 30_000 });
     const parsed = rpcResponse.safeParse(raw);
     if (!parsed.success) {
       if (!raw || typeof raw !== "object" || !("accountId" in raw) || typeof raw.accountId !== "string")

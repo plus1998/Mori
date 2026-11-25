@@ -414,7 +414,6 @@ function quota(email: string, planType: string, usedPercent: number, resetAt: Da
       },
       secondaryWindow: null,
     },
-    resetCreditsAvailable: 1,
     fetchedAt: NOW_MS,
   };
 }
@@ -442,6 +441,7 @@ function account(input: {
     hasProfileData: true,
     profileFields: { email: true, password: true, pickupUrl: false, twoFactorSecret: false },
     quota: quota(input.email, input.planType, input.usedPercent, input.resetAt, input.limitReached),
+    resetCredits: { availableCount: 1, credits: [] },
     ...(input.imageQuota ? { imageQuota: input.imageQuota } : {}),
     ...(input.imageGenerationEnabled !== undefined ? { imageGenerationEnabled: input.imageGenerationEnabled } : {}),
   };
@@ -803,6 +803,7 @@ export function createStoryboardDemoScene() {
       const account = accounts.find((row) => row.id === idOf(payload));
       return account?.quota ?? undefined;
     },
+    [IPC_CHANNELS.openAIAccountsRefreshMetadata]: () => undefined,
     [IPC_CHANNELS.openAIAccountsImageQuota]: (payload) => {
       const account = accounts.find((row) => row.id === idOf(payload));
       return account?.imageQuota ?? { source: "chatgpt_image_gen", status: "error", fetchedAt: Date.now(), error: "额度未查询" };

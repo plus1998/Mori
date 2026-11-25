@@ -1,7 +1,7 @@
 import { canUseOpenAIAccountCredentials } from "../shared/openai-account";
 import { isCodexAuthThread } from "../shared/codex-auth-thread";
 import type { ThreadSummary } from "../shared/ipc";
-import type { OpenAIAccountQuota, OpenAIAccountQuotaWindow, OpenAIAccountQuotaRefreshState } from "../shared/openai-account";
+import type { OpenAIAccountQuota, OpenAIAccountQuotaWindow, OpenAIAccountQuotaRefreshState, OpenAIAccountResetCredits } from "../shared/openai-account";
 
 export { CODEX_QUOTA_REFRESH_MS } from "../shared/codex-quota-refresh";
 
@@ -64,6 +64,7 @@ export interface CodexQuotaReminderSnapshot {
   accountId: string;
   accountName: string;
   quota: OpenAIAccountQuota;
+  resetCredits?: OpenAIAccountResetCredits;
   refreshState?: OpenAIAccountQuotaRefreshState;
 }
 
@@ -172,6 +173,7 @@ export class CodexQuotaMonitor {
         if (quota) {
           const snapshot: CodexQuotaReminderSnapshot = {
             accountId, accountName: account.name, quota,
+            ...(account.resetCredits ? { resetCredits: account.resetCredits } : {}),
             ...(account.quotaRefresh ? { refreshState: account.quotaRefresh } : {}),
           };
           this.options.onChange(snapshot);

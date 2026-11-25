@@ -22,6 +22,7 @@ type QuotaReminderBridge = Pick<
   NonNullable<Window["eco"]>,
   | "openAIAccountsList"
   | "openAIAccountsQueryQuota"
+  | "openAIAccountsRefreshMetadata"
   | "openAIAccountsResetQuota"
   | "onOpenAIAccountsChanged"
 >;
@@ -70,6 +71,9 @@ export function CodexQuotaReminderCard({
   onReset,
   onDismiss,
   onRefresh,
+  onRefreshResetCredits,
+  refreshingResetCredits = false,
+  resetCreditsError,
   variant = "reminder",
 }: {
   snapshot: CodexQuotaReminderSnapshot;
@@ -79,6 +83,9 @@ export function CodexQuotaReminderCard({
   onReset: () => void;
   onDismiss?: () => void;
   onRefresh?: () => void;
+  onRefreshResetCredits?: () => void;
+  refreshingResetCredits?: boolean;
+  resetCreditsError?: string | undefined;
 } & (
   | { variant?: "reminder"; onChangeModel: () => void }
   | { variant: "billing"; onChangeModel?: never }
@@ -91,6 +98,9 @@ export function CodexQuotaReminderCard({
   const percent = windows[0] ? Math.round((100 - windows[0].usedPercent) * 10) / 10 : 0;
   const showsAccountQuota = variant === "billing";
   const variantClass = variant === "billing" ? " codex-quota-billing" : "";
+  const shared = isSharedCodexAccountId(snapshot.accountId);
+  const resetCredits = snapshot.resetCredits;
+  const availableCount = resetCredits?.availableCount;
   return (
     <section
       className={`codex-quota-reminder${variantClass}`}
@@ -161,12 +171,13 @@ export function CodexQuotaReminderCard({
           {error}
         </p>
       ) : null}
-      <p className="codex-quota-reset-count">
-        {t(snapshot.quota.resetCreditsAvailable > 0 ? "codexQuota.resetCount" : "codexQuota.noCredit", {
-          count: snapshot.quota.resetCreditsAvailable,
-        })}
-      </p>
-      <CodexResetCreditExpiry quota={snapshot.quota} />
+      {!shared && availableCount !== undefined ? (
+        <p className="codex-quota-reset-count">
+          {t(availableCount > 0 ? "codexQuota.resetCount" : "codexQuota.noCredit", { count: availableCount })}
+        </p>
+      ) : null}
+      {resetCredits ? <CodexResetCreditExpiry {...resetCredits} /> : null}
+      {resetCreditsError ? <p className="codex-quota-reminder-error" role="alert">{resetCreditsError}</p> : null}
       <div className="codex-quota-reminder-actions">
         {onRefresh ? (
           <button type="button" onClick={onRefresh} disabled={busy || refreshing} aria-busy={refreshing}>
@@ -180,15 +191,19 @@ export function CodexQuotaReminderCard({
             {t("codexQuota.changeModel")}
           </button>
         ) : null}
-        {isSharedCodexAccountId(snapshot.accountId) ? <span>{t("codexShare.resetOnHost")}</span> : <button
+        {!shared && onRefreshResetCredits ? (
+          <button type="button" onClick={onRefreshResetCredits} disabled={busy || refreshingResetCredits} aria-busy={refreshingResetCredits}>
+            {refreshingResetCredits ? <LoaderCircle size={12} className="mcp-spin" aria-hidden="true" /> : null}
+            {t("settings.openaiAccounts.refreshResetCredits")}
+          </button>
+        ) : null}
+        {shared ? <span>{t("codexShare.resetOnHost")}</span> : <button
           type="button"
           onClick={onReset}
-          disabled={busy || refreshing || snapshot.quota.resetCreditsAvailable <= 0}
+          disabled={busy || refreshing || refreshingResetCredits || !availableCount}
           aria-busy={busy}
-          title={t(
-            snapshot.quota.resetCreditsAvailable > 0 ? "codexQuota.resetCount" : "codexQuota.noCredit",
-            { count: snapshot.quota.resetCreditsAvailable },
-          )}
+          title={t(availableCount === undefined ? "settings.openaiAccounts.refreshResetCredits"
+            : availableCount > 0 ? "codexQuota.resetCount" : "codexQuota.noCredit", { count: availableCount })}
         >
           {busy ? <LoaderCircle size={12} className="mcp-spin" /> : null}
           {t("codexQuota.useReset")}
@@ -236,6 +251,7 @@ export function CodexQuotaReminder(props: {
   const [loading, setLoading] = useState(Boolean(eco));
   const [resetting, setResetting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [resetCreditsQuery, setResetCreditsQuery] = useState<{ accountId: string; pending: boolean; error?: string }>();
   const [dismissed, setDismissed] = useState<string>();
   const resetAttempt = useRef<{ accountId: string; key: string } | undefined>(undefined);
   const resettingRef = useRef(false);
@@ -315,6 +331,19 @@ export function CodexQuotaReminder(props: {
       setRefreshing(false);
     }
   }
+  async function refreshResetCredits() {
+    if (!snapshot || !eco || resetCreditsQuery?.pending || resettingRef.current) return;
+    const { accountId } = snapshot;
+    setResetCreditsQuery({ accountId, pending: true });
+    try {
+      await eco.openAIAccountsRefreshMetadata(accountId, "resetCredits");
+      await monitor.current?.refresh();
+      setResetCreditsQuery(undefined);
+    } catch (error) {
+      setResetCreditsQuery({ accountId, pending: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  const currentResetCreditsQuery = resetCreditsQuery?.accountId === snapshot?.accountId ? resetCreditsQuery : undefined;
   const reminderKey = snapshot ? codexQuotaReminderKey(snapshot) : undefined;
 
   if (props.variant === "composer") {
@@ -363,6 +392,9 @@ export function CodexQuotaReminder(props: {
                 variant="billing"
                 onReset={() => void reset()}
                 onRefresh={() => void refreshQuota()}
+                onRefreshResetCredits={() => void refreshResetCredits()}
+                refreshingResetCredits={currentResetCreditsQuery?.pending ?? false}
+                resetCreditsError={currentResetCreditsQuery?.error}
                 onDismiss={closePanel}
               />
             ) : (
@@ -419,6 +451,9 @@ export function CodexQuotaReminder(props: {
       onChangeModel={props.onChangeModel}
       onReset={() => void reset()}
       onRefresh={() => void refreshQuota()}
+      onRefreshResetCredits={() => void refreshResetCredits()}
+      refreshingResetCredits={currentResetCreditsQuery?.pending ?? false}
+      resetCreditsError={currentResetCreditsQuery?.error}
       onDismiss={() => setDismissed(reminderKey)}
     />
   );

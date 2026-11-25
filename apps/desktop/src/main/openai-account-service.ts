@@ -18,7 +18,7 @@ import type {
   OpenAIAccountUpdateInput,
   OpenAIAccountWakeResult,
 } from "../shared/openai-account";
-import { OpenAIAccountStore } from "./openai-account-store";
+import { OpenAIAccountStore, type OpenAIAccountMetadata } from "./openai-account-store";
 import { startCodexBrowserLogin, type CodexBrowserLogin } from "./codex-browser-login";
 import {
   withIsolatedCodexAccountClient,
@@ -448,6 +448,8 @@ export class OpenAIAccountService {
         ...(this.quotaState(account.id, account.authJson) ? { quotaRefresh: this.quotaState(account.id, account.authJson)! } : {}),
         imageGenerationEnabled: account.imageGenerationEnabled ?? false,
         ...(account.imageQuota ? { imageQuota: account.imageQuota } : {}),
+        ...(account.subscription ? { subscription: account.subscription } : {}),
+        ...(account.resetCredits ? { resetCredits: account.resetCredits } : {}),
       };
     });
   }
@@ -717,6 +719,27 @@ export class OpenAIAccountService {
     return work;
   }
 
+  async refreshAccountMetadata(
+    accountId: string,
+    read: (account: OpenAIAccountDetails, accessToken: string, chatgptAccountId: string) => Promise<OpenAIAccountMetadata>,
+  ): Promise<void> {
+    if (isSharedCodexAccountId(accountId)) throw new Error("请在主设备查询共享账号的订阅或重置卡。");
+    await this.runAccountWork(accountId, async () => {
+      await this.ensureAccountCredentialsUnlocked(accountId);
+      const account = await this.requireAccount(accountId);
+      const chatgptAccountId = account.authJson && readAuthAccountId(account.authJson);
+      if (!account.authJson || !chatgptAccountId) throw new Error("账号缺少 ChatGPT 登录凭据。");
+      const auth = parseAuthJson(account.authJson);
+      const tokens = auth.tokens as Record<string, unknown> | undefined;
+      const accessToken = (tokens?.access_token ?? auth.access_token) as string;
+      const metadata = await read(account, accessToken, chatgptAccountId);
+      if (!this.getStore().saveAccountMetadata(accountId, account.authJson, metadata)) {
+        throw new Error("查询期间账号凭据已变更，请重试。");
+      }
+      this.onAccountsChanged?.();
+    });
+  }
+
   /** Assistant-only read capability. Never joins refresh, reconciliation, switching or writeback paths. */
   listAccountChoicesReadonly() {
     const accounts = this.getStore().listReadonlyQuotaAccounts();
@@ -812,7 +835,15 @@ export class OpenAIAccountService {
       await this.ensureAccountCredentialsUnlocked(accountId);
       return this.trackQuotaQuery(accountId, async () => {
       let result!: T;
-      await this.queryQuotaUnlocked(accountId, async (client) => { result = await operation(client); });
+      await this.queryQuotaUnlocked(accountId, async (client, _refreshToken, expectedAccountId) => {
+        const account = await this.requireAccount(accountId);
+        // Invalidate before dispatch: a lost response could still have consumed a credit.
+        if (account.authJson && readAuthAccountId(account.authJson) === expectedAccountId &&
+            account.resetCredits && this.getStore().saveAccountMetadata(accountId, account.authJson, { resetCredits: null })) {
+          this.onAccountsChanged?.();
+        }
+        result = await operation(client);
+      });
       return result;
       });
     });

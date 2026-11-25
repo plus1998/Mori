@@ -130,10 +130,6 @@ export function OpenAIAccountQuotaSummary({ quota, isLoggedIn, loading, error, s
           </span>
         );
       })}
-      {quota.resetCreditsAvailable > 0 ? <span className="codex-quota-note">
-        {t("settings.openaiAccounts.resetCredits", { count: quota.resetCreditsAvailable })}
-        <CodexResetCreditExpiry quota={quota} />
-      </span> : null}
       {showRefreshedAt ? <QuotaRefreshedAt fetchedAt={quota.fetchedAt} /> : null}
     </> : <span>{loading ? t("settings.openaiAccounts.quotaLoading") : t("settings.openaiAccounts.quotaIdle")}</span>}
   </span>;
@@ -188,6 +184,7 @@ function OpenAIAccountsContent({ onError, data, onOpenConnection }: {
   const [busy, setBusy] = useState(false);
   const [loggingInId, setLoggingInId] = useState<string | null>(null);
   const [quotaErrors, setQuotaErrors] = useState<Record<string, { message: string; attemptedAt: number }>>({});
+  const [metadataLoading, setMetadataLoading] = useState<Record<string, boolean>>({});
   const [quotaLoading, setQuotaLoading] = useState(false);
   const [quotaLoadingId, setQuotaLoadingId] = useState<string | null>(null);
   const wakingRef = useRef(false);
@@ -257,6 +254,25 @@ function OpenAIAccountsContent({ onError, data, onOpenConnection }: {
     });
     return () => { cancelled = true; };
   }, [eco]);
+
+  async function refreshAccountMetadata(accountId: string, kind: "subscription" | "resetCredits") {
+    if (!eco) return;
+    setMenuOpenId(null);
+    const key = `${accountId}:${kind}`;
+    setMetadataLoading((previous) => ({ ...previous, [key]: true }));
+    try {
+      await eco.openAIAccountsRefreshMetadata(accountId, kind);
+      await refresh();
+    } catch (error) {
+      onError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setMetadataLoading((previous) => {
+        const next = { ...previous };
+        delete next[key];
+        return next;
+      });
+    }
+  }
 
   useEffect(() => {
     if (!wakeDialogAccountId) return;
@@ -973,6 +989,25 @@ function OpenAIAccountsContent({ onError, data, onOpenConnection }: {
                           ? t("settings.openaiAccounts.oauthLoggedIn")
                           : t("settings.openaiAccounts.notLoggedIn"))}
                     </span> : null}
+                    {account.subscription?.status === "available" ? (
+                      <span>
+                        {t(account.subscription.willRenew === false
+                          ? "settings.openaiAccounts.subscriptionEnds"
+                          : "settings.openaiAccounts.subscriptionActiveUntil", {
+                          date: formatAppDateTime(locale, new Date(account.subscription.activeUntil), {
+                            year: "numeric", month: "2-digit", day: "2-digit",
+                          }),
+                        })}
+                      </span>
+                    ) : account.subscription ? (
+                      <span>
+                        {account.subscription.status === "unavailable"
+                          ? t("settings.openaiAccounts.subscriptionUnavailable")
+                          : account.subscription.httpStatus
+                            ? t("settings.openaiAccounts.subscriptionHttpError", { status: account.subscription.httpStatus })
+                            : t("settings.openaiAccounts.subscriptionError")}
+                      </span>
+                    ) : null}
                   </div>
                   <div className="codex-account-header-actions">
                     <div className="codex-account-status-tags">
@@ -1140,6 +1175,14 @@ function OpenAIAccountsContent({ onError, data, onOpenConnection }: {
                     <OpenAIAccountQuotaSummary quota={accountQuota} isLoggedIn={canUseOpenAIAccountCredentials(account)} loading={isQuotaLoading} error={account.quotaRefresh?.error ?? quotaErrors[account.id]?.message} showRefreshedAt={true} />
                   </div>
                 ) : null}
+                {account.resetCredits ? (
+                  <div className="codex-account-quotas">
+                    <span className="codex-quota-note">
+                      {t("settings.openaiAccounts.resetCredits", { count: account.resetCredits.availableCount })}
+                      <CodexResetCreditExpiry {...account.resetCredits} />
+                    </span>
+                  </div>
+                ) : null}
                 <details className="codex-account-details">
                   <summary>
                     {t("settings.openaiAccounts.accountDetails")}
@@ -1228,6 +1271,20 @@ function OpenAIAccountsContent({ onError, data, onOpenConnection }: {
                           <RefreshCw size={14} />
                           {t("settings.openaiAccounts.refreshQuota")}
                         </button>
+                        {(["resetCredits", "subscription"] as const).map((kind) => {
+                          const loading = metadataLoading[`${account.id}:${kind}`];
+                          return <button
+                            key={kind}
+                            type="button"
+                            role="menuitem"
+                            className="account-action-item"
+                            onClick={() => void refreshAccountMetadata(account.id, kind)}
+                            disabled={loading || !canUseOpenAIAccountCredentials(account)}
+                          >
+                            {loading ? <Loader2 size={14} className="mcp-spin" /> : <RefreshCw size={14} />}
+                            {t(kind === "resetCredits" ? "settings.openaiAccounts.refreshResetCredits" : "settings.openaiAccounts.refreshSubscription")}
+                          </button>;
+                        })}
                         <button
                           type="button"
                           role="menuitem"

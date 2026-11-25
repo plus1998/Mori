@@ -21,7 +21,6 @@ const quota: OpenAIAccountQuota = {
   planType: "plus",
   email: "user@example.test",
   fetchedAt: Date.now(),
-  resetCreditsAvailable: 2,
   rateLimit: {
     allowed: true,
     limitReached: false,
@@ -43,6 +42,7 @@ const snapshot: CodexQuotaReminderSnapshot = {
   accountId: "A",
   accountName: "Current",
   quota,
+  resetCredits: { availableCount: 2, credits: [] },
 };
 const account: OpenAIAccount = {
   id: "A",
@@ -52,6 +52,7 @@ const account: OpenAIAccount = {
   authState: "configured",
   hasProfileData: false,
   createdAt: "2026-10-21",
+  resetCredits: { availableCount: 2, credits: [] },
 };
 const bridge = () => ({
   selected: 'A',
@@ -93,6 +94,7 @@ test("a fresh composer renders the account quota control without thread usage", 
       threads: [],
       eco: {
         ...bridge(),
+        openAIAccountsRefreshMetadata: async () => undefined,
         openAIAccountsResetQuota: async () => ({ outcome: "nothingToReset" as const }),
         onOpenAIAccountsChanged: () => () => undefined,
       },
@@ -321,7 +323,7 @@ test("reminder shows conversation quota and disables reset without credits or du
   expect(html).not.toContain("添加额度");
   expect(html).not.toContain("升级");
   for (const next of [
-    { ...snapshot, quota: { ...quota, resetCreditsAvailable: 0 } },
+    { ...snapshot, resetCredits: { availableCount: 0, credits: [] } },
   ]) {
     const disabled = renderLocalized(
       createElement(CodexQuotaReminderCard, { ...props, snapshot: next }),

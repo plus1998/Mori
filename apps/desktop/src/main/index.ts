@@ -9195,9 +9195,28 @@ function registerIpcHandlers(): void {
       (payload.reason !== undefined && !["manual", "view", "switch", "reset"].includes(payload.reason))) {
       throw new Error("额度查询参数无效。");
     }
-    const svc = await getOpenAIAccountService();
-    const quota = await svc.queryQuota(payload.accountId, payload.reason ?? "manual");
-    return quota;
+    return (await getOpenAIAccountService()).queryQuota(payload.accountId, payload.reason ?? "manual");
+  });
+
+  registerDesktopCommand(IPC_CHANNELS.openAIAccountsRefreshMetadata, async (payload: unknown) => {
+    if (!isRecord(payload) || typeof payload.accountId !== "string" || !payload.accountId.trim() ||
+        (payload.kind !== "resetCredits" && payload.kind !== "subscription")) {
+      throw new Error("账号查询参数无效。");
+    }
+    const { accountId, kind } = payload;
+    return (await getOpenAIAccountService()).refreshAccountMetadata(accountId, async (account, accessToken, chatgptAccountId) => {
+      const connection = await connectCodexImageAccount(account);
+      try {
+        if (kind === "resetCredits") {
+          const { readCodexAccountResetCredits } = await import("./codex-account-reset-credits");
+          return { resetCredits: await readCodexAccountResetCredits(connection.fetch, accessToken, chatgptAccountId) };
+        }
+        const { readCodexAccountSubscription } = await import("./codex-account-subscription");
+        return { subscription: await readCodexAccountSubscription(connection.fetch, accessToken, chatgptAccountId) };
+      } finally {
+        connection.close();
+      }
+    });
   });
 
   registerDesktopCommand(IPC_CHANNELS.openAIAccountsWake, async (payload: unknown) => {

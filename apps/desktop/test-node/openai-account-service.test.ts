@@ -10,6 +10,8 @@ import { OpenAIAccountService, readAuthRefreshStamp } from "../src/main/openai-a
 import { parseOpenAIAccountImport } from "../src/main/openai-account-import";
 import { writeFakeCodexLogin } from "../test-support/fake-codex-login";
 import { OpenAIAccountStore } from "../src/main/openai-account-store";
+import { readCodexAccountSubscription } from "../src/main/codex-account-subscription";
+import { readCodexAccountResetCredits } from "../src/main/codex-account-reset-credits";
 
 function authJson(input: { accountId: string; refreshToken: string; stamp: string; unknown?: unknown }): string {
   return JSON.stringify({
@@ -342,7 +344,7 @@ test("quota snapshots survive restart and listing cached data makes no network r
   assert.equal(quota.planType, "plus");
   assert.equal(quota.rateLimit.primaryWindow?.usedPercent, 24);
   assert.equal(quota.rateLimit.secondaryWindow?.usedPercent, 41);
-  assert.equal(quota.resetCreditsAvailable, 2);
+  assert.equal(quota.resetCreditsAvailable, undefined);
   assert.deepEqual((await service.listAccounts())[0]?.quota, quota);
   assert.deepEqual((await service.getAccountDetails(account.id)).quota, quota);
 
@@ -380,6 +382,50 @@ test("explicit quota refresh updates the snapshot, timestamp, and account-change
   assert.ok(second.fetchedAt > first.fetchedAt);
   assert.deepEqual((await service.listAccounts())[0]?.quota, second);
   assert.equal(changeEvents, 2);
+});
+
+test("subscription, reset credits and quota refresh independently under the Codex account identity", async (t) => {
+  const { service, quotaRead } = await makeQuotaService(t);
+  const account = await service.createAccount("Subscription");
+  const credentials = (accountId: string) => authJson({
+    accountId, refreshToken: "subscription", stamp: "2026-10-05T01:00:00.000Z",
+  });
+  await service.setAuthJson(account.id, credentials("chatgpt-personal"));
+  const quota = await service.queryQuota(account.id);
+  const activeUntil = "2027-01-20T19:22:48+00:00";
+  await service.refreshAccountMetadata(account.id, async (_, token, identity) => ({
+    subscription: await readCodexAccountSubscription(async (path, init) => {
+      assert.equal(path, "/backend-api/subscriptions?account_id=chatgpt-personal");
+      assert.equal(new Headers(init.headers).get("authorization"), "Bearer access-subscription");
+      return Response.json({ active_until: activeUntil, will_renew: false });
+    }, token, identity),
+  }));
+  assert.deepEqual((await service.listAccounts())[0]?.subscription, { status: "available", activeUntil, willRenew: false });
+
+  const resetCredits = { availableCount: 1, credits: [{ id: "reset", expiresAt: null }] };
+  await service.refreshAccountMetadata(account.id, async (_, token, identity) => ({
+    resetCredits: await readCodexAccountResetCredits(async (path, init) => {
+      assert.equal(path, "/backend-api/wham/rate-limit-reset-credits");
+      assert.equal(new Headers(init.headers).get("ChatGPT-Account-Id"), "chatgpt-personal");
+      assert.equal(new Headers(init.headers).get("authorization"), "Bearer access-subscription");
+      return Response.json({ available_count: 1, credits: [{ id: "reset", status: "available", reset_type: "codex_rate_limits" }] });
+    }, token, identity),
+  }));
+  await service.refreshAccountMetadata(account.id, async (_, token, identity) => ({
+    subscription: await readCodexAccountSubscription(async () => new Response(null, { status: 403 }), token, identity),
+  }));
+  assert.deepEqual((await service.listAccounts())[0]?.subscription, { status: "error", httpStatus: 403 });
+  assert.deepEqual((await service.listAccounts())[0]?.resetCredits, resetCredits);
+  assert.deepEqual((await service.listAccounts())[0]?.quota, quota);
+  assert.equal(quotaRead.mock.callCount(), 1);
+
+  await service.queryQuota(account.id);
+  assert.deepEqual((await service.listAccounts())[0]?.resetCredits, resetCredits);
+  assert.deepEqual((await service.listAccounts())[0]?.subscription, { status: "error", httpStatus: 403 });
+
+  await service.setAuthJson(account.id, credentials("chatgpt-other"));
+  assert.equal((await service.listAccounts())[0]?.subscription, undefined);
+  assert.equal((await service.listAccounts())[0]?.resetCredits, undefined);
 });
 
 test("failed quota refresh preserves the last successful snapshot and timestamp", async (t) => {
@@ -484,8 +530,10 @@ test("quota reset saves and publishes exactly one fresh read, and reports a post
   assert.equal(quotaRead.mock.callCount(), 2);
   assert.equal((await service.listAccounts())[0]!.quota?.rateLimit.primaryWindow?.usedPercent, 0);
   quotaRead.mock.mockImplementation(async () => { throw new Error("post reset offline"); });
+  await service.refreshAccountMetadata(account.id, async () => ({ resetCredits: { availableCount: 1, credits: [] } }));
   await assert.rejects(service.resetQuota(account.id, async () => { consumed++; return {}; }), /post reset offline/);
   assert.equal(consumed, 2);
   assert.equal((await service.listAccounts())[0]!.quotaRefresh?.error, "post reset offline");
+  assert.equal((await service.listAccounts())[0]!.resetCredits, undefined);
   assert.ok((await service.listAccounts())[0]!.quota!.fetchedAt >= cached.fetchedAt);
 });

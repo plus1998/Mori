@@ -32,12 +32,10 @@ interface RateLimitsResponse {
   accountId?: string | null;
   rateLimits: RateLimitSnapshot;
   rateLimitsByLimitId?: Record<string, RateLimitSnapshot> | null;
-  rateLimitResetCredits?: {
-    availableCount: number;
-    credits?: Array<{ id: string; resetType: string; status: string; expiresAt: number | null }> | null;
-  } | null;
   ordinaryUsageAllowed?: boolean | null;
 }
+
+export const codexQuotaReadParams = { excludeResetCreditDetails: true } as const;
 
 function isAuthenticationError(error: unknown): boolean {
   return error instanceof Error && /\b401\b|unauthorized|access[_ ]token.*expir|token[_ ]expired/iu.test(error.message);
@@ -50,13 +48,13 @@ export async function readCodexAccountQuota(client: CodexQuotaClient, refreshTok
   let result: RateLimitsResponse;
   try {
     account = await client.request<AccountResponse>("account/read", { refreshToken }, requestOptions);
-    result = await client.request<RateLimitsResponse>("account/rateLimits/read", undefined, requestOptions);
+    result = await client.request<RateLimitsResponse>("account/rateLimits/read", codexQuotaReadParams, requestOptions);
   } catch (error) {
     // Refresh once, and only for an authentication failure. Network/server
     // errors must remain visible instead of rotating credentials unnecessarily.
     if (refreshToken || !isAuthenticationError(error)) throw error;
     account = await client.request<AccountResponse>("account/read", { refreshToken: true }, requestOptions);
-    result = await client.request<RateLimitsResponse>("account/rateLimits/read", undefined, requestOptions);
+    result = await client.request<RateLimitsResponse>("account/rateLimits/read", codexQuotaReadParams, requestOptions);
   }
   // account/read describes the selected model provider. A gateway that does
   // not require OpenAI auth returns null even with valid managed ChatGPT auth.
@@ -91,16 +89,6 @@ export async function readCodexAccountQuota(client: CodexQuotaClient, refreshTok
   const secondaryWindow = mapWindow(limits.secondary);
   const limitReached = Boolean(limits.rateLimitReachedType) ||
     [primaryWindow, secondaryWindow].some((window) => window !== null && window.usedPercent >= 100);
-  const resetCredits = result.rateLimitResetCredits?.credits
-    ?.filter((credit) => credit.status === "available" && credit.resetType === "codexRateLimits")
-    .map((credit) => {
-      if (!credit.id || (credit.expiresAt !== null &&
-          (typeof credit.expiresAt !== "number" || !Number.isFinite(credit.expiresAt) ||
-            !Number.isFinite(new Date(credit.expiresAt * 1_000).getTime())))) {
-        throw new Error("Codex 返回的重置卡有效期明细无效。");
-      }
-      return { id: credit.id, expiresAt: credit.expiresAt };
-    }) ?? null;
   return {
     planType: limits.planType ?? account.account?.planType ?? "unknown",
     email: account.account?.email ?? "",
@@ -110,8 +98,6 @@ export async function readCodexAccountQuota(client: CodexQuotaClient, refreshTok
       primaryWindow,
       secondaryWindow,
     },
-    resetCreditsAvailable: result.rateLimitResetCredits?.availableCount ?? 0,
-    resetCredits,
     fetchedAt,
   };
 }

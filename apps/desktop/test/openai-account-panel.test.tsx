@@ -107,8 +107,8 @@ test("cached quota shows the last successful refresh time after credentials expi
     "zh-CN",
   );
   expect(markup).toContain("剩余 63%");
-  expect(markup).toContain("2 次重置");
-  expect(markup).toContain("2 张 · 有效期未知");
+  expect(markup).not.toContain("2 次重置");
+  expect(markup).not.toContain("2 张 · 有效期未知");
   expect(markup).toContain('dateTime="2025-01-01T08:30:00.000Z"');
   expect(markup).toContain("上次刷新");
   expect(markup).toContain("已到重置时间，待刷新");
@@ -126,7 +126,7 @@ test("cached quota renders English quota copy and app-locale timestamps for en-U
     "en-US",
   );
   expect(markup).toContain("63% left");
-  expect(markup).toContain("2 resets");
+  expect(markup).not.toContain("2 resets");
   expect(markup).toContain("Last refreshed");
   expect(markup).toContain("Reset due, waiting to refresh");
   // The timestamp must follow the app locale, not the OS locale.
@@ -163,7 +163,7 @@ test("quota failures show the actual error alongside explicitly timestamped cach
     expect(markup).toContain('role="alert">额度刷新失败：OpenAI quota request failed with status 503.</span>');
     expect(markup).toContain("剩余 63%");
     expect(markup).toContain('role="meter"');
-    expect(markup).toContain("2 次重置");
+    expect(markup).not.toContain("2 次重置");
     expect(markup).toContain("已到重置时间，待刷新");
     expect(markup).toContain("上次刷新");
   }

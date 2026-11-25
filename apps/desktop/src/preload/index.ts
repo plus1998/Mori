@@ -885,6 +885,10 @@ const api = {
     return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsQueryQuota, { accountId, reason });
   },
 
+  openAIAccountsRefreshMetadata(accountId: string, kind: "resetCredits" | "subscription"): Promise<void> {
+    return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsRefreshMetadata, { accountId, kind });
+  },
+
   openAIAccountsWakeBatchesList(): Promise<import("../shared/account-wake-batch").AccountWakeBatchState> {
     return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsWakeBatchesList);
   },

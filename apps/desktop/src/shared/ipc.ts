@@ -158,6 +158,7 @@ export const IPC_CHANNELS = {
   openAIAccountsSetAuthJson: "openai-accounts:set-auth-json",
   openAIAccountsUltrafastModels: "openai-accounts:ultrafast-models",
   openAIAccountsQueryQuota: "openai-accounts:query-quota",
+  openAIAccountsRefreshMetadata: "openai-accounts:refresh-metadata",
   openAIAccountsWake: "openai-accounts:wake",
   openAIAccountsWakeBatchesList: "openai-accounts:wake-batches:list",
   openAIAccountsWakeBatchesSave: "openai-accounts:wake-batches:save",

@@ -23,10 +23,18 @@ export interface StoredOpenAIAccount extends OpenAIAccountDetails {
   name: string;
 }
 
+export type OpenAIAccountMetadata =
+  | { subscription: NonNullable<OpenAIAccountDetails["subscription"]> }
+  | { resetCredits: NonNullable<OpenAIAccountDetails["resetCredits"]> | null };
+
 interface AccountRow {
   image_generation_enabled: number;
   image_quota_json: string | null;
   image_quota_account_id: string | null;
+  subscription_json: string | null;
+  subscription_account_id: string | null;
+  reset_credits_json: string | null;
+  reset_credits_account_id: string | null;
   id: string;
   name: string;
   proxy_mode: string | null;
@@ -89,6 +97,10 @@ function mapAccount(row: AccountRow): StoredOpenAIAccount {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     authJson: row.auth_json,
+    ...(row.subscription_json && row.auth_json && readChatGptAccountId(row.auth_json) === row.subscription_account_id
+      ? { subscription: JSON.parse(row.subscription_json) as NonNullable<OpenAIAccountDetails["subscription"]> } : {}),
+    ...(row.reset_credits_json && row.auth_json && readChatGptAccountId(row.auth_json) === row.reset_credits_account_id
+      ? { resetCredits: JSON.parse(row.reset_credits_json) as NonNullable<OpenAIAccountDetails["resetCredits"]> } : {}),
     ...(row.web_auth_json ? { webAuth: JSON.parse(row.web_auth_json) } : {}),
     ...(row.web_auth_error ? { webAuthError: row.web_auth_error } : {}),
     ...(row.image_generation_enabled === 1 ? { imageGenerationEnabled: true } : {}),
@@ -270,6 +282,10 @@ export class OpenAIAccountStore {
       ["image_generation_enabled", "INTEGER NOT NULL DEFAULT 0 CHECK(image_generation_enabled IN (0, 1))"],
       ["image_quota_json", "TEXT"],
       ["image_quota_account_id", "TEXT"],
+      ["subscription_json", "TEXT"],
+      ["subscription_account_id", "TEXT"],
+      ["reset_credits_json", "TEXT"],
+      ["reset_credits_account_id", "TEXT"],
     ] as const) {
       if (!columns.has(column)) this.db.exec(`ALTER TABLE openai_accounts ADD COLUMN ${column} ${declaration}`);
     }
@@ -624,6 +640,16 @@ export class OpenAIAccountStore {
           fetched_at = excluded.fetched_at
       `).run(accountId, chatGptAccountId, JSON.stringify(quota), quota.fetchedAt);
     });
+  }
+
+  saveAccountMetadata(accountId: string, authJson: string, metadata: OpenAIAccountMetadata): boolean {
+    const identity = readChatGptAccountId(authJson);
+    if (!identity) throw new Error("账号凭据缺少 account_id");
+    const field = "subscription" in metadata ? "subscription" : "reset_credits";
+    const value = "subscription" in metadata ? metadata.subscription : metadata.resetCredits;
+    const result = this.db.prepare(`UPDATE openai_accounts SET ${field}_json = ?, ${field}_account_id = ?
+      WHERE id = ? AND auth_json = ?`).run(value === null ? null : JSON.stringify(value), identity, accountId, authJson);
+    return Boolean(result.changes);
   }
 
   create(input: OpenAIAccountCreateInput): StoredOpenAIAccount {

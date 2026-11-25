@@ -39,7 +39,7 @@ test("readonly RPC binds access-only external auth, preserves all buckets/window
   }), auth());
   expect(calls).toEqual([
     ["account/login/start", { type: "chatgptAuthTokens", accessToken: jwt(4_000_000_000), chatgptAccountId: "acct-a" }],
-    ["account/rateLimits/read", undefined],
+    ["account/rateLimits/read", { excludeResetCreditDetails: true }],
   ]);
   expect(result.buckets).toEqual([
     { bucket: "codex", planType: "plus", windows: [

@@ -1,15 +1,13 @@
 import { expect, test } from "bun:test";
 import { createElement } from "react";
 import { CodexResetCreditExpiry } from "../src/renderer/CodexResetCreditExpiry";
-import type { OpenAIAccountQuota } from "../src/shared/openai-account";
+import type { OpenAIAccountResetCredits } from "../src/shared/openai-account";
 import { formatAppDateTime } from "../src/shared/locale";
 import { renderLocalized } from "./i18n-test";
 
-const quota: OpenAIAccountQuota = {
-  planType: "plus", email: "", fetchedAt: 1_800_000_000_000,
-  rateLimit: { allowed: true, limitReached: false, primaryWindow: null, secondaryWindow: null },
-  resetCreditsAvailable: 5,
-  resetCredits: [
+const resetCredits: OpenAIAccountResetCredits = {
+  availableCount: 5,
+  credits: [
     { id: "never", expiresAt: null },
     { id: "later", expiresAt: 1_800_020_000 },
     { id: "sooner", expiresAt: 1_800_010_000 },
@@ -19,7 +17,7 @@ const quota: OpenAIAccountQuota = {
 
 test("reset expiries are grouped, sorted and localized with an explicit local time zone", () => {
   for (const locale of ["zh-CN", "en-US"] as const) {
-    const markup = renderLocalized(createElement(CodexResetCreditExpiry, { quota }), locale);
+    const markup = renderLocalized(createElement(CodexResetCreditExpiry, resetCredits), locale);
     const time = formatAppDateTime(locale, 1_800_010_000_000, {
       year: "numeric", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", timeZoneName: "short",
     });
@@ -30,16 +28,9 @@ test("reset expiries are grouped, sorted and localized with an explicit local ti
   }
 });
 
-test("old snapshots and count-only or empty details remain unknown, never non-expiring", () => {
-  for (const resetCredits of [undefined, null, []]) {
-    const { resetCredits: _details, ...countOnly } = quota;
-    const markup = renderLocalized(createElement(CodexResetCreditExpiry, {
-      quota: { ...countOnly, ...(resetCredits === undefined ? {} : { resetCredits }) },
-    }), "zh-CN");
-    expect(markup).toContain("5 张 · 有效期未知");
-    expect(markup).not.toContain("不过期");
-  }
-  expect(renderLocalized(createElement(CodexResetCreditExpiry, {
-    quota: { ...quota, resetCreditsAvailable: 0 },
-  }), "zh-CN")).toBe("");
+test("missing expiry details remain unknown, and an empty balance hides the expiry summary", () => {
+  const markup = renderLocalized(createElement(CodexResetCreditExpiry, { availableCount: 5, credits: [] }), "zh-CN");
+  expect(markup).toContain("5 张 · 有效期未知");
+  expect(markup).not.toContain("不过期");
+  expect(renderLocalized(createElement(CodexResetCreditExpiry, { availableCount: 0, credits: [] }), "zh-CN")).toBe("");
 });

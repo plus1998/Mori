@@ -38,6 +38,11 @@ export interface OpenAIAccountResetCredit {
   expiresAt: number | null;
 }
 
+export interface OpenAIAccountResetCredits {
+  availableCount: number;
+  credits: OpenAIAccountResetCredit[];
+}
+
 export interface OpenAIAccountQuota {
   planType: string;
   email: string;
@@ -47,8 +52,8 @@ export interface OpenAIAccountQuota {
     primaryWindow: OpenAIAccountQuotaWindow | null;
     secondaryWindow: OpenAIAccountQuotaWindow | null;
   };
-  resetCreditsAvailable: number;
-  /** Available credit details; null/absent means unknown. May be capped below the available count. */
+  /** Legacy cached quota snapshots can include reset-credit data. */
+  resetCreditsAvailable?: number;
   resetCredits?: OpenAIAccountResetCredit[] | null;
   /** Time of the last successful quota query or native quota update, in Unix milliseconds. */
   fetchedAt: number;
@@ -79,6 +84,11 @@ export interface OpenAIAccountImageQuota {
   resetAt?: string;
   error?: string;
 }
+
+export type OpenAIAccountSubscription =
+  | { status: "available"; activeUntil: string; willRenew?: boolean }
+  | { status: "unavailable" }
+  | { status: "error"; httpStatus?: number };
 
 export type OpenAIAccountAuthState =
   | "missing"
@@ -115,6 +125,8 @@ export function canUseOpenAIAccountWebCredentials(account: {
 }
 
 export interface OpenAIAccount {
+  subscription?: OpenAIAccountSubscription;
+  resetCredits?: OpenAIAccountResetCredits;
   sharedSource?: import("./codex-account-sharing").SharedCodexAccountSource;
   sharedWithDeviceCount?: number;
   webAuthState?: "missing" | "configured" | "refreshable" | "reauthorization_required";
@@ -169,6 +181,8 @@ export interface OpenAIAccountAssistantActionResult {
 }
 
 export interface OpenAIAccountDetails extends OpenAIAccountProfile {
+  subscription?: OpenAIAccountSubscription;
+  resetCredits?: OpenAIAccountResetCredits;
   webAuth?: OpenAIAccountWebAuth;
   webAuthError?: string;
   imageGenerationEnabled?: boolean;
