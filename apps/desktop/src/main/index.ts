@@ -325,7 +325,7 @@ import {
   isEcoWebSearchToolName,
   isWebSearchApprovalToolName,
 } from "../shared/integrated-web-search";
-import { integrationEnabled } from "../shared/integrations";
+import { integrationEnabled, withDefaultBrowserIntegration } from "../shared/integrations";
 import type { ThreadForkFromMessageRequest } from "../shared/ipc";
 import {
   type AddCodexCatalogModelRequest,
@@ -15725,6 +15725,15 @@ async function startNewThread(
     : await ensureWorkspace(payload.workspacePath);
   const settings = getModelSettingsSnapshot();
   const parsedRuntimeConfig = parseThreadRuntimeConfigInput(payload.runtimeConfig);
+  if (parsedRuntimeConfig.integrationsEnabled?.browser === undefined) {
+    const rememberedBrowser = options.scheduled
+      ? workflowSettingsStore.get().integrationsEnabled?.browser
+      : projectIntegrationsSettingsStore.get(workspace.path).enabled.browser;
+    parsedRuntimeConfig.integrationsEnabled = withDefaultBrowserIntegration(
+      parsedRuntimeConfig.integrationsEnabled,
+      rememberedBrowser,
+    );
+  }
   const threadRuntime =
     coreKind === "acp" || options.scheduled
       ? normalizeThreadRuntimeConfig(parsedRuntimeConfig)

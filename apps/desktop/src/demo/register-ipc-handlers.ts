@@ -155,7 +155,7 @@ const demoIntegrationAvailability: IntegrationAvailabilitySnapshot = {
   integrations: [
     {
       id: "browser",
-      enabled: false,
+      enabled: defaultBrowserSettings().agentIntegrationEnabled,
       available: true,
     },
     {
@@ -185,7 +185,7 @@ const demoBrowserState: BrowserViewState = {
   canGoForward: false,
   isLoading: false,
   visible: false,
-  agentIntegrationEnabled: false,
+  agentIntegrationEnabled: defaultBrowserSettings().agentIntegrationEnabled,
   agentBrowserAvailable: true,
 };
 

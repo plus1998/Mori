@@ -33,3 +33,33 @@ final effectiveComposerRuntimeConfigProvider = FutureProvider.autoDispose
         integrationsEnabled: workflow.integrationsEnabled ?? const {},
       );
     });
+
+final newThreadComposerRuntimeConfigProvider = FutureProvider.autoDispose
+    .family<ThreadRuntimeConfig, ComposerRuntimeConfigScope>((
+      ref,
+      input,
+    ) async {
+      final selected = input.runtimeConfig.integrationsEnabled;
+      if (selected != null &&
+          !selected.containsKey('browser') &&
+          input.workspacePath.isNotEmpty) {
+        final project = await ref.watch(
+          projectIntegrationsSettingsProvider(input.workspacePath).future,
+        );
+        if (project == null) throw StateError('无法读取项目集成工具设置');
+        return input.runtimeConfig.copyWith(
+          integrationsEnabled: {
+            ...selected,
+            'browser': project.enabled['browser'] ?? true,
+          },
+        );
+      }
+      final config = await ref.watch(
+        effectiveComposerRuntimeConfigProvider(input).future,
+      );
+      final enabled = config.integrationsEnabled;
+      if (enabled?.containsKey('browser') == true) return config;
+      return config.copyWith(
+        integrationsEnabled: {...?enabled, 'browser': true},
+      );
+    });

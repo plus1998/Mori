@@ -14,7 +14,7 @@ afterEach(async () => {
   );
 });
 
-async function createDatabase(): Promise<{ dbPath: string; workspacePath: string }> {
+async function createDatabase(browserEnabled = true): Promise<{ dbPath: string; workspacePath: string }> {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "eco-project-integrations-"));
   temporaryDirectories.push(directory);
   const dbPath = path.join(directory, "settings.sqlite");
@@ -23,7 +23,7 @@ async function createDatabase(): Promise<{ dbPath: string; workspacePath: string
   db.exec("CREATE TABLE project_mcp_settings (workspace_path TEXT PRIMARY KEY, enabled_json TEXT NOT NULL)");
   db.prepare("INSERT INTO project_mcp_settings (workspace_path, enabled_json) VALUES (?, ?)").run(
     path.resolve(workspacePath),
-    JSON.stringify({ eco_agent_browser: true, docs: true }),
+    JSON.stringify({ eco_agent_browser: browserEnabled, docs: true }),
   );
   db.close();
   return { dbPath, workspacePath };
@@ -46,6 +46,13 @@ test("project integrations migrate only the legacy browser flag until first save
     browser: false,
     imageGeneration: true,
   });
+});
+
+test("an explicit legacy browser opt-out survives migration", async () => {
+  const { dbPath, workspacePath } = await createDatabase(false);
+  const store = new ProjectIntegrationsSettingsStore(new Database(dbPath) as never);
+  store.initialize();
+  expect(store.get(workspacePath).enabled).toEqual({ browser: false });
 });
 
 test("corrupt legacy settings fail instead of silently disabling integrations", async () => {

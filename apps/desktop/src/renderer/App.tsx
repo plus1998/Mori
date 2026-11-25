@@ -119,6 +119,7 @@ import type { BrowserSettingsSnapshot, BrowserViewState } from "../shared/browse
 import {
   browserPersonalScopeId,
   browserTaskTabId,
+  defaultBrowserSettings,
   isBrowserTaskTabId,
   parseBrowserTaskTabId,
 } from "../shared/browser";
@@ -139,7 +140,7 @@ import type { HtmlHostArtifact } from "../shared/html-host";
 import { ConversationShareDialog } from "./ConversationShareButton";
 import { imageDisplayTaskTabId, parseImageDisplayTaskTabId } from "../shared/image-display";
 import { imageGenerationTaskTabId, parseImageGenerationTaskTabId } from "../shared/image-generation";
-import type { IntegrationId } from "../shared/integrations";
+import { type IntegrationId, withDefaultBrowserIntegration } from "../shared/integrations";
 import {
   type AppMenuCommand,
   type ApprovalModelSelection,
@@ -2351,10 +2352,7 @@ function App() {
   const [personalizationSettings, setPersonalizationSettings] = useState<PersonalizationSettingsSnapshot>(
     emptyPersonalizationSettings,
   );
-  const [browserSettings, setBrowserSettings] = useState<BrowserSettingsSnapshot>({
-    agentIntegrationEnabled: false,
-    openApprovalMode: "always_allow",
-  });
+  const [browserSettings, setBrowserSettings] = useState(defaultBrowserSettings);
   const [computerUseSettings, setComputerUseSettings] = useState<ComputerUseSettingsSnapshot>({
     agentIntegrationEnabled: false,
     actionApprovalMode: "always_ask",
@@ -5569,13 +5567,21 @@ function App() {
     workflowSettings.mcpServersEnabled,
   ]);
   const composerIntegrationSettings = useMemo(
-    () =>
-      composerRuntimeConfig?.integrationsEnabled ??
-      (projectIntegrationsSettings && projectIntegrationsSettings.workspacePath === currentProjectPath
-        ? projectIntegrationsSettings.enabled
-        : workflowSettings.integrationsEnabled) ??
-      {},
+    () => {
+      const remembered =
+        projectIntegrationsSettings && projectIntegrationsSettings.workspacePath === currentProjectPath
+          ? projectIntegrationsSettings.enabled
+          : workflowSettings.integrationsEnabled;
+      if (activeThread?.id) {
+        return composerRuntimeConfig?.integrationsEnabled ?? { ...remembered, browser: false };
+      }
+      return withDefaultBrowserIntegration(
+        composerRuntimeConfig?.integrationsEnabled ?? remembered,
+        remembered?.browser,
+      );
+    },
     [
+      activeThread?.id,
       composerRuntimeConfig?.integrationsEnabled,
       currentProjectPath,
       projectIntegrationsSettings,

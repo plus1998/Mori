@@ -1,4 +1,5 @@
 import type { CoreKind } from "@eco/runtime/core-runtime";
+import { withDefaultBrowserIntegration } from "../shared/integrations";
 import type {
   McpServerConfigView,
   ModelSettingsSnapshot,
@@ -11,13 +12,6 @@ import {
   hasCompleteOrchestrationSelection,
 } from "../shared/thread-runtime-config";
 
-const disabledGlobalIntegrations = {
-  browser: false,
-  imageGeneration: false,
-  tts: false,
-  asr: false,
-};
-
 export function buildComposerGlobalRuntimeConfig(input: {
   coreKind: CoreKind;
   settings: ModelSettingsSnapshot;
@@ -25,7 +19,7 @@ export function buildComposerGlobalRuntimeConfig(input: {
   mcpServers: readonly McpServerConfigView[];
 }): ThreadRuntimeConfig | undefined {
   const { workflowDefaults } = input;
-  const integrationsEnabled = workflowDefaults.integrationsEnabled ?? disabledGlobalIntegrations;
+  const integrationsEnabled = withDefaultBrowserIntegration(workflowDefaults.integrationsEnabled);
 
   if (input.coreKind === "acp") {
     return buildAcpThreadRuntimeConfig({
@@ -50,13 +44,10 @@ export function buildComposerGlobalRuntimeConfig(input: {
     return undefined;
   }
 
-  return {
-    ...buildThreadRuntimeConfigFromDefaults({
-      settings: input.settings,
-      workflowDefaults: { ...workflowDefaults, sessionMode: "agent" },
-      orchestrationSelection: selection,
-      mcpServers: input.mcpServers,
-    }),
-    integrationsEnabled,
-  };
+  return buildThreadRuntimeConfigFromDefaults({
+    settings: input.settings,
+    workflowDefaults: { ...workflowDefaults, sessionMode: "agent", integrationsEnabled },
+    orchestrationSelection: selection,
+    mcpServers: input.mcpServers,
+  });
 }

@@ -108,8 +108,7 @@ export function isBrowserOpenApprovalMode(value: unknown): value is BrowserOpenA
 
 export interface BrowserSettingsSnapshot {
   /**
-   * When true, `mori_agent_browser` may appear in Composer/workpanel MCP toggles.
-   * Does not inject into sessions; each thread enables via mcpServersEnabled.
+   * Allows conversations to use the browser integration when enabled for the thread.
    */
   agentIntegrationEnabled: boolean;
   /**
@@ -121,21 +120,25 @@ export interface BrowserSettingsSnapshot {
 
 export function defaultBrowserSettings(): BrowserSettingsSnapshot {
   return {
-    agentIntegrationEnabled: false,
+    agentIntegrationEnabled: true,
     openApprovalMode: "always_allow",
   };
 }
 
 export function normalizeBrowserSettingsSnapshot(value: unknown): BrowserSettingsSnapshot {
+  const defaults = defaultBrowserSettings();
   if (!value || typeof value !== "object") {
-    return defaultBrowserSettings();
+    return defaults;
   }
   const record = value as Record<string, unknown>;
   return {
-    agentIntegrationEnabled: record.agentIntegrationEnabled === true,
+    agentIntegrationEnabled:
+      record.agentIntegrationEnabled === undefined
+        ? defaults.agentIntegrationEnabled
+        : record.agentIntegrationEnabled === true,
     openApprovalMode: isBrowserOpenApprovalMode(record.openApprovalMode)
       ? record.openApprovalMode
-      : "always_allow",
+      : defaults.openApprovalMode,
   };
 }
 

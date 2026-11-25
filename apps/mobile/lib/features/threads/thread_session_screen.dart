@@ -932,7 +932,7 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
     final projectOrchestration = workspacePath.isEmpty
         ? const AsyncValue<ProjectOrchestrationSettingsSnapshot?>.data(null)
         : ref.watch(projectOrchestrationSettingsProvider(workspacePath));
-    final runtimeConfig =
+    final draftRuntimeConfig =
         ref.watch(runtimeConfigProvider) ??
         (projectOrchestration.hasValue
             ? buildDefaultRuntimeConfig(
@@ -950,6 +950,16 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
                   workflow.valueOrNull?.defaultBashReviewMode,
                 ),
               ));
+    final runtimeConfig =
+        ref
+            .watch(
+              newThreadComposerRuntimeConfigProvider((
+                runtimeConfig: draftRuntimeConfig,
+                workspacePath: workspacePath,
+              )),
+            )
+            .valueOrNull ??
+        draftRuntimeConfig;
     final gitStatusAsync = workspacePath.isNotEmpty
         ? ref.watch(gitStatusProvider(workspacePath))
         : const AsyncValue<GitWorkingTreeStatus?>.data(null);
@@ -1245,7 +1255,7 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
     try {
       final sendRuntimeConfig = downgradeApprovalDependentFeatures(
         await ref.read(
-          effectiveComposerRuntimeConfigProvider((
+          newThreadComposerRuntimeConfigProvider((
             runtimeConfig: runtimeConfig,
             workspacePath: workspacePath,
           )).future,

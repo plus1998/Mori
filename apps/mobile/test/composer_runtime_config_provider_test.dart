@@ -112,12 +112,15 @@ void main() {
       expect(references.items.single.id, 'imageGeneration');
 
       final config = await scope.read(
-        effectiveComposerRuntimeConfigProvider((
+        newThreadComposerRuntimeConfigProvider((
           runtimeConfig: _config,
           workspacePath: '/project',
         )).future,
       );
-      expect(config.toJson()['integrationsEnabled'], {'imageGeneration': true});
+      expect(config.toJson()['integrationsEnabled'], {
+        'browser': true,
+        'imageGeneration': true,
+      });
       expect(config.sessionMode, _config.sessionMode);
       expect(_config.integrationsEnabled, isNull);
 
@@ -129,12 +132,32 @@ void main() {
         coreKind: 'codex',
       );
       final wireConfig = client.request!['runtimeConfig'] as Map;
-      expect(wireConfig['integrationsEnabled'], {'imageGeneration': true});
+      expect(wireConfig['integrationsEnabled'], {
+        'browser': true,
+        'imageGeneration': true,
+      });
       expect(thread.runtimeConfig?.integrationsEnabled, {
+        'browser': true,
         'imageGeneration': true,
       });
     },
   );
+
+  test('new sessions respect the remembered browser opt-out', () async {
+    final scope = container(projectEnabled: {'browser': false});
+    final config = await scope.read(
+      newThreadComposerRuntimeConfigProvider((
+        runtimeConfig: _config.copyWith(
+          integrationsEnabled: {'imageGeneration': true},
+        ),
+        workspacePath: '/project',
+      )).future,
+    );
+    expect(config.integrationsEnabled, {
+      'browser': false,
+      'imageGeneration': true,
+    });
+  });
 
   for (final enabled in [
     <String, bool>{},

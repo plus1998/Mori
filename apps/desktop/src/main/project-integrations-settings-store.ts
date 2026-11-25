@@ -44,14 +44,14 @@ export class ProjectIntegrationsSettingsStore {
       .prepare("SELECT enabled_json FROM project_mcp_settings WHERE workspace_path = ?")
       .get(normalizedPath) as { enabled_json: string } | undefined;
     if (!legacy) return { workspacePath: normalizedPath, enabled: {} };
-    let browser = false;
+    let browser: boolean | undefined;
     try {
       const parsed = JSON.parse(legacy.enabled_json) as unknown;
-      browser = normalizeMcpServersEnabled(parsed)?.[ECO_AGENT_BROWSER_MCP_SERVER] === true;
+      browser = normalizeMcpServersEnabled(parsed)?.[ECO_AGENT_BROWSER_MCP_SERVER];
     } catch {
       throw new Error(`项目 MCP 配置损坏，无法迁移浏览器集成：${normalizedPath}`);
     }
-    return { workspacePath: normalizedPath, enabled: browser ? { browser: true } : {} };
+    return { workspacePath: normalizedPath, enabled: typeof browser === "boolean" ? { browser } : {} };
   }
 
   save(snapshot: ProjectIntegrationsSettingsSnapshot): ProjectIntegrationsSettingsSnapshot {

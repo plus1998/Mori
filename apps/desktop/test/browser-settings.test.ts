@@ -28,9 +28,13 @@ import {
   shouldAutoApproveEcoAgentBrowserTools,
 } from "../src/shared/browser";
 
-test("normalizeBrowserSettingsSnapshot defaults agent integration off and open always allow", () => {
+test("browser integration defaults on and preserves an explicit off setting", () => {
+  expect(defaultBrowserSettings()).toEqual({
+    agentIntegrationEnabled: true,
+    openApprovalMode: "always_allow",
+  });
   expect(normalizeBrowserSettingsSnapshot({})).toEqual({
-    agentIntegrationEnabled: false,
+    agentIntegrationEnabled: true,
     openApprovalMode: "always_allow",
   });
   expect(normalizeBrowserSettingsSnapshot({ agentIntegrationEnabled: true })).toEqual({
@@ -45,6 +49,10 @@ test("normalizeBrowserSettingsSnapshot defaults agent integration off and open a
   ).toEqual({
     agentIntegrationEnabled: true,
     openApprovalMode: "always_ask",
+  });
+  expect(normalizeBrowserSettingsSnapshot({ agentIntegrationEnabled: false })).toEqual({
+    agentIntegrationEnabled: false,
+    openApprovalMode: "always_allow",
   });
   expect(normalizeBrowserSettingsSnapshot({ agentIntegrationEnabled: "yes" })).toEqual({
     agentIntegrationEnabled: false,

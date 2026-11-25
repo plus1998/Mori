@@ -4,6 +4,13 @@ export type IntegrationId = (typeof INTEGRATION_IDS)[number];
 
 export type IntegrationsEnabledSettings = Partial<Record<IntegrationId, boolean>>;
 
+export function withDefaultBrowserIntegration(
+  settings: IntegrationsEnabledSettings | undefined,
+  browserEnabled = true,
+): IntegrationsEnabledSettings {
+  return { ...settings, browser: settings?.browser ?? browserEnabled };
+}
+
 export interface IntegrationAvailabilityItem {
   id: IntegrationId;
   enabled: boolean;

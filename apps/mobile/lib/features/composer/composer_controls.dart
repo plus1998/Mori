@@ -34,6 +34,7 @@ import '../threads/thread_providers.dart';
 import 'composer_context_ring.dart';
 import 'composer_quota_bars.dart';
 import 'composer_main_model_picker.dart';
+import 'composer_runtime_config_provider.dart';
 
 const _subagentRoleLabels = {
   'explore': 'Explore',
@@ -873,19 +874,32 @@ class _ComposerRouteSheetState extends ConsumerState<ComposerRouteSheet> {
     final integrations =
         integrationAvailability?.integrations ??
         const <IntegrationAvailabilityItem>[];
+    final draftConfigProvider = widget.threadId.isEmpty
+        ? newThreadComposerRuntimeConfigProvider((
+            runtimeConfig: runtimeConfig,
+            workspacePath: widget.workspacePath,
+          ))
+        : null;
+    final draftConfig = draftConfigProvider == null
+        ? null
+        : ref.watch(draftConfigProvider);
     final integrationsEnabled =
+        draftConfig?.valueOrNull?.integrationsEnabled ??
         runtimeConfig.integrationsEnabled ??
         projectIntegrations?.enabled ??
         workflow?.integrationsEnabled ??
         const <String, bool>{};
     final integrationsUnavailable =
+        (draftConfig?.hasError == true && draftConfig?.hasValue == false) ||
         (integrationAvailabilityState.hasError &&
             !integrationAvailabilityState.hasValue) ||
         (integrationAvailabilityState.hasValue &&
             integrationAvailability == null);
-    final integrationsSummary =
-        integrationAvailabilityState.isLoading &&
-            !integrationAvailabilityState.hasValue
+    final integrationsLoading =
+        (draftConfig?.isLoading == true && draftConfig?.hasValue == false) ||
+        (integrationAvailabilityState.isLoading &&
+            !integrationAvailabilityState.hasValue);
+    final integrationsSummary = integrationsLoading
         ? '…'
         : integrationsUnavailable
         ? '!'
@@ -1134,8 +1148,7 @@ class _ComposerRouteSheetState extends ConsumerState<ComposerRouteSheet> {
                       ),
                     ),
                   if (_selectedCategory == ComposerRouteCategory.integrations &&
-                      integrationAvailabilityState.isLoading &&
-                      !integrationAvailabilityState.hasValue)
+                      integrationsLoading)
                     _ComposerRouteEmptyState(
                       message: context.l10n.commonLoading,
                     ),
@@ -1143,11 +1156,23 @@ class _ComposerRouteSheetState extends ConsumerState<ComposerRouteSheet> {
                       integrationsUnavailable)
                     _ComposerRouteErrorState(
                       message: context.l10n.composerIntegrationsLoadFailed,
-                      onRetry: () =>
-                          ref.invalidate(integrationAvailabilityProvider),
+                      onRetry: () {
+                        ref.invalidate(integrationAvailabilityProvider);
+                        if (draftConfigProvider != null) {
+                          if (workspacePath.isEmpty) {
+                            ref.invalidate(workflowSettingsProvider);
+                          } else {
+                            ref.invalidate(
+                              projectIntegrationsSettingsProvider(workspacePath),
+                            );
+                          }
+                          ref.invalidate(draftConfigProvider);
+                        }
+                      },
                     ),
                   if (_selectedCategory == ComposerRouteCategory.integrations &&
-                      integrationAvailability != null &&
+                      !integrationsLoading &&
+                      !integrationsUnavailable &&
                       integrations.isNotEmpty)
                     EcoGroupedSection(
                       label: context.l10n.composerIntegrations,
@@ -1169,7 +1194,8 @@ class _ComposerRouteSheetState extends ConsumerState<ComposerRouteSheet> {
                                     context.l10n.composerImageGeneration,
                                   'computerUse' =>
                                     context.l10n.composerComputerUse,
-                                  'asr' => context.l10n.composerSpeechRecognition,
+                                  'asr' =>
+                                    context.l10n.composerSpeechRecognition,
                                   'tts' =>
                                     context.l10n.composerReferencesSpeech,
                                   _ => integration.id,

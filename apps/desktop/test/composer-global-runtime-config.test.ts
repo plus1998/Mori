@@ -67,7 +67,7 @@ test("builds ACP Composer config from global settings", () => {
         modelId: "vision-global",
         candidateModelId: "candidate-vision",
       },
-      integrationsEnabled: { browser: true },
+      integrationsEnabled: { browser: false },
     }),
     mcpServers: [],
   });
@@ -81,7 +81,7 @@ test("builds ACP Composer config from global settings", () => {
     visionModel: {
       modelId: "vision-global",
     },
-    integrationsEnabled: { browser: true },
+    integrationsEnabled: { browser: false },
   });
   expect(config?.orchestrationSelection).toBeUndefined();
 });
@@ -97,6 +97,7 @@ test("builds Eco Composer config from the global default orchestration", () => {
         providerId: "provider-1",
         modelId: "auxiliary-global",
       },
+      integrationsEnabled: { tts: true },
     }),
     mcpServers: [],
   });
@@ -105,6 +106,7 @@ test("builds Eco Composer config from the global default orchestration", () => {
   expect(config?.orchestrationSelection).toEqual(globalEcoBundle.selection);
   expect(config?.resolvedOrchestrationSnapshot?.mainAgent.modelRef.modelId).toBe("main-global");
   expect(config?.auxiliaryModel?.modelId).toBe("auxiliary-global");
+  expect(config?.integrationsEnabled).toEqual({ browser: true, tts: true });
 });
 
 test("does not fall back to project settings when the global Eco config is missing", () => {
