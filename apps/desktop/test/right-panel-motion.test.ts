@@ -13,6 +13,14 @@ const taskPanelController = appSource.slice(
   appSource.indexOf("const handleTaskPanelResizePointerDown"),
 );
 
+test("restoring live terminals keeps the saved visibility and defaults to closed", () => {
+  const terminalRestore = appSource.slice(
+    appSource.indexOf("function buildTerminalStateForLiveSessions"),
+    appSource.indexOf("function composerContextKeyFromParts"),
+  );
+  expect(terminalRestore).toContain("open: existing?.open ?? false");
+});
+
 test("task panel releases layout only after its compositor exit completes", () => {
   // Critical layout flags apply immediately after the exit animation; secondary
   // mode side-effects can stay non-urgent.
@@ -26,9 +34,9 @@ test("task panel releases layout only after its compositor exit completes", () =
   expect(appSource).not.toContain(
     "showWorkspacePanel && workspacePanelResolvedOpen && !taskPanelLayoutPresent",
   );
-  expect(appSource).toMatch(
-    /if \(shouldAutoOpenWorkspacePanel\(nextLayoutMode\)\) \{\s*setWorkspacePanelManualOverride\(\{[\s\S]*?open: true,/,
-  );
+  expect(taskPanelController).toContain("setActivityWorkspaceLayoutMode(nextLayoutMode)");
+  expect(taskPanelController).not.toContain("setWorkspacePanelOpenByScope");
+  expect(appSource).toContain("workspacePanelOpenByScope[browserScopeId] ?? workspacePanelResponsiveDefaultOpen");
 });
 
 test("task panel marks browser panel closed on dismiss for soft-reveal state", () => {

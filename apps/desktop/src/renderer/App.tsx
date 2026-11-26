@@ -923,7 +923,7 @@ function buildTerminalStateForLiveSessions(
 
   return {
     state: {
-      open: true,
+      open: existing?.open ?? false,
       height: existing?.height ?? DEFAULT_TERMINAL_HEIGHT,
       tabs,
       activeTabId,
@@ -2403,12 +2403,8 @@ function App() {
   const [packageScripts, setPackageScripts] = useState<PackageScriptsListResult>();
   const [storedTerminalByProject] = useState<TerminalWorkspaceState>(() => readTerminalWorkspaceState());
   const [terminalByProject, setTerminalByProject] = useState<TerminalWorkspaceState>({});
-  const [workspacePanelManualOverride, setWorkspacePanelManualOverride] = useState<{
-    layoutMode: ActivityWorkspaceLayoutMode;
-    projectPath: string | undefined;
-    threadId: string | undefined;
-    open: boolean;
-  }>();
+  const [workspacePanelOpenByScope, setWorkspacePanelOpenByScope] = useState<Record<string, boolean>>({});
+  const handledScheduledMessagesRevealRef = useRef<typeof scheduledMessagesReveal>(undefined);
   const [backgroundTerminalTasks, setBackgroundTerminalTasks] = useState<BackgroundTerminalTask[]>([]);
   const [codexBackgroundTerminals, setCodexBackgroundTerminals] = useState<CodexBackgroundTerminal[]>([]);
   const [codexBackgroundTerminalError, setCodexBackgroundTerminalError] = useState<string>();
@@ -4244,24 +4240,16 @@ function App() {
   const workspacePanelResponsiveDefaultOpen = Boolean(
     activeThread && shouldAutoOpenWorkspacePanel(activityWorkspaceLayoutMode),
   );
-  const workspacePanelManualOpen =
-    workspacePanelManualOverride?.layoutMode === activityWorkspaceLayoutMode &&
-    workspacePanelManualOverride.projectPath === currentProjectPath &&
-    workspacePanelManualOverride.threadId === activeThread?.id
-      ? workspacePanelManualOverride.open
-      : undefined;
-  const workspacePanelResolvedOpen = workspacePanelManualOpen ?? workspacePanelResponsiveDefaultOpen;
+  const workspacePanelResolvedOpen = workspacePanelOpenByScope[browserScopeId] ?? workspacePanelResponsiveDefaultOpen;
   useLayoutEffect(() => {
-    setWorkspacePanelManualOverride(undefined);
-  }, [activityWorkspaceLayoutMode, currentProjectPath, activeThread?.id]);
-  useLayoutEffect(() => {
-    if (scheduledMessagesReveal?.threadId !== activeThread?.id || !currentProjectPath) return;
-    setWorkspacePanelManualOverride({
-      layoutMode: activityWorkspaceLayoutMode,
-      projectPath: currentProjectPath,
-      threadId: activeThread?.id,
-      open: true,
-    });
+    if (
+      !scheduledMessagesReveal ||
+      scheduledMessagesReveal.threadId !== activeThread?.id ||
+      handledScheduledMessagesRevealRef.current === scheduledMessagesReveal ||
+      !currentProjectPath
+    ) return;
+    handledScheduledMessagesRevealRef.current = scheduledMessagesReveal;
+    setWorkspacePanelOpenByScope((current) => ({ ...current, [browserScopeId]: true }));
     const panel = workspaceCardsPanelRef.current;
     const scroller = panel?.querySelector<HTMLElement>(".workspace-floating-cards-sections") ?? panel;
     if (!scroller) return;
@@ -4274,7 +4262,7 @@ function App() {
     } else {
       scroller.scrollTo({ top: 0 });
     }
-  }, [scheduledMessagesReveal, activeThread?.id, currentProjectPath, activityWorkspaceLayoutMode]);
+  }, [scheduledMessagesReveal, activeThread?.id, browserScopeId, currentProjectPath]);
   useEffect(() => {
     reviewDiffRequestRef.current += 1;
     reviewDiffManualRefreshRef.current = false;
@@ -4297,7 +4285,7 @@ function App() {
       const existing = current[activeWorkspacePath];
       const stored = storedTerminalByProject[activeWorkspacePath];
       const hasLiveSessions = hasTerminalSessionsForProject(activeWorkspacePath);
-      if (existing?.open && hasLiveSessions) {
+      if (existing?.open) {
         return {
           ...current,
           [activeWorkspacePath]: { ...existing, open: false },
@@ -4325,13 +4313,11 @@ function App() {
     if (!currentProjectPath) {
       return;
     }
-    setWorkspacePanelManualOverride({
-      layoutMode: activityWorkspaceLayoutMode,
-      projectPath: currentProjectPath,
-      threadId: activeThread?.id,
-      open: !workspacePanelResolvedOpen,
-    });
-  }, [activeThread?.id, activityWorkspaceLayoutMode, currentProjectPath, workspacePanelResolvedOpen]);
+    setWorkspacePanelOpenByScope((current) => ({
+      ...current,
+      [browserScopeId]: !(current[browserScopeId] ?? workspacePanelResponsiveDefaultOpen),
+    }));
+  }, [browserScopeId, currentProjectPath, workspacePanelResponsiveDefaultOpen]);
   const pendingPlan = activeThread ? pendingPlansByThread[activeThread.id] : undefined;
   const approvedPlan = activeThread ? approvedPlansByThread[activeThread.id] : undefined;
   const taskPanelPlan = pendingPlan ?? approvedPlan;
@@ -6628,21 +6614,11 @@ function App() {
         if (nextLayoutMode) {
           startTransition(() => {
             setActivityWorkspaceLayoutMode(nextLayoutMode);
-            if (shouldAutoOpenWorkspacePanel(nextLayoutMode)) {
-              setWorkspacePanelManualOverride({
-                layoutMode: nextLayoutMode,
-                projectPath: currentProjectPath,
-                threadId: activeThread?.id,
-                open: true,
-              });
-            }
           });
         }
       });
   }, [
     activityWorkspaceLayoutMode,
-    activeThread?.id,
-    currentProjectPath,
     prefersReducedMotion,
     taskPanelAnimationControls,
     taskPanelLayoutPresent,
