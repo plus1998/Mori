@@ -6008,6 +6008,12 @@ abstract class AppLocalizations {
   /// **'{count, plural, =1{1 reset} other{{count} resets}} · Expiry unknown'**
   String codexQuotaResetExpiryUnknown(int count);
 
+  /// No description provided for @codexQuotaResetCreditsUnknown.
+  ///
+  /// In en, this message translates to:
+  /// **'Reset credit count unavailable'**
+  String get codexQuotaResetCreditsUnknown;
+
   /// No description provided for @codexQuotaNoCredit.
   ///
   /// In en, this message translates to:

@@ -79,8 +79,8 @@ class CodexAccountQuota {
     required this.allowed,
     required this.limitReached,
     required this.windows,
-    required this.resetCreditsAvailable,
     required this.fetchedAt,
+    this.resetCreditsAvailable,
     this.resetCredits,
   });
   factory CodexAccountQuota.fromJson(Map<String, dynamic> json) {
@@ -97,7 +97,7 @@ class CodexAccountQuota {
               Map<String, dynamic>.from(rate[key] as Map),
             ),
       ],
-      resetCreditsAvailable: (json['resetCreditsAvailable'] as num).toInt(),
+      resetCreditsAvailable: (json['resetCreditsAvailable'] as num?)?.toInt(),
       resetCredits: (json['resetCredits'] as List?)
           ?.map(
             (credit) => CodexResetCredit.fromJson(
@@ -113,7 +113,9 @@ class CodexAccountQuota {
   final bool allowed;
   final bool limitReached;
   final List<CodexQuotaWindow> windows;
-  final int resetCreditsAvailable;
+
+  /// Ordinary desktop quota responses omit the independently queried count.
+  final int? resetCreditsAvailable;
 
   /// Null means details are unknown; the service may return fewer details than the count.
   final List<CodexResetCredit>? resetCredits;

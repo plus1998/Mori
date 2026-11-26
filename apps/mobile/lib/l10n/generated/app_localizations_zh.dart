@@ -3249,6 +3249,9 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
+  String get codexQuotaResetCreditsUnknown => '暂无重置卡数量';
+
+  @override
   String get codexQuotaNoCredit => '当前账号没有可用重置次数';
 
   @override

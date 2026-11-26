@@ -103,10 +103,14 @@ void main() {
         'name': 'Account',
         'isLoggedIn': true,
         'authState': 'configured',
-        'quota': _quotaJson(),
+        'quota': _quotaJson(credits: null),
       },
     ];
-    expect((await rpc.listCodexAccounts()).single.id, 'a');
+    final account = (await rpc.listCodexAccounts()).single;
+    expect(account.id, 'a');
+    expect(account.canUseCredentials, isTrue);
+    expect(account.quota!.resetCreditsAvailable, isNull);
+    expect(account.quota!.windows.first.remaining, 80);
     expect(client.channel, 'openai-accounts:list');
     client.result = _quotaJson();
     expect((await rpc.queryCodexAccountQuota('a')).windows.first.remaining, 80);
@@ -332,13 +336,21 @@ void main() {
   });
 
   testWidgets(
-    'reset is disabled without credits; reset result and refreshed quota are visible',
+    'unknown and zero reset credits are distinct and only a positive count enables reset',
     (tester) async {
-      final rpc = _Rpc()..credits = 0;
+      final rpc = _Rpc()..credits = null;
       final c = controller(rpc);
       await c.refresh();
       await tester.pumpWidget(_app(c, const CodexQuotaPage()));
       final button = find.widgetWithText(FilledButton, '使用重置');
+      expect(find.text('暂无重置卡数量'), findsOneWidget);
+      expect(find.text('剩余 80%'), findsNWidgets(2));
+      expect(find.text('当前账号没有可用重置次数'), findsNothing);
+      expect(tester.widget<FilledButton>(button).onPressed, isNull);
+      rpc.credits = 0;
+      await c.refresh();
+      await tester.pump();
+      expect(find.text('当前账号没有可用重置次数'), findsOneWidget);
       expect(tester.widget<FilledButton>(button).onPressed, isNull);
       rpc.credits = 1;
       await c.refresh();
@@ -424,10 +436,10 @@ Future<void> _until(bool Function() done) async {
   expect(done(), isTrue);
 }
 
-Map<String, dynamic> _quotaJson({double used = 20, int credits = 1}) => {
+Map<String, dynamic> _quotaJson({double used = 20, int? credits = 1}) => {
   'planType': 'plus',
   'email': 'test@example.com',
-  'resetCreditsAvailable': credits,
+  'resetCreditsAvailable': ?credits,
   'fetchedAt': 1792756800000,
   'rateLimit': {
     'allowed': true,
@@ -446,9 +458,9 @@ Map<String, dynamic> _quotaJson({double used = 20, int credits = 1}) => {
     },
   },
 };
-CodexAccountQuota _quota({double used = 20, int credits = 1}) =>
+CodexAccountQuota _quota({double used = 20, int? credits = 1}) =>
     CodexAccountQuota.fromJson(_quotaJson(used: used, credits: credits));
-CodexAccount _account(String id, {double used = 20, int credits = 1}) =>
+CodexAccount _account(String id, {double used = 20, int? credits = 1}) =>
     CodexAccount(
       id: id,
       name: '账号 $id',
@@ -460,7 +472,7 @@ CodexAccount _account(String id, {double used = 20, int credits = 1}) =>
 
 class _Rpc extends DesktopRpc {
   _Rpc() : super(EcoCenterClient(store: CredentialStore()), 'desktop');
-  var credits = 1;
+  int? credits = 1;
   List<Map<String, dynamic>>? resetCredits;
   final usage = <String, double>{};
   final queries = <String>[];

@@ -1138,6 +1138,7 @@
       "count": { "type": "int" }
     }
   },
+  "codexQuotaResetCreditsUnknown": "Reset credit count unavailable",
   "codexQuotaNoCredit": "This account has no reset credits",
   "codexQuotaNothingToReset": "No quota window is available to reset",
   "codexQuotaSwitching": "Switching accounts. Reset will be available when complete.",

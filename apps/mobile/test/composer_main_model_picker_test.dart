@@ -74,24 +74,23 @@ class _AccountsRpc extends DesktopRpc {
           isLoggedIn: true,
           authState: 'configured',
           quota: includeQuota
-              ? CodexAccountQuota(
-                  planType: 'pro',
-                  email: '',
-                  allowed: true,
-                  limitReached: false,
-                  windows: [
-                    CodexQuotaWindow(
-                      usedPercent: id == 'A' ? 25 : 60,
-                      seconds: 5 * 60 * 60,
-                      resetAfterSeconds: 0,
-                      resetAt:
+              ? CodexAccountQuota.fromJson({
+                  'planType': 'pro',
+                  'email': '',
+                  'rateLimit': {
+                    'allowed': true,
+                    'limitReached': false,
+                    'primaryWindow': {
+                      'usedPercent': id == 'A' ? 25 : 60,
+                      'limitWindowSeconds': 5 * 60 * 60,
+                      'resetAfterSeconds': 0,
+                      'resetAt':
                           DateTime.utc(2030, 1, 2, 12).millisecondsSinceEpoch ~/
                           1000,
-                    ),
-                  ],
-                  resetCreditsAvailable: 0,
-                  fetchedAt: DateTime.utc(2030, 1, 1).millisecondsSinceEpoch,
-                )
+                    },
+                  },
+                  'fetchedAt': DateTime.utc(2030, 1, 1).millisecondsSinceEpoch,
+                })
               : null,
         ),
     ];
@@ -532,11 +531,12 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('account selection shows quota and the next reset time', (
+  testWidgets('account selection shows quota without reset credit metadata', (
     tester,
   ) async {
     final rpc = _AccountsRpc(includeQuota: true);
-    await _open(tester, rpc, []);
+    final changes = <OrchestrationModelRef>[];
+    await _open(tester, rpc, changes);
     await _chooseAccount(tester, 'Login A');
 
     expect(find.textContaining('75%'), findsOneWidget);
@@ -546,6 +546,13 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.textContaining('75%'), findsAtLeastNWidgets(2));
     expect(find.textContaining('↻'), findsAtLeastNWidgets(2));
+
+    await tester.tap(find.text('Login B'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('GPT Test'));
+    await tester.pumpAndSettle();
+    expect(changes.single.accountId, 'B');
+    expect(changes.single.modelId, 'gpt-test');
     expect(tester.takeException(), isNull);
   });
 

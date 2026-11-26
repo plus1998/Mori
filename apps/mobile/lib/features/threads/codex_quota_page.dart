@@ -90,6 +90,14 @@ class _CodexQuotaPageState extends ConsumerState<CodexQuotaPage>
     final l = context.l10n;
     final account = snapshot?.account;
     final quota = account?.quota;
+    final resetCreditsAvailable = quota?.resetCreditsAvailable;
+    final hasResetCredit =
+        resetCreditsAvailable != null && resetCreditsAvailable > 0;
+    final resetCreditsLabel = switch (resetCreditsAvailable) {
+      null => l.codexQuotaResetCreditsUnknown,
+      > 0 => l.codexQuotaResetCount('$resetCreditsAvailable'),
+      _ => l.codexQuotaNoCredit,
+    };
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
       children: [
@@ -175,22 +183,20 @@ class _CodexQuotaPageState extends ConsumerState<CodexQuotaPage>
                   _QuotaWindows(quota: quota),
                 const SizedBox(height: 8),
                 Text(
-                  quota != null && quota.resetCreditsAvailable > 0
-                      ? l.codexQuotaResetCount('${quota.resetCreditsAvailable}')
-                      : l.codexQuotaNoCredit,
+                  resetCreditsLabel,
                   style: TextStyle(color: eco.textMuted, fontSize: 12),
                 ),
-                if (quota != null && quota.resetCreditsAvailable > 0)
-                  _ResetCreditExpiry(quota: quota),
+                if (hasResetCredit)
+                  _ResetCreditExpiry(
+                    availableCount: resetCreditsAvailable,
+                    credits: quota?.resetCredits ?? const [],
+                  ),
                 const SizedBox(height: 16),
                 Row(
                   children: [
                     Expanded(
                       child: FilledButton.tonal(
-                        onPressed:
-                            _busy ||
-                                quota == null ||
-                                quota.resetCreditsAvailable <= 0
+                        onPressed: _busy || !hasResetCredit
                             ? null
                             : () => _run(_reset),
                         child: Text(l.codexQuotaUseReset),
@@ -222,15 +228,19 @@ class _CodexQuotaPageState extends ConsumerState<CodexQuotaPage>
 }
 
 class _ResetCreditExpiry extends StatelessWidget {
-  const _ResetCreditExpiry({required this.quota});
-  final CodexAccountQuota quota;
+  const _ResetCreditExpiry({
+    required this.availableCount,
+    required this.credits,
+  });
+  final int availableCount;
+  final List<CodexResetCredit> credits;
 
   @override
   Widget build(BuildContext context) {
     final l = context.l10n;
     final locale = Localizations.localeOf(context).toLanguageTag();
     final groups = <int?, int>{};
-    for (final credit in quota.resetCredits ?? <CodexResetCredit>[]) {
+    for (final credit in credits) {
       groups.update(credit.expiresAt, (count) => count + 1, ifAbsent: () => 1);
     }
     final expiries = groups.entries.toList()
@@ -241,8 +251,7 @@ class _ResetCreditExpiry extends StatelessWidget {
             ? -1
             : a.key!.compareTo(b.key!),
       );
-    final unknownCount =
-        quota.resetCreditsAvailable - (quota.resetCredits?.length ?? 0);
+    final unknownCount = availableCount - credits.length;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [

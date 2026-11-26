@@ -3449,6 +3449,9 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
+  String get codexQuotaResetCreditsUnknown => 'Reset credit count unavailable';
+
+  @override
   String get codexQuotaNoCredit => 'This account has no reset credits';
 
   @override

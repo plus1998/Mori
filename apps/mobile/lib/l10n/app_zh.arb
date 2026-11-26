@@ -1072,6 +1072,7 @@
   "codexQuotaResetExpiresAt": "{count} 张 · 有效期至 {time}",
   "codexQuotaResetNeverExpires": "{count} 张 · 不过期",
   "codexQuotaResetExpiryUnknown": "{count} 张 · 有效期未知",
+  "codexQuotaResetCreditsUnknown": "暂无重置卡数量",
   "codexQuotaNoCredit": "当前账号没有可用重置次数",
   "codexQuotaNothingToReset": "当前没有可重置的额度窗口",
   "codexQuotaSwitching": "正在切换账号，切换完成后可使用重置",
