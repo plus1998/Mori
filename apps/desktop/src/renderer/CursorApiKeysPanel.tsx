@@ -1,9 +1,10 @@
-import { Switch } from "./components/Switch";
-import { KeyRound, Loader2, Pencil, Plus, Search, Trash2, Upload, X } from "lucide-react";
+import { ChevronDown, KeyRound, Loader2, MoreHorizontal, Pencil, Plus, Power, Search, Trash2, Upload, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import type { CursorApiKeyInput, CursorApiKeyView } from "../shared/ipc";
+import "./components/openai-account-cards.css";
+import "./cursor-api-keys.css";
 
 interface CursorApiKeysPanelProps {
   busy?: boolean | undefined;
@@ -15,6 +16,8 @@ type DialogState =
   | { type: "edit"; account: CursorApiKeyView }
   | { type: "delete"; account: CursorApiKeyView }
   | { type: "import" };
+
+type AccountMenu = { id: string; kind: "status" | "more" };
 
 export function CursorApiKeysPanel({ busy = false, revision = 0 }: CursorApiKeysPanelProps) {
   const { t } = useTranslation();
@@ -29,6 +32,7 @@ export function CursorApiKeysPanel({ busy = false, revision = 0 }: CursorApiKeys
   const [mutating, setMutating] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "enabled" | "disabled">("all");
+  const [accountMenu, setAccountMenu] = useState<AccountMenu>();
   const disabled = busy || loading || mutating;
   const enabledCount = accounts.filter((account) => account.enabled).length;
   const query = searchQuery.trim().toLocaleLowerCase();
@@ -54,8 +58,25 @@ export function CursorApiKeysPanel({ busy = false, revision = 0 }: CursorApiKeys
     return () => { cancelled = true; };
   }, [t, revision]);
 
+  const menuOpen = accountMenu !== undefined;
+  useEffect(() => {
+    if (!menuOpen) return;
+    function dismissMenu(event: PointerEvent) {
+      if (!(event.target instanceof Element) || !event.target.closest(".cursor-api-key-actions")) {
+        setAccountMenu(undefined);
+      }
+    }
+    document.addEventListener("pointerdown", dismissMenu);
+    return () => document.removeEventListener("pointerdown", dismissMenu);
+  }, [menuOpen]);
+
+  function toggleMenu(id: string, kind: AccountMenu["kind"]) {
+    setAccountMenu((previous) => previous?.id === id && previous.kind === kind ? undefined : { id, kind });
+  }
+
   const mutate = async (operation: (api: NonNullable<typeof window.eco>) => Promise<void>) => {
     if (disabled) return;
+    setAccountMenu(undefined);
     setMutating(true);
     setError(undefined);
     setMessage(undefined);
@@ -103,6 +124,7 @@ export function CursorApiKeysPanel({ busy = false, revision = 0 }: CursorApiKeys
   };
 
   const openEdit = (account: CursorApiKeyView) => {
+    setAccountMenu(undefined);
     setError(undefined);
     setMessage(undefined);
     setName(account.name);
@@ -216,29 +238,124 @@ export function CursorApiKeysPanel({ busy = false, revision = 0 }: CursorApiKeys
         </div>
       ) : (
         <div className="codex-account-list">
-          {filteredAccounts.map((account) => (
-            <article className={`codex-account-card cursor-api-key-card${account.enabled ? "" : " is-disabled"}`} key={account.id}>
-              <div className="codex-account-card-main">
-                <div className="codex-account-avatar"><KeyRound size={17} /></div>
-                <div className="codex-account-identity">
-                  <strong title={account.name}>{account.name}</strong>
-                  <span className="cursor-api-key-preview">{account.apiKeyPreview}</span>
+          {filteredAccounts.map((account) => {
+            const statusTone = account.enabled ? "ready" : "danger";
+            const moreLabel = t("settings.openaiAccounts.moreActionsAria", { name: account.name });
+            const menu = accountMenu?.id === account.id ? accountMenu.kind : undefined;
+            return (
+              <article className={`codex-account-card cursor-api-key-card${account.enabled ? "" : " is-disabled"}`} key={account.id}>
+                <div className="codex-account-card-main">
+                  <div className="codex-account-avatar" aria-hidden="true"><KeyRound size={16} /></div>
+                  <div className="codex-account-identity">
+                    <div className="codex-account-identity-title">
+                      <strong title={account.name}>{account.name}</strong>
+                    </div>
+                    <span className="cursor-api-key-preview" title={account.apiKeyPreview}>{account.apiKeyPreview}</span>
+                  </div>
+                  <div
+                    className="codex-account-header-actions cursor-api-key-actions"
+                    onBlur={(event) => {
+                      if (menu && event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) {
+                        setAccountMenu(undefined);
+                      }
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key !== "Escape" || !menu) return;
+                      event.stopPropagation();
+                      setAccountMenu(undefined);
+                      event.currentTarget.querySelector<HTMLButtonElement>('button[aria-expanded="true"]')?.focus();
+                    }}
+                    onClick={(event) => {
+                      if (!(event.target instanceof Element) || !event.target.closest("button[role=menuitem]")) return;
+                      event.currentTarget.querySelector<HTMLButtonElement>('button[aria-expanded="true"]')?.focus();
+                      setAccountMenu(undefined);
+                    }}
+                  >
+                    <div className="codex-account-status-tags">
+                      <div className="codex-account-status-wrap">
+                        <button
+                          type="button"
+                          className={`codex-status-tag is-${statusTone}`}
+                          aria-haspopup="menu"
+                          aria-expanded={menu === "status"}
+                          disabled={disabled}
+                          onClick={() => toggleMenu(account.id, "status")}
+                        >
+                          <i />
+                          <span>{t(account.enabled ? "settings.cursorApiKeys.stateEnabled" : "settings.cursorApiKeys.stateDisabled")}</span>
+                          <ChevronDown size={11} />
+                        </button>
+                        {menu === "status" ? (
+                          <div className="codex-account-status-popover" role="menu" aria-label={t("settings.cursorApiKeys.enabled")}>
+                            <div className="codex-account-status-popover-header">
+                              <span>{t("settings.cursorApiKeys.enabled")}</span>
+                              <strong className={`is-${statusTone}`}>
+                                <i />
+                                {t(account.enabled ? "settings.cursorApiKeys.stateEnabled" : "settings.cursorApiKeys.stateDisabled")}
+                              </strong>
+                            </div>
+                            <button
+                              type="button"
+                              role="menuitem"
+                              className="codex-account-status-item is-primary"
+                              disabled={disabled}
+                              onClick={() => void toggle(account)}
+                            >
+                              <Power size={14} />
+                              <span>{t(account.enabled ? "settings.cursorApiKeys.disable" : "settings.cursorApiKeys.enabled")}</span>
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                    <div className="codex-account-actions">
+                      <div className="codex-account-actions-menu-wrap">
+                        <button
+                          type="button"
+                          className="mcp-icon-button"
+                          aria-label={moreLabel}
+                          title={moreLabel}
+                          aria-haspopup="menu"
+                          aria-expanded={menu === "more"}
+                          disabled={disabled}
+                          onClick={() => toggleMenu(account.id, "more")}
+                        >
+                          <MoreHorizontal size={16} />
+                        </button>
+                        {menu === "more" ? (
+                          <div className="codex-account-actions-menu" role="menu" aria-label={moreLabel}>
+                            <button
+                              type="button"
+                              role="menuitem"
+                              className="codex-account-actions-menu-item"
+                              disabled={disabled}
+                              onClick={() => openEdit(account)}
+                            >
+                              <Pencil size={14} />
+                              {t("settings.cursorApiKeys.edit")}
+                            </button>
+                            <button
+                              type="button"
+                              role="menuitem"
+                              className="codex-account-actions-menu-item"
+                              disabled={disabled}
+                              onClick={() => {
+                                setError(undefined);
+                                setDialog({ type: "delete", account });
+                              }}
+                            >
+                              <Trash2 size={14} />
+                              {t("settings.cursorApiKeys.delete")}
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <span className={`codex-status-badge ${account.enabled ? "is-ready" : "is-danger"}`}><i />{t(account.enabled ? "settings.cursorApiKeys.stateEnabled" : "settings.cursorApiKeys.stateDisabled")}</span>
-                <div className="codex-account-actions">
-                  <Switch
-                    title={account.enabled ? t("settings.cursorApiKeys.disable") : t("settings.cursorApiKeys.enabled")}
-                    checked={account.enabled}
-                    disabled={disabled}
-                    aria-label={`${account.name}: ${t("settings.cursorApiKeys.enabled")}`}
-                    onCheckedChange={() => void toggle(account)}
-                  />
-                  <button type="button" className="mcp-icon-button" title={t("settings.cursorApiKeys.edit")} aria-label={t("settings.cursorApiKeys.edit")} disabled={disabled} onClick={() => openEdit(account)}><Pencil size={14} /></button>
-                  <button type="button" className="mcp-icon-button danger" title={t("settings.cursorApiKeys.delete")} aria-label={t("settings.cursorApiKeys.delete")} disabled={disabled} onClick={() => { setError(undefined); setDialog({ type: "delete", account }); }}><Trash2 size={14} /></button>
-                </div>
-              </div>
-            </article>
-          ))}
+              </article>
+            );
+          })}
         </div>
       )}
 

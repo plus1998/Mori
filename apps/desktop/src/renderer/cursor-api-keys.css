@@ -1,0 +1,64 @@
+.cursor-api-key-actions,
+.cursor-api-key-actions .codex-account-status-popover,
+.cursor-api-key-actions .codex-account-actions-menu {
+  -webkit-app-region: no-drag;
+}
+
+.cursor-api-key-card.is-disabled .codex-account-avatar,
+.cursor-api-key-card.is-disabled .codex-account-identity {
+  opacity: 0.6;
+}
+
+.cursor-api-keys-panel .cursor-api-key-preview {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.cursor-api-key-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.cursor-api-key-modal {
+  background: var(--bg-elevated);
+}
+
+.cursor-api-key-modal .settings-modal-title {
+  font-size: 17px;
+}
+
+.cursor-api-key-import-hint {
+  margin: 0 0 14px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.cursor-api-key-import-textarea {
+  width: 100%;
+  min-height: 180px;
+  font-family: var(--font-mono);
+  resize: vertical;
+}
+
+.cursor-api-key-modal .cursor-api-key-dialog-error {
+  margin: 0 20px 16px;
+}
+
+.cursor-api-key-delete-button {
+  border-color: color-mix(in srgb, var(--danger) 30%, var(--border-subtle));
+  background: color-mix(in srgb, var(--danger) 10%, var(--bg-elevated));
+  color: var(--danger);
+}
+
+@container login-accounts (max-width: 400px) {
+  .cursor-api-keys-panel .codex-account-card .codex-account-header-actions {
+    grid-column: 2 / -1;
+    justify-content: flex-start;
+  }
+
+  .cursor-api-keys-panel .codex-account-identity {
+    grid-column: 2 / -1;
+  }
+}
