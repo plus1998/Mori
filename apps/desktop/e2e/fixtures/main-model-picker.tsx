@@ -14,6 +14,8 @@ let holdCatalogs = false;
 let remoteModelReads = 0;
 let selections = 0;
 let lastSelection: ModelRef | undefined;
+let loginModelId = "Login local model";
+let finishLoginRefresh: ((error?: Error) => void) | undefined;
 const readOnly = new URLSearchParams(location.search).has("readOnly");
 const never = () => new Promise<never>(() => {});
 const catalog = (modelId: string): CodexModelCatalogSnapshot => ({
@@ -45,18 +47,34 @@ Object.assign(window, {
       return [{ accountId: "oauth-account", displayName: "Local OAuth account", enabled: true, hasCredentials: true, status: "ready" }];
     },
     async getCodexModelCatalog() {
-      return holdCatalogs ? never() : catalog("Login local model");
+      return holdCatalogs ? never() : catalog(loginModelId);
+    },
+    async refreshCodexModelCatalog() {
+      return new Promise<CodexModelCatalogSnapshot>((resolve, reject) => {
+        finishLoginRefresh = (error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          loginModelId = "Login refreshed model";
+          resolve(catalog(loginModelId));
+        };
+      });
     },
     async getChatGptModelCatalog() {
       return holdCatalogs ? never() : catalog("OAuth local model");
     },
-    async chatGptSubscriptionAccountModelsList() {
+    async chatGptSubscriptionAccountModelsList(accountId: string) {
+      if (accountId !== "oauth-account") throw new Error("Unexpected OAuth account");
       remoteModelReads += 1;
       if (pending === "oauth-models") return new Promise((_resolve, reject) => { rejectOauthCatalog = reject; });
-      return holdCatalogs ? never() : [{ id: "OAuth local model", displayName: "OAuth local model" }];
+      const id = remoteModelReads === 1 ? "OAuth local model" : "OAuth refreshed model";
+      return holdCatalogs ? never() : [{ id, displayName: id }];
     },
     async openAIAccountsQueryQuota() { return never(); },
+    async openAIAccountsUltrafastModels() { return []; },
   },
+  finishLoginRefresh: (fail: boolean) => finishLoginRefresh?.(fail ? new Error("Login refresh failed") : undefined),
   pickerRemoteModelReads: () => remoteModelReads,
   pickerSelections: () => selections,
   pickerLastSelection: () => lastSelection,
@@ -67,15 +85,19 @@ document.documentElement.dataset.theme = "light";
 function Fixture() {
   const anchorRef = useRef<HTMLDivElement>(null);
   const [model, setModel] = useState<ModelRef>({ providerId: "openai", modelId: "Login local model", accountId: "login-account" });
+  const [cursorModel, setCursorModel] = useState({ id: "gpt-test", displayName: "GPT test" });
   return <>
     <div ref={anchorRef} style={{ position: "fixed", bottom: 20, left: 20, width: 900 }}>
       <ComposerMainModelPicker anchorRef={anchorRef} coreKind="codex"
         model={model}
+        allowModelRefresh
         readOnly={readOnly}
         onSelect={(choice) => { selections += 1; lastSelection = choice; setModel(choice); }} onAddProvider={() => {}} />
     </div>
     {new URLSearchParams(location.search).has("acp") ? <ComposerAcpModelTrigger
-      models={[{ id: "gpt-test", displayName: "GPT test" }]}
+      anchorRef={anchorRef}
+      models={[cursorModel]}
+      onRefreshModels={() => setCursorModel({ id: "gpt-refreshed", displayName: "GPT refreshed" })}
       selectedModelId="gpt-test" readOnly={readOnly} onChange={() => { selections += 1; }} /> : null}
     <button type="button" onClick={() => rejectOauthCatalog?.(new Error("OAuth catalog read failed"))}>
       Fail OAuth catalog

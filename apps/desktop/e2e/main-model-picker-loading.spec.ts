@@ -11,7 +11,7 @@ test("Login Fast remains selected across panel reopen and thinking-effort change
   await page.goto(fixtureUrl());
   const trigger = page.locator(".composer-model-trigger");
   await trigger.click();
-  const fast = page.getByRole("button", { name: "Fast", exact: true });
+  const fast = page.getByRole("button", { name: /^Speed: / });
   await expect(fast).toBeEnabled();
   await fast.click();
   const fastBadge = page.locator(".composer-model-fast-badge");
@@ -36,7 +36,7 @@ for (const query of ["?readOnly", "?noFast"]) {
   test(`Login Fast is disabled for ${query}`, async ({ page }) => {
     await page.goto(fixtureUrl(query));
     await page.locator(".composer-model-trigger").click();
-    await expect(page.getByRole("button", { name: "Fast", exact: true })).toBeDisabled();
+    await expect(page.getByRole("button", { name: /^Speed: / })).toBeDisabled();
     await expect(page.locator(".composer-model-fast-badge")).toHaveCount(0);
   });
 }
@@ -44,7 +44,7 @@ for (const query of ["?readOnly", "?noFast"]) {
 test("Login Fast is hidden for OAuth and custom providers and is cleared when switching providers", async ({ page }) => {
   await page.goto(fixtureUrl("?custom"));
   await page.locator(".composer-model-trigger").click();
-  const fast = page.getByRole("button", { name: "Fast", exact: true });
+  const fast = page.getByRole("button", { name: /^Speed: / });
   await fast.click();
   await page.getByRole("button", { name: "ChatGPT OAuth", exact: true }).click();
   await expect(fast).toHaveCount(0);
@@ -77,10 +77,10 @@ test("read-only picker allows browsing without saving or changing model settings
 test("read-only ACP picker blocks mouse and keyboard commits", async ({ page }) => {
   await page.goto(fixtureUrl("?readOnly&acp"));
   await page.locator(".composer-acp-model-trigger").click();
-  await expect(page.locator(".model-cascade-model-item")).toBeDisabled();
+  await expect(page.locator(".composer-main-model-picker-models button")).toBeDisabled();
   await expect(page.locator(".model-cascade-clear")).toBeDisabled();
-  await page.locator(".model-cascade-search input").fill("GPT");
-  await page.locator(".model-cascade-search input").press("Enter");
+  await page.locator(".composer-main-model-picker-search input").fill("GPT");
+  await page.locator(".composer-main-model-picker-search input").press("Enter");
   expect(await page.evaluate(() => (window as unknown as { pickerSelections(): number }).pickerSelections())).toBe(0);
 });
 
@@ -129,4 +129,43 @@ test("reopening retains already loaded local models while a new disk read is pen
   await page.getByRole("button", { name: "Hold catalog reads", exact: true }).click();
   await trigger.click();
   await expect(page.getByRole("button", { name: "Login local model", exact: true })).toBeVisible();
+});
+
+test("Login refresh shows progress, preserves models on failure, and updates the open picker on retry", async ({ page }) => {
+  await page.goto(fixtureUrl());
+  await page.locator(".composer-model-trigger").click();
+  const localModel = page.getByRole("button", { name: "Login local model", exact: true });
+  const refresh = page.getByRole("button", { name: "Refresh models", exact: true });
+  await expect(localModel).toBeVisible();
+  await refresh.click();
+  await expect(page.getByRole("button", { name: "Refreshing…", exact: true })).toBeDisabled();
+  await page.evaluate(() => (window as unknown as { finishLoginRefresh(fail: boolean): void }).finishLoginRefresh(true));
+  await expect(page.getByRole("alert")).toHaveText("Login refresh failed");
+  await expect(localModel).toBeVisible();
+  await refresh.click();
+  await page.evaluate(() => (window as unknown as { finishLoginRefresh(fail: boolean): void }).finishLoginRefresh(false));
+  await expect(page.getByRole("button", { name: "Login refreshed model", exact: true })).toBeVisible();
+  await expect(localModel).toHaveCount(0);
+  await expect(page.getByRole("alert")).toHaveCount(0);
+});
+
+test("OAuth refresh reloads models for the account selected in the open picker", async ({ page }) => {
+  await page.goto(fixtureUrl());
+  await page.locator(".composer-model-trigger").click();
+  await page.getByRole("button", { name: "ChatGPT OAuth", exact: true }).click();
+  const refresh = page.getByRole("button", { name: "Refresh models", exact: true });
+  await expect(refresh).toBeDisabled();
+  await page.getByRole("button", { name: /^Local OAuth account\b/ }).click();
+  await expect(page.getByRole("button", { name: "OAuth local model", exact: true })).toBeVisible();
+  await refresh.click();
+  await expect(page.getByRole("button", { name: "OAuth refreshed model", exact: true })).toBeVisible();
+  expect(await page.evaluate(() => (window as unknown as { pickerRemoteModelReads(): number }).pickerRemoteModelReads())).toBe(2);
+});
+
+test("Cursor refresh updates the model list without closing the picker", async ({ page }) => {
+  await page.goto(fixtureUrl("?acp"));
+  await page.locator(".composer-acp-model-trigger").click();
+  await expect(page.getByRole("button", { name: "GPT test", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Refresh models", exact: true }).click();
+  await expect(page.getByRole("button", { name: "GPT refreshed", exact: true })).toBeVisible();
 });

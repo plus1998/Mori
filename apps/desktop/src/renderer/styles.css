@@ -39092,14 +39092,16 @@ body,
   border-radius: 12px;
 }
 
-.composer-main-model-picker-account-heading {
+.composer-main-model-picker-account-heading,
+.composer-main-model-picker-model-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
   min-width: 0;
 }
-.composer-main-model-picker-account-heading .chatgpt-inline-link { margin-right: 9px; font-size: 11px; }
+.composer-main-model-picker-account-heading .chatgpt-inline-link,
+.composer-main-model-picker-model-heading .chatgpt-inline-link { margin-right: 9px; font-size: 11px; }
 .composer-main-model-picker-accounts.is-oauth {
   display: flex;
   flex-direction: column;

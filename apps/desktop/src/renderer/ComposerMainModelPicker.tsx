@@ -4,12 +4,14 @@ import { Check, ChevronDown, CircleHelp, Search } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import type { CandidateModelView, CommitModelOptionView, ModelRef, ThinkingEffort } from "../shared/ipc";
+import type { CodexModelCatalogSnapshot } from "../shared/models";
 import type { OpenAIAccountQuota } from "../shared/openai-account";
 import { resolveProviderBrandLogo } from "../shared/provider-brand-logo";
 import { ComposerAbovePanel } from "./ComposerAbovePanel";
 import { ComposerThinkingEffortControl } from "./ComposerThinkingEffortControl";
 import { FastModeIcon } from "./FastModeIcon";
 import { ComposerModelLabel, formatComposerModelName } from "./ComposerModelLabel";
+import { ComposerModelPickerHeading } from "./ComposerModelPickerHeading";
 
 type Source = "login" | "oauth" | string;
 type PickerPurpose = "main" | "subagent" | "auxiliary" | "vision" | "approval";
@@ -118,6 +120,7 @@ export function ComposerMainModelPicker({
   mainAccountId,
   onClear,
   onManageAccounts,
+  allowModelRefresh = false,
 }: {
   anchorRef: RefObject<HTMLElement | null>;
   model?: ModelRef | undefined;
@@ -130,6 +133,7 @@ export function ComposerMainModelPicker({
   mainAccountId?: string | undefined;
   onClear?: (() => void | Promise<void>) | undefined;
   onManageAccounts?: (() => void) | undefined;
+  allowModelRefresh?: boolean;
   openRequest?: number;
   disabled?: boolean | undefined;
   readOnly?: boolean | undefined;
@@ -163,9 +167,11 @@ export function ComposerMainModelPicker({
   const [loginAccounts, setLoginAccounts] = useState<Account[]>([]);
   const [oauthAccounts, setOauthAccounts] = useState<Account[]>([]);
   const [oauthAccountsLoaded, setOauthAccountsLoaded] = useState(false);
-  const [loginModels, setLoginModels] = useState<Array<{
-    modelId: string; displayName: string; reasoningEfforts: string[]; supportsFast?: boolean }>>([]);
+  const [loginModels, setLoginModels] = useState<CodexModelCatalogSnapshot["models"]>([]);
+  const loginModelsRefreshInFlight = useRef(false);
+  const [loginModelsRefreshing, setLoginModelsRefreshing] = useState(false);
   const [accountModels, setAccountModels] = useState<{ accountId: string; models: PickerModel[] }>();
+  const [oauthModelsRefreshRequest, setOauthModelsRefreshRequest] = useState(0);
   const [ultrafast, setUltrafast] = useState<{ accountId: string; modelIds: string[]; error?: string }>();
   const [accountModelsLoading, setAccountModelsLoading] = useState(false);
   const switchAccountIntent = useRef(false);
@@ -176,7 +182,7 @@ export function ComposerMainModelPicker({
   const [candidateCapabilities, setCandidateCapabilities] = useState<Record<string, CandidateModelView>>({});
   const [capabilitySettled, setCapabilitySettled] = useState<ReadonlySet<string>>(new Set());
   const [loadingData, setLoadingData] = useState<ReadonlySet<PickerDataKey>>(new Set());
-  const [loadErrors, setLoadErrors] = useState<Partial<Record<PickerDataKey, string>>>({});
+  const [loadErrors, setLoadErrors] = useState<Partial<Record<PickerDataKey, string | undefined>>>({});
   const [error, setError] = useState<string>();
 
   useEffect(() => {
@@ -219,7 +225,9 @@ export function ComposerMainModelPicker({
     const eco = window.eco;
     loadedAccountSourcesRef.current.clear();
     accountPositionedRef.current = false;
-    setLoadingData(new Set<PickerDataKey>(["custom", "oauthAccounts", "loginModels",
+    const readLoginModels = !loginModelsRefreshInFlight.current;
+    setLoadingData(new Set<PickerDataKey>(["custom", "oauthAccounts",
+      ...(readLoginModels ? ["loginModels" as const] : []),
       ...(purpose === "main" && includeLogin ? ["loginAccounts" as const] : [])]));
     setLoadErrors({});
     setError(undefined);
@@ -264,14 +272,32 @@ export function ComposerMainModelPicker({
           : t("settings.chatgptAccounts.statusTemporarilyUnavailable"),
       })));
     });
-    load("loginModels", eco.getCodexModelCatalog(), (catalog) => setLoginModels(catalog.models
-      .filter((entry) => !entry.hidden)
-      .map((entry) => ({ modelId: entry.modelId, displayName: entry.displayName,
-        reasoningEfforts: entry.reasoningEfforts,
-        ...(entry.supportsFast !== undefined ? { supportsFast: entry.supportsFast } : {}) }))));
+    if (readLoginModels) load("loginModels", eco.getCodexModelCatalog(), (catalog) => {
+      setLoginModels(catalog.models.filter((entry) => !entry.hidden));
+    });
 
     return () => { cancelled = true; };
   }, [open, purpose, includeLogin]);
+
+  const refreshLoginModels = async () => {
+    const eco = window.eco;
+    if (!eco || loginModelsRefreshInFlight.current || loadingData.has("loginModels")) return;
+    loginModelsRefreshInFlight.current = true;
+    setLoginModelsRefreshing(true);
+    setLoadErrors((current) => ({ ...current, loginModels: undefined }));
+    try {
+      const catalog = await eco.refreshCodexModelCatalog();
+      setLoginModels(catalog.models.filter((entry) => !entry.hidden));
+    } catch (cause) {
+      setLoadErrors((current) => ({
+        ...current,
+        loginModels: cause instanceof Error ? cause.message : String(cause),
+      }));
+    } finally {
+      loginModelsRefreshInFlight.current = false;
+      setLoginModelsRefreshing(false);
+    }
+  };
 
   useEffect(() => {
     if (!open || !includeLogin || source !== "login" || purpose !== "main" || !accountId || !window.eco) return;
@@ -328,11 +354,12 @@ export function ComposerMainModelPicker({
   const accountSource = accountMode === "select";
   const accounts = !accountSource ? [] : source === "login" ? loginAccounts : oauthAccounts;
 
-  const availableModels = source === "oauth"
-    ? (accountModels?.accountId === accountId ? accountModels.models : [])
-    : selectedProvider?.models ?? [];
+  const oauthModels = useMemo(() => accountModels?.accountId === accountId
+    ? associateOAuthModelEfforts(accountModels.models, loginModels) : [], [accountId, accountModels, loginModels]);
+  const availableModels = source === "oauth" ? oauthModels : selectedProvider?.models ?? [];
   const accountsLoading = loadingData.has(source === "login" ? "loginAccounts" : "oauthAccounts");
-  const modelsLoading = source === "oauth" ? accountModelsLoading : loadingData.has(source === "login" ? "loginModels" : "custom");
+  const modelsLoading = source === "oauth" ? accountModelsLoading
+    : source === "login" ? loginModelsRefreshing || loadingData.has("loginModels") : loadingData.has("custom");
   const selectedAccount = oauthAccounts.find((account) => account.id === model?.accountId);
   const bindingError = model?.providerId === "eco-coding-chatgpt" && !model.accountId ? t("composer.route.selectAccount")
     : model?.providerId === "eco-coding-chatgpt" && oauthAccountsLoaded && !selectedAccount ? t("composer.mainPicker.accountRemoved")
@@ -446,10 +473,10 @@ export function ComposerMainModelPicker({
     setError(undefined);
     void window.eco.chatGptSubscriptionAccountModelsList(accountId).then((models) => {
       if (cancelled) return;
-      const entries = associateOAuthModelEfforts(models.map((entry) => ({ id: entry.id,
+      const entries = models.map((entry) => ({ id: entry.id,
         name: entry.displayName ?? entry.id,
         ...(purpose !== "main" ? { candidateModelId: `account:eco-coding-chatgpt:${encodeURIComponent(entry.id)}` } : {}),
-      })), loginModels);
+      }));
       setAccountModels({ accountId, models: entries });
       const { activeChoice: currentChoice, readOnly: browseOnly, saveChoice: saveCurrentChoice } = currentSelection.current;
       if (switchAccountIntent.current && !browseOnly && currentChoice?.providerId === "eco-coding-chatgpt") {
@@ -467,12 +494,11 @@ export function ComposerMainModelPicker({
       switchAccountIntent.current = false;
     }).catch((cause: unknown) => {
       if (!cancelled) {
-        setAccountModels(undefined);
         setError(cause instanceof Error ? cause.message : String(cause));
       }
     }).finally(() => { if (!cancelled) setAccountModelsLoading(false); });
     return () => { cancelled = true; };
-  }, [open, source, accountId, purpose, loginModels]);
+  }, [open, source, accountId, purpose, oauthModelsRefreshRequest]);
 
   const chooseEffort = (effort: ThinkingEffort) => {
     if (readOnly) return;
@@ -624,7 +650,12 @@ export function ComposerMainModelPicker({
             {source === "oauth" && onManageAccounts ? <button type="button" className="chatgpt-inline-link"
               onClick={() => { setOpen(false); onManageAccounts(); }}>{t("composer.mainPicker.manageAccounts")}</button> : null}
           </div> : null}
-          <div className="composer-main-model-picker-section-label">{t("composer.mainPicker.models")}</div>
+          <ComposerModelPickerHeading
+            onRefresh={!allowModelRefresh ? undefined : source === "login" ? () => void refreshLoginModels()
+              : source === "oauth" ? () => setOauthModelsRefreshRequest((request) => request + 1) : undefined}
+            loading={modelsLoading}
+            refreshDisabled={disabled || (source === "oauth" && !accounts.some((account) => account.id === accountId && account.available))}
+          />
           <div ref={modelListRef} className="composer-main-model-picker-models"
             aria-label={t("composer.mainPicker.models")}>
             {accountSource && !accountId ? <p className="composer-main-model-picker-hint">
