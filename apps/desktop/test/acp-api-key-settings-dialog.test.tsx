@@ -41,7 +41,7 @@ test("panel shows API key entry with configured / not-set state", () => {
     }),
     "zh-CN",
   );
-  expect(notSet).toContain("Cursor API Key");
+  expect(notSet).toContain("Cursor 账号");
   expect(notSet).toContain("未设置");
 
   const set = renderLocalized(
@@ -97,7 +97,7 @@ test("panel routes key management to provider settings without the legacy single
     "zh-CN",
   );
 
-  expect(markup).toContain("Cursor API Key");
+  expect(markup).toContain("Cursor 账号");
   expect(markup).toContain("已配置");
   expect(markup).not.toContain("acp-api-key-settings-modal");
 });

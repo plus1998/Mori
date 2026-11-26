@@ -25,14 +25,16 @@ test("account profile editor renders all four fields and masks secrets by defaul
   const markup = renderLocalized(
     createElement(OpenAIAccountProfileFields, {
       email: "demo@example.test",
-      password: "fictional password",
       pickupUrl: "https://pickup.example.test/?key=demo",
-      twoFactorSecret: "JBSWY3DPEHPK3PXP",
-      instanceKey: "test-account",
+      secrets: {
+        password: "fictional password",
+        twoFactorSecret: "JBSWY3DPEHPK3PXP",
+        instanceKey: "test-account",
+        onPasswordChange: () => undefined,
+        onTwoFactorSecretChange: () => undefined,
+      },
       onEmailChange: () => undefined,
-      onPasswordChange: () => undefined,
       onPickupUrlChange: () => undefined,
-      onTwoFactorSecretChange: () => undefined,
     }),
     "zh-CN",
   );
@@ -51,14 +53,16 @@ test("account profile editor labels every field in English for en-US", () => {
   const markup = renderLocalized(
     createElement(OpenAIAccountProfileFields, {
       email: "demo@example.test",
-      password: "fictional password",
       pickupUrl: "https://pickup.example.test/?key=demo",
-      twoFactorSecret: "JBSWY3DPEHPK3PXP",
-      instanceKey: "test-account",
+      secrets: {
+        password: "fictional password",
+        twoFactorSecret: "JBSWY3DPEHPK3PXP",
+        instanceKey: "test-account",
+        onPasswordChange: () => undefined,
+        onTwoFactorSecretChange: () => undefined,
+      },
       onEmailChange: () => undefined,
-      onPasswordChange: () => undefined,
       onPickupUrlChange: () => undefined,
-      onTwoFactorSecretChange: () => undefined,
     }),
     "en-US",
   );

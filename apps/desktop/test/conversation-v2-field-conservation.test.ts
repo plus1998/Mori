@@ -16,7 +16,7 @@ import {
 } from "../src/renderer/conversation-v2-renderer-state";
 import { corpusBootstrap, loadCorpus, WHOLE_CONVERSATION_MAX_BYTES } from "./support/v2-corpus";
 
-const projectionExtraFields = "requestSpans billing ledgerEvents context subagentTimings subagentMetrics";
+const projectionExtraFields = "requestSpans billing ledgerEvents context subagentTimings subagentMetrics answerRequestIds";
 
 // Explicit inventory: adding a wire field requires deciding how it survives each consumer.
 const fields = {
@@ -214,6 +214,7 @@ test("V2 projection extras round-trip every stored panel fact after reopen", () 
     store.initialize();
     store.ensureConversation("projection-extra-fields");
     const snapshot = {
+      answerRequestIds: { "answer-1": "request-1" },
       requestSpans: [
         {
           requestId: "request-1",

@@ -455,6 +455,7 @@ function LedgerEventRow({
         {event.reasoningTokens !== undefined && event.reasoningTokens > 0 ? (
           <span className="usage-breakdown-event-token-detail" title={i18n.t("accountUsage.reasoning")}>
             {i18n.t("usage.eventReasoningTokens", {
+              count: event.reasoningTokens,
               countLabel: event.reasoningTokens.toLocaleString(i18n.resolvedLanguage),
             })}
           </span>
