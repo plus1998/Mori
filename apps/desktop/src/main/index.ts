@@ -8997,24 +8997,43 @@ function registerIpcHandlers(): void {
     ensureCodex: async id => (await getOpenAIAccountService()).ensureAccountCredentials(id),
   });
   registerDesktopCommand(IPC_CHANNELS.openAIAccountsOpenChatGPT, async (payload: { accountId: string }) => {
-    await accountBrowser.open(payload.accountId);
-    // Opening the Web page is also the lightweight Web-session discovery action.
-    // The browser may already contain a valid ChatGPT cookie from an earlier
-    // session, so do not force the user through the Web login flow again.
-    void (async () => {
-      try {
-        const svc = await getOpenAIAccountService();
-        const account = await svc.getAccountDetails(payload.accountId);
-        const auth = await accountBrowser.readWebSession(payload.accountId, account.email);
-        svc.saveWebAuth(payload.accountId, auth);
-      } catch (error) {
-        // A missing Web session is a normal state when the user only uses Codex.
-        // Keep the page open and let the user sign in there when needed.
-        if (!(error instanceof ChatGptWebSessionError && error.waitingForLogin)) {
-          logEcoDiag("openai-accounts.web-session-probe.failed", { error: errorMessage(error) });
+    const { accountId } = payload;
+    await accountBrowser.open(accountId, "https://chatgpt.com/", async page => {
+      const contents = page.webContents;
+      let checking = false;
+      let pending = false;
+      async function check() {
+        pending = true;
+        if (checking) return;
+        checking = true;
+        try {
+          while (pending && !page.isDestroyed()) {
+            pending = false;
+            if (!contents.getURL().startsWith("https://chatgpt.com/")) continue;
+            try {
+              const svc = await getOpenAIAccountService();
+              const account = await svc.getAccountDetails(accountId);
+              if (pending || page.isDestroyed()) continue;
+              const auth = await accountBrowser.readWebSession(accountId, account.email, contents);
+              if (!pending && !page.isDestroyed() && contents.getURL().startsWith("https://chatgpt.com/")) {
+                svc.saveWebAuth(accountId, auth);
+              }
+            } catch (error) {
+              if (!pending && !page.isDestroyed()
+                && !(error instanceof ChatGptWebSessionError && error.waitingForLogin)) {
+                logEcoDiag("openai-accounts.web-session-probe.failed", { error: errorMessage(error) });
+              }
+            }
+          }
+        } finally {
+          checking = false;
         }
       }
-    })();
+      contents.on("did-finish-load", () => void check());
+      contents.on("did-navigate-in-page", (_event, _url, isMainFrame) => {
+        if (isMainFrame) void check();
+      });
+    });
   });
   registerDesktopCommand(IPC_CHANNELS.openAIAccountsOpenAssistant, async (payload: { accountId: string }) => {
     await accountBrowser.run(payload.accountId, () => requireAccountAssistant().open(payload.accountId));

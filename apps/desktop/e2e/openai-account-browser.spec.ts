@@ -127,8 +127,9 @@ test("ChatGPT tabs reuse isolated account data, preserve existing profiles, and 
     // Opening from settings focuses the existing browser window and keeps settings available.
     await ecoPage.getByRole("button", { name: /^(设置|Settings)$/u }).click();
     await ecoPage.getByRole("button", { name: /^(服务商|Provider)$/u }).click();
-    await ecoPage.getByRole("tab", { name: "ChatGPT Login" }).click();
-    await ecoPage.locator("article").filter({ hasText: "ChatGPT browser A" }).getByRole("button", { name: /更多操作|More actions/u }).click();
+    await ecoPage.getByRole("tab", { name: "ChatGPT", exact: true }).click();
+    await ecoPage.getByRole("menuitemradio", { name: "ChatGPT Login" }).click();
+    await ecoPage.locator("article").filter({ hasText: "ChatGPT browser A" }).getByRole("button", { name: "Web", exact: true }).click();
     await ecoPage.getByRole("menuitem", { name: /打开 ChatGPT 网页|Open ChatGPT website/u }).click();
     await expect(firstWindow.locator(`webview[ecobrowsertabid="${firstTab.id}"]`)).toBeVisible();
     expect((await open(ecoPage, first)).id).toBe(firstTab.id);
@@ -175,6 +176,45 @@ test("ChatGPT tabs reuse isolated account data, preserve existing profiles, and 
     await expect(ecoPage.evaluate(id => window.eco.openAIAccountsOpenChatGPT(id), first)).rejects.toThrow("not found");
   } finally {
     for (const id of accounts) await ecoPage.evaluate(id => window.eco.openAIAccountsDelete(id), id);
+  }
+});
+
+test("ChatGPT sign-in refreshes the Web badge without reopening the account tab", async ({ electronApp, ecoPage }) => {
+  const name = "ChatGPT Web session refresh";
+  const email = "web-session@example.test";
+  const account = await ecoPage.evaluate(input => window.eco.openAIAccountsCreate(input), { name, email, proxyMode: "direct" });
+  try {
+    await electronApp.evaluate(({ app, session }, { id, email }) => {
+      const ses = session.fromPath(`${app.getPath("userData")}/codex-accounts/${id}/browser`);
+      let signedIn = false;
+      const claims = Buffer.from(JSON.stringify({
+        exp: Math.floor(Date.now() / 1_000) + 3_600,
+        "https://api.openai.com/auth": { chatgpt_account_id: "test-web-account" },
+      })).toString("base64url");
+      ses.protocol.handle("https", request => {
+        const path = new URL(request.url).pathname;
+        if (path === "/api/auth/session") {
+          return Response.json(signedIn ? { accessToken: `e30.${claims}.test`, user: { email } } : {});
+        }
+        if (path === "/signed-in") signedIn = true;
+        return new Response('<title>ChatGPT</title><a href="/signed-in">Sign in</a>', {
+          headers: { "content-type": "text/html" },
+        });
+      });
+    }, { id: account.id, email });
+    await ecoPage.getByRole("button", { name: /^(设置|Settings)$/u }).click();
+    await ecoPage.getByRole("button", { name: /^(服务商|Provider)$/u }).click();
+    await ecoPage.getByRole("tab", { name: "ChatGPT", exact: true }).click();
+    await ecoPage.getByRole("menuitemradio", { name: "ChatGPT Login" }).click();
+    const badge = ecoPage.locator("article").filter({ hasText: name }).getByRole("button", { name: "Web", exact: true });
+    await expect(badge).toHaveClass(/is-danger/u);
+    const tab = await open(ecoPage, account.id);
+    await expect(badge).toHaveClass(/is-danger/u);
+    await readAccountPage(electronApp, account.id, 'document.querySelector("a").click()');
+    await expect(badge).toHaveClass(/is-ready/u);
+    expect((await ecoPage.evaluate(() => window.eco.getBrowserState())).instances.some(page => page.id === tab.id)).toBe(true);
+  } finally {
+    await ecoPage.evaluate(id => window.eco.openAIAccountsDelete(id), account.id);
   }
 });
 
