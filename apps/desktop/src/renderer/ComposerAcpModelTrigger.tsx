@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
+import type { CursorApiKeyView } from "../shared/ipc";
 import type { AcpModelOption } from "../shared/acp-model-vendor";
 import { ModelCascadeSelect } from "./ModelCascadeSelect";
 import { createAcpCurrentExtra, mapAcpModelOptions, resolveAcpVendorNames } from "./model-cascade-options";
@@ -12,6 +13,10 @@ export interface ComposerAcpModelTriggerProps {
   loading?: boolean;
   error?: string;
   onOpen?: () => void;
+  accounts?: readonly CursorApiKeyView[];
+  selectedAccountId?: string | undefined;
+  accountReadOnly?: boolean;
+  onAccountChange?: (accountId: string | undefined) => void;
   onChange: (modelId: string | undefined) => void;
   panelZIndex?: number | undefined;
 }
@@ -35,6 +40,10 @@ export function ComposerAcpModelTrigger({
   loading,
   error,
   onOpen,
+  accounts,
+  selectedAccountId,
+  accountReadOnly,
+  onAccountChange,
   onChange,
   panelZIndex,
 }: ComposerAcpModelTriggerProps) {
@@ -67,6 +76,21 @@ export function ComposerAcpModelTrigger({
         fixedHeight={PANEL_FIXED_HEIGHT}
         panelZIndex={panelZIndex}
         onOpen={onOpen}
+        panelFooter={onAccountChange && (accounts?.length || selectedAccountId) ? (
+          <label className="mcp-field" style={{ padding: "8px 12px" }}>
+            <span className="mcp-field-label">{t("settings.cursorApiKeys.title")}</span>
+            <select className="mcp-field-input" disabled={disabled || accountReadOnly} value={selectedAccountId ?? ""}
+              onChange={(event) => onAccountChange(event.target.value || undefined)}>
+              <option value="">{t("settings.cursorApiKeys.autoAccount")}</option>
+              {(accounts ?? []).map((account) => (
+                <option key={account.id} value={account.id} disabled={!account.enabled || account.oauthExpiresAt === 0}>{account.name}</option>
+              ))}
+              {selectedAccountId && !accounts?.some((account) => account.id === selectedAccountId) ? (
+                <option value={selectedAccountId} disabled>{t("settings.cursorApiKeys.unavailableAccount")}</option>
+              ) : null}
+            </select>
+          </label>
+        ) : undefined}
         renderExtra={currentExtra}
         onChange={(selection) => onChange(selection?.key ?? undefined)}
       />

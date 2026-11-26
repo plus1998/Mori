@@ -213,6 +213,26 @@ test("ACP passes the conversation's Cursor key as ENV on initial run and retry",
   expect(state.envs).toEqual([{ CURSOR_API_KEY: "conversation-key" }, { CURSOR_API_KEY: "conversation-key" }]);
 });
 
+test("ACP injects the selected account's access token for each conversation", async () => {
+  const driver = makeFakeDriver([{ status: "completed" }, { status: "completed" }]);
+  const calls: Calls = { runOnce: 0, retryIndices: [], notify: [], markInterrupted: [], discard: undefined, decision: undefined };
+  const deps = makeDeps(calls, driver);
+  deps.resolveAcpCursorEnv = async (threadId, accountId) => {
+    expect(accountId).toBe(`account-${threadId}`);
+    return { CURSOR_AUTH_TOKEN: `access-${accountId}` };
+  };
+  for (const id of ["t1", "t2"]) {
+    const runtimeConfig = { cursorAccountId: `account-${id}`, sessionMode: "agent", subagentEnabled: {}, bashReviewMode: "auto" } as const;
+    const thread = { ...makeInput().thread, id, runtimeConfig } as AcpThreadStartRunInput["thread"];
+    await startAcpThreadRunWithDriver(makeInput({ thread }), deps, driver);
+  }
+  const state = (driver as unknown as { state: { envs: NodeJS.ProcessEnv[] } }).state;
+  expect(state.envs).toEqual([
+    { CURSOR_AUTH_TOKEN: "access-account-t1" },
+    { CURSOR_AUTH_TOKEN: "access-account-t2" },
+  ]);
+});
+
 test("ACP receives the prepared MCP directory before the resolved user prompt", async () => {
   const driver = makeFakeDriver([{ status: "completed" }]);
   const calls: Calls = { runOnce: 0, retryIndices: [], notify: [], markInterrupted: [], discard: undefined, decision: undefined };

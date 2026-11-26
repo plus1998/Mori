@@ -480,11 +480,17 @@ const api = {
   getCoreAvailability(): Promise<CoreAvailabilitySnapshot> {
     return ipcRenderer.invoke(IPC_CHANNELS.coreAvailabilityGet);
   },
-  listCursorModels(): Promise<CursorModelOption[]> {
-    return ipcRenderer.invoke(IPC_CHANNELS.cursorModelsList);
+  listCursorModels(accountId?: string): Promise<CursorModelOption[]> {
+    return ipcRenderer.invoke(IPC_CHANNELS.cursorModelsList, accountId);
   },
   listCursorApiKeys(): Promise<CursorApiKeyView[]> {
     return ipcRenderer.invoke(IPC_CHANNELS.cursorApiKeysList);
+  },
+  openCursorAccountWeb(id: string): Promise<void> {
+    return ipcRenderer.invoke(IPC_CHANNELS.cursorAccountOpenWeb, id);
+  },
+  loginCursorOAuth(id: string): Promise<CursorApiKeyView> {
+    return ipcRenderer.invoke(IPC_CHANNELS.cursorOAuthLogin, id);
   },
   saveCursorApiKey(input: CursorApiKeyInput): Promise<CursorApiKeyView> {
     return ipcRenderer.invoke(IPC_CHANNELS.cursorApiKeySave, input);

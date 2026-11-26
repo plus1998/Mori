@@ -2346,6 +2346,7 @@ function App() {
   const [coreAvailability, setCoreAvailability] = useState<CoreAvailabilitySnapshot>();
   const [cursorProbeLoading, setCursorProbeLoading] = useState(false);
   const [acpEnableInFlight, setAcpEnableInFlight] = useState(false);
+  const cursorModelRequestId = useRef(0);
   const [cursorModels, setCursorModels] = useState<CursorModelOption[]>([]);
   const [cursorModelsLoading, setCursorModelsLoading] = useState(false);
   const [cursorModelsError, setCursorModelsError] = useState<string>();
@@ -2565,7 +2566,6 @@ function App() {
   }, [refreshCoreAvailability]);
 
   useEffect(() => {
-    if (!settingsOpen || settingsSection !== "defaultAgent") return;
     if (!window.eco?.listCursorApiKeys) return;
     let cancelled = false;
     void window.eco.listCursorApiKeys().then((keys) => {
@@ -2576,15 +2576,17 @@ function App() {
     return () => { cancelled = true; };
   }, [settingsOpen, settingsSection]);
 
-  const refreshCursorModels = useCallback(() => {
+  const refreshCursorModels = useCallback((accountId?: string) => {
     if (!window.eco?.listCursorModels) return;
+    const requestId = ++cursorModelRequestId.current;
+    setCursorModels([]);
     setCursorModelsLoading(true);
     setCursorModelsError(undefined);
     void window.eco
-      .listCursorModels()
-      .then(setCursorModels)
-      .catch((error) => setCursorModelsError(errorMessage(error)))
-      .finally(() => setCursorModelsLoading(false));
+      .listCursorModels(accountId)
+      .then((models) => { if (requestId === cursorModelRequestId.current) setCursorModels(models); })
+      .catch((error) => { if (requestId === cursorModelRequestId.current) setCursorModelsError(errorMessage(error)); })
+      .finally(() => { if (requestId === cursorModelRequestId.current) setCursorModelsLoading(false); });
   }, []);
 
   useLayoutEffect(() => {
@@ -5641,6 +5643,7 @@ function App() {
       });
       return buildAcpThreadRuntimeConfig({
         ...(resolvedCursorModelId ? { cursorModelId: resolvedCursorModelId } : {}),
+        ...(base?.cursorAccountId ? { cursorAccountId: base.cursorAccountId } : {}),
         sessionMode: base?.sessionMode ?? "agent",
         bashReviewMode:
           base?.bashReviewMode ?? normalizeBashReviewMode(workflowSettings.defaultBashReviewMode),
@@ -10949,6 +10952,14 @@ function App() {
     }
   }
 
+  async function selectComposerCursorAccount(accountId: string | undefined) {
+    if (!canEditComposerConfig) return;
+    const { cursorAccountId: _previous, ...base } = composerRuntimeConfig ?? buildAcpThreadRuntimeConfig();
+    if (await persistComposerRuntimeConfig({ ...base, ...(accountId ? { cursorAccountId: accountId } : {}) })) {
+      refreshCursorModels(accountId);
+    }
+  }
+
   async function selectComposerAcpModel(modelId: string | undefined) {
     if (!canEditComposerConfig) {
       return;
@@ -13193,7 +13204,14 @@ function App() {
         readOnly={!canEditComposerModel}
         loading={cursorModelsLoading}
         {...(cursorModelsError ? { error: cursorModelsError } : {})}
-        onOpen={refreshCursorModels}
+        accounts={cursorApiKeys}
+        accountReadOnly={!canEditComposerConfig}
+        selectedAccountId={composerRuntimeConfig?.cursorAccountId}
+        onAccountChange={(id) => void selectComposerCursorAccount(id)}
+        onOpen={() => {
+          refreshCursorModels(composerRuntimeConfig?.cursorAccountId);
+          void window.eco?.listCursorApiKeys().then(setCursorApiKeys).catch((error) => setError(errorMessage(error)));
+        }}
         onChange={(modelId) => void selectComposerAcpModel(modelId)}
       />
     ) : (
@@ -14971,13 +14989,13 @@ function App() {
                       void saveDefaultCoreKind(coreKind);
                     }}
                     acpCursorModelId={workflowSettings.acpCursorModelId}
-                    acpCursorApiKeyConfigured={cursorApiKeys.some((key) => key.enabled)}
+                    acpCursorApiKeyConfigured={cursorApiKeys.some((key) => key.enabled && (key.oauthExpiresAt === undefined || key.oauthExpiresAt > Date.now()))}
                     cursorModels={cursorModels}
                     cursorModelsLoading={cursorModelsLoading}
                     {...(cursorModelsError && { cursorModelsError })}
                     onAcpCursorModelChange={(modelId) => void saveAcpCursorModelId(modelId)}
                     onManageCursorApiKeys={() => openProviderSettings("cursorApiKeys")}
-                    onRefreshCursorModels={refreshCursorModels}
+                    onRefreshCursorModels={() => refreshCursorModels()}
                   />
                 )}
 

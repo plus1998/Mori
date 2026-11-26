@@ -73,6 +73,7 @@ interface ModelCascadeSelectProps {
   renderExtra?: ((option: ModelCascadeOption) => ReactNode) | undefined;
   /** Node rendered below the trigger (status hints, etc.). */
   footer?: ReactNode;
+  panelFooter?: ReactNode;
   /** Stacking context for the portaled panel (e.g. inside modal dialogs). */
   panelZIndex?: number | undefined;
   /** Extra class for the trigger button (e.g. composer sizing). */
@@ -219,6 +220,7 @@ export function ModelCascadeSelect({
   hint,
   renderExtra,
   footer,
+  panelFooter,
   panelZIndex,
   triggerClassName,
   onOpen,
@@ -700,6 +702,7 @@ export function ModelCascadeSelect({
         </div>
       </div>
       {statusNode}
+      {panelFooter}
     </div>
   );
 

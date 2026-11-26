@@ -64,7 +64,7 @@ export interface AcpRuntimeOrchestrationDeps {
     threadId: string,
   ) => { coreKind: string; externalSessionId: string; cwd: string } | undefined;
   /** Extra env for the Cursor ACP child (e.g. `{ CURSOR_API_KEY }`); empty when unset. */
-  resolveAcpCursorEnv?: (threadId: string) => NodeJS.ProcessEnv;
+  resolveAcpCursorEnv?: (threadId: string, accountId?: string) => NodeJS.ProcessEnv | Promise<NodeJS.ProcessEnv>;
   /** Composer-selected Eco MCP servers mapped to ACP `mcpServers`. */
   resolveAcpMcpServers?: (input: { threadId: string; workspacePath: string }) => Promise<AcpMcpServer[]>;
   /** ACP has no system-prompt field, so pass Eco integration guidance as turn context. */
@@ -336,7 +336,7 @@ export async function startAcpThreadRunWithDriver(
       threadId: input.thread.id,
       workspacePath: cwd,
     });
-    const runOnce = () =>
+    const runOnce = async () =>
       deps.consumeEvents({
         events: acpDriver.run({
           threadId: input.thread.id,
@@ -350,7 +350,7 @@ export async function startAcpThreadRunWithDriver(
           ...(input.thread.runtimeConfig?.cursorModelId
             ? { model: input.thread.runtimeConfig.cursorModelId }
             : {}),
-          ...(deps.resolveAcpCursorEnv ? { env: deps.resolveAcpCursorEnv(input.thread.id) } : {}),
+          ...(deps.resolveAcpCursorEnv ? { env: await deps.resolveAcpCursorEnv(input.thread.id, input.thread.runtimeConfig?.cursorAccountId) } : {}),
           ...(resume.kind === "resume" ? { resumeSessionId: resume.sessionId } : {}),
           ...(!deps.resolvePromptImagesForMainContext && input.attachments?.length
             ? { attachments: input.attachments }

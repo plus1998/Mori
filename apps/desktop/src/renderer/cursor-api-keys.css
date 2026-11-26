@@ -56,6 +56,7 @@
   .cursor-api-keys-panel .codex-account-card .codex-account-header-actions {
     grid-column: 2 / -1;
     justify-content: flex-start;
+    flex-wrap: wrap;
   }
 
   .cursor-api-keys-panel .codex-account-identity {

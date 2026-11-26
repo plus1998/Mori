@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import type { OpenAIAccountProxyConfig, OpenAIAccountProxyMode } from "../shared/openai-account";
+import { webChatProxyConfig } from "../shared/web-chat-list";
 import type { DatabaseSync as DatabaseSyncType } from "node:sqlite";
 import type {
   CursorApiKeyImportResult,
@@ -6,10 +8,24 @@ import type {
   CursorApiKeyView,
 } from "../shared/ipc";
 
+export type CursorOAuthCredential = {
+  kind: "oauth";
+  accountId: string;
+  value: string;
+  expiresAt: number;
+  proxy?: OpenAIAccountProxyConfig;
+};
+
+export type CursorCredential = CursorOAuthCredential
+  | { kind: "apiKey"; value: string; proxy?: OpenAIAccountProxyConfig };
+
 interface CursorApiKeyRow {
   id: string;
   name: string;
   api_key: string;
+  oauth_expires_at: number | null;
+  proxy_mode: OpenAIAccountProxyMode;
+  proxy_url: string | null;
   enabled: number;
   created_at: string;
   updated_at: string;
@@ -45,6 +61,16 @@ export class CursorApiKeyStore {
         api_key_id TEXT NOT NULL
       );
     `);
+    const columns = this.db.prepare("PRAGMA table_info(cursor_api_keys)").all();
+    if (!columns.some((column) => column.name === "oauth_expires_at")) {
+      this.db.exec("ALTER TABLE cursor_api_keys ADD COLUMN oauth_expires_at INTEGER");
+    }
+    if (!columns.some((column) => column.name === "proxy_mode")) {
+      this.db.exec("ALTER TABLE cursor_api_keys ADD COLUMN proxy_mode TEXT NOT NULL DEFAULT 'system'");
+    }
+    if (!columns.some((column) => column.name === "proxy_url")) {
+      this.db.exec("ALTER TABLE cursor_api_keys ADD COLUMN proxy_url TEXT");
+    }
     this.migrateProviderApiKeys();
   }
 
@@ -53,39 +79,94 @@ export class CursorApiKeyStore {
   }
 
   listWithSecrets(): Array<CursorApiKeyView & { apiKey: string }> {
-    return this.rows().map((row) => ({ ...this.toView(row), apiKey: row.api_key }));
+    return this.rows().filter((row) => row.oauth_expires_at === null).map((row) => ({ ...this.toView(row, false), apiKey: row.api_key }));
   }
 
   nextApiKey(): string | undefined {
-    return this.nextEnabledKey()?.apiKey;
+    return this.nextEnabledAccount(this.rows().filter((row) => row.oauth_expires_at === null))?.api_key;
   }
 
-  firstApiKey(): string | undefined {
-    return this.listWithSecrets().find((key) => key.enabled)?.apiKey;
+  firstCredential(): CursorCredential | undefined {
+    const enabled = this.rows().filter((row) => row.enabled === 1 && row.api_key !== "");
+    const now = Date.now();
+    const row = enabled.find((account) => account.oauth_expires_at === null || account.oauth_expires_at > now) ?? enabled[0];
+    return row && this.toCredential(row);
   }
 
-  apiKeyForThread(threadId: string): string | undefined {
+  credentialForAccount(id: string): CursorCredential {
+    const row = this.getRow(id);
+    if (!row || row.enabled !== 1) throw new Error("指定的 Cursor 账号不存在或已停用。");
+    if (!row.api_key) throw new Error("指定的 Cursor 账号尚未完成 CLI 授权。");
+    return this.toCredential(row);
+  }
+
+  credentialForThread(threadId: string, assign = true): CursorCredential | undefined {
     const assignment = this.db.prepare(
-      `SELECT k.api_key FROM cursor_api_key_assignments a
+      `SELECT k.* FROM cursor_api_key_assignments a
        JOIN cursor_api_keys k ON k.id = a.api_key_id
-       WHERE a.thread_id = ? AND k.enabled = 1`,
-    ).get(threadId) as { api_key: string } | undefined;
-    if (assignment) return assignment.api_key;
-    const key = this.nextEnabledKey();
-    if (!key) return undefined;
+       WHERE a.thread_id = ? AND k.enabled = 1 AND k.api_key <> ''`,
+    ).get(threadId) as unknown as CursorApiKeyRow | undefined;
+    if (assignment) return this.toCredential(assignment);
+    if (!assign) return undefined;
+    const enabled = this.rows().filter((row) => row.enabled === 1 && row.api_key !== "");
+    const now = Date.now();
+    const active = enabled.filter((row) => row.oauth_expires_at === null || row.oauth_expires_at > now);
+    const account = this.nextEnabledAccount(active);
+    if (!account) return enabled[0] && this.toCredential(enabled[0]);
     this.db.prepare(
       `INSERT INTO cursor_api_key_assignments (thread_id, api_key_id) VALUES (?, ?)
        ON CONFLICT(thread_id) DO UPDATE SET api_key_id = excluded.api_key_id`,
-    ).run(threadId, key.id);
-    return key.apiKey;
+    ).run(threadId, account.id);
+    return this.toCredential(account);
   }
 
-  private nextEnabledKey(): (CursorApiKeyView & { apiKey: string }) | undefined {
-    const enabled = this.listWithSecrets().filter((key) => key.enabled);
+  firstApiKey(): string | undefined {
+    return this.rows().find((row) => row.enabled === 1 && row.oauth_expires_at === null)?.api_key;
+  }
+
+  apiKeyForThread(threadId: string): string | undefined {
+    const credential = this.credentialForThread(threadId);
+    return credential?.kind === "apiKey" ? credential.value : undefined;
+  }
+
+  private nextEnabledAccount(rows: CursorApiKeyRow[]): CursorApiKeyRow | undefined {
+    const enabled = rows.filter((row) => row.enabled === 1);
     if (enabled.length === 0) return undefined;
-    const key = enabled[this.rotationIndex % enabled.length];
+    const account = enabled[this.rotationIndex % enabled.length];
     this.rotationIndex = (this.rotationIndex + 1) % enabled.length;
-    return key;
+    return account;
+  }
+
+  private toCredential(row: CursorApiKeyRow): CursorCredential {
+    const proxy: OpenAIAccountProxyConfig | undefined = row.proxy_mode === "system" ? undefined : {
+      mode: row.proxy_mode,
+      ...(row.proxy_url ? { proxyUrl: row.proxy_url } : {}),
+    };
+    return row.oauth_expires_at === null
+      ? { kind: "apiKey", value: row.api_key, ...(proxy ? { proxy } : {}) }
+      : { kind: "oauth", accountId: row.id, value: row.api_key, expiresAt: row.oauth_expires_at, ...(proxy ? { proxy } : {}) };
+  }
+
+  saveOAuth(id: string, name: string, encryptedToken: string, expiresAt: number, proxy?: OpenAIAccountProxyConfig): CursorApiKeyView {
+    const prior = this.getRow(id);
+    if (prior?.oauth_expires_at === null) throw new Error("该 Cursor 账号使用 API Key。");
+    const now = new Date().toISOString();
+    this.db.prepare(
+      `INSERT INTO cursor_api_keys
+        (id, name, api_key, oauth_expires_at, enabled, sort_order, created_at, updated_at, proxy_mode, proxy_url)
+       VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET api_key = excluded.api_key,
+         oauth_expires_at = excluded.oauth_expires_at, updated_at = excluded.updated_at`,
+    ).run(id, name, encryptedToken, expiresAt, this.sortOrder(id), now, now, proxy?.mode ?? "system", proxy?.proxyUrl ?? null);
+    return this.get(id);
+  }
+
+  replaceOAuthCredential(current: CursorOAuthCredential, encrypted: string, expiresAt: number): boolean {
+    const result = this.db.prepare(
+      `UPDATE cursor_api_keys SET api_key = ?, oauth_expires_at = ?, updated_at = ?
+       WHERE id = ? AND api_key = ? AND oauth_expires_at = ? AND enabled = 1`,
+    ).run(encrypted, expiresAt, new Date().toISOString(), current.accountId, current.value, current.expiresAt);
+    return result.changes === 1;
   }
 
   save(input: CursorApiKeyInput): CursorApiKeyView {
@@ -93,6 +174,24 @@ export class CursorApiKeyStore {
     if (!name) throw new Error("Cursor API Key 名称不能为空。");
     const prior = input.id ? this.getRow(input.id) : undefined;
     if (input.id !== undefined && !prior) throw new Error("找不到 Cursor API Key。");
+    const proxyMode = input.proxyMode ?? prior?.proxy_mode ?? "system";
+    const proxyUrl = proxyMode === "manual"
+      ? (input.proxyUrl ?? prior?.proxy_url ?? "").trim().replace(/^socks:/u, "socks5:")
+      : null;
+    if (proxyMode === "manual") {
+      if (!proxyUrl || proxyUrl === "direct") throw new Error("手动代理模式需要填写代理地址。");
+      webChatProxyConfig(proxyUrl);
+    }
+    if (input.authKind === "oauth") {
+      if (prior?.oauth_expires_at === null) throw new Error("该 Cursor 账号使用 API Key。");
+      if (prior) {
+        this.db.prepare("UPDATE cursor_api_keys SET name = ?, updated_at = ?, proxy_mode = ?, proxy_url = ? WHERE id = ?")
+          .run(name, new Date().toISOString(), proxyMode, proxyUrl, prior.id);
+        return this.get(prior.id);
+      }
+      return this.saveOAuth(`cursor-oauth-${randomUUID()}`, name, "", 0, { mode: proxyMode, ...(proxyUrl ? { proxyUrl } : {}) });
+    }
+    if (prior && prior.oauth_expires_at !== null) throw new Error("该 Cursor 账号使用 CLI 授权。");
     const apiKey = input.apiKey?.trim() || prior?.api_key || "";
     if (!apiKey) throw new Error("Cursor API Key 不能为空。");
     const id = input.id?.trim() || `cursor-key-${randomUUID()}`;
@@ -101,16 +200,18 @@ export class CursorApiKeyStore {
     this.db
       .prepare(
         `INSERT INTO cursor_api_keys
-          (id, name, api_key, enabled, sort_order, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
+          (id, name, api_key, enabled, sort_order, created_at, updated_at, proxy_mode, proxy_url)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            name = excluded.name,
            api_key = excluded.api_key,
            enabled = excluded.enabled,
+           proxy_mode = excluded.proxy_mode,
+           proxy_url = excluded.proxy_url,
            sort_order = excluded.sort_order,
            updated_at = excluded.updated_at`,
       )
-      .run(id, name, apiKey, input.enabled === undefined ? (prior?.enabled ?? 1) : Number(input.enabled), sortOrder, prior?.created_at ?? now, now);
+      .run(id, name, apiKey, input.enabled === undefined ? (prior?.enabled ?? 1) : Number(input.enabled), sortOrder, prior?.created_at ?? now, now, proxyMode, proxyUrl);
     return this.get(id);
   }
 
@@ -177,6 +278,7 @@ export class CursorApiKeyStore {
         || !("apiKey" in entry) || typeof entry.apiKey !== "string" || !entry.apiKey.trim()
         || !("enabled" in entry) || typeof entry.enabled !== "boolean"
         || ids.has(entry.id)) throw new Error("云端 Cursor 密钥列表格式无效。");
+      if (this.getRow(entry.id)?.oauth_expires_at != null) throw new Error("云端 Cursor 密钥与本地 OAuth 账号冲突。");
       ids.add(entry.id);
       return { id: entry.id, name: entry.name.trim(), apiKey: entry.apiKey.trim(), enabled: entry.enabled };
     });
@@ -191,9 +293,9 @@ export class CursorApiKeyStore {
       const now = new Date().toISOString();
       keys.forEach((key, index) => upsert.run(key.id, key.name, key.apiKey, Number(key.enabled), index, now, now));
       if (keys.length) {
-        this.db.prepare(`DELETE FROM cursor_api_keys WHERE id NOT IN (${keys.map(() => "?").join(",")})`).run(...ids);
+        this.db.prepare(`DELETE FROM cursor_api_keys WHERE oauth_expires_at IS NULL AND id NOT IN (${keys.map(() => "?").join(",")})`).run(...ids);
       } else {
-        this.db.exec("DELETE FROM cursor_api_keys");
+        this.db.exec("DELETE FROM cursor_api_keys WHERE oauth_expires_at IS NULL");
       }
       this.db.exec("DELETE FROM cursor_api_key_assignments WHERE api_key_id NOT IN (SELECT id FROM cursor_api_keys)");
       this.db.exec("COMMIT");
@@ -215,7 +317,7 @@ export class CursorApiKeyStore {
   private rows(): CursorApiKeyRow[] {
     return this.db
       .prepare(
-        `SELECT id, name, api_key, enabled, created_at, updated_at
+        `SELECT id, name, api_key, oauth_expires_at, proxy_mode, proxy_url, enabled, created_at, updated_at
          FROM cursor_api_keys ORDER BY sort_order ASC, created_at ASC`,
       )
       .all() as unknown as CursorApiKeyRow[];
@@ -262,7 +364,7 @@ export class CursorApiKeyStore {
   private getRow(id: string): CursorApiKeyRow | undefined {
     return this.db
       .prepare(
-        `SELECT id, name, api_key, enabled, created_at, updated_at
+        `SELECT id, name, api_key, oauth_expires_at, proxy_mode, proxy_url, enabled, created_at, updated_at
          FROM cursor_api_keys WHERE id = ?`,
       )
       .get(id) as unknown as CursorApiKeyRow | undefined;
@@ -274,12 +376,15 @@ export class CursorApiKeyStore {
     return this.toView(row);
   }
 
-  private toView(row: CursorApiKeyRow): CursorApiKeyView {
+  private toView(row: CursorApiKeyRow, includeProxy = true): CursorApiKeyView {
     return {
       id: row.id,
       name: row.name,
       enabled: row.enabled === 1,
-      apiKeyPreview: previewSecret(row.api_key),
+      ...(includeProxy && row.proxy_mode !== "system" ? { proxyMode: row.proxy_mode } : {}),
+      ...(includeProxy && row.proxy_url ? { proxyUrl: row.proxy_url } : {}),
+      apiKeyPreview: row.oauth_expires_at === null ? previewSecret(row.api_key) : "",
+      ...(row.oauth_expires_at === null ? {} : { oauthExpiresAt: row.oauth_expires_at }),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };

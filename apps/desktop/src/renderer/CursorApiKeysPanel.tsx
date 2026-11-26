@@ -1,8 +1,10 @@
-import { ChevronDown, KeyRound, Loader2, MoreHorizontal, Pencil, Plus, Power, Search, Trash2, Upload, X } from "lucide-react";
+import { ChevronDown, Globe2, KeyRound, Loader2, LogIn, MoreHorizontal, Pencil, Plus, Power, Search, Trash2, Upload, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import type { CursorApiKeyInput, CursorApiKeyView } from "../shared/ipc";
+import type { OpenAIAccountProxyMode } from "../shared/openai-account";
+import { LoginAccountProxyFields } from "./components/LoginAccountEditor";
 import "./components/openai-account-cards.css";
 import "./cursor-api-keys.css";
 
@@ -17,12 +19,15 @@ type DialogState =
   | { type: "delete"; account: CursorApiKeyView }
   | { type: "import" };
 
-type AccountMenu = { id: string; kind: "status" | "more" };
+type AccountMenu = { id: string; kind: "web" | "cli" | "more" };
 
 export function CursorApiKeysPanel({ busy = false, revision = 0 }: CursorApiKeysPanelProps) {
   const { t } = useTranslation();
   const [accounts, setAccounts] = useState<CursorApiKeyView[]>([]);
   const [dialog, setDialog] = useState<DialogState>();
+  const [authKind, setAuthKind] = useState<"apiKey" | "oauth">("apiKey");
+  const [proxyMode, setProxyMode] = useState<OpenAIAccountProxyMode>("system");
+  const [proxyUrl, setProxyUrl] = useState("");
   const [name, setName] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [importText, setImportText] = useState("");
@@ -30,6 +35,7 @@ export function CursorApiKeysPanel({ busy = false, revision = 0 }: CursorApiKeys
   const [message, setMessage] = useState<string>();
   const [loading, setLoading] = useState(true);
   const [mutating, setMutating] = useState(false);
+  const [authorizingId, setAuthorizingId] = useState<string>();
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "enabled" | "disabled">("all");
   const [accountMenu, setAccountMenu] = useState<AccountMenu>();
@@ -118,7 +124,10 @@ export function CursorApiKeysPanel({ busy = false, revision = 0 }: CursorApiKeys
   const openAdd = () => {
     setError(undefined);
     setMessage(undefined);
-    setName(`Cursor API Key ${accounts.length + 1}`);
+    setName(`Cursor ${accounts.length + 1}`);
+    setAuthKind("apiKey");
+    setProxyMode("system");
+    setProxyUrl("");
     setApiKey("");
     setDialog({ type: "add" });
   };
@@ -128,6 +137,9 @@ export function CursorApiKeysPanel({ busy = false, revision = 0 }: CursorApiKeys
     setError(undefined);
     setMessage(undefined);
     setName(account.name);
+    setAuthKind(account.oauthExpiresAt === undefined ? "apiKey" : "oauth");
+    setProxyMode(account.proxyMode ?? "system");
+    setProxyUrl(account.proxyUrl ?? "");
     setApiKey("");
     setDialog({ type: "edit", account });
   };
@@ -138,15 +150,36 @@ export function CursorApiKeysPanel({ busy = false, revision = 0 }: CursorApiKeys
       const input: CursorApiKeyInput = {
         ...(dialog.type === "edit" ? { id: dialog.account.id } : {}),
         name,
-        ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
+        proxyMode,
+        ...(proxyMode === "manual" ? { proxyUrl } : {}),
+        ...(authKind === "apiKey" && apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
         enabled: dialog.type === "edit" ? dialog.account.enabled : true,
       };
-      const updated = await api.saveCursorApiKey(input);
+      const updated = await api.saveCursorApiKey({
+        ...input,
+        ...(authKind === "oauth" ? { authKind } : {}),
+      });
       setAccounts((current) => dialog.type === "edit"
         ? current.map((item) => item.id === updated.id ? updated : item)
         : [...current, updated]);
       setDialog(undefined);
       setApiKey("");
+    });
+  };
+
+  const openWeb = async (id: string) => {
+    await mutate((api) => api.openCursorAccountWeb(id));
+  };
+
+  const authorizeCli = async (id: string) => {
+    await mutate(async (api) => {
+      setAuthorizingId(id);
+      try {
+        const updated = await api.loginCursorOAuth(id);
+        setAccounts((current) => current.map((item) => item.id === id ? updated : item));
+      } finally {
+        setAuthorizingId(undefined);
+      }
     });
   };
 
@@ -239,7 +272,17 @@ export function CursorApiKeysPanel({ busy = false, revision = 0 }: CursorApiKeys
       ) : (
         <div className="codex-account-list">
           {filteredAccounts.map((account) => {
-            const statusTone = account.enabled ? "ready" : "danger";
+            const usesOAuth = account.oauthExpiresAt !== undefined;
+            const expired = account.oauthExpiresAt !== undefined && account.oauthExpiresAt <= Date.now();
+            const statusTone = !account.enabled ? "danger" : expired ? "warning" : "ready";
+            const cliLabel = usesOAuth ? "CLI" : "API Key";
+            const cliStatus = !account.enabled
+              ? t("settings.cursorApiKeys.stateDisabled")
+              : account.oauthExpiresAt === 0
+                ? t("settings.cursorApiKeys.oauthNotAuthorized")
+                : expired
+                  ? t("settings.cursorApiKeys.oauthExpired")
+                  : t(usesOAuth ? "settings.cursorApiKeys.oauthAuthorized" : "settings.cursorApiKeys.stateEnabled");
             const moreLabel = t("settings.openaiAccounts.moreActionsAria", { name: account.name });
             const menu = accountMenu?.id === account.id ? accountMenu.kind : undefined;
             return (
@@ -250,7 +293,15 @@ export function CursorApiKeysPanel({ busy = false, revision = 0 }: CursorApiKeys
                     <div className="codex-account-identity-title">
                       <strong title={account.name}>{account.name}</strong>
                     </div>
-                    <span className="cursor-api-key-preview" title={account.apiKeyPreview}>{account.apiKeyPreview}</span>
+                    <span className="cursor-api-key-preview">
+                      {account.oauthExpiresAt === undefined
+                        ? account.apiKeyPreview
+                        : account.oauthExpiresAt === 0
+                          ? t("settings.cursorApiKeys.oauthNotAuthorized")
+                          : account.oauthExpiresAt <= Date.now()
+                            ? t("settings.cursorApiKeys.oauthExpired")
+                            : t("settings.cursorApiKeys.oauthExpires", { date: new Date(account.oauthExpiresAt).toLocaleDateString() })}
+                    </span>
                   </div>
                   <div
                     className="codex-account-header-actions cursor-api-key-actions"
@@ -273,34 +324,55 @@ export function CursorApiKeysPanel({ busy = false, revision = 0 }: CursorApiKeys
                   >
                     <div className="codex-account-status-tags">
                       <div className="codex-account-status-wrap">
-                        <button
-                          type="button"
-                          className={`codex-status-tag is-${statusTone}`}
-                          aria-haspopup="menu"
-                          aria-expanded={menu === "status"}
-                          disabled={disabled}
-                          onClick={() => toggleMenu(account.id, "status")}
-                        >
+                        <button type="button" className="codex-status-tag" aria-haspopup="menu"
+                          aria-expanded={menu === "web"} disabled={disabled}
+                          onClick={() => toggleMenu(account.id, "web")}>
                           <i />
-                          <span>{t(account.enabled ? "settings.cursorApiKeys.stateEnabled" : "settings.cursorApiKeys.stateDisabled")}</span>
+                          <span>Web</span>
                           <ChevronDown size={11} />
                         </button>
-                        {menu === "status" ? (
-                          <div className="codex-account-status-popover" role="menu" aria-label={t("settings.cursorApiKeys.enabled")}>
+                        {menu === "web" ? (
+                          <div className="codex-account-status-popover" role="menu" aria-label="Web">
                             <div className="codex-account-status-popover-header">
-                              <span>{t("settings.cursorApiKeys.enabled")}</span>
-                              <strong className={`is-${statusTone}`}>
-                                <i />
-                                {t(account.enabled ? "settings.cursorApiKeys.stateEnabled" : "settings.cursorApiKeys.stateDisabled")}
-                              </strong>
+                              <span>Web</span>
                             </div>
-                            <button
-                              type="button"
-                              role="menuitem"
-                              className="codex-account-status-item is-primary"
-                              disabled={disabled}
-                              onClick={() => void toggle(account)}
-                            >
+                            <button type="button" role="menuitem" className="codex-account-status-item is-primary"
+                              disabled={disabled} onClick={() => void openWeb(account.id)}>
+                              <Globe2 size={14} />
+                              <span>{t("settings.cursorApiKeys.openWeb")}</span>
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
+                      <div className="codex-account-status-wrap">
+                        <button type="button" className={`codex-status-tag is-${statusTone}`} aria-haspopup="menu"
+                          aria-expanded={menu === "cli"} disabled={disabled}
+                          onClick={() => toggleMenu(account.id, "cli")}>
+                          {authorizingId === account.id ? <Loader2 size={11} className="mcp-spin" /> : <i />}
+                          <span>{cliLabel}</span>
+                          <ChevronDown size={11} />
+                        </button>
+                        {menu === "cli" ? (
+                          <div className="codex-account-status-popover" role="menu" aria-label={cliLabel}>
+                            <div className="codex-account-status-popover-header">
+                              <span>{cliLabel}</span>
+                              <strong className={`is-${statusTone}`}><i />{cliStatus}</strong>
+                            </div>
+                            {usesOAuth ? (
+                              <button type="button" role="menuitem" className="codex-account-status-item is-primary"
+                                disabled={disabled} onClick={() => void authorizeCli(account.id)}>
+                                <LogIn size={14} />
+                                <span>{t(account.oauthExpiresAt === 0 ? "settings.cursorApiKeys.oauthLogin" : "settings.cursorApiKeys.oauthRelogin")}</span>
+                              </button>
+                            ) : (
+                              <button type="button" role="menuitem" className="codex-account-status-item is-primary"
+                                disabled={disabled} onClick={() => openEdit(account)}>
+                                <KeyRound size={14} />
+                                <span>{t("settings.cursorApiKeys.edit")}</span>
+                              </button>
+                            )}
+                            <button type="button" role="menuitem" className="codex-account-status-item"
+                              disabled={disabled} onClick={() => void toggle(account)}>
                               <Power size={14} />
                               <span>{t(account.enabled ? "settings.cursorApiKeys.disable" : "settings.cursorApiKeys.enabled")}</span>
                             </button>
@@ -353,6 +425,24 @@ export function CursorApiKeysPanel({ busy = false, revision = 0 }: CursorApiKeys
                     </div>
                   </div>
                 </div>
+                <details className="codex-account-details">
+                  <summary>
+                    {t("settings.openaiAccounts.accountDetails")}
+                    <ChevronDown size={13} />
+                  </summary>
+                  <div className="codex-account-details-content">
+                    <div className="codex-account-details-row">
+                      <button type="button" className="codex-proxy-link" disabled={disabled} onClick={() => openEdit(account)}>
+                        <Globe2 size={13} />
+                        {t(account.proxyMode === "manual"
+                          ? "settings.openaiAccounts.proxyOwn"
+                          : account.proxyMode === "direct"
+                            ? "settings.openaiAccounts.proxyDirect"
+                            : "settings.openaiAccounts.proxySystem")}
+                      </button>
+                    </div>
+                  </div>
+                </details>
               </article>
             );
           })}
@@ -400,11 +490,24 @@ export function CursorApiKeysPanel({ busy = false, revision = 0 }: CursorApiKeys
                   <span className="mcp-field-label">{t("settings.cursorApiKeys.name")}</span>
                   <input className="mcp-field-input" value={name} placeholder={t("settings.cursorApiKeys.namePlaceholder")} disabled={disabled} onChange={(event) => setName(event.target.value)} autoFocus />
                 </label>
-                <label className="mcp-field">
+                {dialog.type === "add" ? (
+                  <label className="mcp-field">
+                    <span className="mcp-field-label">{t("settings.cursorApiKeys.authMethod")}</span>
+                    <select className="mcp-field-input" value={authKind} disabled={disabled} onChange={(event) => setAuthKind(event.target.value === "oauth" ? "oauth" : "apiKey")}>
+                      <option value="apiKey">API Key</option>
+                      <option value="oauth">OAuth</option>
+                    </select>
+                  </label>
+                ) : null}
+                <LoginAccountProxyFields mode={proxyMode} proxyUrl={proxyUrl} onModeChange={setProxyMode}
+                  onProxyUrlChange={setProxyUrl} disabled={disabled} />
+                {authKind === "oauth" ? (
+                  <p className="mcp-field-hint">{t("settings.cursorApiKeys.oauthHint")}</p>
+                ) : <label className="mcp-field">
                   <span className="mcp-field-label">{t("settings.cursorApiKeys.value")}</span>
                   <input className="mcp-field-input" type="password" autoComplete="off" value={apiKey} placeholder={dialog.type === "edit" ? dialog.account.apiKeyPreview : t("settings.cursorApiKeys.valuePlaceholder")} disabled={disabled} onChange={(event) => setApiKey(event.target.value)} />
                   {dialog.type === "edit" ? <span className="mcp-field-hint">{t("settings.cursorApiKeys.keepExisting")}</span> : null}
-                </label>
+                </label>}
               </div>
             )}
             {error ? <p className="settings-form-error cursor-api-key-dialog-error" role="alert">{error}</p> : null}
@@ -415,7 +518,7 @@ export function CursorApiKeysPanel({ busy = false, revision = 0 }: CursorApiKeys
               ) : dialog.type === "import" ? (
                 <button type="button" className="plan-button primary" disabled={disabled || !importText.trim()} onClick={() => void importKeys()}>{mutating ? <Loader2 size={14} className="mcp-spin" /> : null}{t("settings.cursorApiKeys.import")}</button>
               ) : (
-                <button type="button" className="plan-button primary" disabled={disabled || !name.trim() || (!apiKey.trim() && dialog.type === "add")} onClick={() => void save()}>{mutating ? <Loader2 size={14} className="mcp-spin" /> : null}{t("common.save")}</button>
+                <button type="button" className="plan-button primary" disabled={disabled || !name.trim() || (proxyMode === "manual" && !proxyUrl.trim()) || (authKind === "apiKey" && !apiKey.trim() && dialog.type === "add")} onClick={() => void save()}>{mutating ? <Loader2 size={14} className="mcp-spin" /> : null}{t("common.save")}</button>
               )}
             </footer>
           </div>

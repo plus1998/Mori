@@ -84,6 +84,7 @@ export interface MainAgentModelOverride {
 export interface ThreadRuntimeConfig {
   /** Cursor Agent CLI model id; only used when coreKind is acp + acpAgentId cursor. */
   cursorModelId?: string;
+  cursorAccountId?: string;
   orchestrationSelection?: OrchestrationSelection;
   resolvedOrchestrationSnapshot?: ResolvedOrchestrationSnapshot;
   mainAgentModelOverride?: MainAgentModelOverride;
@@ -274,13 +275,8 @@ export function isThreadRuntimeConfig(value: unknown): value is ThreadRuntimeCon
   if (!record.subagentEnabled || typeof record.subagentEnabled !== "object") {
     return false;
   }
-  if (
-    record.cursorModelId !== undefined &&
-    (typeof record.cursorModelId !== "string" ||
-      !record.cursorModelId.trim() ||
-      record.cursorModelId.trim().length > 256)
-  ) {
-    return false;
+  for (const id of [record.cursorModelId, record.cursorAccountId]) {
+    if (id !== undefined && (typeof id !== "string" || !id.trim() || id.trim().length > 256)) return false;
   }
   if (
     record.mainAgentModelOverride !== undefined &&
@@ -506,6 +502,9 @@ export function normalizeThreadRuntimeConfig(config: ThreadRuntimeConfig): Threa
   const approvalModel = normalizeApprovalModelSelection(config.approvalModel);
   const visionModel = normalizeVisionModelSelection(config.visionModel);
   return {
+    ...(typeof config.cursorAccountId === "string" && config.cursorAccountId.trim()
+      ? { cursorAccountId: config.cursorAccountId.trim().slice(0, 256) }
+      : {}),
     ...(typeof config.cursorModelId === "string" && config.cursorModelId.trim()
       ? { cursorModelId: config.cursorModelId.trim().slice(0, 256) }
       : {}),
@@ -572,6 +571,7 @@ export function resolveThreadRuntimeMcpServerKeys(input: {
 
 export function buildAcpThreadRuntimeConfig(input?: {
   cursorModelId?: string;
+  cursorAccountId?: string;
   sessionMode?: SessionMode;
   bashReviewMode?: BashReviewMode;
   subagentEnabled?: SubagentEnabledSettings;
@@ -582,6 +582,7 @@ export function buildAcpThreadRuntimeConfig(input?: {
   integrationsEnabled?: IntegrationsEnabledSettings;
   skillsEnabled?: SkillsEnabledSettings;
 }): ThreadRuntimeConfig {
+  const cursorAccountId = input?.cursorAccountId?.trim().slice(0, 256);
   const cursorModelId =
     typeof input?.cursorModelId === "string" ? input.cursorModelId.trim().slice(0, 256) : "";
   const auxiliaryModel = normalizeAuxiliaryModelSelection(input?.auxiliaryModel);
@@ -592,6 +593,7 @@ export function buildAcpThreadRuntimeConfig(input?: {
   const skillsEnabled = normalizeSkillsEnabled(input?.skillsEnabled);
   return {
     ...(cursorModelId ? { cursorModelId } : {}),
+    ...(cursorAccountId ? { cursorAccountId } : {}),
     subagentEnabled: input?.subagentEnabled ?? defaultSubagentAvailability(),
     sessionMode: normalizeSessionMode(input?.sessionMode),
     bashReviewMode: input?.bashReviewMode ?? "always",

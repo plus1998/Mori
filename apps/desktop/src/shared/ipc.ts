@@ -121,6 +121,8 @@ export const IPC_CHANNELS = {
   visionModelTest: "vision-model:test",
   visionModelTestCancel: "vision-model:test-cancel",
   cursorApiKeysList: "cursor-api-keys:list",
+  cursorAccountOpenWeb: "cursor-account:open-web",
+  cursorOAuthLogin: "cursor-oauth:login",
   cursorApiKeySave: "cursor-api-keys:save",
   cursorApiKeyDelete: "cursor-api-keys:delete",
   cursorApiKeySetEnabled: "cursor-api-keys:set-enabled",
@@ -1657,11 +1659,17 @@ export interface CursorApiKeyView {
   name: string;
   enabled: boolean;
   apiKeyPreview: string;
+  oauthExpiresAt?: number;
+  proxyMode?: import("./openai-account").OpenAIAccountProxyMode;
+  proxyUrl?: string;
   createdAt: string;
   updatedAt: string;
 }
 
 export interface CursorApiKeyInput {
+  authKind?: "oauth";
+  proxyMode?: import("./openai-account").OpenAIAccountProxyMode;
+  proxyUrl?: string;
   id?: string;
   name: string;
   apiKey?: string;

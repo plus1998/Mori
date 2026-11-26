@@ -124,3 +124,92 @@ test.skipIf(!sqliteAvailable)("sync replaces all key metadata and secrets atomic
     await removeTempDirectory(dir);
   }
 });
+
+test.skipIf(!sqliteAvailable)("rotates OAuth accounts with API keys and preserves OAuth assignments across key sync and reauthorization", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "eco-cursor-oauth-"));
+  try {
+    const store = await createCursorApiKeyStore(path.join(dir, "eco.sqlite"));
+    const expiry = Date.now() + 60_000;
+    store.saveOAuth("oauth", "Browser login", "encrypted-token", expiry);
+    const key = store.save({ name: "API key", apiKey: "api-secret" });
+
+    expect(store.credentialForThread("oauth-thread")).toEqual({
+      kind: "oauth", accountId: "oauth", value: "encrypted-token", expiresAt: expiry,
+    });
+    expect(store.credentialForThread("api-thread")).toEqual({ kind: "apiKey", value: "api-secret" });
+    expect(store.listWithSecrets().map((account) => account.id)).toEqual([key.id]);
+    expect(JSON.stringify(store.list())).not.toContain("encrypted-token");
+
+    store.applySyncedKeys("[]");
+    expect(store.list().map((account) => account.id)).toEqual(["oauth"]);
+    expect(store.credentialForThread("oauth-thread", false)?.kind).toBe("oauth");
+
+    const expiredAt = Date.now() - 60_000;
+    store.saveOAuth("oauth", "Browser login", "expired-token", expiredAt);
+    const replacement = store.save({ name: "New API key", apiKey: "new-api-secret" });
+    expect(store.firstCredential()).toEqual({ kind: "apiKey", value: "new-api-secret" });
+    expect(store.credentialForThread("new-thread")).toEqual({ kind: "apiKey", value: "new-api-secret" });
+    expect(store.credentialForThread("oauth-thread")).toEqual({
+      kind: "oauth", accountId: "oauth", value: "expired-token", expiresAt: expiredAt,
+    });
+
+    store.saveOAuth("oauth", "Browser login", "new-encrypted-token", expiry);
+    expect(store.credentialForThread("oauth-thread")).toEqual({
+      kind: "oauth", accountId: "oauth", value: "new-encrypted-token", expiresAt: expiry,
+    });
+    expect(store.listWithSecrets().map((account) => account.id)).toEqual([replacement.id]);
+  } finally {
+    await removeTempDirectory(dir);
+  }
+});
+
+test.skipIf(!sqliteAvailable)("keeps a Cursor browser account before CLI authorization and activates its existing ID after authorization", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "eco-cursor-browser-account-"));
+  try {
+    const dbPath = path.join(dir, "eco.sqlite");
+    const store = await createCursorApiKeyStore(dbPath);
+    const profile = store.save({ name: "Browser account", authKind: "oauth" });
+    const reopened = await createCursorApiKeyStore(dbPath);
+    expect(reopened.list()).toEqual([profile]);
+    expect(profile.oauthExpiresAt).toBe(0);
+    expect(reopened.firstCredential()).toBeUndefined();
+    expect(reopened.credentialForThread("before")).toBeUndefined();
+    expect(reopened.listWithSecrets()).toEqual([]);
+
+    reopened.save({ id: profile.id, name: "Renamed", authKind: "oauth" });
+    const expiresAt = Date.now() + 60_000;
+    const authorized = reopened.saveOAuth(profile.id, profile.name, "encrypted-token", expiresAt);
+    expect(authorized).toMatchObject({ id: profile.id, name: "Renamed", oauthExpiresAt: expiresAt });
+    expect(reopened.credentialForThread("after")).toEqual({ kind: "oauth", accountId: profile.id, value: "encrypted-token", expiresAt });
+  } finally {
+    await removeTempDirectory(dir);
+  }
+});
+
+test.skipIf(!sqliteAvailable)("preserves each account's local proxy through updates, authorization and key sync", async () => {
+  const sqlite = await import("node:sqlite");
+  const { CursorApiKeyStore } = await import("../src/main/cursor-api-key-store");
+  const db = new sqlite.DatabaseSync(":memory:");
+  try {
+    const store = new CursorApiKeyStore(db);
+    store.initialize();
+    const proxyUrl = "socks5://user:password@127.0.0.1:1080";
+    expect(() => store.save({ name: "Bad proxy", authKind: "oauth", proxyMode: "manual" })).toThrow();
+    const profile = store.save({ name: "Browser", authKind: "oauth", proxyMode: "manual", proxyUrl });
+    const key = store.save({ name: "Key", apiKey: "key", proxyMode: "direct" });
+    const expiresAt = Date.now() + 60_000;
+    store.saveOAuth(profile.id, profile.name, "encrypted-token", expiresAt);
+    const synced = store.listWithSecrets();
+    expect(synced).toHaveLength(1);
+    expect(synced[0]?.proxyMode).toBeUndefined();
+    store.applySyncedKeys(JSON.stringify(synced));
+    expect(store.list().find((item) => item.id === profile.id)).toMatchObject({ proxyMode: "manual", proxyUrl });
+    expect(store.credentialForThread("oauth")).toMatchObject({ kind: "oauth", proxy: { mode: "manual", proxyUrl } });
+    expect(store.credentialForThread("key")).toMatchObject({ kind: "apiKey", proxy: { mode: "direct" } });
+    const updated = store.save({ id: key.id, name: key.name, proxyMode: "system" });
+    expect(updated.proxyMode).toBeUndefined();
+    expect(store.credentialForThread("key")).toEqual({ kind: "apiKey", value: "key" });
+  } finally {
+    db.close();
+  }
+});

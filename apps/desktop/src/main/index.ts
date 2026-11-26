@@ -107,6 +107,7 @@ import {
   createAskUserQuestionHandler,
   defaultSubagentAvailability,
   deleteCursorAcpSession,
+  removeCursorAcpSessionDir,
   type EcoAgentRuntimeConfig,
   type EcoPlanningContext,
   type EcoSdkResumeOptions,
@@ -995,7 +996,7 @@ import {
 } from "./prompt-image-file-store";
 import { ComposerFileStore } from "./composer-file-store";
 import { collectProviderDeleteReferences, partitionProviderDeleteReferences } from "./provider-deletion";
-import { listProviderUpstreamModels, testProviderConnection, testRoleRoutes } from "./provider-models";
+import { listProviderUpstreamModels, testProviderConnection, testRoleRoutes, withUpstreamProxyFetch } from "./provider-models";
 import { createProviderStore, type ProviderStore } from "./provider-store";
 import { reconcileProxyAttributionContexts } from "./proxy-attribution-context-reconciliation";
 import { ProxyBillingStampRegistry } from "./proxy-billing-stamp";
@@ -1174,7 +1175,11 @@ import {
   roleRoutesFromRuntime,
 } from "./thread-runtime-routes";
 import { createThreadSdkTaskRuntime } from "./thread-sdk-task-runtime";
-import { createCursorApiKeyStore, type CursorApiKeyStore } from "./cursor-api-key-store";
+import { createCursorApiKeyStore, type CursorApiKeyStore, type CursorCredential } from "./cursor-api-key-store";
+import { loginCursorInBrowser } from "./cursor-browser-login";
+import { CursorOAuthCredentials, renewCursorOAuthToken } from "./cursor-oauth-credentials";
+import { CursorAccountProxy } from "./cursor-account-proxy";
+import type { OpenAIAccountProxyConfig } from "../shared/openai-account";
 import { buildThreadSessionBootstrap } from "./thread-session-bootstrap";
 import {
   canRegenerateThreadTitle,
@@ -3047,6 +3052,7 @@ app
     });
     app.once("before-quit", () => {
       for (const controller of webChatProxyControllers.values()) controller.dispose();
+      cursorAccountProxy.dispose();
     });
     sshBookmarkStore = await createSshBookmarkStore(dbPath, createLocalSecretCodec());
     notificationSettingsStore = await createNotificationSettingsStore(dbPath);
@@ -5463,23 +5469,54 @@ function mainText(
   return translateCatalog(currentAppLocale(), key, variables);
 }
 
-/**
- * Env for the Cursor ACP child. When the user configured a Cursor API key
- * (headless / no browser login), inject CURSOR_API_KEY; merged over
- * process.env so HOME/PATH-based executable resolution still works.
- */
-function acpCursorSpawnEnv(): NodeJS.ProcessEnv | undefined {
-  const apiKey = cursorApiKeyStore.firstApiKey();
-  if (!apiKey) return undefined;
-  return { ...process.env, CURSOR_API_KEY: apiKey };
+function isCursorOAuthAccountId(id: string): boolean {
+  return /^cursor-oauth-[a-f0-9-]{36}$/u.test(id);
+}
+
+function cursorBrowserAccountId(id: string): string {
+  return isCursorOAuthAccountId(id) ? id : `cursor-web:${encodeURIComponent(id)}`;
+}
+
+const cursorAccountProxy = new CursorAccountProxy();
+
+function cursorProxyEnv(proxy: OpenAIAccountProxyConfig = { mode: "system" }): Promise<NodeJS.ProcessEnv> {
+  return cursorAccountProxy.env(proxy, () => session.defaultSession.resolveProxy("https://api2.cursor.sh"));
+}
+
+const cursorOAuthCredentials = new CursorOAuthCredentials({
+  read: (id) => {
+    const credential = cursorApiKeyStore.credentialForAccount(id);
+    if (credential.kind !== "oauth") throw new Error("该 Cursor 账号使用 API Key。");
+    return credential;
+  },
+  decode: (encrypted) => safeStorage.decryptString(Buffer.from(encrypted, "base64")),
+  encode: (raw) => safeStorage.encryptString(raw).toString("base64"),
+  renew: async (credential, refreshToken) => {
+    const env = await cursorProxyEnv(credential.proxy);
+    return withUpstreamProxyFetch(env.HTTPS_PROXY, fetch, (fetcher) => renewCursorOAuthToken(fetcher, refreshToken));
+  },
+  replace: (current, encrypted, expiry) => cursorApiKeyStore.replaceOAuthCredential(current, encrypted, expiry),
+});
+
+async function cursorCredentialEnv(credential: CursorCredential | undefined): Promise<NodeJS.ProcessEnv> {
+  if (!credential) return {};
+  const proxyEnv = await cursorProxyEnv(credential.proxy);
+  if (credential.kind === "apiKey") {
+    return { ...proxyEnv, CURSOR_API_KEY: credential.value, CURSOR_AUTH_TOKEN: undefined, AGENT_CLI_CREDENTIAL_STORE: "memory" };
+  }
+  return {
+    ...proxyEnv,
+    CURSOR_API_KEY: undefined,
+    CURSOR_AUTH_TOKEN: await cursorOAuthCredentials.accessToken(credential.accountId),
+    AGENT_CLI_CREDENTIAL_STORE: "memory",
+  };
 }
 
 async function probeAcpCursorForMain(): Promise<AcpCursorProbeResult> {
-  const env = acpCursorSpawnEnv();
   return probeAcpCursorAvailability({
     resolveExecutable: () => resolveCursorAgentExecutable(),
     executableExists: (candidate) => existsSync(candidate),
-    handshake: () => handshakeAcpCursor(env ? { env } : {}),
+    handshake: () => handshakeAcpCursor(),
   });
 }
 
@@ -6417,28 +6454,51 @@ function registerIpcHandlers(): void {
     return true;
   });
 
-  registerDesktopCommand(IPC_CHANNELS.cursorModelsList, async () => {
-    const apiKey = cursorApiKeyStore.firstApiKey();
-    return listCursorAgentModels(apiKey ? { env: { CURSOR_API_KEY: apiKey } } : {});
+  registerDesktopCommand(IPC_CHANNELS.cursorModelsList, async (accountId?: unknown) => {
+    if (accountId !== undefined && (typeof accountId !== "string" || !accountId.trim())) {
+      throw new Error("Cursor 账号 ID 无效。");
+    }
+    const credential = typeof accountId === "string"
+      ? cursorApiKeyStore.credentialForAccount(accountId)
+      : cursorApiKeyStore.firstCredential();
+    return listCursorAgentModels({ env: await cursorCredentialEnv(credential) });
   });
   registerDesktopCommand(IPC_CHANNELS.cursorApiKeysList, () => cursorApiKeyStore.list());
-  registerDesktopCommand(IPC_CHANNELS.cursorApiKeySave, (payload: unknown) => {
+  registerDesktopCommand(IPC_CHANNELS.cursorApiKeySave, async (payload: unknown) => {
     if (!isRecord(payload) || typeof payload.name !== "string"
       || (payload.id !== undefined && (typeof payload.id !== "string" || !payload.id.trim()))
       || (payload.apiKey !== undefined && typeof payload.apiKey !== "string")
+      || (payload.proxyMode !== undefined && payload.proxyMode !== "system" && payload.proxyMode !== "direct" && payload.proxyMode !== "manual")
+      || (payload.proxyUrl !== undefined && typeof payload.proxyUrl !== "string")
+      || (payload.authKind !== undefined && payload.authKind !== "oauth")
+      || (payload.authKind === "oauth" && payload.apiKey !== undefined)
       || (payload.enabled !== undefined && typeof payload.enabled !== "boolean")) {
       throw new Error("Cursor API Key 参数无效。");
     }
-    return cursorApiKeyStore.save({
+    const input: import("../shared/ipc").CursorApiKeyInput = {
       ...(typeof payload.id === "string" ? { id: payload.id } : {}),
       name: payload.name,
+      ...(payload.proxyMode !== undefined ? { proxyMode: payload.proxyMode } : {}),
+      ...(typeof payload.proxyUrl === "string" ? { proxyUrl: payload.proxyUrl } : {}),
+      ...(payload.authKind === "oauth" ? { authKind: "oauth" } : {}),
       ...(typeof payload.apiKey === "string" ? { apiKey: payload.apiKey } : {}),
       ...(typeof payload.enabled === "boolean" ? { enabled: payload.enabled } : {}),
+    };
+    if (!input.id) return cursorApiKeyStore.save(input);
+    const browserId = cursorBrowserAccountId(input.id);
+    return accountBrowser.run(browserId, async () => {
+      const account = cursorApiKeyStore.save(input);
+      await accountBrowser.refreshProxy(browserId);
+      return account;
     });
   });
-  registerDesktopCommand(IPC_CHANNELS.cursorApiKeyDelete, (payload: unknown) => {
+  registerDesktopCommand(IPC_CHANNELS.cursorApiKeyDelete, async (payload: unknown) => {
     if (typeof payload !== "string" || !payload.trim()) throw new Error("Cursor API Key ID 无效。");
-    cursorApiKeyStore.remove(payload);
+    const browserId = cursorBrowserAccountId(payload);
+    await accountBrowser.run(browserId, async () => {
+      await accountBrowser.clear(browserId);
+      cursorApiKeyStore.remove(payload);
+    });
     return { ok: true as const };
   });
   registerDesktopCommand(IPC_CHANNELS.cursorApiKeySetEnabled, (payload: unknown) => {
@@ -8856,6 +8916,18 @@ function registerIpcHandlers(): void {
   };
   const accountBrowser = new OpenAIAccountBrowser({
     getProfile: async accountId => {
+      if (isCursorOAuthAccountId(accountId) || accountId.startsWith("cursor-web:")) {
+        const id = isCursorOAuthAccountId(accountId) ? accountId : decodeURIComponent(accountId.slice("cursor-web:".length));
+        const account = cursorApiKeyStore.list().find((item) => item.id === id);
+        if (!account) throw new Error("找不到 Cursor 账号。");
+        return {
+          partition: `persist:${accountId}`,
+          name: account.name,
+          siteTitle: "Cursor",
+          proxyMode: account.proxyMode ?? "system",
+          ...(account.proxyUrl ? { proxyUrl: account.proxyUrl } : {}),
+        };
+      }
       if (isClaudeLoginAccountId(accountId)) {
         const { name, proxy } = await claudeLogin.read(accountId);
         return {
@@ -8889,6 +8961,32 @@ function registerIpcHandlers(): void {
     openPage: input => requireBrowserHost().openAccountPage(input),
     closePages: accountId => requireBrowserHost().closeAccountPages(accountId),
     reportError: error => logEcoDiag("openai-account-browser.flush.failed", { error: errorMessage(error) }),
+  });
+  registerDesktopCommand(IPC_CHANNELS.cursorAccountOpenWeb, async (id: unknown) => {
+    if (typeof id !== "string" || !id.trim()) throw new Error("Cursor 账号 ID 无效。");
+    await accountBrowser.open(cursorBrowserAccountId(id), "https://cursor.com/dashboard");
+  });
+  registerDesktopCommand(IPC_CHANNELS.cursorOAuthLogin, async (id: unknown) => {
+    if (typeof id !== "string" || !isCursorOAuthAccountId(id)) throw new Error("Cursor OAuth 账号 ID 无效。");
+    if (!safeStorage.isEncryptionAvailable()
+      || (process.platform === "linux" && safeStorage.getSelectedStorageBackend() === "basic_text")) {
+      throw new Error("系统凭证加密不可用，无法保存 Cursor 登录。");
+    }
+    return accountBrowser.run(id, async () => {
+      const account = cursorApiKeyStore.list().find((item) => item.id === id && item.oauthExpiresAt !== undefined);
+      if (!account) throw new Error("找不到 Cursor OAuth 账号。");
+      const proxyEnv = await cursorProxyEnv({
+        mode: account.proxyMode ?? "system",
+        ...(account.proxyUrl ? { proxyUrl: account.proxyUrl } : {}),
+      });
+      const page = await accountBrowser.createPage(id, true);
+      try {
+        const { tokens, expiresAt } = await loginCursorInBrowser(page, proxyEnv);
+        return cursorApiKeyStore.saveOAuth(id, account.name, safeStorage.encryptString(JSON.stringify(tokens)).toString("base64"), expiresAt);
+      } finally {
+        await page.close();
+      }
+    });
   });
   openaiAccountBrowser = accountBrowser;
   const webAccountCredentials = new ChatGptWebAccountCredentials({
@@ -13304,10 +13402,8 @@ function acpRuntimeOrchestrationDeps(): import("./acp-runtime-run").AcpRuntimeOr
     },
     captureSession,
     getThreadCoreSession: (threadId) => conversationStore.getThreadCoreSession(threadId),
-    resolveAcpCursorEnv: (threadId) => {
-      const apiKey = cursorApiKeyStore.apiKeyForThread(threadId);
-      return apiKey ? { CURSOR_API_KEY: apiKey } : {};
-    },
+    resolveAcpCursorEnv: (threadId, accountId) =>
+      cursorCredentialEnv(accountId ? cursorApiKeyStore.credentialForAccount(accountId) : cursorApiKeyStore.credentialForThread(threadId)),
     resolveAcpMcpServers: async ({ threadId, workspacePath }) => {
       const prepared = await resolvePiSessionResourcesForThread(threadId, workspacePath);
       return toAcpMcpServers(prepared.mcpServers);
@@ -18450,11 +18546,15 @@ async function cleanupThreadExternalState(threadId: string): Promise<void> {
   disposeAcpThread(threadId);
   const acpSessionId = acpSessionIdToDelete(conversationStore.getThreadCoreSession(threadId));
   if (acpSessionId) {
-    const env = acpCursorSpawnEnv();
-    await deleteCursorAcpSession({
-      sessionId: acpSessionId,
-      ...(env ? { env } : {}),
-    });
+    const credential = cursorApiKeyStore.credentialForThread(threadId, false);
+    if (credential?.kind === "oauth" && credential.expiresAt <= Date.now()) {
+      await removeCursorAcpSessionDir(acpSessionId);
+    } else {
+      await deleteCursorAcpSession({
+        sessionId: acpSessionId,
+        env: { ...process.env, ...await cursorCredentialEnv(credential) },
+      });
+    }
   }
   if (!conversationStore.hasForkImageDependents(threadId))
     await promptImageFileStore.deleteThreadMessages(threadId);
