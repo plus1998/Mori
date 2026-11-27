@@ -1179,6 +1179,7 @@ import { createCursorApiKeyStore, type CursorApiKeyStore, type CursorCredential 
 import { loginCursorInBrowser } from "./cursor-browser-login";
 import { CursorOAuthCredentials, renewCursorOAuthToken } from "./cursor-oauth-credentials";
 import { CursorAccountProxy } from "./cursor-account-proxy";
+import { queryCursorAccountQuota } from "./cursor-account-quota";
 import type { OpenAIAccountProxyConfig } from "../shared/openai-account";
 import { buildThreadSessionBootstrap } from "./thread-session-bootstrap";
 import {
@@ -8961,6 +8962,14 @@ function registerIpcHandlers(): void {
     openPage: input => requireBrowserHost().openAccountPage(input),
     closePages: accountId => requireBrowserHost().closeAccountPages(accountId),
     reportError: error => logEcoDiag("openai-account-browser.flush.failed", { error: errorMessage(error) }),
+  });
+  registerDesktopCommand(IPC_CHANNELS.cursorAccountQueryQuota, async (id: unknown) => {
+    if (typeof id !== "string" || !id.trim()) throw new Error("Cursor 账号 ID 无效。");
+    const browserId = cursorBrowserAccountId(id);
+    return accountBrowser.run(browserId, async () => {
+      const ses = await accountBrowser.getSession(browserId);
+      return queryCursorAccountQuota(options => net.request(options), ses, info => webChatProxyControllers.get(ses)?.credentials(info));
+    });
   });
   registerDesktopCommand(IPC_CHANNELS.cursorAccountOpenWeb, async (id: unknown) => {
     if (typeof id !== "string" || !id.trim()) throw new Error("Cursor 账号 ID 无效。");

@@ -121,6 +121,7 @@ export const IPC_CHANNELS = {
   visionModelTest: "vision-model:test",
   visionModelTestCancel: "vision-model:test-cancel",
   cursorApiKeysList: "cursor-api-keys:list",
+  cursorAccountQueryQuota: "cursor-account:query-quota",
   cursorAccountOpenWeb: "cursor-account:open-web",
   cursorOAuthLogin: "cursor-oauth:login",
   cursorApiKeySave: "cursor-api-keys:save",
@@ -1653,6 +1654,18 @@ export type { ProjectTerminalSettingsSnapshot } from "./project-terminal-setting
 export type { ProjectIntegrationsSettingsSnapshot } from "./integrations";
 export type { ProjectOrchestrationSettingsSnapshot, ProjectOrchestrationSettingsUpdate } from "./project-orchestration-settings";
 export type { ProviderTokenCountMode, UpstreamApiCompat };
+
+export interface CursorAccountQuota {
+  planType: string;
+  fetchedAt: number;
+  resetAt?: number;
+  buckets: Array<{ kind: "total" | "auto" | "api"; usedPercent: number }>;
+}
+
+export type CursorAccountQuotaResult =
+  | { ok: true; quota: CursorAccountQuota }
+  | { ok: false; code: "quotaHttpError"; status: number }
+  | { ok: false; code: "quotaLoginRequired" | "quotaUnavailable" | "quotaInvalidResponse" | "quotaTimeout" | "quotaRequestFailed" };
 
 export interface CursorApiKeyView {
   id: string;

@@ -132,6 +132,7 @@ import {
   type CursorApiKeyImportResult,
   type CursorApiKeyInput,
   type CursorApiKeyView,
+  type CursorAccountQuotaResult,
   type CursorModelOption,
   type GitCheckoutBranchRequest,
   type GitCommitRequest,
@@ -485,6 +486,9 @@ const api = {
   },
   listCursorApiKeys(): Promise<CursorApiKeyView[]> {
     return ipcRenderer.invoke(IPC_CHANNELS.cursorApiKeysList);
+  },
+  queryCursorAccountQuota(id: string): Promise<CursorAccountQuotaResult> {
+    return ipcRenderer.invoke(IPC_CHANNELS.cursorAccountQueryQuota, id);
   },
   openCursorAccountWeb(id: string): Promise<void> {
     return ipcRenderer.invoke(IPC_CHANNELS.cursorAccountOpenWeb, id);

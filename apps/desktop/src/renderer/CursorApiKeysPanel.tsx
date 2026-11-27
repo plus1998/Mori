@@ -1,9 +1,10 @@
-import { ChevronDown, Globe2, KeyRound, Loader2, LogIn, MoreHorizontal, Pencil, Plus, Power, Search, Trash2, Upload, X } from "lucide-react";
+import { ChevronDown, Globe2, KeyRound, Loader2, LogIn, MoreHorizontal, Pencil, Plus, Power, RefreshCw, Search, Trash2, Upload, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
-import type { CursorApiKeyInput, CursorApiKeyView } from "../shared/ipc";
+import type { CursorAccountQuotaResult, CursorApiKeyInput, CursorApiKeyView } from "../shared/ipc";
 import type { OpenAIAccountProxyMode } from "../shared/openai-account";
+import { AccountQuotaSummary } from "./components/AccountQuotaSummary";
 import { LoginAccountProxyFields } from "./components/LoginAccountEditor";
 import "./components/openai-account-cards.css";
 import "./cursor-api-keys.css";
@@ -18,6 +19,8 @@ type DialogState =
   | { type: "edit"; account: CursorApiKeyView }
   | { type: "delete"; account: CursorApiKeyView }
   | { type: "import" };
+
+type QuotaState = { loading: true } | { loading: false; result: CursorAccountQuotaResult };
 
 type AccountMenu = { id: string; kind: "web" | "cli" | "more" };
 
@@ -38,8 +41,10 @@ export function CursorApiKeysPanel({ busy = false, revision = 0 }: CursorApiKeys
   const [authorizingId, setAuthorizingId] = useState<string>();
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "enabled" | "disabled">("all");
+  const [quotas, setQuotas] = useState<Record<string, QuotaState>>({});
   const [accountMenu, setAccountMenu] = useState<AccountMenu>();
   const disabled = busy || loading || mutating;
+  const refreshingQuota = Object.values(quotas).some((quota) => quota.loading);
   const enabledCount = accounts.filter((account) => account.enabled).length;
   const query = searchQuery.trim().toLocaleLowerCase();
   const filteredAccounts = accounts.filter((account) =>
@@ -167,6 +172,19 @@ export function CursorApiKeysPanel({ busy = false, revision = 0 }: CursorApiKeys
     });
   };
 
+  const refreshQuota = async (id: string) => {
+    setQuotas((current) => ({ ...current, [id]: { loading: true } }));
+    let result: CursorAccountQuotaResult;
+    try {
+      const api = window.eco;
+      if (!api) throw new Error(t("settings.cursorApiKeys.unavailable"));
+      result = await api.queryCursorAccountQuota(id);
+    } catch {
+      result = { ok: false, code: "quotaRequestFailed" };
+    }
+    setQuotas((current) => current[id]?.loading ? { ...current, [id]: { loading: false, result } } : current);
+  };
+
   const openWeb = async (id: string) => {
     await mutate((api) => api.openCursorAccountWeb(id));
   };
@@ -210,6 +228,7 @@ export function CursorApiKeysPanel({ busy = false, revision = 0 }: CursorApiKeys
     await mutate(async (api) => {
       await api.deleteCursorApiKey(account.id);
       setAccounts((current) => current.filter((item) => item.id !== account.id));
+      setQuotas(({ [account.id]: _removed, ...current }) => current);
       setDialog(undefined);
     });
   };
@@ -221,6 +240,12 @@ export function CursorApiKeysPanel({ busy = false, revision = 0 }: CursorApiKeys
           <h2>{t("settings.cursorApiKeys.title")}</h2>
         </div>
         <div className="codex-account-header-actions">
+          <button type="button" className="codex-action-secondary"
+            disabled={disabled || refreshingQuota || accounts.length === 0}
+            onClick={() => { void Promise.all(accounts.map((account) => refreshQuota(account.id))); }}>
+            <RefreshCw size={14} className={refreshingQuota ? "mcp-spin" : undefined} />
+            {t(refreshingQuota ? "settings.openaiAccounts.quotaLoading" : "settings.openaiAccounts.refreshQuota")}
+          </button>
           <button type="button" className="codex-action-secondary" disabled={disabled} onClick={() => { setError(undefined); setMessage(undefined); setDialog({ type: "import" }); }}>
             <Upload size={14} />
             {t("settings.cursorApiKeys.import")}
@@ -272,6 +297,14 @@ export function CursorApiKeysPanel({ busy = false, revision = 0 }: CursorApiKeys
       ) : (
         <div className="codex-account-list">
           {filteredAccounts.map((account) => {
+            const quotaState = quotas[account.id];
+            const quotaResult = quotaState?.loading === false ? quotaState.result : undefined;
+            const quota = quotaResult?.ok ? quotaResult.quota : undefined;
+            const quotaError = quotaResult?.ok === false
+              ? quotaResult.code === "quotaHttpError"
+                ? t("settings.cursorApiKeys.quotaHttpError", { status: quotaResult.status })
+                : t(`settings.cursorApiKeys.${quotaResult.code}`)
+              : undefined;
             const usesOAuth = account.oauthExpiresAt !== undefined;
             const expired = account.oauthExpiresAt !== undefined && account.oauthExpiresAt <= Date.now();
             const statusTone = !account.enabled ? "danger" : expired ? "warning" : "ready";
@@ -292,6 +325,7 @@ export function CursorApiKeysPanel({ busy = false, revision = 0 }: CursorApiKeys
                   <div className="codex-account-identity">
                     <div className="codex-account-identity-title">
                       <strong title={account.name}>{account.name}</strong>
+                      {quota ? <span className="codex-account-plan">{quota.planType}</span> : null}
                     </div>
                     <span className="cursor-api-key-preview">
                       {account.oauthExpiresAt === undefined
@@ -336,6 +370,11 @@ export function CursorApiKeysPanel({ busy = false, revision = 0 }: CursorApiKeys
                             <div className="codex-account-status-popover-header">
                               <span>Web</span>
                             </div>
+                            <button type="button" role="menuitem" className="codex-account-status-item"
+                              disabled={disabled || quotaState?.loading} onClick={() => void refreshQuota(account.id)}>
+                              <RefreshCw size={14} />
+                              <span>{t("settings.openaiAccounts.refreshQuota")}</span>
+                            </button>
                             <button type="button" role="menuitem" className="codex-account-status-item is-primary"
                               disabled={disabled} onClick={() => void openWeb(account.id)}>
                               <Globe2 size={14} />
@@ -425,6 +464,16 @@ export function CursorApiKeysPanel({ busy = false, revision = 0 }: CursorApiKeys
                     </div>
                   </div>
                 </div>
+                {quotaState ? (
+                  <div className="codex-account-quotas">
+                    <AccountQuotaSummary windows={quota?.buckets.map(({ kind, usedPercent }) => ({
+                      id: kind,
+                      label: t(`settings.cursorApiKeys.quotaBucket.${kind}`),
+                      usedPercent,
+                      resetAt: quota.resetAt,
+                    }))} fetchedAt={quota?.fetchedAt} loading={quotaState.loading} error={quotaError} showIdle={false} />
+                  </div>
+                ) : null}
                 <details className="codex-account-details">
                   <summary>
                     {t("settings.openaiAccounts.accountDetails")}
