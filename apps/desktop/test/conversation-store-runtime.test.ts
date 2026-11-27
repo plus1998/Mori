@@ -1196,6 +1196,65 @@ test.skipIf(!sqliteAvailable)(
 );
 
 test.skipIf(!sqliteAvailable)(
+  "discarding the first ACP turn leaves an empty V2 user-message stream in legacy compatibility mode",
+  async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "eco-acp-discard-first-"));
+    const store = await createLegacyConversationStore(path.join(dir, "eco-coding.sqlite"));
+    const threadId = "thr_acp_discard_first";
+    const activityLineId = "user:acp-first";
+    const messageId = "message_user_acp_first";
+    const now = "2026-11-27T09:13:01.632Z";
+    store.saveThread({
+      id: threadId,
+      title: "Cursor ACP",
+      prompt: "first prompt",
+      workspacePath: dir,
+      status: "running",
+      message: "",
+      coreKind: "acp",
+      acpAgentId: "cursor",
+      createdAt: now,
+      updatedAt: now,
+    });
+    store.conversationV2().append({
+      conversationId: threadId,
+      eventId: "acp_prompt_created",
+      type: "message.created",
+      occurredAt: now,
+      turnId: "turn_acp_first",
+      messageId,
+      payload: { role: "user", body: "first prompt", status: "final" },
+    });
+    store.appendConversationRuntimeEvent({
+      id: "acp_prompt_source",
+      threadId,
+      eventType: "thread.status",
+      scope: "main",
+      role: "user",
+      streamKey: activityLineId,
+      streamState: "none",
+      message: "first prompt",
+      observedAt: now,
+      metadata: {
+        liveType: "thread.user_prompt",
+        conversationV2MessageId: messageId,
+        rewindTarget: { activityLineId },
+      },
+    });
+    expect(store.getConversationUserMessageRecord(threadId, activityLineId)?.text).toBe("first prompt");
+
+    store.discardThreadTurnFromActivityLine(threadId, activityLineId);
+
+    expect(store.listConversationRuntimeSources(threadId)).toEqual([]);
+    expect(store.listConversationUserMessageRecords(threadId)).toEqual([]);
+    expect(store.getConversationUserMessageRecord(threadId, activityLineId)).toBeUndefined();
+    expect(() => store.listConversationUserMessageRecords("thr_missing_acp_stream")).toThrow(
+      /Conversation V2 user-message stream is unavailable/,
+    );
+  },
+);
+
+test.skipIf(!sqliteAvailable)(
   "rewindThreadToActivityLine supports SDK-derived virtual activity ids",
   async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "eco-rewind-sdk-thread-"));

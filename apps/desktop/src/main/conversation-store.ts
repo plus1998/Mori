@@ -5096,7 +5096,9 @@ export class ConversationStore {
     const id = threadId.trim();
     if (!id || !this.v2.hasConversation(id)) return undefined;
     const sources = this.listConversationRuntimeSources(id);
-    if (sources.length === 0 && !this.isV2OnlyStorage()) return undefined;
+    if (sources.length === 0 && !this.isV2OnlyStorage() && !this.hasNativeProviderInputs(id)) {
+      return undefined;
+    }
     const messages = this.v2.listUserMessages(id);
     const provider = this.getThread(id)?.coreKind;
     return messages.map((message) => {
@@ -5126,7 +5128,11 @@ export class ConversationStore {
   }
 
   private hasNativeProviderInputs(threadId: string): boolean {
-    return this.v2.hasConversation(threadId) && this.listConversationRuntimeSources(threadId).length > 0;
+    // History rewrites hide input rows without removing V2's ownership of the history.
+    return this.v2.hasConversation(threadId) && Boolean(
+      this.db.prepare(`SELECT 1 FROM conversation_provider_inputs_v2 WHERE conversation_id = ? LIMIT 1`)
+        .get(threadId),
+    );
   }
 
   bindLatestUserActivityToSdkMessage(
