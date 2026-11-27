@@ -171,6 +171,21 @@ test("Windows global conflicts clear only unavailable bindings and persist acros
   }
 });
 
+test("upgrading shortcuts keeps a custom key that overlaps the quota pool default", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "mori-shortcut-upgrade-"));
+  try {
+    const file = path.join(directory, "keyboard-shortcuts.json");
+    const store = new KeyboardShortcutsStore(file, "darwin");
+    fs.writeFileSync(file, JSON.stringify({ bindings: { "open-search": ["Command+Shift+Y"] } }));
+    store.load();
+    expect(store.get()["open-search"]).toEqual(["Shift+Command+Y"]);
+    expect(store.get()["open-codex-quota-pool"]).toEqual([]);
+    store.save(store.get());
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("probing preserves owned registrations and clears all unavailable global keys", () => {
   const snapshot = { bindings: defaultShortcutBindings("win32") };
   const owned = snapshot.bindings["mori-floating"]![0]!;

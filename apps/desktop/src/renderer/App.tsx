@@ -27,7 +27,7 @@ import { ComposerPromptCacheBaseline } from "./composer-prompt-cache-baseline";
 import { startTaskPanelResizeSession } from "./task-panel-resize-session";
 import { BROWSER_SELECTION_INSERT_EVENT, BROWSER_SELECTION_REVEAL_EVENT } from "./browser-selection-events";
 import { CodexQuotaReminder } from "./CodexQuotaReminder";
-import { isCodexAuthThread, codexAccountIdForThread } from "../shared/codex-auth-thread";
+import { isCodexAuthThread, codexAccountIdForThread, withCodexLoginAccount } from "../shared/codex-auth-thread";
 import {
   latestCodexCapacityRetryNotice as readLatestCodexCapacityRetryNotice,
 } from "../shared/codex-capacity-retry";
@@ -426,6 +426,7 @@ import {
   LazyAsrSettingsPanel,
   LazyBrowserSettingsPanel,
   LazyBrowserWebviewLayer,
+  LazyCodexQuotaPoolDialog,
   LazyCenterServerSettingsPanel,
   LazyComputerUseSettingsPanel,
   LazyContextWindowSettingsPanel,
@@ -1344,6 +1345,7 @@ function App() {
   const menuCommandHandlerRef = useRef<(command: AppMenuCommand) => void>(() => {});
   const [desktopUpdateState, setDesktopUpdateState] = useState<DesktopUpdateState>();
   const [sidebarSearchOpen, setSidebarSearchOpen] = useState(false);
+  const [codexQuotaPoolOpen, setCodexQuotaPoolOpen] = useState(false);
   const [gitCommitDialogOpen, setGitCommitDialogOpen] = useState(false);
   const handleCommitDialogOpenChange = useCallback((open: boolean) => {
     setGitCommitDialogOpen(open);
@@ -7177,6 +7179,9 @@ function App() {
         setSettingsOpen(false);
         openProjectTodos();
         return;
+      case "open-codex-quota-pool":
+        setCodexQuotaPoolOpen(true);
+        return;
       case "open-search":
         setSidebarSearchOpen(true);
         return;
@@ -10652,14 +10657,17 @@ function App() {
       persistWhileRunning?: boolean;
       refreshOrchestrationSnapshot?: boolean;
       pendingPlanModel?: boolean;
+      throwOnError?: boolean;
     },
-  ): Promise<boolean> {
+  ): Promise<ThreadSummary | boolean> {
     if (!activeThread) {
       setComposerRuntimeConfig(next);
       return true;
     }
     if (!window.eco) {
-      setError("当前会话配置保存不可用。");
+      const message = "当前会话配置保存不可用。";
+      if (options?.throwOnError) throw new Error(message);
+      setError(message);
       return false;
     }
     const isRunning = activeThread.status === "running" || activeThread.status === "queued";
@@ -10682,8 +10690,9 @@ function App() {
       setThreads((current) =>
         current.map((thread) => (thread.id === result.thread.id ? result.thread : thread)),
       );
-      return true;
+      return result.thread;
     } catch (caught) {
+      if (options?.throwOnError) throw caught;
       setError(errorMessage(caught));
       return false;
     } finally {
@@ -13896,6 +13905,46 @@ function App() {
     ) : null;
   };
 
+  const renderCodexQuotaPool = () => {
+    if (!codexQuotaPoolOpen) return null;
+    const thread = moriOpen ? undefined : activeThread;
+    const config = thread?.runtimeConfig;
+    const snapshot = config?.resolvedOrchestrationSnapshot;
+    const selection = config?.orchestrationSelection ?? snapshot?.selection;
+    const model = selection?.mainModel ?? snapshot?.mainAgent.modelRef ??
+      settings.mainAgentConfigs.find((agent) => agent.id === selection?.mainAgentConfigId)?.modelRef;
+    const switchBlocked = !thread || !isCodexAuthThread(thread) || model?.providerId !== "openai" || !selection
+      ? t("codexQuotaPool.requiresConversation")
+      : !canEditComposerModel || isStarting || isSavingSettings
+        ? t("codexQuotaPool.conversationBusy")
+        : undefined;
+
+    return (
+      <SuspensePanel>
+        <LazyCodexQuotaPoolDialog
+          currentAccountId={thread ? codexAccountIdForThread(thread) : undefined}
+          switchBlocked={switchBlocked}
+          onClose={() => setCodexQuotaPoolOpen(false)}
+          onSwitch={async (accountId) => {
+            if (switchBlocked || !config || !selection || !model) {
+              throw new Error(switchBlocked ?? t("codexSwitch.failed"));
+            }
+            const override = resolveMainAgentModelOverrideForProvider(model.providerId, config.mainAgentModelOverride);
+            const saved = await persistComposerRuntimeConfig({
+              ...config,
+              orchestrationSelection: { ...selection, mainModel: withCodexLoginAccount(model, accountId) },
+              ...(override?.serviceTier === "ultrafast"
+                ? { mainAgentModelOverride: { ...override, serviceTier: "default" } } : {}),
+            }, { pendingPlanModel: true, throwOnError: true });
+            if (typeof saved === "boolean" || codexAccountIdForThread(saved) !== accountId) {
+              throw new Error(t("codexSwitch.failed"));
+            }
+          }}
+        />
+      </SuspensePanel>
+    );
+  };
+
   const renderAppLayout = () => (
     <main className={shellClassName}>
       {renderWindowSidebarToolbar()}
@@ -14006,6 +14055,12 @@ function App() {
                 <ClipboardList size={ICON_SIZE.md} strokeWidth={ICON_STROKE} />
                 {t("todos.title")}
                 {renderSidebarShortcut("open-todos")}
+              </button>
+              <button type="button" className="sidebar-action muted" aria-haspopup="dialog"
+                onClick={() => setCodexQuotaPoolOpen(true)}>
+                <Gauge size={ICON_SIZE.md} strokeWidth={ICON_STROKE} aria-hidden />
+                {t("codexQuotaPool.title")}
+                {renderSidebarShortcut("open-codex-quota-pool")}
               </button>
               <button
                 type="button"
@@ -14119,6 +14174,7 @@ function App() {
         onOpenRelease={() => { void window.eco?.openDesktopReleasePage(); }}
       />
 
+      {renderCodexQuotaPool()}
       <SidebarSearchDialog
         open={sidebarSearchOpen}
         threads={sidebarSearchThreads}

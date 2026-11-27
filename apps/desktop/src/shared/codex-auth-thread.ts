@@ -1,3 +1,4 @@
+import type { ModelRef } from "./agent-orchestration";
 import type { ThreadSummary } from "./ipc";
 
 export function isCodexAuthThread(thread: Pick<ThreadSummary, "coreKind" | "runtimeConfig">): boolean {
@@ -19,4 +20,12 @@ export function codexAccountIdForThread(thread: Pick<ThreadSummary, "coreKind" |
   const config = thread.runtimeConfig;
   return config?.orchestrationSelection?.mainModel?.accountId ??
     config?.resolvedOrchestrationSnapshot?.mainAgent.modelRef.accountId;
+}
+
+export function withCodexLoginAccount(model: ModelRef, accountId: string): ModelRef {
+  return {
+    ...model,
+    accountId,
+    ...(model.serviceTier === "ultrafast" ? { serviceTier: "default" } : {}),
+  };
 }

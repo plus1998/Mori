@@ -122,4 +122,6 @@ export const LazyTtsSettingsPanel = lazy(() => import("./TtsSettingsPanel").then
 
 export const LazyKeyboardShortcutsSettings = lazy(() => import("./KeyboardShortcutsSettings").then(m => ({ default: m.KeyboardShortcutsSettings })));
 
+export const LazyCodexQuotaPoolDialog = lazy(() => import("./CodexQuotaPoolDialog").then(m => ({ default: m.CodexQuotaPoolDialog })));
+
 export const LazyImageLibraryPanel = lazy(() => import("./ImageLibraryPanel").then(m => ({ default: m.ImageLibraryPanel })));

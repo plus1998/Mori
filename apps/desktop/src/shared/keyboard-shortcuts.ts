@@ -30,6 +30,7 @@ export const SHORTCUT_DEFINITIONS: ShortcutDefinition[] = [
   shortcut("open-scheduling", "定时任务", "打开定时任务", "app", "CommandOrControl+Shift+J"),
   shortcut("open-image-library", "图片库", "打开图片库", "app", "CommandOrControl+Shift+G"),
   shortcut("open-todos", "待办", "打开待办列表", "app", "CommandOrControl+Shift+T"),
+  shortcut("open-codex-quota-pool", "Codex 额度池", "查看选定账号的额度并切换当前会话账号", "app", "CommandOrControl+Shift+Y"),
   shortcut("open-search", "搜索", "搜索项目和对话", "app", "CommandOrControl+K"),
   shortcut("open-settings", "设置", "打开应用设置", "app", "CommandOrControl+,"),
   shortcut("toggle-sidebar", "切换侧边栏", "展开或收起侧边栏", "app", "CommandOrControl+B"),

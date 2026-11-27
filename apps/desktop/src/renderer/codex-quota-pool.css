@@ -1,0 +1,225 @@
+.codex-pool-dialog {
+  width: min(500px, calc(100vw - 32px));
+  max-height: min(620px, calc(100dvh - 48px));
+  box-sizing: border-box;
+  padding: 0;
+  border: 1px solid var(--popover-border, var(--border-subtle));
+  border-radius: 16px;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-modal);
+  overflow: hidden;
+}
+
+.codex-pool-dialog::backdrop {
+  background: rgb(0 0 0 / 28%);
+}
+
+.codex-pool-surface {
+  display: flex;
+  flex-direction: column;
+  max-height: inherit;
+}
+
+.codex-pool-header,
+.codex-pool-footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+}
+
+.codex-pool-header {
+  flex-wrap: wrap;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.codex-pool-header h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.codex-pool-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.codex-pool-actions .codex-action-secondary {
+  gap: 5px;
+  min-height: 28px;
+  padding: 3px 8px;
+  white-space: nowrap;
+}
+
+.codex-pool-body {
+  display: grid;
+  gap: 10px;
+  min-height: 0;
+  padding: 12px 16px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.codex-pool-surface p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.codex-pool-rows,
+.codex-pool-choices {
+  display: grid;
+  gap: 6px;
+}
+
+.codex-pool-row,
+.codex-pool-choice {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 6px 10px;
+  padding: 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 9px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.codex-pool-choice {
+  padding-block: 7px;
+}
+
+.codex-pool-row:hover,
+.codex-pool-choice:hover,
+.codex-pool-row:has(input:checked) {
+  background: var(--nav-hover);
+}
+
+.codex-pool-row:has(input:checked) {
+  border-color: var(--accent);
+}
+
+.codex-pool-row:has(input:focus-visible),
+.codex-pool-choice:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.codex-pool-row input,
+.codex-pool-choice input {
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.codex-pool-row > :not(input) {
+  grid-column: 2;
+  min-width: 0;
+}
+
+.codex-pool-account,
+.codex-pool-window-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.codex-pool-identity {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.codex-pool-identity strong {
+  font-size: 13px;
+  font-weight: 550;
+}
+
+.codex-pool-identity > * {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.codex-pool-current,
+.codex-pool-note,
+.codex-pool-identity > span,
+.codex-pool-window {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.codex-pool-current {
+  flex-shrink: 0;
+}
+
+.codex-pool-windows {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(130px, 100%), 1fr));
+  gap: 6px 16px;
+}
+
+.codex-pool-window {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.codex-pool-window-heading strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.codex-pool-meter {
+  height: 4px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--border-subtle);
+  color: var(--success);
+}
+
+.codex-pool-meter[data-level="low"] {
+  color: var(--warning);
+}
+.codex-pool-meter[data-level="limited"] {
+  color: var(--danger);
+}
+
+.codex-pool-meter > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: currentColor;
+}
+
+.codex-pool-surface .codex-pool-error {
+  color: var(--danger);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.codex-pool-load-error {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.codex-pool-footer {
+  justify-content: flex-end;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.codex-pool-footer > p {
+  margin-right: auto;
+}
+
+.codex-pool-footer > button {
+  flex-shrink: 0;
+}

@@ -655,6 +655,40 @@ test("a main model switch preserves the saved subagents and their pinned endpoin
   expect(refreshed.resolvedOrchestrationSnapshot?.agents[0]?.modelRef.modelId).toBe("changed-globally");
 });
 
+test("rebinding a Codex Login account preserves the saved main agent and roster", () => {
+  const loginSettings = structuredClone(settings);
+  const template = loginSettings.mainAgentConfigs[0]!;
+  template.modelRef = {
+    providerId: "openai", modelId: "saved-model", accountId: "oa_old",
+    thinkingEffort: "high", serviceTier: "ultrafast",
+  };
+  template.skills = ["saved-skill"];
+  const old = buildThreadRuntimeConfigFromDefaults({
+    settings: loginSettings,
+    workflowDefaults: { sessionMode: "agent", defaultOrchestrationSelection: presetBundle.selection },
+  });
+  template.skills = ["edited-skill"];
+  template.modelRef.modelId = "edited-model";
+  const saved = resolveThreadRuntimeConfigUpdate(loginSettings, old, {
+    ...old,
+    orchestrationSelection: {
+      ...presetBundle.selection,
+      mainModel: { providerId: "openai", modelId: "saved-model", accountId: "oa_new",
+        thinkingEffort: "high", serviceTier: "default" },
+    },
+  });
+  expect(saved.orchestrationSelection?.mainModel?.accountId).toBe("oa_new");
+  expect(saved.resolvedOrchestrationSnapshot?.mainAgent).toMatchObject({
+    skills: ["saved-skill"],
+    modelRef: {
+      providerId: "openai", modelId: "saved-model", accountId: "oa_new",
+      thinkingEffort: "high", serviceTier: "default",
+    },
+  });
+  expect(saved.resolvedOrchestrationSnapshot?.agents).toEqual(old.resolvedOrchestrationSnapshot?.agents);
+  expect(old.resolvedOrchestrationSnapshot?.mainAgent.modelRef.accountId).toBe("oa_old");
+});
+
 test("an explicit main configuration switch or global reset can adopt another model", () => {
   const old = buildThreadRuntimeConfigFromDefaults({
     settings,

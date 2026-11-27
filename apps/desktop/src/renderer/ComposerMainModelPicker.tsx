@@ -1,5 +1,6 @@
 import { ComposerHoverTooltip } from "./ComposerHoverTooltip";
 import { codexQuotaPeriod, codexQuotaResetAt } from "./codex-quota-reminder";
+import { withCodexLoginAccount } from "../shared/codex-auth-thread";
 import { Check, ChevronDown, CircleHelp, Search } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
@@ -455,9 +456,7 @@ export function ComposerMainModelPicker({
     switchAccountIntent.current = true;
     setAccountId(nextAccountId);
     if (source === "login" && !readOnly && activeChoice?.providerId === "openai") {
-      const choice: ModelRef = { ...activeChoice, accountId: nextAccountId,
-        ...(activeChoice.serviceTier === "ultrafast" ? { serviceTier: "default" } : {}),
-      };
+      const choice = withCodexLoginAccount(activeChoice, nextAccountId);
       setActiveChoice(choice);
       void saveChoice(choice);
     }

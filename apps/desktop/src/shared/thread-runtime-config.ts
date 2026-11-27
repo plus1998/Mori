@@ -27,6 +27,7 @@ import {
 } from "./auxiliary-model";
 import { normalizeBashReviewMode } from "./bash-review-ui";
 import { ECO_AGENT_BROWSER_MCP_SERVER } from "./browser";
+import { withCodexLoginAccount } from "./codex-auth-thread";
 import {
   deriveMcpServersEnabled,
   listEnabledGlobalMcpServerKeys,
@@ -438,9 +439,30 @@ export function resolveThreadRuntimeConfigUpdate(
   if (!hasCompleteOrchestrationSelection(normalized.orchestrationSelection)) {
     throw new Error("无法物化线程运行时配置：编排组合不完整。");
   }
+  const previous = existing?.resolvedOrchestrationSnapshot;
+  if (previous && !options.refreshSnapshot) {
+    const selection = normalized.orchestrationSelection;
+    const previousSelection = existing.orchestrationSelection ?? previous.selection;
+    const previousModel = previousSelection.mainModel ?? previous.mainAgent.modelRef;
+    const accountId = selection.mainModel?.accountId;
+    if (
+      accountId && previousModel.accountId !== accountId &&
+      previousModel.providerId === "openai" && previous.mainAgent.modelRef.providerId === "openai" &&
+      orchestrationSelectionsEquivalent(selection, { ...previousSelection, mainModel: withCodexLoginAccount(previousModel, accountId) })
+    ) {
+      // Account-only changes keep the frozen main prompt, tools and subagent roster.
+      return {
+        ...normalized,
+        resolvedOrchestrationSnapshot: {
+          ...previous,
+          selection,
+          mainAgent: { ...previous.mainAgent, modelRef: withCodexLoginAccount(previous.mainAgent.modelRef, accountId) },
+        },
+      };
+    }
+  }
   try {
     const materialized = materializeThreadOrchestrationSnapshot(settings, normalized.orchestrationSelection);
-    const previous = existing?.resolvedOrchestrationSnapshot;
     if (
       previous && !options.refreshSnapshot &&
       JSON.stringify(existing?.orchestrationSelection?.subagents)

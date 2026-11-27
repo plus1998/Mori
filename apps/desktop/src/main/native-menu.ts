@@ -58,6 +58,7 @@ export function buildApplicationMenuTemplate(
         commandItem("Scheduled Tasks", "open-scheduling", dispatch),
         commandItem("Image Library", "open-image-library", dispatch),
         commandItem("Todos", "open-todos", dispatch),
+        commandItem("Codex Quota Pool", "open-codex-quota-pool", dispatch),
         commandItem("Search", "open-search", dispatch),
         commandItem("Settings", "open-settings", dispatch),
         { type: "separator" },

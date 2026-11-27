@@ -36,6 +36,9 @@ test("builds File and View commands and dispatches their typed command ids", () 
   expect(fileMenu.find((item) => item.id === "open-image-library")?.accelerator).toBe(
     "CommandOrControl+Shift+G",
   );
+  expect(fileMenu.find((item) => item.id === "open-codex-quota-pool")?.accelerator).toBe(
+    "CommandOrControl+Shift+Y",
+  );
 
   expect(fileMenu.filter((item) => item.label).map((item) => item.label)).toEqual([
     "New Chat",
@@ -44,6 +47,7 @@ test("builds File and View commands and dispatches their typed command ids", () 
     "Scheduled Tasks",
     "Image Library",
     "Todos",
+    "Codex Quota Pool",
     "Search",
     "Settings",
   ]);
@@ -68,6 +72,7 @@ test("builds File and View commands and dispatches their typed command ids", () 
     "open-scheduling",
     "open-image-library",
     "open-todos",
+    "open-codex-quota-pool",
     "open-search",
     "open-settings",
     "toggle-sidebar",

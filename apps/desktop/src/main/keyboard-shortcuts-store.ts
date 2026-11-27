@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import {
+  acceleratorIdentity,
   defaultShortcutBindings,
   SHORTCUT_DEFINITIONS,
   type KeyboardShortcutsSnapshot,
@@ -32,7 +33,7 @@ export class KeyboardShortcutsStore {
           "reload", "forceReload", "toggleDevTools", "resetZoom", "zoomIn", "zoomOut",
           "togglefullscreen", "minimize", "close", "quit", "hide", "hideOthers",
         ]) delete bindings[id];
-        this.bindings = validateShortcutBindings(bindings, this.platform);
+        this.bindings = this.loadBindings(bindings);
         this.conflicts = data.conflicts && typeof data.conflicts === "object" && !Array.isArray(data.conflicts)
           ? this.validConflicts(data.conflicts as Record<string, string>, this.bindings)
           : {};
@@ -46,12 +47,19 @@ export class KeyboardShortcutsStore {
     if (fs.existsSync(legacy)) {
       const value = JSON.parse(fs.readFileSync(legacy, "utf8")) as { settings?: { shortcut?: string } };
       if (typeof value.settings?.shortcut === "string") {
-        this.bindings = validateShortcutBindings(
-          { ...this.bindings, "mori-floating": value.settings.shortcut ? [value.settings.shortcut] : [] },
-          this.platform,
-        );
+        this.bindings = this.loadBindings({ "mori-floating": value.settings.shortcut ? [value.settings.shortcut] : [] });
       }
     }
+  }
+  private loadBindings(value: Record<string, unknown>): ShortcutBindings {
+    const id = "open-codex-quota-pool";
+    if (id in value) return validateShortcutBindings(value, this.platform);
+    const bindings = validateShortcutBindings({ ...value, [id]: [] }, this.platform);
+    const defaults = defaultShortcutBindings(this.platform)[id] ?? [];
+    const assigned = new Set(Object.values(bindings).flat().map((key) => acceleratorIdentity(key, this.platform)));
+    // A new default must not invalidate a shortcut the user saved in an older version.
+    bindings[id] = defaults.filter((key) => !assigned.has(acceleratorIdentity(key, this.platform)));
+    return bindings;
   }
   get(): ShortcutBindings {
     return structuredClone(this.bindings);
