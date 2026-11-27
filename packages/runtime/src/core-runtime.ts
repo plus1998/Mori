@@ -1,8 +1,8 @@
 export const CORE_KINDS = ["claude", "codex", "pi", "acp"] as const;
 
 export type CoreKind = (typeof CORE_KINDS)[number];
-/** ACP agent identity under coreKind `"acp"` (MVP: Cursor via `agent acp`). */
-export type AcpAgentId = "cursor";
+/** ACP agent identity under coreKind `"acp"`. */
+export type AcpAgentId = "cursor" | "antigravity";
 export type CoreSessionMode = "agent" | "plan" | "ask";
 export type CoreCapabilitySupport = "native" | "eco" | "unsupported";
 

@@ -36,6 +36,7 @@ export type AcpPermissionBridgeEmitType =
   | "bash_approval.denied";
 
 export interface AcpPermissionBridgeDeps {
+  agentName?: string;
   getBashReviewMode: () => string | undefined;
   /**
    * Built-in browser open approval (settings). When always_allow, eco browser MCP
@@ -275,7 +276,7 @@ export function createAcpPermissionHandler(
     const workspacePath = deps.getWorkspacePath();
     const isExecute = acpPermissionIsExecute(request.toolCall);
 
-    let reason = `Cursor ACP 请求确认 ${toolName}`;
+    let reason = `${deps.agentName ?? "Cursor"} ACP 请求确认 ${toolName}`;
     let riskScore: number | undefined;
     let riskLevel: BashApprovalRequest["riskLevel"] | undefined;
     let description: string | undefined;

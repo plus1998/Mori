@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
+import { prepareAccountLoginBrowser } from "./account-login-locale";
 import type { AccountBrowserPage } from "./account-browser-page";
 import { isClaudeLoginAccountId, type ClaudeLoginAccount, type ClaudeLoginProfileInput } from "../shared/claude-login";
 import { webChatProxyConfig } from "../shared/web-chat-list";
@@ -63,16 +64,6 @@ function canNavigate(url: string, callbackOrigin: string): boolean {
   return Boolean(target && (target.protocol === "https:" || (
     target.origin === callbackOrigin && target.pathname === "/callback"
   )));
-}
-
-export async function prepareClaudeBrowser(page: AccountBrowserPage): Promise<void> {
-  const contents = page.webContents;
-  // Initialize the guest renderer before applying its language and time zone settings.
-  await contents.loadURL("about:blank");
-  if (!contents.debugger.isAttached()) contents.debugger.attach("1.3");
-  await contents.debugger.sendCommand("Emulation.setUserAgentOverride", { userAgent: "", acceptLanguage: "en-US,en" });
-  await contents.debugger.sendCommand("Emulation.setLocaleOverride", { locale: "en_US" });
-  await contents.debugger.sendCommand("Emulation.setTimezoneOverride", { timezoneId: "America/Los_Angeles" });
 }
 
 function launch(executable: string, args: string[], configDir: string, env: NodeJS.ProcessEnv, signal: AbortSignal, captureOutput = false) {
@@ -180,7 +171,7 @@ export class ClaudeLoginService {
         page = await this.browser.open(id, target => canNavigate(target, url.callbackOrigin));
         stopWatchingClose = page.onClosed(() => browserAbort.abort());
         loginSignal.throwIfAborted();
-        await prepareClaudeBrowser(page);
+        await prepareAccountLoginBrowser(page);
         loginSignal.throwIfAborted();
         await this.browser.attachAssistant(id, page, expiresAt);
         loginSignal.throwIfAborted();

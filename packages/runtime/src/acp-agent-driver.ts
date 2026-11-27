@@ -16,6 +16,7 @@ import {
   mapAcpCursorUpdateTodos,
   mapAcpSessionUpdate,
 } from "./acp-event-map.js";
+import { spawnManagedProcess } from "./managed-process.js";
 import { AcpFsHandler } from "./acp-fs.js";
 import { AcpJsonRpcPeer } from "./acp-jsonrpc.js";
 import type { AcpMcpServer } from "./acp-mcp.js";
@@ -49,6 +50,13 @@ import type { AcpAgentId } from "./core-runtime.js";
 export const ACP_PLAN_CONTINUE_PROMPT =
   "The user approved the plan. Implement it now with full Agent tools. Follow the approved plan toward the original request.";
 
+export interface AcpProcessLaunch {
+  executable: string;
+  args: string[];
+  env: NodeJS.ProcessEnv;
+  verifyStorage: (peer: AcpJsonRpcPeer) => Promise<void>;
+}
+
 export type AcpAgentRunInput = {
   threadId: string;
   prompt: string;
@@ -56,6 +64,7 @@ export type AcpAgentRunInput = {
   signal?: AbortSignal;
   acpAgentId: AcpAgentId;
   resumeSessionId?: string;
+  prepareAntigravity?: () => Promise<AcpProcessLaunch>;
   model?: string;
   sessionMode?: AcpSessionModeId;
   executable?: string;
@@ -99,6 +108,7 @@ type AcpConnection = {
   client: AcpClient;
   rl: ReadlineInterface;
   workspacePath: string;
+  processKey: string;
   envFingerprint: string;
   mcpFingerprint: string;
   initializeResult?: AcpInitializeResult;
@@ -131,9 +141,10 @@ function acpStageError(
     | "session/set_mode"
     | "session/prompt",
   error: unknown,
+  agent: AcpAgentId = "cursor",
 ): Error {
   const message = error instanceof Error ? error.message : String(error);
-  return new Error(`Cursor ACP ${stage} failed: ${message}`, { cause: error });
+  return new Error(`${agent === "antigravity" ? "Antigravity" : "Cursor"} ACP ${stage} failed: ${message}`, { cause: error });
 }
 
 function withCursorProcessDiagnostics(error: unknown, child: ChildProcess): string {
@@ -180,7 +191,7 @@ export class AcpAgentDriver {
   constructor(private readonly options: AcpAgentDriverOptions = {}) {}
 
   async *run(input: AcpAgentRunInput): AsyncGenerator<AgentEvent> {
-    if (input.acpAgentId !== "cursor") {
+    if (input.acpAgentId !== "cursor" && input.acpAgentId !== "antigravity") {
       yield createAgentEvent({
         id: `${input.threadId}:acp:unsupported`,
         threadId: input.threadId,
@@ -235,7 +246,7 @@ export class AcpAgentDriver {
 
     try {
       const requestedModel = input.model?.trim() || undefined;
-      const executable = resolveCursorAgentExecutable(
+      const executable = input.acpAgentId === "antigravity" ? "agy" : resolveCursorAgentExecutable(
         input.executable?.trim() || this.options.executable?.trim(),
         {
           env: { ...process.env, ...(this.options.env ?? {}), ...(input.env ?? {}) },
@@ -300,7 +311,7 @@ export class AcpAgentDriver {
         },
       });
 
-      if (requestedModel) {
+      if (requestedModel && input.acpAgentId === "cursor") {
         try {
           const wireModelId = resolveAcpWireModelId(requestedModel, availableModels);
           await connection.client.setModel({ sessionId, modelId: wireModelId });
@@ -308,10 +319,12 @@ export class AcpAgentDriver {
           throw acpStageError("session/set_model", error);
         }
       }
-      try {
-        await connection.client.setMode({ sessionId, modeId: sessionMode });
-      } catch (error) {
-        throw acpStageError("session/set_mode", error);
+      if (input.acpAgentId === "cursor") {
+        try {
+          await connection.client.setMode({ sessionId, modeId: sessionMode });
+        } catch (error) {
+          throw acpStageError("session/set_mode", error);
+        }
       }
 
       const promptWork = (async () => {
@@ -403,7 +416,7 @@ export class AcpAgentDriver {
             const promptError =
               error instanceof Error && error.message.startsWith("Cursor ACP ")
                 ? error
-                : acpStageError("session/prompt", error);
+                : acpStageError("session/prompt", error, input.acpAgentId);
             enqueue([
               createAgentEvent({
                 id: `${input.threadId}:acp:${sessionRunId}:terminal`,
@@ -554,6 +567,7 @@ export class AcpAgentDriver {
   private async ensureConnection(input: AcpAgentRunInput, executable: string): Promise<AcpConnection> {
     const env = { ...this.options.env, ...input.env };
     const envFingerprint = fingerprintEnv(env);
+    const processKey = `${input.acpAgentId}:${executable}`;
     const mcpFingerprint = fingerprintMcp(input.mcpServers);
     const existing = this.connections.get(input.threadId);
     if (
@@ -561,6 +575,7 @@ export class AcpAgentDriver {
       !existing.disposing &&
       childIsAlive(existing.child) &&
       existing.workspacePath === input.workspacePath &&
+      existing.processKey === processKey &&
       existing.envFingerprint === envFingerprint &&
       existing.mcpFingerprint === mcpFingerprint
     ) {
@@ -570,12 +585,23 @@ export class AcpAgentDriver {
       this.dispose(input.threadId);
     }
 
-    const child = spawnCursorAcpProcess({
+    const launch = await input.prepareAntigravity?.();
+    if (input.acpAgentId === "antigravity" && !launch) throw new Error("Antigravity account is required.");
+    input.signal?.throwIfAborted();
+    const child = launch ? spawnManagedProcess({
+      command: launch.executable,
+      args: launch.args,
+      cwd: input.workspacePath,
+      env: launch.env,
+      stdio: ["pipe", "pipe", "pipe"],
+      ...(this.options.spawnFn ? { spawnFn: this.options.spawnFn } : {}),
+    }).child : spawnCursorAcpProcess({
       executable,
       cwd: input.workspacePath,
       ...(Object.keys(env).length > 0 ? { env } : {}),
       ...(this.options.spawnFn ? { spawnFn: this.options.spawnFn } : {}),
     });
+    if (launch) child.stderr?.resume();
     const spawnFailure = cursorAcpSpawnError(child);
     if (!child.stdin || !child.stdout) {
       killChildProcessTree(child);
@@ -667,6 +693,7 @@ export class AcpAgentDriver {
         if (turn?.input.onRequestPermission) {
           return turn.input.onRequestPermission(request);
         }
+        if (input.acpAgentId === "antigravity") return { outcome: { outcome: "cancelled" } };
         const selected = resolveAcpPermissionSelection(request.options, "allow");
         if (selected) return selected;
         throw new Error("ACP session/request_permission had no selectable option");
@@ -741,6 +768,7 @@ export class AcpAgentDriver {
       client,
       rl,
       workspacePath: input.workspacePath,
+      processKey,
       envFingerprint,
       mcpFingerprint,
       availableModels: parseAcpAvailableModels(undefined),
@@ -773,9 +801,10 @@ export class AcpAgentDriver {
     const handshake = (async () => {
       try {
         initializeResult = await client.initialize();
-        client.confInitialized();
+        if (launch) await launch.verifyStorage(peer);
+        else client.confInitialized();
       } catch (error) {
-        throw acpStageError("initialize", error);
+        throw acpStageError("initialize", error, input.acpAgentId);
       }
     })();
     try {
@@ -792,7 +821,7 @@ export class AcpAgentDriver {
         throw new Error("ACP turn cancelled");
       }
       this.dispose(input.threadId);
-      throw acpStageError("initialize", "returned no result");
+      throw acpStageError("initialize", "returned no result", input.acpAgentId);
     }
     if (connection.cancelRequested || input.signal?.aborted) {
       // Soft-cancel during handshake: keep process for reuse, surface cancelled to run().
@@ -824,7 +853,7 @@ export class AcpAgentDriver {
         connection.sessionId = resumeId;
         return resumeId;
       } catch (error) {
-        throw acpStageError("session/load", error);
+        throw acpStageError("session/load", error, input.acpAgentId);
       } finally {
         if (turn) turn.suppressSessionUpdates = false;
       }
@@ -839,7 +868,7 @@ export class AcpAgentDriver {
       connection.sessionId = created.sessionId;
       return created.sessionId;
     } catch (error) {
-      throw acpStageError("session/new", error);
+      throw acpStageError("session/new", error, input.acpAgentId);
     }
   }
 }

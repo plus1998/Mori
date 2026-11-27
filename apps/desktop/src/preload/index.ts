@@ -481,6 +481,36 @@ const api = {
   getCoreAvailability(): Promise<CoreAvailabilitySnapshot> {
     return ipcRenderer.invoke(IPC_CHANNELS.coreAvailabilityGet);
   },
+  listAntigravityAccounts(): Promise<import("../shared/ipc").AntigravityAccountView[]> {
+    return ipcRenderer.invoke(IPC_CHANNELS.antigravityAccountsList);
+  },
+  saveAntigravityAccount(input: import("../shared/ipc").AntigravityAccountInput): Promise<import("../shared/ipc").AntigravityAccount> {
+    return ipcRenderer.invoke(IPC_CHANNELS.antigravityAccountSave, input);
+  },
+  deleteAntigravityAccount(id: string): Promise<void> {
+    return ipcRenderer.invoke(IPC_CHANNELS.antigravityAccountDelete, id);
+  },
+  openAntigravityWeb(id: string): Promise<void> {
+    return ipcRenderer.invoke(IPC_CHANNELS.antigravityOpenWeb, id);
+  },
+  clearAntigravityWeb(id: string): Promise<void> {
+    return ipcRenderer.invoke(IPC_CHANNELS.antigravityClearWeb, id);
+  },
+  startAntigravityLogin(id: string, mode: import("../shared/ipc").AntigravityLoginMode): Promise<void> {
+    return ipcRenderer.invoke(IPC_CHANNELS.antigravityLoginStart, id, mode);
+  },
+  getAntigravityLoginStatus(id: string): Promise<import("../shared/ipc").AntigravityLoginStatus> {
+    return ipcRenderer.invoke(IPC_CHANNELS.antigravityLoginStatus, id);
+  },
+  submitAntigravityLoginCode(id: string, code: string): Promise<void> {
+    return ipcRenderer.invoke(IPC_CHANNELS.antigravityLoginSubmit, id, code);
+  },
+  cancelAntigravityLogin(id: string): Promise<void> {
+    return ipcRenderer.invoke(IPC_CHANNELS.antigravityLoginCancel, id);
+  },
+  logoutAntigravity(id: string): Promise<void> {
+    return ipcRenderer.invoke(IPC_CHANNELS.antigravityLogout, id);
+  },
   listCursorModels(accountId?: string): Promise<CursorModelOption[]> {
     return ipcRenderer.invoke(IPC_CHANNELS.cursorModelsList, accountId);
   },
@@ -492,6 +522,15 @@ const api = {
   },
   openCursorAccountWeb(id: string): Promise<void> {
     return ipcRenderer.invoke(IPC_CHANNELS.cursorAccountOpenWeb, id);
+  },
+  startCursorExternalLogin(id: string): Promise<string> {
+    return ipcRenderer.invoke(IPC_CHANNELS.cursorExternalLoginStart, id);
+  },
+  getCursorExternalLoginStatus(id: string, attemptId: string): Promise<import("../shared/ipc").CursorExternalLoginStatus> {
+    return ipcRenderer.invoke(IPC_CHANNELS.cursorExternalLoginStatus, id, attemptId);
+  },
+  cancelCursorExternalLogin(id: string, attemptId: string): Promise<void> {
+    return ipcRenderer.invoke(IPC_CHANNELS.cursorExternalLoginCancel, id, attemptId);
   },
   loginCursorOAuth(id: string): Promise<CursorApiKeyView> {
     return ipcRenderer.invoke(IPC_CHANNELS.cursorOAuthLogin, id);

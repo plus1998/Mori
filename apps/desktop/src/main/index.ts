@@ -86,7 +86,8 @@ import { canDispatchScheduledMessage } from "./scheduling-dispatch-policy";
 import { SchedulingStore } from "./scheduling-store";
 import { TtsMcpGateway } from "./tts-mcp-gateway";
 import { createTtsStore, type TtsStore } from "./tts-store";
-import { ClaudeLoginService, prepareClaudeBrowser } from "./claude-login";
+import { prepareAccountLoginBrowser } from "./account-login-locale";
+import { ClaudeLoginService } from "./claude-login";
 import { openClaudeSessionKeyNetwork } from "./claude-session-key-transport";
 import { isClaudeLoginAccountId, type ClaudeLoginAction, type ClaudeLoginResult } from "../shared/claude-login";
 import { WebChatProxyController } from "./web-chat-proxy";
@@ -1176,7 +1177,8 @@ import {
 } from "./thread-runtime-routes";
 import { createThreadSdkTaskRuntime } from "./thread-sdk-task-runtime";
 import { createCursorApiKeyStore, type CursorApiKeyStore, type CursorCredential } from "./cursor-api-key-store";
-import { loginCursorInBrowser } from "./cursor-browser-login";
+import { AntigravityAccounts, findAntigravityExecutable, isAntigravityAccountId } from "./antigravity-accounts";
+import { loginCursorInBrowser, runCursorBrowserLogin } from "./cursor-browser-login";
 import { CursorOAuthCredentials, renewCursorOAuthToken } from "./cursor-oauth-credentials";
 import { CursorAccountProxy } from "./cursor-account-proxy";
 import { queryCursorAccountQuota } from "./cursor-account-quota";
@@ -1769,6 +1771,17 @@ function getConversationForkCommands(): ConversationForkCommands {
 let executeThreadDeleteCommand: ReturnType<typeof createThreadDeleteCommandCoordinator>;
 let codexThreadMap: CodexThreadMap;
 let workflowSettingsStore: WorkflowSettingsStore;
+const antigravityAccounts = new AntigravityAccounts(
+  path.join(app.getPath("userData"), "antigravity-accounts"),
+  antigravityProxyEnv,
+  (id, allowNavigation) => {
+    const browser = openaiAccountBrowser;
+    if (!browser) throw new Error("账号浏览器尚未就绪。");
+    return browser.run(id, () => browser.createPage(id, true, allowNavigation));
+  },
+);
+app.on("will-quit", () => antigravityAccounts.cancel());
+
 let cursorApiKeyStore: CursorApiKeyStore;
 let projectMcpSettingsStore: ProjectMcpSettingsStore;
 let projectIntegrationsSettingsStore: ProjectIntegrationsSettingsStore;
@@ -4343,6 +4356,7 @@ app
         const settings = getModelSettingsSnapshot();
         for (const member of config.members) {
           if (member.coreKind === "acp") {
+            if (member.runtimeConfig.antigravityAccountId) throw new Error("Antigravity Google sign-in requires an interactive conversation.");
             if (!member.runtimeConfig.cursorModelId?.trim()) throw new Error(`${member.name}: 请选择 Cursor 模型。`);
             continue;
           }
@@ -5484,6 +5498,13 @@ function cursorProxyEnv(proxy: OpenAIAccountProxyConfig = { mode: "system" }): P
   return cursorAccountProxy.env(proxy, () => session.defaultSession.resolveProxy("https://api2.cursor.sh"));
 }
 
+function antigravityProxyEnv(profile: import("../shared/ipc").AntigravityAccountInput): Promise<NodeJS.ProcessEnv> {
+  return cursorAccountProxy.env(
+    { mode: profile.proxyMode, ...(profile.proxyUrl ? { proxyUrl: profile.proxyUrl } : {}) },
+    () => session.defaultSession.resolveProxy("https://daily-cloudcode-pa.googleapis.com/"),
+  );
+}
+
 const cursorOAuthCredentials = new CursorOAuthCredentials({
   read: (id) => {
     const credential = cursorApiKeyStore.credentialForAccount(id);
@@ -6455,6 +6476,24 @@ function registerIpcHandlers(): void {
     return true;
   });
 
+  ipcMain.handle(IPC_CHANNELS.antigravityLoginStart, (_event, id: unknown, mode: unknown) => antigravityAccounts.start(id, mode));
+  ipcMain.handle(IPC_CHANNELS.antigravityLoginStatus, (_event, id: unknown) => antigravityAccounts.status(id));
+  ipcMain.handle(IPC_CHANNELS.antigravityLoginSubmit, (_event, id: unknown, code: unknown) => antigravityAccounts.submit(id, code));
+  ipcMain.handle(IPC_CHANNELS.antigravityLoginCancel, (_event, id: unknown) => {
+    if (typeof id === "string") antigravityAccounts.cancel(id);
+  });
+  const stopAntigravityAccountRuns = (accountId: string, reason: string) => {
+    for (const thread of conversationStore.listThreads()) {
+      if (thread.acpAgentId !== "antigravity" || thread.runtimeConfig?.antigravityAccountId !== accountId) continue;
+      activeRunRuntimeState.abortRun(thread.id, reason);
+      cancelBashApprovalsForThread(thread.id, reason);
+      disposeAcpThread(thread.id);
+    }
+  };
+  ipcMain.handle(IPC_CHANNELS.antigravityLogout, (_event, id: unknown) =>
+    antigravityAccounts.logout(id, accountId => stopAntigravityAccountRuns(accountId, "Antigravity signed out")),
+  );
+
   registerDesktopCommand(IPC_CHANNELS.cursorModelsList, async (accountId?: unknown) => {
     if (accountId !== undefined && (typeof accountId !== "string" || !accountId.trim())) {
       throw new Error("Cursor 账号 ID 无效。");
@@ -6546,6 +6585,7 @@ function registerIpcHandlers(): void {
             : {}),
         ...(pi.version && { version: pi.version }),
       },
+      antigravity: { available: Boolean(findAntigravityExecutable()) },
       cursor: {
         available: cursorProbe.available,
         ...(!cursorProbe.available && {
@@ -8226,6 +8266,12 @@ function registerIpcHandlers(): void {
           const clean = (config: ThreadRuntimeConfig) => busyThread
             ? config : pruneThreadRuntimeConfigReferences(settings, config, isModelAvailable, workflow);
           const incoming = clean(request.runtimeConfig);
+          if (thread.acpAgentId === "antigravity" && stored?.antigravityAccountId) {
+            incoming.antigravityAccountId = stored.antigravityAccountId;
+            if (stored.antigravityLoginGeneration) incoming.antigravityLoginGeneration = stored.antigravityLoginGeneration;
+            else delete incoming.antigravityLoginGeneration;
+            incoming.sessionMode = "agent";
+          }
           const existing = stored ? clean(stored) : undefined;
           let runtimeConfig = incoming;
           if (thread.status === "running" || thread.status === "queued") {
@@ -8849,6 +8895,8 @@ function registerIpcHandlers(): void {
   });
   void moriAssistantHost.initialize().then(() => { moriAssistantReady = true; }, error => logEcoDiag("mori-assistant.initialize.failed", { error: errorMessage(error) }));
 
+  const geminiWebUrl = "https://gemini.google.com/app";
+  const antigravityWebPartition = (id: string) => `persist:mori-gemini-web-${id}`;
   const claudeBrowserPartition = (id: string) => `persist:mori-${id}`;
   const claudeLogin: ClaudeLoginService = new ClaudeLoginService(
     path.join(app.getPath("userData"), "claude-login"),
@@ -8874,7 +8922,7 @@ function registerIpcHandlers(): void {
     },
     openClaudeSessionKeyNetwork,
     {
-      open: id => accountBrowser.open(id, "https://claude.ai/", prepareClaudeBrowser),
+      open: id => accountBrowser.open(id, "https://claude.ai/", prepareAccountLoginBrowser),
       hasSession: async id => {
         const cookies = await session.fromPartition(claudeBrowserPartition(id)).cookies.get({ name: "sessionKey" });
         return cookies.some(cookie => cookie.value && /^\.?claude\.(?:ai|com)$/u.test(cookie.domain ?? ""));
@@ -8917,6 +8965,16 @@ function registerIpcHandlers(): void {
   };
   const accountBrowser = new OpenAIAccountBrowser({
     getProfile: async accountId => {
+      if (isAntigravityAccountId(accountId)) {
+        const { name, proxyMode, proxyUrl } = await antigravityAccounts.profile(accountId);
+        return {
+          partition: antigravityWebPartition(accountId),
+          name,
+          siteTitle: "Gemini",
+          proxyMode,
+          ...(proxyUrl ? { proxyUrl } : {}),
+        };
+      }
       if (isCursorOAuthAccountId(accountId) || accountId.startsWith("cursor-web:")) {
         const id = isCursorOAuthAccountId(accountId) ? accountId : decodeURIComponent(accountId.slice("cursor-web:".length));
         const account = cursorApiKeyStore.list().find((item) => item.id === id);
@@ -8963,6 +9021,39 @@ function registerIpcHandlers(): void {
     closePages: accountId => requireBrowserHost().closeAccountPages(accountId),
     reportError: error => logEcoDiag("openai-account-browser.flush.failed", { error: errorMessage(error) }),
   });
+  ipcMain.handle(IPC_CHANNELS.antigravityAccountsList, async () => {
+    const accounts = await antigravityAccounts.list();
+    return Promise.all(accounts.map(async account => {
+      const cookies = await session.fromPartition(antigravityWebPartition(account.id)).cookies.get({ url: geminiWebUrl });
+      const webHasSession = cookies.some(cookie => Boolean(cookie.value) && /^\.?google\.com$/u.test(cookie.domain ?? "") &&
+        ["SID", "__Secure-1PSID", "__Secure-3PSID"].includes(cookie.name));
+      return { ...account, webHasSession };
+    }));
+  });
+  ipcMain.handle(IPC_CHANNELS.antigravityAccountSave, (_event, input: unknown) => {
+    const id = isRecord(input) && isAntigravityAccountId(input.id) ? input.id : undefined;
+    if (!id) return antigravityAccounts.save(input);
+    return accountBrowser.run(id, async () => {
+      const saved = await antigravityAccounts.save(input);
+      await accountBrowser.refreshProxy(id);
+      return saved;
+    });
+  });
+  ipcMain.handle(IPC_CHANNELS.antigravityAccountDelete, async (_event, id: unknown) => {
+    if (!isAntigravityAccountId(id)) throw new Error("Antigravity account ID is invalid.");
+    await accountBrowser.run(id, () => antigravityAccounts.deleteAccount(id, async () => {
+      stopAntigravityAccountRuns(id, "Antigravity account deleted");
+      await accountBrowser.clear(id);
+    }));
+  });
+  ipcMain.handle(IPC_CHANNELS.antigravityOpenWeb, async (_event, id: unknown) => {
+    if (!isAntigravityAccountId(id)) throw new Error("Antigravity account ID is invalid.");
+    await accountBrowser.open(id, geminiWebUrl, prepareAccountLoginBrowser);
+  });
+  ipcMain.handle(IPC_CHANNELS.antigravityClearWeb, async (_event, id: unknown) => {
+    if (!isAntigravityAccountId(id)) throw new Error("Antigravity account ID is invalid.");
+    await accountBrowser.run(id, () => accountBrowser.clear(id));
+  });
   registerDesktopCommand(IPC_CHANNELS.cursorAccountQueryQuota, async (id: unknown) => {
     if (typeof id !== "string" || !id.trim()) throw new Error("Cursor 账号 ID 无效。");
     const browserId = cursorBrowserAccountId(id);
@@ -8973,25 +9064,86 @@ function registerIpcHandlers(): void {
   });
   registerDesktopCommand(IPC_CHANNELS.cursorAccountOpenWeb, async (id: unknown) => {
     if (typeof id !== "string" || !id.trim()) throw new Error("Cursor 账号 ID 无效。");
-    await accountBrowser.open(cursorBrowserAccountId(id), "https://cursor.com/dashboard");
+    await accountBrowser.open(cursorBrowserAccountId(id), "https://cursor.com/dashboard", prepareAccountLoginBrowser);
   });
-  registerDesktopCommand(IPC_CHANNELS.cursorOAuthLogin, async (id: unknown) => {
+  const cursorExternalLogins = new Map<string, {
+    attemptId: string;
+    controller: AbortController;
+    status: import("../shared/ipc").CursorExternalLoginStatus;
+  }>();
+
+  function assertCursorOAuthLoginAvailable(id: unknown): asserts id is string {
     if (typeof id !== "string" || !isCursorOAuthAccountId(id)) throw new Error("Cursor OAuth 账号 ID 无效。");
     if (!safeStorage.isEncryptionAvailable()
       || (process.platform === "linux" && safeStorage.getSelectedStorageBackend() === "basic_text")) {
       throw new Error("系统凭证加密不可用，无法保存 Cursor 登录。");
     }
-    return accountBrowser.run(id, async () => {
-      const account = cursorApiKeyStore.list().find((item) => item.id === id && item.oauthExpiresAt !== undefined);
-      if (!account) throw new Error("找不到 Cursor OAuth 账号。");
-      const proxyEnv = await cursorProxyEnv({
-        mode: account.proxyMode ?? "system",
-        ...(account.proxyUrl ? { proxyUrl: account.proxyUrl } : {}),
+  }
+
+  function readCursorOAuthAccount(id: string) {
+    const account = cursorApiKeyStore.list().find(item => item.id === id && item.oauthExpiresAt !== undefined);
+    if (!account) throw new Error("找不到 Cursor OAuth 账号。");
+    return account;
+  }
+
+  async function resolveCursorOAuthProxy(id: string) {
+    const account = readCursorOAuthAccount(id);
+    return cursorProxyEnv({ mode: account.proxyMode ?? "system", ...(account.proxyUrl ? { proxyUrl: account.proxyUrl } : {}) });
+  }
+
+  function saveCursorOAuthLogin(id: string, result: Awaited<ReturnType<typeof runCursorBrowserLogin>>) {
+    const account = readCursorOAuthAccount(id);
+    return cursorApiKeyStore.saveOAuth(id, account.name, safeStorage.encryptString(JSON.stringify(result.tokens)).toString("base64"), result.expiresAt);
+  }
+
+  ipcMain.handle(IPC_CHANNELS.cursorExternalLoginStart, (_event, id: unknown) => {
+    assertCursorOAuthLoginAvailable(id);
+    readCursorOAuthAccount(id);
+    cursorExternalLogins.get(id)?.controller.abort();
+    const attemptId = randomUUID();
+    const controller = new AbortController();
+    const attempt: NonNullable<ReturnType<typeof cursorExternalLogins.get>> = {
+      attemptId, controller, status: { state: "pending" },
+    };
+    cursorExternalLogins.set(id, attempt);
+    void accountBrowser.run(id, async () => {
+      const proxyEnv = await resolveCursorOAuthProxy(id);
+      const result = await runCursorBrowserLogin(proxyEnv, controller.signal, url => {
+        attempt.status = { state: "pending", url };
       });
+      controller.signal.throwIfAborted();
+      attempt.status = { state: "connected", account: saveCursorOAuthLogin(id, result) };
+    }).catch(error => {
+      attempt.status = controller.signal.aborted
+        ? { state: "cancelled" }
+        : { state: "failed", message: errorMessage(error) };
+    }).finally(() => {
+      const expiry = setTimeout(() => {
+        if (cursorExternalLogins.get(id) === attempt) cursorExternalLogins.delete(id);
+      }, 60_000);
+      expiry.unref();
+    });
+    return attemptId;
+  });
+  ipcMain.handle(IPC_CHANNELS.cursorExternalLoginStatus, (_event, id: unknown, attemptId: unknown) => {
+    const attempt = typeof id === "string" ? cursorExternalLogins.get(id) : undefined;
+    return attempt && attempt.attemptId === attemptId ? attempt.status : { state: "cancelled" };
+  });
+  ipcMain.handle(IPC_CHANNELS.cursorExternalLoginCancel, (_event, id: unknown, attemptId: unknown) => {
+    const attempt = typeof id === "string" ? cursorExternalLogins.get(id) : undefined;
+    if (attempt && attempt.attemptId === attemptId) attempt.controller.abort();
+  });
+  app.once("will-quit", () => { for (const attempt of cursorExternalLogins.values()) attempt.controller.abort(); });
+
+  registerDesktopCommand(IPC_CHANNELS.cursorOAuthLogin, async (id: unknown) => {
+    assertCursorOAuthLoginAvailable(id);
+    cursorExternalLogins.get(id)?.controller.abort();
+    return accountBrowser.run(id, async () => {
+      const proxyEnv = await resolveCursorOAuthProxy(id);
       const page = await accountBrowser.createPage(id, true);
       try {
-        const { tokens, expiresAt } = await loginCursorInBrowser(page, proxyEnv);
-        return cursorApiKeyStore.saveOAuth(id, account.name, safeStorage.encryptString(JSON.stringify(tokens)).toString("base64"), expiresAt);
+        await prepareAccountLoginBrowser(page);
+        return saveCursorOAuthLogin(id, await loginCursorInBrowser(page, proxyEnv));
       } finally {
         await page.close();
       }
@@ -9008,6 +9160,7 @@ function registerIpcHandlers(): void {
   registerDesktopCommand(IPC_CHANNELS.openAIAccountsOpenChatGPT, async (payload: { accountId: string }) => {
     const { accountId } = payload;
     await accountBrowser.open(accountId, "https://chatgpt.com/", async page => {
+      await prepareAccountLoginBrowser(page);
       const contents = page.webContents;
       let checking = false;
       let pending = false;
@@ -9202,6 +9355,7 @@ function registerIpcHandlers(): void {
       page.webContents.on("did-finish-load", check);
       timer = setInterval(check, 2_000);
       try {
+        await prepareAccountLoginBrowser(page);
         await requireAccountAssistant().open(payload.accountId);
         await page.webContents.loadURL("https://chatgpt.com/");
         check();
@@ -9261,6 +9415,7 @@ function registerIpcHandlers(): void {
     const completionGuard = installCodexAuthCompletionGuard(authPage, cancelLogin);
     authPage.onClosed(() => { completionGuard.dispose(); cancelLogin(); });
     try {
+      await prepareAccountLoginBrowser(authPage);
       await requireAccountAssistant().open(payload.accountId);
       await authPage.webContents.loadURL(authInfo.authUrl);
     } catch (error) {
@@ -13270,7 +13425,11 @@ async function startAcpThreadContinuation(
     throw new Error("Thread was not found.");
   }
   requireThreadCore(thread, "acp", "continue with ACP");
-  await assertAcpCursorRunnableForMain();
+  if (thread.acpAgentId === "antigravity") {
+    await antigravityAccounts.assertThreadReady(thread.runtimeConfig?.antigravityAccountId ?? "", thread.runtimeConfig?.antigravityLoginGeneration);
+  } else {
+    await assertAcpCursorRunnableForMain();
+  }
   if (thread.status === "running" || thread.status === "queued") {
     throw new Error("Wait for the current run to finish.");
   }
@@ -13296,6 +13455,12 @@ async function startAcpThreadContinuation(
   const updated = conversationStore.getThread(thread.id) ?? thread;
   if (input.runtimeConfigInput) {
     const next = normalizeThreadRuntimeConfig(parseThreadRuntimeConfigInput(input.runtimeConfigInput));
+    if (thread.acpAgentId === "antigravity") {
+      if (thread.runtimeConfig?.antigravityAccountId) next.antigravityAccountId = thread.runtimeConfig.antigravityAccountId;
+      if (thread.runtimeConfig?.antigravityLoginGeneration) next.antigravityLoginGeneration = thread.runtimeConfig.antigravityLoginGeneration;
+      else delete next.antigravityLoginGeneration;
+      next.sessionMode = "agent";
+    }
     conversationStore.saveThreadRuntimeConfig(thread.id, next);
   }
   const activeThread = conversationStore.getThread(thread.id) ?? updated;
@@ -13430,6 +13595,8 @@ function acpRuntimeOrchestrationDeps(): import("./acp-runtime-run").AcpRuntimeOr
     },
     captureSession,
     getThreadCoreSession: (threadId) => conversationStore.getThreadCoreSession(threadId),
+    resolveAntigravityProxyEnv: id => antigravityAccounts.proxyEnv(id),
+    prepareAntigravity: (id, proxyEnv, generation) => antigravityAccounts.runtime(id, proxyEnv, generation),
     resolveAcpCursorEnv: (threadId, accountId) =>
       cursorCredentialEnv(accountId ? cursorApiKeyStore.credentialForAccount(accountId) : cursorApiKeyStore.credentialForThread(threadId)),
     resolveAcpMcpServers: async ({ threadId, workspacePath }) => {
@@ -13505,9 +13672,10 @@ function acpRuntimeOrchestrationDeps(): import("./acp-runtime-run").AcpRuntimeOr
     },
     resolveAcpPermissionHandler: ({ threadId, workspacePath }) => {
       return createAcpPermissionHandler(threadId, {
+        agentName: conversationStore.getThread(threadId)?.acpAgentId === "antigravity" ? "Antigravity" : "Cursor",
         getBashReviewMode: () => {
           const thread = conversationStore.getThread(threadId);
-          if (!thread) return "always";
+          if (!thread || thread.acpAgentId === "antigravity") return "always";
           return ensureThreadRuntimeConfig(thread).runtimeConfig?.bashReviewMode ?? "always";
         },
         getBrowserOpenApprovalMode: () => browserSettingsStore.get().openApprovalMode,
@@ -15751,6 +15919,7 @@ function pinSchedulingProfile(profile: ScheduleExecutionProfile): ScheduleExecut
 function validateSchedulingProfile(profile: ScheduleExecutionProfile): void {
   if (!profile || !isCoreKind(profile.coreKind)) throw new Error("Harness 不可用。");
   if (profile.coreKind === "acp") {
+    if (profile.runtimeConfig.antigravityAccountId) throw new Error("Antigravity Google sign-in requires an interactive conversation.");
     if (!profile.runtimeConfig.cursorModelId?.trim()) throw new Error("Cursor 任务缺少固定模型。");
     return;
   }
@@ -15906,6 +16075,9 @@ function createSchedulingService(dbPath: string): SchedulingService {
         return { threadId: result.thread.id };
       }
       const threadId = definition.threadId!;
+      if (conversationStore.getThread(threadId)?.acpAgentId === "antigravity") {
+        throw new Error("Antigravity Google sign-in requires an interactive conversation.");
+      }
       if (definition.planApproval) {
         return approveScheduledPlan(occurrence, {
           thread: conversationStore.getThread(threadId),
@@ -15958,7 +16130,15 @@ async function startNewThread(
       throw new Error(pi.reason ?? "PI Harness 不可用。");
     }
   }
-  if (coreKind === "acp") {
+  const parsedRuntimeConfig = parseThreadRuntimeConfigInput(payload.runtimeConfig);
+  const antigravityAccountId = coreKind === "acp" ? parsedRuntimeConfig.antigravityAccountId : undefined;
+  if (antigravityAccountId) {
+    if (options.scheduled || options.multiAgentsBaseline) throw new Error("Antigravity Google sign-in requires an interactive conversation.");
+    const generation = await antigravityAccounts.assertReady(antigravityAccountId);
+    if (generation) parsedRuntimeConfig.antigravityLoginGeneration = generation;
+    else delete parsedRuntimeConfig.antigravityLoginGeneration;
+    parsedRuntimeConfig.sessionMode = "agent";
+  } else if (coreKind === "acp") {
     await assertAcpCursorRunnableForMain();
   }
 
@@ -15970,7 +16150,6 @@ async function startNewThread(
     ? await inspectWorkspace(path.resolve(payload.workspacePath))
     : await ensureWorkspace(payload.workspacePath);
   const settings = getModelSettingsSnapshot();
-  const parsedRuntimeConfig = parseThreadRuntimeConfigInput(payload.runtimeConfig);
   if (parsedRuntimeConfig.integrationsEnabled?.browser === undefined) {
     const rememberedBrowser = options.scheduled
       ? workflowSettingsStore.get().integrationsEnabled?.browser
@@ -15993,7 +16172,7 @@ async function startNewThread(
   if (options.scheduled && !resolvedRuntimeConfig.ok) throw new Error(resolvedRuntimeConfig.reason);
   const status: ThreadSummary["status"] = resolvedRuntimeConfig.ok ? "running" : "blocked";
   const now = new Date().toISOString();
-  const acpAgentId = coreKind === "acp" ? ("cursor" as const) : undefined;
+  const acpAgentId = coreKind === "acp" ? (antigravityAccountId ? "antigravity" as const : "cursor" as const) : undefined;
   const thread: ThreadSummary = {
     id: options.threadId ?? `thr_${randomUUID()}`,
     title: options.title ?? resolvePendingThreadTitle(currentAppLocale()),
@@ -18573,7 +18752,7 @@ async function cleanupThreadExternalState(threadId: string): Promise<void> {
   integratedWebSearchGateway.disposeThread(threadId);
   disposeAcpThread(threadId);
   const acpSessionId = acpSessionIdToDelete(conversationStore.getThreadCoreSession(threadId));
-  if (acpSessionId) {
+  if (acpSessionId && conversationStore.getThread(threadId)?.acpAgentId !== "antigravity") {
     const credential = cursorApiKeyStore.credentialForThread(threadId, false);
     if (credential?.kind === "oauth" && credential.expiresAt <= Date.now()) {
       await removeCursorAcpSessionDir(acpSessionId);

@@ -85,6 +85,8 @@ export interface ThreadRuntimeConfig {
   /** Cursor Agent CLI model id; only used when coreKind is acp + acpAgentId cursor. */
   cursorModelId?: string;
   cursorAccountId?: string;
+  antigravityAccountId?: string;
+  antigravityLoginGeneration?: string;
   orchestrationSelection?: OrchestrationSelection;
   resolvedOrchestrationSnapshot?: ResolvedOrchestrationSnapshot;
   mainAgentModelOverride?: MainAgentModelOverride;
@@ -275,7 +277,7 @@ export function isThreadRuntimeConfig(value: unknown): value is ThreadRuntimeCon
   if (!record.subagentEnabled || typeof record.subagentEnabled !== "object") {
     return false;
   }
-  for (const id of [record.cursorModelId, record.cursorAccountId]) {
+  for (const id of [record.cursorModelId, record.cursorAccountId, record.antigravityAccountId, record.antigravityLoginGeneration]) {
     if (id !== undefined && (typeof id !== "string" || !id.trim() || id.trim().length > 256)) return false;
   }
   if (
@@ -502,6 +504,8 @@ export function normalizeThreadRuntimeConfig(config: ThreadRuntimeConfig): Threa
   const approvalModel = normalizeApprovalModelSelection(config.approvalModel);
   const visionModel = normalizeVisionModelSelection(config.visionModel);
   return {
+    ...(config.antigravityAccountId ? { antigravityAccountId: config.antigravityAccountId } : {}),
+    ...(config.antigravityLoginGeneration ? { antigravityLoginGeneration: config.antigravityLoginGeneration } : {}),
     ...(typeof config.cursorAccountId === "string" && config.cursorAccountId.trim()
       ? { cursorAccountId: config.cursorAccountId.trim().slice(0, 256) }
       : {}),
@@ -572,6 +576,7 @@ export function resolveThreadRuntimeMcpServerKeys(input: {
 export function buildAcpThreadRuntimeConfig(input?: {
   cursorModelId?: string;
   cursorAccountId?: string;
+  antigravityAccountId?: string;
   sessionMode?: SessionMode;
   bashReviewMode?: BashReviewMode;
   subagentEnabled?: SubagentEnabledSettings;
@@ -594,6 +599,7 @@ export function buildAcpThreadRuntimeConfig(input?: {
   return {
     ...(cursorModelId ? { cursorModelId } : {}),
     ...(cursorAccountId ? { cursorAccountId } : {}),
+    ...(input?.antigravityAccountId ? { antigravityAccountId: input.antigravityAccountId } : {}),
     subagentEnabled: input?.subagentEnabled ?? defaultSubagentAvailability(),
     sessionMode: normalizeSessionMode(input?.sessionMode),
     bashReviewMode: input?.bashReviewMode ?? "always",

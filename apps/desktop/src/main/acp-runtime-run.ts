@@ -63,6 +63,8 @@ export interface AcpRuntimeOrchestrationDeps {
   getThreadCoreSession: (
     threadId: string,
   ) => { coreKind: string; externalSessionId: string; cwd: string } | undefined;
+  resolveAntigravityProxyEnv?: (id: string) => Promise<NodeJS.ProcessEnv>;
+  prepareAntigravity?: (id: string, proxyEnv: NodeJS.ProcessEnv, generation: string | undefined) => Promise<import("@eco/runtime").AcpProcessLaunch>;
   /** Extra env for the Cursor ACP child (e.g. `{ CURSOR_API_KEY }`); empty when unset. */
   resolveAcpCursorEnv?: (threadId: string, accountId?: string) => NodeJS.ProcessEnv | Promise<NodeJS.ProcessEnv>;
   /** Composer-selected Eco MCP servers mapped to ACP `mcpServers`. */
@@ -271,7 +273,7 @@ export async function startAcpThreadRunWithDriver(
   const cwd = selected.cwd;
   const controller = new AbortController();
 
-  const mode = deps.resolveSessionMode(input.thread.runtimeConfig);
+  const mode = acpAgentId === "antigravity" ? "agent" : deps.resolveSessionMode(input.thread.runtimeConfig);
   const previous = input.continuation ? deps.getThreadCoreSession(input.thread.id) : undefined;
   const resume = decideAcpResume(
     definedProps({
@@ -305,7 +307,7 @@ export async function startAcpThreadRunWithDriver(
         `[eco-acp] continue cold-start thread=${input.thread.id} reason=no_session_binding_before_first_agent_output\n`,
       );
     }
-    const mcpServers = deps.resolveAcpMcpServers
+    const mcpServers = acpAgentId === "cursor" && deps.resolveAcpMcpServers
       ? await deps.resolveAcpMcpServers({
           threadId: input.thread.id,
           workspacePath: cwd,
@@ -319,7 +321,9 @@ export async function startAcpThreadRunWithDriver(
           signal: controller.signal,
         })
       : input.prompt;
-    const systemPromptAppend = deps.resolveAcpSystemPromptAppend?.({ threadId: input.thread.id })?.trim();
+    const systemPromptAppend = acpAgentId === "cursor"
+      ? deps.resolveAcpSystemPromptAppend?.({ threadId: input.thread.id })?.trim()
+      : undefined;
     const promptForAgent = systemPromptAppend
       ? `${systemPromptAppend}\n\n${resolvedPrompt}`
       : resolvedPrompt;
@@ -336,8 +340,11 @@ export async function startAcpThreadRunWithDriver(
       threadId: input.thread.id,
       workspacePath: cwd,
     });
-    const runOnce = async () =>
-      deps.consumeEvents({
+    const { prepareAntigravity, resolveAntigravityProxyEnv } = deps;
+    const runOnce = async () => {
+      const accountId = input.thread.runtimeConfig?.antigravityAccountId ?? "";
+      const proxyEnv = acpAgentId === "antigravity" ? await resolveAntigravityProxyEnv?.(accountId) : undefined;
+      return deps.consumeEvents({
         events: acpDriver.run({
           threadId: input.thread.id,
           prompt: promptForAgent,
@@ -347,10 +354,16 @@ export async function startAcpThreadRunWithDriver(
           sessionMode: mode,
           userPromptForPlan: input.prompt,
           resolvePlanContinuePrompt: () => deps.resolveAcpPlanContinuePrompt?.({ threadId: input.thread.id }),
-          ...(input.thread.runtimeConfig?.cursorModelId
+          ...(acpAgentId === "cursor" && input.thread.runtimeConfig?.cursorModelId
             ? { model: input.thread.runtimeConfig.cursorModelId }
             : {}),
-          ...(deps.resolveAcpCursorEnv ? { env: await deps.resolveAcpCursorEnv(input.thread.id, input.thread.runtimeConfig?.cursorAccountId) } : {}),
+          ...(acpAgentId === "antigravity" && prepareAntigravity && proxyEnv
+            ? {
+                env: proxyEnv,
+                prepareAntigravity: () => prepareAntigravity(accountId, proxyEnv, input.thread.runtimeConfig?.antigravityLoginGeneration),
+              }
+            : {}),
+          ...(acpAgentId === "cursor" && deps.resolveAcpCursorEnv ? { env: await deps.resolveAcpCursorEnv(input.thread.id, input.thread.runtimeConfig?.cursorAccountId) } : {}),
           ...(resume.kind === "resume" ? { resumeSessionId: resume.sessionId } : {}),
           ...(!deps.resolvePromptImagesForMainContext && input.attachments?.length
             ? { attachments: input.attachments }
@@ -364,6 +377,7 @@ export async function startAcpThreadRunWithDriver(
         worktreePath: cwd,
         signal: controller.signal,
       });
+    };
 
     // Auto-retry loop: unstarted RetriableError failures re-send the same
     // prompt on the same long-lived process/session (no dispose/cancel).

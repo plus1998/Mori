@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -8,9 +7,26 @@ import {
   wrapForWindowsShellScript,
 } from "@eco/runtime/acp-cursor-agent";
 import { cursorTokenExpiry, type CursorOAuthTokens } from "./cursor-oauth-credentials";
+import { spawnManagedProcess } from "@eco/runtime";
 import type { AccountBrowserPage } from "./account-browser-page";
 
 export async function loginCursorInBrowser(page: AccountBrowserPage, proxyEnv: NodeJS.ProcessEnv): Promise<{ tokens: CursorOAuthTokens; expiresAt: number }> {
+  const controller = new AbortController();
+  const unsubscribe = page.onClosed(() => controller.abort());
+  try {
+    if (page.isDestroyed()) controller.abort();
+    return await runCursorBrowserLogin(proxyEnv, controller.signal, url => page.webContents.loadURL(url));
+  } finally {
+    unsubscribe();
+  }
+}
+
+export async function runCursorBrowserLogin(
+  proxyEnv: NodeJS.ProcessEnv,
+  signal: AbortSignal,
+  onUrl: (url: string) => void | Promise<void>,
+): Promise<{ tokens: CursorOAuthTokens; expiresAt: number }> {
+  signal.throwIfAborted();
   const executable = resolveCursorAgentExecutable();
   const target = wrapForWindowsShellScript(executable, ["login"]);
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "mori-cursor-login-"));
@@ -28,11 +44,12 @@ export async function loginCursorInBrowser(page: AccountBrowserPage, proxyEnv: N
       NO_OPEN_BROWSER: "1",
     };
     await new Promise<void>((resolve, reject) => {
-      if (page.isDestroyed()) {
+      if (signal.aborted) {
         reject(new Error("Cursor 登录已取消。"));
         return;
       }
-      const child = spawn(target.command, target.args, {
+      const { child } = spawnManagedProcess({
+        command: target.command, args: target.args,
         env,
         cwd: dir,
         stdio: ["ignore", "pipe", "pipe"],
@@ -45,7 +62,8 @@ export async function loginCursorInBrowser(page: AccountBrowserPage, proxyEnv: N
         killChildProcessTree(child);
       };
       const timeout = setTimeout(() => cancel("Cursor 登录超时，请重试。"), 10 * 60_000);
-      const unsubscribe = page.onClosed(() => cancel("Cursor 登录已取消。"));
+      const abort = () => cancel("Cursor 登录已取消。");
+      signal.addEventListener("abort", abort, { once: true });
       let opened = false;
       const listen = (stream: NodeJS.ReadableStream) => {
         let output = "";
@@ -55,23 +73,24 @@ export async function loginCursorInBrowser(page: AccountBrowserPage, proxyEnv: N
           const link = output.match(/https:\/\/cursor\.com\/loginDeepControl\?[^\s\x1b]+(?=[\s\x1b])/u)?.[0];
           if (!link) return;
           opened = true;
-          void Promise.resolve().then(() => page.webContents.loadURL(link)).catch(() => {
+          void Promise.resolve().then(() => onUrl(link)).catch(() => {
             cancel("无法打开 Cursor 授权页面。");
           });
         });
       };
-      listen(child.stdout);
-      listen(child.stderr);
+      if (child.stdout) listen(child.stdout);
+      if (child.stderr) listen(child.stderr);
       child.once("error", () => { failure ??= new Error("无法启动 Cursor CLI 登录。"); });
       child.once("close", (code) => {
         clearTimeout(timeout);
-        unsubscribe();
+        signal.removeEventListener("abort", abort);
         if (failure) reject(failure);
         else if (code !== 0 || !opened) reject(new Error("Cursor CLI 未完成浏览器授权，请重试。"));
         else resolve();
       });
     });
 
+    signal.throwIfAborted();
     const configDir = process.platform === "darwin" ? ".cursor" : process.platform === "win32" ? "Cursor" : "cursor";
     const raw = await fs.readFile(path.join(dir, configDir, "auth.json"), "utf8");
     const credentials = readJsonObject(raw, "Cursor CLI 保存的登录凭证格式无效。");

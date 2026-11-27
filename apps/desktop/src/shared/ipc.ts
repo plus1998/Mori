@@ -123,7 +123,20 @@ export const IPC_CHANNELS = {
   cursorApiKeysList: "cursor-api-keys:list",
   cursorAccountQueryQuota: "cursor-account:query-quota",
   cursorAccountOpenWeb: "cursor-account:open-web",
+  antigravityAccountsList: "antigravity:accounts-list",
+  antigravityAccountSave: "antigravity:account-save",
+  antigravityAccountDelete: "antigravity:account-delete",
+  antigravityOpenWeb: "antigravity:open-web",
+  antigravityClearWeb: "antigravity:clear-web",
+  antigravityLoginStart: "antigravity:login-start",
+  antigravityLoginStatus: "antigravity:login-status",
+  antigravityLoginSubmit: "antigravity:login-submit",
+  antigravityLoginCancel: "antigravity:login-cancel",
+  antigravityLogout: "antigravity:logout",
   cursorOAuthLogin: "cursor-oauth:login",
+  cursorExternalLoginStart: "cursor-oauth:external-start",
+  cursorExternalLoginStatus: "cursor-oauth:external-status",
+  cursorExternalLoginCancel: "cursor-oauth:external-cancel",
   cursorApiKeySave: "cursor-api-keys:save",
   cursorApiKeyDelete: "cursor-api-keys:delete",
   cursorApiKeySetEnabled: "cursor-api-keys:set-enabled",
@@ -536,12 +549,42 @@ export type {
 
 export { parseEcoConnectDeepLink } from "./center-server";
 
+export interface AntigravityAccountInput {
+  id?: string;
+  name: string;
+  proxyMode: import("./openai-account").OpenAIAccountProxyMode;
+  proxyUrl?: string;
+}
+
+export interface AntigravityAccount extends AntigravityAccountInput {
+  id: string;
+  connected: boolean;
+}
+
+export interface AntigravityAccountView extends AntigravityAccount {
+  webHasSession: boolean;
+}
+
+export type AntigravityLoginMode = "browser" | "code";
+
+export type AntigravityLoginStatus =
+  | { state: "idle" | "connected" | "cancelled" }
+  | { state: "pending"; authorizationUrl?: string }
+  | { state: "failed"; message: string };
+
 export interface CoreAvailabilitySnapshot {
+  antigravity?: { available: boolean };
   claude: { available: true; version?: string };
   codex: { available: boolean; reason?: string; version?: string };
   pi: { available: boolean; reason?: string; version?: string };
   cursor: { available: boolean; reason?: string; version?: string };
 }
+
+export type CursorExternalLoginStatus =
+  | { state: "pending"; url?: string }
+  | { state: "connected"; account: CursorApiKeyView }
+  | { state: "failed"; message: string }
+  | { state: "cancelled" };
 
 export interface CursorModelOption {
   id: string;

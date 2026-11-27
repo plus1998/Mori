@@ -15,7 +15,7 @@ export function upgradeLegacyCursorCore(input: {
     return {};
   }
   if (input.coreKind === "acp") {
-    return { coreKind: "acp", acpAgentId: "cursor" };
+    return { coreKind: "acp", acpAgentId: input.acpAgentId === "antigravity" ? "antigravity" : "cursor" };
   }
   return { coreKind: input.coreKind };
 }

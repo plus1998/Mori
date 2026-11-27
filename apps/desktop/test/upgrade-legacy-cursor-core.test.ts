@@ -19,6 +19,13 @@ test("preserves acp threads and fills default acpAgentId", () => {
   });
 });
 
+test("preserves the persisted Antigravity agent across reloads", () => {
+  expect(upgradeLegacyCursorCore({ coreKind: "acp", acpAgentId: "antigravity" })).toEqual({
+    coreKind: "acp",
+    acpAgentId: "antigravity",
+  });
+});
+
 test("passes through other core kinds without acpAgentId", () => {
   expect(upgradeLegacyCursorCore({ coreKind: "claude" })).toEqual({ coreKind: "claude" });
   expect(upgradeLegacyCursorCore({ coreKind: "codex" })).toEqual({ coreKind: "codex" });

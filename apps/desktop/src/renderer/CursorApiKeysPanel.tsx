@@ -1,10 +1,11 @@
-import { ChevronDown, Globe2, KeyRound, Loader2, LogIn, MoreHorizontal, Pencil, Plus, Power, RefreshCw, Search, Trash2, Upload, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { ChevronDown, Globe2, KeyRound, Link2, Loader2, LogIn, MoreHorizontal, Pencil, Plus, Power, RefreshCw, Search, Trash2, Upload, X } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import type { CursorAccountQuotaResult, CursorApiKeyInput, CursorApiKeyView } from "../shared/ipc";
 import type { OpenAIAccountProxyMode } from "../shared/openai-account";
 import { AccountQuotaSummary } from "./components/AccountQuotaSummary";
+import { CursorExternalLoginDialog } from "./components/CursorExternalLoginDialog";
 import { LoginAccountProxyFields } from "./components/LoginAccountEditor";
 import "./components/openai-account-cards.css";
 import "./cursor-api-keys.css";
@@ -25,7 +26,7 @@ type QuotaState = { loading: true } | { loading: false; result: CursorAccountQuo
 type AccountMenu = { id: string; kind: "web" | "cli" | "more" };
 
 export function CursorApiKeysPanel({ busy = false, revision = 0 }: CursorApiKeysPanelProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [accounts, setAccounts] = useState<CursorApiKeyView[]>([]);
   const [dialog, setDialog] = useState<DialogState>();
   const [authKind, setAuthKind] = useState<"apiKey" | "oauth">("apiKey");
@@ -38,6 +39,10 @@ export function CursorApiKeysPanel({ busy = false, revision = 0 }: CursorApiKeys
   const [message, setMessage] = useState<string>();
   const [loading, setLoading] = useState(true);
   const [mutating, setMutating] = useState(false);
+  const [externalAccount, setExternalAccount] = useState<CursorApiKeyView>();
+  const onExternalConnected = useCallback((account: CursorApiKeyView) => {
+    setAccounts(current => current.map(item => item.id === account.id ? account : item));
+  }, []);
   const [authorizingId, setAuthorizingId] = useState<string>();
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "enabled" | "disabled">("all");
@@ -410,6 +415,13 @@ export function CursorApiKeysPanel({ busy = false, revision = 0 }: CursorApiKeys
                                 <span>{t("settings.cursorApiKeys.edit")}</span>
                               </button>
                             )}
+                            {usesOAuth && (
+                              <button type="button" role="menuitem" className="codex-account-status-item"
+                                disabled={disabled} onClick={() => setExternalAccount(account)}>
+                                <Link2 size={14} />
+                                <span>{i18n.language === "zh-CN" ? "外部授权" : "External authorization"}</span>
+                              </button>
+                            )}
                             <button type="button" role="menuitem" className="codex-account-status-item"
                               disabled={disabled} onClick={() => void toggle(account)}>
                               <Power size={14} />
@@ -496,6 +508,11 @@ export function CursorApiKeysPanel({ busy = false, revision = 0 }: CursorApiKeys
             );
           })}
         </div>
+      )}
+
+      {externalAccount && createPortal(
+        <CursorExternalLoginDialog account={externalAccount} onClose={() => setExternalAccount(undefined)} onConnected={onExternalConnected} />,
+        document.body,
       )}
 
       {dialog ? createPortal(

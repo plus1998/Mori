@@ -11,6 +11,7 @@ export const DEFAULT_ACP_HOST_UI_FEATURES: AcpHostUiFeatures = {
 };
 
 export const ACP_HOST_UI_FEATURE_TABLE: Record<AcpAgentId, AcpHostUiFeatures> = {
+  antigravity: { contextUsage: "hide", billing: "hide" },
   cursor: { contextUsage: "hide", billing: "hide" },
 };
 

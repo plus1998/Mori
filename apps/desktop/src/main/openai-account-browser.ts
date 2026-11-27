@@ -1,4 +1,5 @@
 import { BrowserWindow, session, type Session, type WebContents } from "electron";
+import { ACCOUNT_BROWSER_USER_AGENT } from "./account-login-locale";
 import type { AccountBrowserPage } from "./account-browser-page";
 import fs from "node:fs/promises";
 import { ChatGptWebSessionError, parseChatGptWebSession } from "./chatgpt-web-session";
@@ -49,6 +50,7 @@ export class OpenAIAccountBrowser {
     if (existing?.proxyKey === proxyKey) return existing.session;
     if ("path" in profile) await fs.mkdir(profile.path, { recursive: true });
     const ses = existing?.session ?? browserSession(profile);
+    if (!existing) ses.setUserAgent(ACCOUNT_BROWSER_USER_AGENT);
     if (existing) {
       // Retain the session if configuration fails so a subsequent settings edit
       // can retry applying the proxy to tabs that are still open.

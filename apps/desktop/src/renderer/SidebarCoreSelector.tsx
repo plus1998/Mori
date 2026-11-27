@@ -20,6 +20,8 @@ interface SidebarCoreSelectorProps {
   piUnavailableReason?: string;
   piVersion?: string;
   cursorAvailable?: boolean;
+  antigravitySelected?: boolean;
+  onSelectAntigravity?: () => void;
   cursorUnavailableReason?: string;
   cursorVersion?: string;
   claudeVersion?: string;
@@ -151,10 +153,10 @@ function AcpCoreTag() {
   );
 }
 
-function CoreHeadingLabel({ coreKind }: { coreKind: CoreKind | undefined }) {
+function CoreHeadingLabel({ coreKind, antigravity }: { coreKind: CoreKind | undefined; antigravity: boolean }) {
   return (
     <span className="sidebar-core-heading-label">
-      <span>{coreDisplayName(coreKind)}</span>
+      <span>{antigravity ? "Antigravity" : coreDisplayName(coreKind)}</span>
       {coreKind === "acp" ? <AcpCoreTag /> : null}
     </span>
   );
@@ -171,6 +173,8 @@ export function SidebarCoreSelector({
   piUnavailableReason,
   piVersion,
   cursorAvailable = false,
+  antigravitySelected = false,
+  onSelectAntigravity,
   cursorUnavailableReason,
   cursorVersion,
   claudeVersion,
@@ -217,7 +221,7 @@ export function SidebarCoreSelector({
           type="button"
           className="sidebar-core-heading is-editable"
           aria-label={t("sidebar.currentCore", {
-            core: coreKind === "acp" ? `Cursor ${t("sidebar.acpLabel")}` : coreDisplayName(coreKind),
+            core: coreKind === "acp" ? `${antigravitySelected ? "Antigravity" : "Cursor"} ${t("sidebar.acpLabel")}` : coreDisplayName(coreKind),
           })}
           aria-haspopup="menu"
           aria-expanded={open}
@@ -226,12 +230,12 @@ export function SidebarCoreSelector({
             setOpen((current) => !current);
           }}
         >
-          <CoreHeadingLabel coreKind={coreKind} />
+          <CoreHeadingLabel coreKind={coreKind} antigravity={antigravitySelected} />
           <ChevronDown size={ICON_SIZE.md} strokeWidth={ICON_STROKE} aria-hidden />
         </button>
       ) : (
         <div className="sidebar-core-heading">
-          <CoreHeadingLabel coreKind={coreKind} />
+          <CoreHeadingLabel coreKind={coreKind} antigravity={antigravitySelected} />
         </div>
       )}
 
@@ -318,8 +322,8 @@ export function SidebarCoreSelector({
             <CoreMenuButton
               type="button"
               role="menuitemradio"
-              aria-checked={coreKind === "acp"}
-              className={coreKind === "acp" ? "is-selected" : ""}
+              aria-checked={coreKind === "acp" && !antigravitySelected}
+              className={coreKind === "acp" && !antigravitySelected ? "is-selected" : ""}
               {...(cursorVersion ? { version: cursorVersion } : {})}
               {...(cursorProbeLoading
                 ? { hint: t("settings.defaultAgent.cursorProbing") }
@@ -338,8 +342,26 @@ export function SidebarCoreSelector({
                   <AcpCoreTag />
                 </span>
               </span>
-              {coreKind === "acp" ? <Check size={15} aria-hidden /> : null}
+              {coreKind === "acp" && !antigravitySelected ? <Check size={15} aria-hidden /> : null}
             </CoreMenuButton>
+            {onSelectAntigravity && (
+              <CoreMenuButton
+                type="button"
+                role="menuitemradio"
+                aria-checked={antigravitySelected}
+                className={antigravitySelected ? "is-selected" : ""}
+                onClick={() => {
+                  onSelectAntigravity();
+                  setOpen(false);
+                }}
+              >
+                <span className="sidebar-core-menu-label">
+                  <img className="sidebar-core-icon" src="./agent-icons/gemini.png" alt="" aria-hidden="true" />
+                  <span className="sidebar-core-menu-name"><span>Antigravity</span><AcpCoreTag /></span>
+                </span>
+                {antigravitySelected && <Check size={15} aria-hidden />}
+              </CoreMenuButton>
+            )}
           </section>
         </div>
       ) : null}

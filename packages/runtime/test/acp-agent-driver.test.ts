@@ -135,6 +135,55 @@ describe("AcpAgentDriver", () => {
     expect(spawnFn).toHaveBeenCalled();
   });
 
+  test("Antigravity validates isolated storage before starting a session and cancels unhandled permissions", async () => {
+    const fake = createFakeAcpChild();
+    const { AcpAgentDriver } = await import("../src/acp-agent-driver.js");
+    const driver = new AcpAgentDriver({ spawnFn: () => fake.child });
+    const verifyStorage = mock(async () => {});
+    const eventsPromise = Array.fromAsync(driver.run({
+      threadId: "thr_antigravity",
+      prompt: "hello",
+      workspacePath: "/tmp/ws",
+      acpAgentId: "antigravity",
+      prepareAntigravity: async () => ({
+        executable: "/tmp/agy",
+        args: ["acp", "--sandbox"],
+        env: { AGY_CLI_FORCE_FILE_TOKEN_STORAGE: "1" },
+        verifyStorage,
+      }),
+    }));
+
+    try {
+      await waitFor(() => fake.parseWritten().some(m => m.method === "initialize"));
+      const init = fake.parseWritten().find(m => m.method === "initialize")!;
+      fake.emitLine({ jsonrpc: "2.0", id: init.id, result: INIT_RESULT });
+      await waitFor(() => fake.parseWritten().some(m => m.method === "session/new"));
+      expect(verifyStorage).toHaveBeenCalledTimes(1);
+      const created = fake.parseWritten().find(m => m.method === "session/new")!;
+      fake.emitLine({ jsonrpc: "2.0", id: created.id, result: { sessionId: "agy-session" } });
+      await waitFor(() => fake.parseWritten().some(m => m.method === "session/prompt"));
+      const prompt = fake.parseWritten().find(m => m.method === "session/prompt")!;
+      expect(fake.parseWritten().some(m => m.method === "session/set_mode")).toBe(false);
+      fake.emitLine({
+        jsonrpc: "2.0", id: "permission", method: "session/request_permission",
+        params: {
+          sessionId: "agy-session",
+          toolCall: { toolCallId: "t1", kind: "execute" },
+          options: [{ optionId: "allow", kind: "allow_once" }],
+        },
+      });
+      await waitFor(() => fake.parseWritten().some(m => m.id === "permission"));
+      expect(fake.parseWritten().find(m => m.id === "permission")?.result).toEqual({
+        outcome: { outcome: "cancelled" },
+      });
+      fake.emitLine({ jsonrpc: "2.0", id: prompt.id, result: { stopReason: "end_turn" } });
+      const events = await eventsPromise;
+      expect(events.find(event => event.type === "run.terminal")?.payload).toEqual({ status: "completed" });
+    } finally {
+      driver.dispose("thr_antigravity");
+    }
+  });
+
   test("run: session/new forwards Eco MCP servers in ACP wire shape", async () => {
     const fake = createFakeAcpChild();
     const { AcpAgentDriver } = await import("../src/acp-agent-driver.js");

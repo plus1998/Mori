@@ -8,6 +8,7 @@ import { LazyOpenAIAccountsPanel } from "./lazy-app-panels";
 import { MainModelControl } from "./ComposerRoutePopover";
 import { ChatGPTSubscriptionAccountsPanel } from "./ChatGPTSubscriptionAccountsPanel";
 import { ClaudeLoginPanel } from "./ClaudeLoginPanel";
+import { AntigravityAccountsPanel } from "./AntigravityAccountsPanel";
 import { CursorApiKeysPanel } from "./CursorApiKeysPanel";
 import {
   Check,
@@ -88,7 +89,8 @@ export type ModelsSettingsTab =
   | "openaiAccounts"
   | "claudeLogin"
   | "chatgptAccounts"
-  | "cursorApiKeys";
+  | "cursorApiKeys"
+  | "antigravityAccounts";
 
 type RuntimeConfigTab = "defaults" | "prompt" | "orchestration";
 
@@ -238,6 +240,11 @@ export function ModelsSettingsPanel({
   onSyncDomain,
 }: ModelsSettingsPanelProps) {
   const { t } = useTranslation();
+  const [antigravityAvailable, setAntigravityAvailable] = useState(false);
+  useEffect(() => {
+    if (mode !== "providerSettings") return;
+    void window.eco?.getCoreAvailability?.().then(value => setAntigravityAvailable(value.antigravity?.available === true)).catch(() => {});
+  }, [mode]);
   const providerSettingsTabItems: Array<{ id: ModelsSettingsTab; label: string; icon?: string }> = [
     { id: "providers", label: t("settings.providers") },
     {
@@ -256,6 +263,7 @@ export function ModelsSettingsPanel({
       label: "Cursor",
       icon: "./agent-icons/cursor.ico",
     },
+    { id: "antigravityAccounts", label: "Antigravity", icon: "./agent-icons/gemini.png" },
   ];
   const runtimeConfigTabItems: Array<{ id: RuntimeConfigTab; label: string }> = [
     { id: "defaults", label: t("settings.models.runtimeConfigTab.defaults") },
@@ -904,6 +912,7 @@ export function ModelsSettingsPanel({
           {...(onInitialChatGptAccountHandled && { onInitialAccountHandled: onInitialChatGptAccountHandled })}
         />
       )}
+      {activeTab === "antigravityAccounts" && <AntigravityAccountsPanel available={antigravityAvailable} />}
       {activeTab === "cursorApiKeys" && <CursorApiKeysPanel busy={busy} revision={cursorKeysRevision} />}
 
 

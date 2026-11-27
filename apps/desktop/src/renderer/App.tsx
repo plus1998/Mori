@@ -2344,6 +2344,8 @@ function App() {
   );
   const [cancelBusy, setCancelBusy] = useState(false);
   const [composerRuntimeConfig, setComposerRuntimeConfig] = useState<ThreadRuntimeConfig | null>(null);
+  const [antigravityAccounts, setAntigravityAccounts] = useState<import("../shared/ipc").AntigravityAccount[]>([]);
+  const [draftAntigravityAccountId, setDraftAntigravityAccountId] = useState<string>();
   const [newThreadCoreKind, setNewThreadCoreKind] = useState<CoreKind>(DEFAULT_CORE_KIND);
   const [newThreadDevelopmentMode, setNewThreadDevelopmentMode] = useState<ThreadDevelopmentMode>("direct");
   const [newThreadWorktree, setNewThreadWorktree] = useState<ThreadWorktreeRecord>();
@@ -5307,7 +5309,7 @@ function App() {
     const next = resolveDraftCoreKindWhenAcpHidden({
       draftCoreKind: newThreadCoreKind,
       coreAvailabilityResolved: coreAvailability !== undefined,
-      showAcpCursor,
+      showAcpCursor: showAcpCursor || Boolean(draftAntigravityAccountId),
       selectionInFlight: acpEnableInFlight || cursorProbeLoading,
       ...(workflowSettings.defaultCoreKind !== undefined
         ? { defaultCoreKind: workflowSettings.defaultCoreKind }
@@ -5319,6 +5321,7 @@ function App() {
   }, [
     newThreadCoreKind,
     showAcpCursor,
+    draftAntigravityAccountId,
     coreAvailability,
     acpEnableInFlight,
     cursorProbeLoading,
@@ -5326,12 +5329,15 @@ function App() {
   ]);
 
   const composerCoreKind = activeThread?.coreKind ?? newThreadCoreKind;
+  const composerAntigravity = composerCoreKind === "acp" &&
+    (activeThread ? activeThread.acpAgentId === "antigravity" : Boolean(draftAntigravityAccountId));
+  const composerAntigravityAccountId = activeThread ? activeThread.runtimeConfig?.antigravityAccountId : draftAntigravityAccountId;
   const showDefaultAgentSettings = settingsOpen && settingsSection === "defaultAgent";
   useEffect(() => {
-    if (showAcpCursor && (composerCoreKind === "acp" || showDefaultAgentSettings)) {
+    if (showAcpCursor && ((composerCoreKind === "acp" && !composerAntigravity) || showDefaultAgentSettings)) {
       refreshCursorModels(cursorAccountId);
     }
-  }, [showAcpCursor, composerCoreKind, showDefaultAgentSettings, cursorAccountId, refreshCursorModels]);
+  }, [showAcpCursor, composerCoreKind, composerAntigravity, showDefaultAgentSettings, cursorAccountId, refreshCursorModels]);
   const defaultModelHarness = globalModelHarness ?? (isOrchestrationHarness(workflowSettings.defaultCoreKind)
     ? workflowSettings.defaultCoreKind
     : DEFAULT_CORE_KIND);
@@ -5653,10 +5659,15 @@ function App() {
           ? { workflowDefault: workflowSettings.acpCursorModelId }
           : {}),
       });
+      if (composerAntigravity && !composerAntigravityAccountId) return null;
       return buildAcpThreadRuntimeConfig({
-        ...(resolvedCursorModelId ? { cursorModelId: resolvedCursorModelId } : {}),
-        ...(base?.cursorAccountId ? { cursorAccountId: base.cursorAccountId } : {}),
-        sessionMode: base?.sessionMode ?? "agent",
+        ...(composerAntigravity
+          ? { antigravityAccountId: composerAntigravityAccountId! }
+          : {
+              ...(resolvedCursorModelId ? { cursorModelId: resolvedCursorModelId } : {}),
+              ...(base?.cursorAccountId ? { cursorAccountId: base.cursorAccountId } : {}),
+            }),
+        sessionMode: composerAntigravity ? "agent" : base?.sessionMode ?? "agent",
         bashReviewMode:
           base?.bashReviewMode ?? normalizeBashReviewMode(workflowSettings.defaultBashReviewMode),
         ...(base?.subagentEnabled ? { subagentEnabled: base.subagentEnabled } : {}),
@@ -5731,7 +5742,7 @@ function App() {
     } catch {
       return null;
     }
-  }, [
+  }, [composerAntigravity, composerAntigravityAccountId,
     composerRuntimeConfig,
     composerCoreKind,
     composerGlobalOrchestrationSelection,
@@ -13238,7 +13249,21 @@ function App() {
     activeThread?.status === "awaiting_plan";
   const floatingConversationStatus = showComposerDockApproval ? "attention" : composerModelReadOnly ? "running" : "ready";
   const renderComposerModelControl = (anchorRef = composerAnchorRef, disabled = false, floatingMenu = false) =>
-    composerModelAvailability === "acp" ? (
+    composerAntigravity ? (
+      <select
+        className="plan-button"
+        aria-label="Antigravity account"
+        value={composerAntigravityAccountId ?? ""}
+        disabled={disabled || !!activeThread || isStarting}
+        onChange={event => setDraftAntigravityAccountId(event.target.value)}
+      >
+        {antigravityAccounts.filter(account => account.connected).map(account =>
+          <option key={account.id} value={account.id}>{account.name}</option>,
+        )}
+        {composerAntigravityAccountId && !antigravityAccounts.some(account => account.id === composerAntigravityAccountId && account.connected) &&
+          <option value={composerAntigravityAccountId}>Antigravity</option>}
+      </select>
+    ) : composerModelAvailability === "acp" ? (
       <ComposerAcpModelTrigger
         anchorRef={anchorRef}
         panelZIndex={floatingMenu ? 10001 : undefined}
@@ -13596,15 +13621,15 @@ function App() {
                         anchorRef={composerAnchorRef}
                         open={composerPlusMenuOpen}
                         panelActive={composerPlusMenuOpen || composerRoutePopoverOpen || scheduledMessageEditorOnComposer}
-                        sessionMode={composerRuntimeConfig?.sessionMode ?? "agent"}
-                        canEditMode={canEditComposerConfig}
+                        sessionMode={composerAntigravity ? "agent" : composerRuntimeConfig?.sessionMode ?? "agent"}
+                        canEditMode={canEditComposerConfig && !composerAntigravity}
                         canOpenRoute={canOpenComposerRoute}
                         showRoute={composerShowsRoute}
                         saving={isSavingSettings}
                         onSelectMode={(mode) => void selectComposerSessionMode(mode)}
                         onPickImage={() => composerImageInputRef.current?.click()}
                         onAddScheduledMessage={
-                          window.eco && composerContextKey && (activeThread || (currentProjectPath && composerRuntimeConfig))
+                          window.eco && !composerAntigravity && composerContextKey && (activeThread || (currentProjectPath && composerRuntimeConfig))
                             ? openComposerScheduledMessage
                             : undefined
                         }
@@ -13618,7 +13643,7 @@ function App() {
                           setScheduledMessageEditor(undefined);
                         }}
                       />
-                      {composerRuntimeConfig &&
+                      {!composerAntigravity && composerRuntimeConfig &&
                       (composerRuntimeConfig.sessionMode === "plan" ||
                         composerRuntimeConfig.sessionMode === "ask") ? (
                         <ComposerSessionModeTag
@@ -13914,6 +13939,20 @@ function App() {
             })}
             {...(coreAvailability?.pi.version ? { piVersion: coreAvailability.pi.version } : {})}
             cursorAvailable={coreAvailability?.cursor.available === true}
+            antigravitySelected={composerAntigravity}
+            onSelectAntigravity={() => {
+              void window.eco?.listAntigravityAccounts().then(async accounts => {
+                setAntigravityAccounts(accounts);
+                const account = accounts.find(item => item.connected && item.id === draftAntigravityAccountId)
+                  ?? accounts.find(item => item.connected);
+                if (!account || (await refreshCoreAvailability())?.antigravity?.available !== true) {
+                  openProviderSettings("antigravityAccounts");
+                  return;
+                }
+                setDraftAntigravityAccountId(account.id);
+                setNewThreadCoreKind("acp");
+              }).catch(caught => setError(errorMessage(caught)));
+            }}
             cursorProbeLoading={cursorProbeLoading || acpEnableInFlight}
             {...(coreAvailability?.cursor.reason && {
               cursorUnavailableReason: coreAvailability.cursor.reason,
@@ -13924,6 +13963,7 @@ function App() {
             onDismissAttentionItems={sidebarAttentionDismissals.dismiss}
             attentionDismissalError={sidebarAttentionDismissals.error}
             onChange={(coreKind) => {
+              setDraftAntigravityAccountId(undefined);
               if (coreKind === "acp") {
                 setNewThreadCoreKind("acp");
                 void refreshCoreAvailability({ reportError: true });
