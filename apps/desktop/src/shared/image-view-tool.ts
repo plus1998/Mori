@@ -8,6 +8,8 @@ export {
   isEcoImageViewToolName,
 } from "@eco/runtime/mori-image-view-names";
 
+export const IMAGE_VIEW_MCP_TOOL_TIMEOUT_MS = 120_000;
+
 export function buildImageViewPromptAppend(): string {
   return [
     "Built-in image viewing (Mori): analyze images, read screenshots and inspect visual results with a vision model; returns a text answer to your question.",

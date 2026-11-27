@@ -47,6 +47,7 @@ test("global image view Codex server starts once and has a stable HTTP definitio
   expect(first.name).toBe(ECO_IMAGE_VIEW_MCP_SERVER);
   expect(first.transport).toBe("http");
   expect(first.enabledTools).toEqual([ECO_IMAGE_VIEW_TOOL]);
+  expect(first.toolTimeoutSec).toBe(120);
   expect(first.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/mcp$/);
   expect(first.httpHeaders?.["X-Eco-Image-View-Control-Secret"]).toBeTruthy();
   expect(second).toEqual(first);
@@ -58,7 +59,10 @@ test("mergeIntoSdkConfig includes view_image in allowedTools", async () => {
   expect(injection.sdkEntry).toMatchObject({
     type: "http",
     url: expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+\/mcp$/),
+    timeout: 120_000,
+    requestTimeoutMs: 120_000,
   });
+  expect(injection.codexServer.toolTimeoutSec).toBe(120);
   const merged = gateway.mergeIntoSdkConfig(
     { mcpServers: { docs: { command: "echo" } }, allowedTools: ["mcp__docs__*"] },
     injection,
@@ -228,7 +232,9 @@ test("one Hub registration follows live vision selection and never hides configu
   try {
     const injection = await gateway.resolveInjection("login");
     hub.registerThreadServerEntry({ name: ECO_IMAGE_VIEW_MCP_SERVER, threadId: "login", sdkEntry: injection.sdkEntry });
-    await hub.prepareThread({ threadId: "login", allowedServers: [ECO_IMAGE_VIEW_MCP_SERVER] });
+    const prepared = await hub.prepareThread({ threadId: "login", allowedServers: [ECO_IMAGE_VIEW_MCP_SERVER] });
+    expect(prepared.sdkEntry).toMatchObject({ timeout: 120_000, requestTimeoutMs: 120_000 });
+    expect(prepared.codexServer.toolTimeoutSec).toBe(120);
     const tools = await hub.searchThreadTools("login", ECO_IMAGE_VIEW_MCP_SERVER, signal);
     expect(tools.tools).toHaveLength(1);
     const missing = await call();

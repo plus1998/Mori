@@ -8,7 +8,7 @@ import {
   ECO_IMAGE_VIEW_TOOL,
   isEcoImageViewToolName,
 } from "@eco/runtime";
-import { buildImageViewPromptAppend } from "../shared/image-view-tool";
+import { buildImageViewPromptAppend, IMAGE_VIEW_MCP_TOOL_TIMEOUT_MS } from "../shared/image-view-tool";
 import type { McpSdkConfig } from "../shared/mcp";
 import { BrowserMcpAuthRegistry, createBrowserMcpControlSecret } from "./browser-mcp-auth";
 import { BrowserMcpToolClaimRouter } from "./browser-mcp-router";
@@ -74,6 +74,7 @@ export class ImageViewMcpGateway {
       controlSecretHeader: CONTROL_SECRET_HEADER,
       controlSecret: this.controlSecret,
       enabledTools: [ECO_IMAGE_VIEW_TOOL],
+      toolTimeoutSec: IMAGE_VIEW_MCP_TOOL_TIMEOUT_MS / 1_000,
     });
   }
 
@@ -87,11 +88,16 @@ export class ImageViewMcpGateway {
       controlSecret: this.controlSecret,
       authToken: auth.token,
       enabledTools: [ECO_IMAGE_VIEW_TOOL],
+      toolTimeoutSec: IMAGE_VIEW_MCP_TOOL_TIMEOUT_MS / 1_000,
     });
     return {
       enabled: true,
       serverName: ECO_IMAGE_VIEW_MCP_SERVER,
-      sdkEntry: http.sdkEntry,
+      sdkEntry: {
+        ...http.sdkEntry,
+        timeout: IMAGE_VIEW_MCP_TOOL_TIMEOUT_MS,
+        requestTimeoutMs: IMAGE_VIEW_MCP_TOOL_TIMEOUT_MS,
+      },
       codexServer: http.codexServer,
       promptAppend: buildImageViewPromptAppend(),
     };
