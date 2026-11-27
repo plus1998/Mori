@@ -13140,7 +13140,6 @@ async function discardUnstartedAcpTurn(input: {
   if (scheduledMessage) {
     const failureMessage = formatUserFacingRequestError(input.reason);
     updateThread(input.threadId, { status: "failed", message: failureMessage });
-    emitThreadEvent(input.threadId, "thread.failed", failureMessage, "system", false);
     return;
   }
   const stored = conversationStore.getConversationUserMessageRecord(input.threadId, activityLineId);
@@ -16937,7 +16936,10 @@ async function tryDeliverFollowUpViaMidTurn(
 
     const excludeFollowUpId = editingFollowUpClaimExclusion(thread.id);
     const explicitlyGuided = pendingMidTurnFollowUpGuides.get(thread.id) === currentFollowUp.id;
-    const resolved = await resolveThreadFollowUpMidTurnPrompt(currentFollowUp, resolvePromptImagesForMainContext);
+    const resolved = await resolveThreadFollowUpMidTurnPrompt(currentFollowUp, {
+      resolveAttachments: (attachments) => promptImageFileStore.resolveAttachmentsForRuntime(attachments),
+      resolvePrompt: resolvePromptImagesForMainContext,
+    });
     if (resolved === undefined) return undefined;
     runtimePrompt = resolved;
     if (contextMonitor.isCompactInFlight(thread.id)) return undefined;

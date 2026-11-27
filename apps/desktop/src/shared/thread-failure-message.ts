@@ -4,8 +4,8 @@ export const planDelegationFailurePrefix = "计划委派失败。";
 /** Durable system notices retain their source live type in providerRole. */
 export function isThreadFailureNoticeType(
   value: unknown,
-): value is "thread.blocked" | "thread.execution_failed" {
-  return value === "thread.blocked" || value === "thread.execution_failed";
+): value is "thread.failed" | "thread.blocked" | "thread.execution_failed" {
+  return value === "thread.failed" || value === "thread.blocked" || value === "thread.execution_failed";
 }
 
 export function buildPlanExecutionFailureMessage(detail: string): string {

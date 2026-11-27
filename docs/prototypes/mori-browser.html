@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>你的 Mori 浏览器 | 交互原型</title>
+<style>
+:root{color-scheme:light;--ink:#202924;--muted:#5c6860;--line:#e3e8e4;--soft:#f4f6f4;--green:#124f3b;--mint:#e9f4ee;--amber:#764912;--warm:#fff5e1;font:14px/1.5 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;color:var(--ink)}
+*{box-sizing:border-box}body{margin:0;background:#f0f2f0}button,textarea{font:inherit;color:inherit}button{cursor:pointer}button:disabled{cursor:not-allowed;opacity:.47}button:focus-visible,a:focus-visible,textarea:focus-visible{outline:2px solid #16865e;outline-offset:2px}[hidden]{display:none!important}svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;vertical-align:middle;flex:none}
+.app{min-height:100dvh;display:grid;grid-template-columns:202px minmax(0,1fr);grid-template-rows:56px 1fr}.rail{grid-row:1/-1;display:flex;flex-direction:column;gap:14px;padding:18px 12px 12px;background:#f7f8f7;border-right:1px solid var(--line)}.brand{display:flex;align-items:center;gap:9px;padding:0 7px;font-size:18px;font-weight:750}.mark{display:inline-grid;place-items:center;width:28px;height:28px;border-radius:7px;background:var(--green);color:white;flex:none}.mark svg{width:17px;height:17px}.rail h2{font-size:11px;color:var(--muted);font-weight:630;margin:12px 7px 4px}.navitem{width:100%;text-align:left;padding:8px 7px;min-height:35px;border:0;border-radius:6px;background:transparent;display:flex;gap:7px;align-items:center;color:var(--muted);font-size:12px}.navitem:hover,.navitem[aria-current=true]{background:#e7ece8;color:var(--ink)}.railfoot{margin-top:auto}.bar{display:flex;align-items:center;gap:10px;justify-content:space-between;padding:0 22px;border-bottom:1px solid var(--line);background:#fff}.bar strong{font-size:13px}.bar-actions{display:flex;align-items:center;gap:7px}.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:33px;padding:5px 9px;border-radius:6px;border:1px solid var(--line);background:white;color:var(--ink);white-space:nowrap;text-decoration:none;font-size:12px;font-weight:625}.btn:hover:not(:disabled){background:var(--soft)}.primary{background:var(--green);border-color:var(--green);color:white}.primary:hover:not(:disabled){background:#1a6a50}.tint{background:var(--mint);color:var(--green);border-color:#cce0d4}.iconbtn{width:30px;height:30px;padding:0;border:0;border-radius:5px;background:transparent;color:var(--muted);display:inline-grid;place-items:center;flex:none}.iconbtn:hover:not(:disabled){background:#e8ede9;color:var(--ink)}.prototype{font-size:10px;color:var(--muted);border:1px solid var(--line);border-radius:4px;padding:3px 6px;white-space:nowrap}
+.workspace{background:#fff;min-width:0;display:grid;grid-template-columns:minmax(0,1fr);height:calc(100dvh - 56px);min-height:480px}.workspace:has(.browser:not([hidden])){grid-template-columns:minmax(280px,1fr) minmax(390px,58%)}.conversation{min-width:0;display:grid;grid-template-rows:minmax(0,1fr) auto;padding:0 24px 17px;position:relative}.feed{overflow:auto}.thread{max-width:680px;margin:0 auto;padding:30px 2px 16px}.date{font-size:11px;color:var(--muted);margin:0 0 19px}.message{display:flex;gap:10px;margin:0 0 17px;font-size:13px}.message p{margin:3px 0;overflow-wrap:anywhere}.message .name{font-size:11px;color:var(--muted);font-weight:670}.message.user{justify-content:flex-end}.bubble{background:var(--mint);border-radius:7px;padding:7px 10px;max-width:92%;min-width:0}.agenttext{min-width:0}.result{margin:8px 0 0;border:1px solid var(--line);padding:9px 10px;border-radius:7px;max-width:350px;color:var(--muted);font-size:12px}.result strong{color:var(--ink);display:flex;gap:6px;align-items:center}.result .btn{margin-top:5px}.result[data-state=verify] strong,.result[data-state=ready] strong{color:var(--amber)}.result[data-state=running] strong,.result[data-state=resumed] strong,.result[data-state=done] strong{color:var(--green)}
+.composer{width:100%;max-width:680px;margin:0 auto}.compose-box{border:1px solid #d8dfd9;border-radius:8px;padding:8px 9px;background:#fff}.compose-box:focus-within{border-color:#86aa98}.attachment{width:max-content;max-width:100%;display:flex;gap:6px;align-items:center;background:var(--mint);color:var(--green);padding:2px 3px 2px 7px;border-radius:5px;font-size:11px}.attachment span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.attachment .iconbtn{width:24px;height:24px}.composer textarea{min-height:63px;max-height:110px;width:100%;padding:6px 1px;resize:vertical;border:0;background:transparent;font-size:13px;outline-offset:1px}.composer textarea::placeholder{color:var(--muted)}.compose-actions{display:flex;align-items:center;justify-content:space-between;gap:8px}.suggest{border:0;background:none;color:var(--green);padding:4px 1px;font-size:11px;text-align:left}.suggest:hover{text-decoration:underline}.send{min-width:33px;margin-left:auto;padding:0}.statusline{min-height:17px;margin:6px 0 0;color:var(--muted);font-size:11px}.statusline.error{color:#9c3430}
+.browser{display:flex;flex-direction:column;min-width:0;min-height:0;margin:12px 12px 12px 0;overflow:hidden;border:1px solid #d3ddd5;background:white;border-radius:8px;box-shadow:0 7px 30px #182a2015}.windowbar{display:flex;align-items:center;gap:8px;height:43px;padding:0 8px 0 12px;border-bottom:1px solid var(--line);flex:none}.windowbar strong{font-size:12px;white-space:nowrap}.identity{margin-left:auto;display:flex;align-items:center;gap:4px;color:var(--muted);font-size:11px;white-space:nowrap}.identity svg{width:13px;height:13px;color:var(--green)}.tabbar{display:flex;align-items:end;gap:4px;padding:0 7px;height:41px;background:#edf0ee;border-bottom:1px solid var(--line);flex:none}.tabs{display:flex;align-items:end;gap:4px;max-width:calc(100% - 32px);overflow-x:auto;scrollbar-width:none}.tab{display:flex;align-items:center;min-width:102px;max-width:154px;height:33px;border:1px solid transparent;border-bottom:0;border-radius:6px 6px 0 0}.tab.active{background:white;border-color:var(--line)}.tab .label{padding:0 4px 0 7px;border:0;background:transparent;display:flex;align-items:center;gap:5px;min-width:0;height:100%;font-size:11px}.tab .label span{white-space:nowrap;text-overflow:ellipsis;overflow:hidden}.tab .label svg{width:13px;height:13px;color:var(--green)}.tab .iconbtn{width:24px;height:24px}.tab .iconbtn svg{width:13px;height:13px}.direct{color:#1c7657}.tabbar>.iconbtn{margin-bottom:3px}.toolbar{display:flex;align-items:center;gap:6px;padding:7px 9px;border-bottom:1px solid var(--line);flex:none}.address{display:flex;min-width:0;align-items:center;gap:6px;border-radius:5px;background:var(--soft);height:32px;padding:0 8px;color:var(--muted);flex:1;font-size:11px}.address span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.address svg{width:13px;height:13px}.runbar{padding:7px 9px;background:var(--mint);color:var(--green);font-size:12px;display:flex;align-items:center;gap:8px;justify-content:space-between;border-bottom:1px solid #dce8df}.runbar.wait{background:var(--warm);color:var(--amber);border-color:#f1e4c8}.runbar .btn{min-height:28px}.site{min-height:0;overflow:auto;flex:1}.sitehead{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 16px;border-bottom:1px solid #ebefec}.sitebrand{display:flex;align-items:center;gap:7px;font-weight:700}.sitebrand svg{width:17px;height:17px;color:var(--green)}.account{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);white-space:nowrap}.avatar{width:24px;height:24px;display:grid;place-items:center;border-radius:50%;background:#ebeef8;color:#405285;font-weight:700;flex:none}.online{color:var(--green)}.sitebody{padding:19px 16px}.crumb{margin:0 0 4px;color:var(--muted);font-size:11px}.sitebody h1{font-size:20px;line-height:1.3;margin:0 0 14px}.signin{width:fit-content;padding:12px;border:1px solid var(--line);border-radius:7px;background:var(--soft)}.signin p{margin:0 0 9px;font-size:12px}.summary{display:flex;align-items:baseline;gap:8px;margin:0 0 9px;color:var(--muted);font-size:12px}.summary strong{color:var(--ink);font-size:20px;font-variant-numeric:tabular-nums}.table{overflow:auto}table{width:100%;min-width:235px;border-collapse:collapse;font-size:12px;text-align:left}th,td{padding:9px 5px;border-bottom:1px solid #ebefec;white-space:nowrap}th:first-child,td:first-child{padding-left:0}th{color:var(--muted);font-size:11px;font-weight:650}.verification{padding:10px;margin:0 0 12px;border:1px solid #eee0c6;background:var(--warm);color:var(--amber);border-radius:6px;font-size:12px}.verification p{margin:4px 0 7px}.quicklinks{display:flex;gap:6px;flex-wrap:wrap}.dialog{width:min(390px,calc(100% - 22px));padding:14px;border:1px solid var(--line);border-radius:8px;box-shadow:0 12px 34px #182a2029;color:var(--ink)}.dialog::backdrop{background:#172b2250}.dialog-header{display:flex;align-items:center;gap:8px;justify-content:space-between}.dialog h2{font-size:16px;margin:0}.dialog p{color:var(--muted);font-size:12px;margin:7px 0}.login-account{justify-content:flex-start;width:100%;margin:8px 0 3px}.login-account svg{margin-left:auto}
+@media(max-width:1030px){.app{grid-template-columns:150px minmax(0,1fr)}.conversation{padding-inline:15px}.bar{padding-inline:14px}}
+@media(max-width:840px){.app{grid-template-columns:minmax(0,1fr)}.rail{display:none}.workspace:has(.browser:not([hidden])){grid-template-columns:minmax(255px,1fr) minmax(365px,54%)}.conversation{padding-inline:12px}}
+@media(max-width:640px){.app{grid-template-rows:50px 1fr}.bar{padding-inline:9px}.workspace{height:calc(100dvh - 50px);min-height:420px}.workspace:has(.browser:not([hidden])){grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(240px,50%) minmax(260px,1fr);height:auto;min-height:calc(100dvh - 50px)}.browser{margin:0 9px 10px;max-height:512px}.thread{padding-top:17px}.conversation{padding-bottom:9px}.windowbar{height:37px}.sitehead,.sitebody{padding-inline:12px}}
+@media(max-width:370px){.bar .prototype{display:none}.identity{font-size:10px}.sitebody{padding-inline:9px}.tab{min-width:95px}}
+</style>
+</head>
+<body>
+<!-- Lucide icon paths (ISC). -->
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+<symbol id="i-sparkles" viewBox="0 0 24 24"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063L2 12.387a.4.4 0 0 1 0-.774L8.5 9.937A2 2 0 0 0 9.937 8.5L11.613 2a.4.4 0 0 1 .774 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.5 1.676a.4.4 0 0 1 0 .774l-6.5 1.676a2 2 0 0 0-1.437 1.437L12.387 22a.4.4 0 0 1-.774 0z"/><path d="M5 3v4M3 5h4M19 17v4m-2-2h4"/></symbol>
+<symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10Z"/></symbol>
+<symbol id="i-message" viewBox="0 0 24 24"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></symbol>
+<symbol id="i-shield" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.68-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.5 3.8 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></symbol>
+<symbol id="i-lock" viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 1 1 10 0v4"/></symbol>
+<symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14m-7-7v14"/></symbol>
+<symbol id="i-x" viewBox="0 0 24 24"><path d="m18 6-12 12M6 6l12 12"/></symbol>
+<symbol id="i-up" viewBox="0 0 24 24"><path d="m5 12 7-7 7 7m-7-7v14"/></symbol>
+<symbol id="i-down" viewBox="0 0 24 24"><path d="M12 17V3m-5 9 5 5 5-5M4 17v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></symbol>
+<symbol id="i-refresh" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8m0-5v5h-5m5 4a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16m0 5v-5h5"/></symbol>
+<symbol id="i-pause" viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></symbol>
+<symbol id="i-check" viewBox="0 0 24 24"><path d="m20 6-11 11-5-5"/></symbol>
+<symbol id="i-bill" viewBox="0 0 24 24"><path d="M4 3v18l2-2 2 2 2-2 2 2 2-2 2 2 2-2 2 2V3l-2 2-2-2-2 2-2-2-2 2-2-2-2 2zM8 10h8m-8 4h6"/></symbol>
+<symbol id="i-doc" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6zM14 3v5h4m-9 4h6m-6 4h6"/></symbol>
+</svg>
+<div class="app">
+  <aside class="rail" aria-label="侧栏">
+    <div class="brand"><span class="mark"><svg aria-hidden="true"><use href="#i-sparkles"/></svg></span>Mori</div>
+    <div><h2>对话</h2><div class="navitem" aria-current="true"><svg aria-hidden="true"><use href="#i-message"/></svg>浏览器协作</div></div>
+    <div class="railfoot"><button class="navitem" id="bookmarks"><svg aria-hidden="true"><use href="#i-globe"/></svg>聊天 AI 对话</button><button class="navitem" id="reset"><svg aria-hidden="true"><use href="#i-refresh"/></svg>重置演示</button></div>
+  </aside>
+  <header class="bar"><strong>浏览器协作</strong><div class="bar-actions"><span class="prototype">交互原型</span><button class="btn tint" id="open" aria-controls="browser" aria-expanded="false"><svg aria-hidden="true"><use href="#i-globe"/></svg>你的 Mori 浏览器</button></div></header>
+  <main class="workspace">
+    <section class="conversation" aria-label="与 Mori 对话">
+      <div class="feed" id="feed"><div class="thread"><p class="date">今天</p><div class="message"><span class="mark"><svg aria-hidden="true"><use href="#i-sparkles"/></svg></span><div><span class="name">Mori</span><p>今天有什么需要我帮忙处理？</p></div></div><div id="activity" role="log" aria-live="polite"></div></div></div>
+      <form class="composer" id="composer"><div class="compose-box"><div class="attachment" id="attachment" hidden><svg aria-hidden="true"><use href="#i-globe"/></svg><span id="attached-name"></span><button class="iconbtn" id="detach" type="button" title="移除网页" aria-label="移除网页"><svg aria-hidden="true"><use href="#i-x"/></svg></button></div><textarea id="message" placeholder="给 Mori 发消息…" aria-label="给 Mori 发消息" maxlength="400"></textarea><div class="compose-actions"><button class="suggest" id="suggest" type="button" hidden>填入示例任务</button><button class="btn primary send" id="send" title="发送" aria-label="发送" type="submit" disabled><svg aria-hidden="true"><use href="#i-up"/></svg></button></div></div><p class="statusline" id="scope" role="status">未授权任何网页</p></form>
+    </section>
+    <section class="browser" id="browser" aria-label="你的 Mori 浏览器" hidden>
+      <header class="windowbar"><svg aria-hidden="true"><use href="#i-globe"/></svg><strong>你的 Mori 浏览器</strong><span class="identity"><svg aria-hidden="true"><use href="#i-shield"/></svg>独立浏览器资料</span><button class="iconbtn" id="close" title="隐藏浏览器" aria-label="隐藏浏览器"><svg aria-hidden="true"><use href="#i-x"/></svg></button></header>
+      <div class="tabbar"><div class="tabs" id="tabs" aria-label="网页标签页"></div><button class="iconbtn" id="new-tab" title="新建标签页" aria-label="新建标签页"><svg aria-hidden="true"><use href="#i-plus"/></svg></button></div>
+      <div class="toolbar"><div class="address"><svg aria-hidden="true"><use href="#i-lock"/></svg><span id="address">新标签页</span></div><button class="btn primary" id="handoff"><svg aria-hidden="true"><use href="#i-sparkles"/></svg>交给 Mori</button></div>
+      <div class="runbar" id="runbar" hidden></div><div class="site" id="site"></div>
+    </section>
+  </main>
+</div>
+<dialog class="dialog" id="dialog" aria-labelledby="dialog-title"><div class="dialog-header"><h2 id="dialog-title"></h2><form method="dialog"><button class="iconbtn" title="关闭弹窗" aria-label="关闭弹窗"><svg aria-hidden="true"><use href="#i-x"/></svg></button></form></div><div id="dialog-body"></div></dialog>
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const icon = name => `<svg aria-hidden="true"><use href="#i-${name}"/></svg>`;
+const escaped = text => String(text).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const sites = {
+  billing:{name:'松木云账单',brand:'松木云',url:'billing.pinecloud.example/invoices',icon:'bill',title:'账单与发票',suggestion:'帮我下载最新一期的账单。',file:'mori-demo-invoice.csv',csv:'Month,Amount,Currency\nNovember,268.00,CNY\n'},
+  docs:{name:'北岸文档',brand:'北岸文档',url:'docs.northshore.example/files',icon:'doc',title:'文档工作区',suggestion:'帮我导出本周的项目清单。',file:'mori-demo-project-list.csv',csv:'Project,Status\nPrototype,Ready\n'},
+};
+const loginKey = 'mori-browser-prototype-logins';
+const defaultLogins = () => ({billing:false,docs:true});
+let logins = defaultLogins();
+try {
+  const saved = JSON.parse(localStorage.getItem(loginKey));
+  for (const key of Object.keys(sites)) if (typeof saved?.[key] === 'boolean') logins[key] = saved[key];
+} catch { /* A local preview may restrict storage. */ }
+function saveLogins() { try { localStorage.setItem(loginKey,JSON.stringify(logins)); } catch { /* State remains in this preview. */ } }
+let tabs, focused, nextId, attachment, tasks, timer, notice;
+const selected = () => tabs.find(tab => tab.id === focused);
+const active = () => tasks.find(task => ['running','verify','ready','resumed'].includes(task.state));
+const owned = tab => tab && active()?.tabId === tab.id;
+function addTab(key) { const tab = {id:nextId++,key}; tabs.push(tab); return tab.id; }
+function show(open, focus = false) {
+  $('browser').hidden = !open;
+  $('open').setAttribute('aria-expanded',String(open));
+  if (focus) $(open ? 'close' : 'open').focus();
+}
+function focusTab(id) { if (tabs.some(tab => tab.id === id)) { focused = id; render(); } }
+function reset(clear) {
+  clearTimeout(timer);
+  if (clear) { logins = defaultLogins(); saveLogins(); }
+  tabs = []; nextId = 1; focused = addTab('billing'); addTab('docs');
+  attachment = null; tasks = []; notice = ''; $('message').value = ''; show(false); render();
+}
+function popup(title, html) { $('dialog-title').textContent = title; $('dialog-body').innerHTML = html; $('dialog').showModal(); }
+function renderTabs() {
+  $('tabs').innerHTML = tabs.map(tab => {
+    const site = sites[tab.key], label = site?.name ?? '新标签页';
+    return `<div class="tab ${tab.id===focused?'active':''}"><button class="label" data-action="tab" data-id="${tab.id}" aria-pressed="${tab.id===focused}">${icon(site?.icon ?? 'globe')}<span>${label}</span>${owned(tab)?'<span class="direct" aria-label="Mori 正在使用">•</span>':''}</button><button class="iconbtn" data-action="close-tab" data-id="${tab.id}" title="关闭${label}" aria-label="关闭${label}" ${owned(tab)?'disabled':''}>${icon('x')}</button></div>`;
+  }).join('');
+}
+function renderBrowser() {
+  renderTabs();
+  const tab = selected(), key = tab.key, site = sites[key], task = active(), busy = owned(tab);
+  $('address').textContent = site?.url ?? '新标签页';
+  $('handoff').disabled = !site || !!task || !logins[key];
+  $('handoff').title = !site ? '请选择网页' : !logins[key] ? '请先登录此页' : task ? '请先结束当前任务' : '把当前标签页附到对话';
+  const bar = $('runbar'); bar.hidden = !busy;
+  if (busy) {
+    bar.classList.toggle('wait',['verify','ready'].includes(task.state));
+    bar.innerHTML = `<span role="status">${task.state==='verify'?'已暂停，等待你验证':task.state==='ready'?'验证通过，等待继续':'Mori 正在操作此标签页'}</span><button class="btn" data-action="takeover">${icon('pause')}接管</button>`;
+  }
+  if (!site) {
+    $('site').innerHTML = `<div class="sitebody"><h1>新标签页</h1><div class="quicklinks">${Object.entries(sites).map(([id,s])=>`<button class="btn" data-action="site" data-key="${id}">${icon(s.icon)}${s.name}</button>`).join('')}</div></div>`;
+    return;
+  }
+  const billing = key === 'billing';
+  const header = `<div class="sitehead"><div class="sitebrand">${icon(site.icon)}${site.brand}</div><div class="account">${logins[key]?'<span class="online">已登录</span><span class="avatar">林</span>林晓':'未登录'}</div></div>`;
+  const signin = `<div class="signin"><p>登录后查看${billing?'账单':'文件'}</p><button class="btn primary" data-action="signin" data-key="${key}">登录演示账号</button></div>`;
+  const verify = busy && task.state==='verify' ? `<div class="verification"><strong>请再次验证身份</strong><p>验证通过后才能导出账单。</p><button class="btn" data-action="verify">${icon('shield')}模拟完成验证</button></div>` : '';
+  const summary = billing ? '<div class="summary">本期账单 <strong>¥ 268.00</strong></div>' : '<div class="summary">最近文件 <strong>2 份</strong></div>';
+  const billRows = '<tr><td>11 月账单</td><td>11 月 20 日</td><td>¥ 268.00</td><td class="online">已支付</td></tr><tr><td>10 月账单</td><td>10 月 20 日</td><td>¥ 268.00</td><td class="online">已支付</td></tr>';
+  const docRows = '<tr><td>本周项目清单</td><td>11 月 20 日</td><td>表格</td></tr><tr><td>团队周报</td><td>11 月 18 日</td><td>文档</td></tr>';
+  const table = `<div class="table"><table aria-label="${site.name}"><thead><tr><th>名称</th><th>日期</th>${billing?'<th>金额</th><th>状态</th>':'<th>类型</th>'}</tr></thead><tbody>${billing?billRows:docRows}</tbody></table></div>`;
+  $('site').innerHTML = `${header}<div class="sitebody"><p class="crumb">${billing?'账户设置 / 账单':'产品团队 / 文件'}</p><h1>${site.title}</h1>${logins[key] ? verify+summary+table : signin}</div>`;
+}
+const states = {
+  running:['sparkles','Mori 正在操作','正在读取你授权的网页。'],
+  verify:['shield','等待你验证','Mori 已暂停，等待你在网页里完成验证。'],
+  ready:['shield','验证已通过','页面已就绪，可以继续任务。'],
+  resumed:['sparkles','Mori 正在操作','正在准备演示文件。'],
+  done:['check','已完成，授权结束','演示文件已准备好。'],
+  stopped:['pause','你已接管，授权结束','Mori 已停止操作，网页仍在浏览器里。'],
+};
+function renderChat() {
+  const s = attachment && sites[attachment.key], task = active();
+  $('attachment').hidden = !s; $('attached-name').textContent = s?.name ?? '';
+  $('suggest').hidden = !s; $('send').disabled = !s || !!task || !$('message').value.trim();
+  $('scope').textContent = notice || (task?`仅授权：${sites[task.key].name}`:s?`发送后仅授权：${s.name}`:'未授权任何网页');
+  $('scope').classList.toggle('error',!!notice);
+  const html = tasks.map(t => {
+    const [glyph,title,desc] = states[t.state], site = sites[t.key];
+    const command = t.state==='ready' ? '<button class="btn primary" data-action="resume">继续任务</button>' : t.state==='verify' && ($('browser').hidden || focused!==t.tabId) ? `<button class="btn" data-action="show-tab" data-id="${t.tabId}">打开待验证网页</button>` : t.state==='done' ? `<button class="btn" data-action="download" data-id="${t.id}">${icon('down')}下载${t.key==='billing'?'账单':'清单'}.csv</button>` : '';
+    return `<div class="message user"><div class="bubble"><span class="name">你 · ${site.name}</span><p>${escaped(t.text)}</p></div></div><div class="message"><span class="mark">${icon('sparkles')}</span><div class="agenttext"><span class="name">Mori</span><div class="result" data-state="${t.state}"><strong>${icon(glyph)}${title}</strong><p>${desc}</p>${command}</div></div></div>`;
+  }).join('');
+  if (renderChat.last !== html) { renderChat.last = html; $('activity').innerHTML = html; $('feed').scrollTop = $('feed').scrollHeight; }
+}
+function render() { renderBrowser(); renderChat(); }
+function later(task, state, next, ms) {
+  clearTimeout(timer);
+  timer = setTimeout(() => { if (active()===task && task.state===state) { task.state=next; render(); } },ms);
+}
+$('open').onclick = () => { show($('browser').hidden,true); renderChat(); };
+$('close').onclick = () => { show(false,true); renderChat(); };
+$('new-tab').onclick = () => { focusTab(addTab('home')); $('tabs').scrollLeft=$('tabs').scrollWidth; };
+$('handoff').onclick = () => {
+  const tab = selected();
+  if (active() || !logins[tab.key]) return;
+  attachment = {tabId:tab.id,key:tab.key}; notice=''; renderChat(); $('message').focus();
+};
+$('detach').onclick = () => { attachment=null; notice=''; renderChat(); $('message').focus(); };
+$('suggest').onclick = () => { if (attachment) { $('message').value=sites[attachment.key].suggestion; renderChat(); $('message').focus(); } };
+$('message').addEventListener('input',renderChat);
+$('composer').addEventListener('submit',event => {
+  event.preventDefault(); const text=$('message').value.trim();
+  if (!text || !attachment || active()) return;
+  if (!tabs.some(t=>t.id===attachment.tabId && t.key===attachment.key) || !logins[attachment.key]) { notice='网页已不可用，请重新交接。'; attachment=null; renderChat(); return; }
+  const task={...attachment,id:tasks.length,state:'running',text}; tasks.push(task);
+  attachment=null; notice=''; $('message').value=''; focusTab(task.tabId);
+  later(task,'running',task.key==='billing'?'verify':'done',2200);
+});
+$('bookmarks').onclick = () => popup('聊天 AI 对话','<p>原型不打开真实站点，也不读取现有书签或登录。</p>');
+$('reset').onclick = () => reset(true);
+document.addEventListener('click',event => {
+  const button=event.target.closest('button[data-action]'); if (!button || button.disabled) return;
+  const {action,key}=button.dataset, id=Number(button.dataset.id), tab=selected(), task=active();
+  switch(action) {
+    case 'tab': focusTab(id); break;
+    case 'show-tab': show(true); focusTab(id); $('close').focus(); break;
+    case 'close-tab': {
+      const index=tabs.findIndex(t=>t.id===id); if (index<0 || owned(tabs[index])) break;
+      tabs.splice(index,1); if (attachment?.tabId===id) attachment=null;
+      if (!tabs.length) addTab('home');
+      if (focused===id) focused=tabs[Math.min(index,tabs.length-1)].id;
+      render(); $('tabs').querySelector('[aria-pressed="true"]')?.focus(); break;
+    }
+    case 'site': if (tab.key==='home' && sites[key]) { tab.key=key; render(); } break;
+    case 'signin': popup(`登录${sites[key].brand}`,`<button class="btn login-account" data-action="sign-in" data-key="${key}"><span class="avatar">林</span>林晓 · 演示账号${icon('check')}</button><p>不需要输入真实账号或密码。</p>`); break;
+    case 'sign-in': logins[key]=true; saveLogins(); $('dialog').close(); render(); $('handoff').focus(); break;
+    case 'takeover': if (owned(tab)) { clearTimeout(timer); task.state='stopped'; render(); $('handoff').focus(); } break;
+    case 'verify': if (owned(tab) && task.state==='verify') { task.state='ready'; render(); $('activity').querySelector('[data-action="resume"]')?.focus(); } break;
+    case 'resume': if (task?.state==='ready') { task.state='resumed'; show(true); focusTab(task.tabId); later(task,'resumed','done',1300); } break;
+    case 'download': {
+      const record=tasks[id]; if (record?.state!=='done') return;
+      const site=sites[record.key], url=URL.createObjectURL(new Blob([site.csv],{type:'text/csv;charset=utf-8'}));
+      const a=document.createElement('a'); a.href=url; a.download=site.file;
+      document.body.append(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),1000); break;
+    }
+  }
+});
+reset(false);
+</script>
+</body>
+</html>

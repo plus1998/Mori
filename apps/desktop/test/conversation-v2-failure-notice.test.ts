@@ -236,6 +236,61 @@ test("API failure wrappers and empty blockers do not create duplicate notices", 
   }
 });
 
+test.each(["live", "historical"] as const)(
+  "an ACP first-turn failure is visible in the Feed after the prompt was discarded (%s)",
+  (delivery) => {
+    const { db, store, writer } = setup();
+    const failure = blocked({
+      id: "cursor-model-rejected",
+      message: 'Cursor ACP session/set_model failed: ACP model id "haiku" is not in availableModels.',
+      metadata: { liveType: "thread.failed" },
+    });
+    const feed = () => store.feedWindow({ conversationId: "thread", skeleton: true });
+    try {
+      store.append({
+        conversationId: "thread",
+        eventId: "discard-unstarted",
+        occurredAt: failure.observedAt,
+        type: "history.deleted",
+        payload: { affectedMessageIds: ["prompt"], reason: "discard-unstarted" },
+      });
+      store.append({
+        conversationId: "thread",
+        eventId: "tombstone-unstarted",
+        occurredAt: failure.observedAt,
+        type: "message.tombstoned",
+        messageId: "prompt",
+        payload: { reason: "discard-unstarted" },
+      });
+      if (delivery === "live") {
+        writer.append(failure);
+      } else {
+        migrateThreadFailureNotices(db, store);
+        // Simulate an installation where the old migration has already run.
+        db.prepare("DELETE FROM conversation_store_meta_v2 WHERE key = 'thread_failed_notices_v2'").run();
+        store.append(conversationV2ProviderReceipt({ ...failure, sequence: 0 }, "runtime-input", {
+          includeMessageId: false,
+        }));
+        expect(feed().messages).toEqual([]);
+        expect(migrateThreadFailureNotices(db, store)).toBe(1);
+      }
+      expect(feed().messages).toEqual([
+        expect.objectContaining({ role: "system", providerRole: "thread.failed", body: failure.message }),
+      ]);
+      const html = renderToStaticMarkup(createElement(ActivityLogView, {
+        conversationV2: installConversationV2Bootstrap(feed()),
+      }));
+      expect(html).toContain("is not in availableModels");
+      expect(html).toContain('role="alert"');
+      expect(migrateThreadFailureNotices(db, store)).toBe(0);
+      store.rebuildReadModels("thread");
+      expect(feed().messages.map((message) => message.body)).toEqual([failure.message]);
+    } finally {
+      db.close();
+    }
+  },
+);
+
 test("startup restores historical blocker receipts once and rebuild keeps the notice", () => {
   const { db, store } = setup();
   try {

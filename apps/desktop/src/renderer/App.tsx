@@ -11966,12 +11966,15 @@ function App() {
       editingFollowUpThreadIdRef.current = undefined;
       savedComposerBeforeFollowUpEditRef.current = undefined;
       resetComposerDefaultConfig();
+    } else {
+      // On a context change the effect saves the outgoing composer before loading the landing draft.
+      // Clear directly only when the composer stays on the same landing context.
+      setPrompt("");
+      setComposerRewindTarget(undefined);
+      revokeComposerAttachmentPreviews(composerAttachmentsRef.current);
+      setComposerAttachments([]);
     }
     setEditingFollowUpId(undefined);
-    setPrompt("");
-    setComposerRewindTarget(undefined);
-    revokeComposerAttachmentPreviews(composerAttachmentsRef.current);
-    setComposerAttachments([]);
     setComposerImageNotice(undefined);
     setError(undefined);
   }

@@ -6,20 +6,28 @@ import { isFollowUpMidTurnResultDelivered } from "../shared/thread-follow-up-dra
 /** Mid-turn and normal sends must carry the same composer references, including image-only input. */
 export async function resolveThreadFollowUpMidTurnPrompt(
   followUp: ThreadPendingFollowUp,
-  resolvePrompt: (input: {
-    threadId: string;
-    prompt: string;
-    attachments?: readonly PromptImageAttachment[];
-  }) => Promise<string>,
+  deps: {
+    resolveAttachments: (attachments: readonly PromptImageAttachment[]) => Promise<readonly PromptImageAttachment[]>;
+    resolvePrompt: (input: {
+      threadId: string;
+      prompt: string;
+      attachments?: readonly PromptImageAttachment[];
+    }) => Promise<string>;
+  },
 ): Promise<string | undefined> {
   const prompt = followUp.prompt.trim();
   // Session commands wait for an idle boundary; steer only accepts model input.
   if (isCompactCommand(prompt)) return undefined;
   if (!prompt && !followUp.attachments?.length) return undefined;
-  const resolved = await resolvePrompt({
+  // Recording the accepted message moves its queued files. The runtime prompt
+  // must point at the shared image objects, not at the queue's temporary paths.
+  const attachments = followUp.attachments?.length
+    ? await deps.resolveAttachments(followUp.attachments)
+    : undefined;
+  const resolved = await deps.resolvePrompt({
     threadId: followUp.threadId,
     prompt,
-    ...(followUp.attachments?.length ? { attachments: followUp.attachments } : {}),
+    ...(attachments ? { attachments } : {}),
   });
   if (!resolved.trim()) throw new Error("后续消息没有可发送的文字或图片引用。");
   return resolved;

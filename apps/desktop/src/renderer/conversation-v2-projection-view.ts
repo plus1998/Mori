@@ -1525,6 +1525,12 @@ function isRequestFailureFeedNoiseItem(item: ThreadRunProjectionTimelineItem): b
     return true;
   }
   const origin = resolveThreadActivityOrigin(item);
+  // A V2 system notice already holds the durable failure reason. Legacy summary
+  // rows lack this channel and still follow the duplicate-status filter below.
+  if (origin === "eco.thread_failed" && item.metadata?.conversationV2Channel === "system" &&
+      isProjectionThreadFailure(item)) {
+    return false;
+  }
   if (isRequestFailureFeedNoiseOrigin(origin)) {
     return true;
   }
