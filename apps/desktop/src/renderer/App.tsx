@@ -353,6 +353,8 @@ import { createClarificationQueueSync } from "./clarification-queue-sync";
 import { buildComposerAgentModelLabels } from "./composer-agent-model-labels";
 import {
   COMPOSER_MAX_IMAGES,
+  COMPOSER_MAX_IMAGE_BYTES,
+  isAllowedImageMediaType,
   type ComposerImageAttachment,
   fromPromptImageAttachments,
   hydrateComposerImageAttachments,
@@ -361,6 +363,7 @@ import {
   revokeComposerAttachmentPreviews,
   toPromptImageAttachments,
 } from "./composer-attachments";
+import { readDroppedWebImage, readDroppedWebImageSource } from "./composer-image-drop";
 import {
   type ComposerFollowUpEditSnapshot,
   captureComposerBeforeFollowUpEdit,
@@ -4460,6 +4463,13 @@ function App() {
   );
   const prevComposerContextKeyRef = useRef<string | undefined>(undefined);
   const composerContextKeyRef = useRef(composerContextKey);
+  const [pendingImageDrop, setPendingImageDrop] = useState<{
+    contextKey: typeof composerContextKey;
+    editorKey: typeof composerEditorKey;
+  }>();
+  const pendingImageDropRef = useRef(pendingImageDrop);
+  const composerImageDropPending = pendingImageDrop !== undefined &&
+    pendingImageDrop.contextKey === composerContextKey && pendingImageDrop.editorKey === composerEditorKey;
   const composerPromptRef = useRef(prompt);
   const composerAttachmentsRef = useRef(composerAttachments);
   const composerRewindTargetRef = useRef(composerRewindTarget);
@@ -6053,7 +6063,7 @@ function App() {
   const draftWorkLocationReady = draftWorktreeReadyKey === composerContextKey && !draftWorktreeError &&
     (!composerContextKey || !draftWorktreeBindingsRef.current[composerContextKey] ||
       newThreadWorktree?.id === draftWorktreeBindingsRef.current[composerContextKey]);
-  const canSend = (Boolean(activeThread) || draftWorkLocationReady) && activeThread?.workLocation?.mode !== "needs_choice" && (composerFollowUpMode ? canSendFollowUp : canSendThreadMessage);
+  const canSend = !composerImageDropPending && (Boolean(activeThread) || draftWorkLocationReady) && activeThread?.workLocation?.mode !== "needs_choice" && (composerFollowUpMode ? canSendFollowUp : canSendThreadMessage);
   const showClarification = Boolean(pendingClarification);
   const showComposerDockApproval = showBashApproval || showPlanApproval || showClarification;
   const showBlockingComposerDockApproval = showBashApproval || showPlanApproval || (showClarification && !answerRequest);
@@ -9274,6 +9284,7 @@ function App() {
     promptOverride?: string,
     options?: { followUpDeliveryMode?: FollowUpDeliveryMode; attachments?: readonly ComposerImageAttachment[] },
   ): Promise<boolean> {
+    if (composerImageDropPending) return false;
     const promptForSend = promptOverride ?? prompt;
     const attachmentsForSend = options?.attachments ?? composerAttachments;
     if (!currentProjectPath || !window.eco || (!promptForSend.trim() && attachmentsForSend.length === 0)) {
@@ -9792,7 +9803,7 @@ function App() {
   }
 
   function advanceComposerAnswer() {
-    if (!answerRequest || clarificationBusyRef.current || clarificationComposer.loadingImages || !clarificationComposer.ready) return;
+    if (!answerRequest || composerImageDropPending || clarificationBusyRef.current || clarificationComposer.loadingImages || !clarificationComposer.ready) return;
     if (!clarificationComposer.last) {
       clarificationComposer.setIndex(clarificationComposer.index + 1);
       return;
@@ -12136,6 +12147,8 @@ function App() {
   }
 
   async function addComposerImageFiles(files: FileList | File[]) {
+    const contextKey = composerContextKey;
+    const editorKey = composerEditorKey;
     if (answerRequest) {
       if (!clarificationBusyRef.current) await clarificationComposer.addImages(Array.from(files));
       return;
@@ -12178,7 +12191,11 @@ function App() {
       }
       additions.push(attachment);
     }
-    if (additions.length === 0) {
+    if (!additions.length) return;
+    if (composerContextKeyRef.current !== contextKey || composerEditorKeyRef.current !== editorKey) {
+      revokeComposerAttachmentPreviews(additions);
+      const paths = additions.flatMap(attachment => attachment.path ? [attachment.path] : []);
+      if (paths.length) await window.eco?.releasePromptImages({ paths });
       return;
     }
     setComposerAttachments((current) => [...current, ...additions].slice(0, COMPOSER_MAX_IMAGES));
@@ -12208,11 +12225,43 @@ function App() {
   function handleComposerDragOver(event: ReactDragEvent<HTMLDivElement>) {
     const types = event.dataTransfer.types;
     if (!types.includes(PROJECT_DRAG_MIME) && !types.includes(CONVERSATION_REFERENCE_DRAG_MIME) &&
-        !types.includes(WORKSPACE_FILE_DRAG_MIME) && !types.includes("Files")) {
+        !types.includes(WORKSPACE_FILE_DRAG_MIME) && !types.includes("Files") &&
+        !types.includes("text/html") && !types.includes("text/uri-list")) {
       return;
     }
     event.preventDefault();
     event.dataTransfer.dropEffect = composerDisabled ? "none" : "copy";
+  }
+
+  async function addDroppedComposerImages(files: File[], source?: string) {
+    const setNotice = answerRequest ? clarificationComposer.setNotice : setComposerImageNotice;
+    const isCurrentEditor = () => composerContextKeyRef.current === composerContextKey &&
+      composerEditorKeyRef.current === composerEditorKey;
+    const existing = pendingImageDropRef.current;
+    if (existing && existing.contextKey === composerContextKey && existing.editorKey === composerEditorKey) return;
+    if (composerEditorImages.length >= COMPOSER_MAX_IMAGES) {
+      setNotice(t("app.imageDropLimit", { count: COMPOSER_MAX_IMAGES }));
+      return;
+    }
+    const pending = { contextKey: composerContextKey, editorKey: composerEditorKey };
+    pendingImageDropRef.current = pending;
+    setPendingImageDrop(pending);
+    try {
+      const images = source === undefined ? files : [await readDroppedWebImage(source)];
+      if (!isCurrentEditor() || pendingImageDropRef.current !== pending) return;
+      const valid = images.filter(file =>
+        isAllowedImageMediaType(file.type) && file.size > 0 && file.size <= COMPOSER_MAX_IMAGE_BYTES);
+      if (!valid.length) throw new Error("No supported image data in drop.");
+      await addComposerImageFiles(valid);
+      if (valid.length < images.length && isCurrentEditor()) setNotice(t("app.imageDropUnsupported"));
+    } catch {
+      if (isCurrentEditor()) setNotice(t("app.imageDropUnsupported"));
+    } finally {
+      if (pendingImageDropRef.current === pending) {
+        pendingImageDropRef.current = undefined;
+        setPendingImageDrop(undefined);
+      }
+    }
   }
 
   function handleComposerDrop(event: ReactDragEvent<HTMLDivElement>) {
@@ -12239,29 +12288,33 @@ function App() {
       composerRef.current?.insertTextAtPoint(`${composerReferenceToken(reference)} `, event.clientX, event.clientY);
       return;
     }
-    if (!event.dataTransfer.types.includes(WORKSPACE_FILE_DRAG_MIME) && ![...event.dataTransfer.types].includes("Files")) {
-      return;
-    }
+    const transfer = event.dataTransfer;
+    const internalFileDrag = transfer.types.includes(WORKSPACE_FILE_DRAG_MIME);
+    const files = internalFileDrag ? [] : Array.from(transfer.files);
+    const webImageSource = !internalFileDrag && !files.length ? readDroppedWebImageSource(transfer) : undefined;
+    if (!internalFileDrag && !transfer.types.includes("Files") && webImageSource === undefined) return;
+
     event.preventDefault();
     event.stopPropagation();
-    if (composerDisabled) {
-      return;
-    }
-    const files = [...event.dataTransfer.files];
-    const internalFileDrag = event.dataTransfer.types.includes(WORKSPACE_FILE_DRAG_MIME);
-    if (files.length === 0 && !internalFileDrag) {
-      return;
-    }
-    const internalPath = internalFileDrag ? readWorkspaceFileDrag(event.dataTransfer) : undefined;
+    if (composerDisabled) return;
+
+    const internalPath = internalFileDrag ? readWorkspaceFileDrag(transfer) : undefined;
     const resolvedPaths: string[] = internalPath ? [internalPath] : [];
+    const images: File[] = [];
     let failed = 0;
-    for (const file of internalFileDrag ? [] : files) {
+    for (const file of files) {
       const rawPath = window.eco?.getPathForFile?.(file)?.trim() ?? "";
-      if (!rawPath || !isAbsoluteLocalFilePath(rawPath)) {
+      if (isAbsoluteLocalFilePath(rawPath)) {
+        resolvedPaths.push(rawPath);
+      } else if (file.type.startsWith("image/")) {
+        images.push(file);
+      } else {
         failed += 1;
-        continue;
       }
-      resolvedPaths.push(rawPath);
+    }
+    if (images.length || webImageSource !== undefined) {
+      void addDroppedComposerImages(images, webImageSource);
+      if (!resolvedPaths.length) return;
     }
     const setImageNotice = answerRequest ? clarificationComposer.setNotice : setComposerImageNotice;
     if (resolvedPaths.length === 0) {
@@ -12979,17 +13032,17 @@ function App() {
   );
   const composerActionBusy =
     composerActionMode === "answer"
-      ? clarificationBusy || clarificationComposer.loadingImages
+      ? clarificationBusy || clarificationComposer.loadingImages || composerImageDropPending
       : composerActionMode === "stop"
         ? cancelBusy || Boolean(activeThread?.cancelling)
-        : isStarting || followUpBusy;
+        : isStarting || followUpBusy || composerImageDropPending;
   const composerActionDisabled =
     composerActionMode === "answer"
       ? composerActionBusy || !clarificationComposer.ready
       : composerActionMode === "stop"
         ? cancelBusy || Boolean(activeThread?.cancelling)
         : composerActionMode === "continue"
-          ? isStarting || followUpBusy
+          ? composerActionBusy
           : !canSend;
   const composerActionLabel =
     composerActionMode === "answer"
