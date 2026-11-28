@@ -2,10 +2,11 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import * as ResEdit from "resedit";
 import { nativePackTarget } from "../scripts/native-pack-target.mjs";
 import { windowsX64OptionalPackages } from "../scripts/windows-cross-dependencies.mjs";
 import { windowsCrossCompileArguments } from "../scripts/browser-focus-hook-cross.mjs";
-import { setWindowsExecutableIcon, windowsExecutableCodeIdentity } from "../scripts/windows-exe-icon.mjs";
+import { setWindowsExecutableResources, windowsExecutableCodeIdentity } from "../scripts/windows-exe-resources.mjs";
 
 test("Windows cross build selects the target, pinned optional packages and MSVC ABI", () => {
   expect(nativePackTarget(["--platform", "win32", "--arch", "x64"], { platform: "darwin", arch: "arm64" })).toEqual({ platform: "win32", arch: "x64" });
@@ -37,16 +38,47 @@ function minimalWindowsExe() {
   return bytes;
 }
 
-test("pure JS Windows icon editing preserves executable code and requires no Wine", () => {
-  const dir = mkdtempSync(path.join(process.platform === "win32" ? os.tmpdir() : "/tmp", "mori-win-icon-"));
+test("Windows packaging replaces Electron display names and the icon while preserving executable code", () => {
+  const dir = mkdtempSync(path.join(process.platform === "win32" ? os.tmpdir() : "/tmp", "mori-win-resources-"));
   try {
     const filename = path.join(dir, "Mori.exe");
-    const original = minimalWindowsExe();
+    const languages = [
+      { lang: 1033, codepage: 1200 },
+      { lang: 2052, codepage: 1200 },
+    ];
+    const version = ResEdit.Resource.VersionInfo.create(1033, {}, languages.map(language => ({
+      ...language,
+      values: {
+        FileDescription: "Electron",
+        ProductName: "Electron",
+        InternalName: "electron.exe",
+        OriginalFilename: "electron.exe",
+        FileVersion: "45.1.0",
+      },
+    })));
+    const executable = ResEdit.NtExecutable.from(minimalWindowsExe());
+    const resources = ResEdit.NtExecutableResource.from(executable);
+    version.outputToResourceEntries(resources.entries);
+    resources.outputResource(executable);
+    const original = Buffer.from(executable.generate());
     writeFileSync(filename, original);
     const icon = path.resolve(import.meta.dir, "../packaging/icon.ico");
-    setWindowsExecutableIcon(filename, icon);
+    setWindowsExecutableResources(filename, icon, "Mori");
     const changed = readFileSync(filename);
-    expect(changed.length).toBeGreaterThan(original.length);
     expect(windowsExecutableCodeIdentity(changed)).toBe(windowsExecutableCodeIdentity(original));
+
+    const { entries } = ResEdit.NtExecutableResource.from(ResEdit.NtExecutable.from(changed));
+    expect(ResEdit.Resource.IconGroupEntry.fromEntries(entries)).toHaveLength(1);
+    const [updatedVersion] = ResEdit.Resource.VersionInfo.fromEntries(entries);
+    expect(updatedVersion.getAllLanguagesForStringValues()).toEqual(languages);
+    for (const language of languages) {
+      expect(updatedVersion.getStringValues(language)).toEqual({
+        FileDescription: "Mori",
+        ProductName: "Mori",
+        InternalName: "Mori",
+        OriginalFilename: "Mori.exe",
+        FileVersion: "45.1.0",
+      });
+    }
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

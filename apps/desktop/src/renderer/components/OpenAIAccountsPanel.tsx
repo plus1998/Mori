@@ -689,8 +689,26 @@ function OpenAIAccountsContent({ onError, data, onOpenConnection }: {
         </div>
         <div className="codex-account-header-actions">
           <AccountModelCatalogSection onSnapshot={onCatalogSnapshot} />
-          <button type="button" className="codex-action-secondary" onClick={() => setSharingAccountId(null)}>
-            <Monitor size={14} />{t("codexShare.open")}
+          <button
+            type="button"
+            className="settings-primary-button"
+            disabled={busy}
+            onClick={() => {
+              setModalEditId(null);
+              setModalName(t("settings.openaiAccounts.defaultAccountName", { index: accounts.length + 1 }));
+              setModalProxyMode("system");
+              setModalProxy("");
+              setModalAuthJson("");
+              setModalEmail("");
+              setModalPassword("");
+              setModalPickupUrl("");
+              setModalTwoFactorSecret("");
+              setModalMode("login");
+              setModalOpen(true);
+            }}
+          >
+            <Plus size={15} />
+            {t("settings.openaiAccounts.addAccount")}
           </button>
           <div className="codex-account-actions-menu-wrap" ref={accountActionsRef}>
             <button
@@ -753,6 +771,19 @@ function OpenAIAccountsContent({ onError, data, onOpenConnection }: {
                   <FileUp size={14} />
                   {t("settings.openaiAccounts.bulkImport")}
                 </button>
+                <button
+                  type="button"
+                  className="codex-account-actions-menu-item"
+                  role="menuitem"
+                  onClick={() => {
+                    setAccountActionsOpen(false);
+                    accountActionsTriggerRef.current?.focus();
+                    setSharingAccountId(null);
+                  }}
+                >
+                  <Monitor size={14} />
+                  {t("codexShare.open")}
+                </button>
               </div>
             ) : null}
           </div>
@@ -767,27 +798,6 @@ function OpenAIAccountsContent({ onError, data, onOpenConnection }: {
             open={wakePanelOpen}
             onOpenChange={setWakePanelOpen}
           />
-          <button
-            type="button"
-            className="settings-primary-button"
-            disabled={busy}
-            onClick={() => {
-              setModalEditId(null);
-              setModalName(t("settings.openaiAccounts.defaultAccountName", { index: accounts.length + 1 }));
-              setModalProxyMode("system");
-              setModalProxy("");
-              setModalAuthJson("");
-              setModalEmail("");
-              setModalPassword("");
-              setModalPickupUrl("");
-              setModalTwoFactorSecret("");
-              setModalMode("login");
-              setModalOpen(true);
-            }}
-          >
-            <Plus size={15} />
-            {t("settings.openaiAccounts.addAccount")}
-          </button>
         </div>
       </div>
 

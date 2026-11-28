@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
+import path from "node:path";
 import * as ResEdit from "resedit";
 
 // Pure JS resource editing keeps Mac cross builds independent of Wine/rcedit.
-// Record executable section RVAs/bytes so an icon update cannot silently move
+// Record executable section RVAs/bytes so a resource update cannot silently move
 // or alter the code to which the native focus profile is pinned.
 export function windowsExecutableCodeIdentity(bytes) {
   const pe = bytes.readUInt32LE(0x3c);
@@ -23,7 +24,7 @@ export function windowsExecutableCodeIdentity(bytes) {
   return JSON.stringify(sections);
 }
 
-export function setWindowsExecutableIcon(exePath, iconPath) {
+export function setWindowsExecutableResources(exePath, iconPath, productName) {
   const original = readFileSync(exePath);
   const identity = windowsExecutableCodeIdentity(original);
   const executable = ResEdit.NtExecutable.from(original, { ignoreCert: true });
@@ -32,8 +33,26 @@ export function setWindowsExecutableIcon(exePath, iconPath) {
   const group = groups[0] ?? { id: 1, lang: 1033 };
   const icon = ResEdit.Data.IconFile.from(readFileSync(iconPath));
   ResEdit.Resource.IconGroupEntry.replaceIconsForResource(resources.entries, group.id, group.lang, icon.icons.map(item => item.data));
+
+  const versionInfo = ResEdit.Resource.VersionInfo.fromEntries(resources.entries);
+  if (!versionInfo.some(info => info.getAllLanguagesForStringValues().length > 0)) {
+    throw new Error(`Windows executable has no version strings: ${exePath}`);
+  }
+  const names = {
+    FileDescription: productName,
+    ProductName: productName,
+    InternalName: path.basename(exePath, ".exe"),
+    OriginalFilename: path.basename(exePath),
+  };
+  for (const info of versionInfo) {
+    for (const language of info.getAllLanguagesForStringValues()) {
+      info.setStringValues(language, names);
+    }
+    info.outputToResourceEntries(resources.entries);
+  }
+
   resources.outputResource(executable);
   const updated = Buffer.from(executable.generate());
-  if (windowsExecutableCodeIdentity(updated) !== identity) throw new Error("Windows icon update altered executable code; refusing to write it");
+  if (windowsExecutableCodeIdentity(updated) !== identity) throw new Error("Windows resource update altered executable code; refusing to write it");
   writeFileSync(exePath, updated);
 }

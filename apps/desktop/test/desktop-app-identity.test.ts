@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 const indexSource = readFileSync(fileURLToPath(new URL("../src/main/index.ts", import.meta.url)), "utf8");
 const devScriptSource = readFileSync(fileURLToPath(new URL("../scripts/dev.mjs", import.meta.url)), "utf8");
 
-function identityRun(packaged: boolean, suffix = "") {
+function identityRun(packaged: boolean, suffix = "", platform = process.platform) {
   // An isolated mock keeps Electron's process-only module out of other tests.
   const result = Bun.spawnSync({
     cmd: [
@@ -16,6 +16,7 @@ function identityRun(packaged: boolean, suffix = "") {
       const paths = {};
       let name = "@eco/desktop";
       let aboutPanelOptions;
+      let appUserModelId;
       const defaults = {
         userData: "/legacy/@eco/desktop",
         sessionData: "/legacy/@eco/desktop",
@@ -27,14 +28,16 @@ function identityRun(packaged: boolean, suffix = "") {
         setPath(key, value) { paths[key] = value; },
         setAppLogsPath(value) { paths.logs = value; },
         setName(value) { name = value; },
+        setAppUserModelId(value) { appUserModelId = value; },
         setAboutPanelOptions(value) { aboutPanelOptions = value; },
       };
       mock.module(Bun.resolveSync("electron", ${JSON.stringify(fileURLToPath(new URL("../src/main", import.meta.url)))}), () => ({ app: application }));
       const { configureDesktopIdentity, applyDesktopDisplayName } = await import(${JSON.stringify(fileURLToPath(new URL("../src/main/desktop-app-identity.ts", import.meta.url)))});
+      Object.defineProperty(process, "platform", { value: ${JSON.stringify(platform)} });
       configureDesktopIdentity();
       const keychainName = name;
       applyDesktopDisplayName();
-      console.log(JSON.stringify({ name, paths, keychainName, aboutPanelOptions }));
+      console.log(JSON.stringify({ name, paths, keychainName, aboutPanelOptions, appUserModelId }));
     `,
     ],
     env: { ...process.env, ECO_DEV_USER_DATA_SUFFIX: suffix },
@@ -48,12 +51,18 @@ test("packaged rebrand keeps existing data, browser sessions and logs", () => {
     name: "Mori",
     aboutPanelOptions: { applicationName: "Mori" },
     keychainName: "@eco/desktop",
+    ...(process.platform === "win32" ? { appUserModelId: "com.eco.coding" } : {}),
     paths: {
       userData: "/legacy/@eco/desktop",
       sessionData: "/legacy/@eco/desktop",
       logs: "/legacy/logs/@eco/desktop",
     },
   });
+});
+
+test("Windows release uses the NSIS shortcut application ID", () => {
+  expect(identityRun(true, "", "win32").appUserModelId).toBe("com.eco.coding");
+  expect(identityRun(false, "", "win32").appUserModelId).toBeUndefined();
 });
 
 test("dev rebrand keeps suffix isolation and old storage paths", () => {

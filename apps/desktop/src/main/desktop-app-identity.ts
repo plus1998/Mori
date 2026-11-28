@@ -38,6 +38,10 @@ export function configureDesktopIdentity(application = app): void {
   // using the same locations after a display-name change.
   const userDataPath = application.getPath("userData");
   if (application.isPackaged) {
+    if (process.platform === "win32") {
+      // NSIS assigns this ID to the Start menu shortcut.
+      application.setAppUserModelId(DESKTOP_PACKAGED_APP_ID);
+    }
     application.setPath("userData", userDataPath);
     application.setPath("sessionData", application.getPath("sessionData"));
     application.setAppLogsPath(application.getPath("logs"));
