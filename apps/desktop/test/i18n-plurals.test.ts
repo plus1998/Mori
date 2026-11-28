@@ -162,6 +162,7 @@ test("en-US copy that interpolates a number before a noun carries plural forms",
 
 test("converted plural keys render singular for count=1 and plural above 1", async () => {
   const converted = [
+    "app.imageDropLimit",
     "app.running.displayCount",
     "app.running.pendingDisplayRestores",
     "settings.openaiAccounts.accountCount",
