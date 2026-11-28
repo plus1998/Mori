@@ -185,10 +185,15 @@ class _MutableProjectionTurn {
 }
 
 class _UserPromptBoundary {
-  const _UserPromptBoundary({required this.sequence, required this.at});
+  const _UserPromptBoundary({
+    required this.sequence,
+    required this.at,
+    this.deliverySequence,
+  });
 
   final int sequence;
   final String at;
+  final int? deliverySequence;
 }
 
 class _OrderedFeedSection {
@@ -219,17 +224,32 @@ List<ActivityFeedEntry> groupProjectionActivityFeedTurns(
   final attemptById = {
     for (final attempt in attempts) attempt.attemptId: attempt,
   };
+  final deliverySequences = <int, int>{};
+  for (final item in projection.timeline) {
+    final version = item.metadata?['conversationV2VersionSeq'];
+    if (version is int && _isProjectionUserPromptItem(item)) {
+      deliverySequences[item.sequence] = version;
+    }
+  }
   final userBoundaries = [
     for (final entry in entries)
       if (_isUserSideFeedEntry(entry))
-        _UserPromptBoundary(sequence: entry.sequence, at: entry.at ?? ''),
+        _UserPromptBoundary(
+          sequence: entry.sequence,
+          at: entry.at ?? '',
+          deliverySequence: deliverySequences[entry.sequence],
+        ),
   ]..sort((left, right) => left.sequence.compareTo(right.sequence));
   // Acceptance sequences remain unchanged when reordered queue rows are sent.
   // Time-based lookups need a separate index in actual delivery order.
   final userBoundariesByTime = [...userBoundaries]
     ..sort((left, right) {
       final time = left.at.compareTo(right.at);
-      return time != 0 ? time : left.sequence.compareTo(right.sequence);
+      return time != 0
+          ? time
+          : (left.deliverySequence ?? left.sequence).compareTo(
+              right.deliverySequence ?? right.sequence,
+            );
     });
   final v2TimelineSequences = {
     for (final item in projection.timeline)
@@ -394,11 +414,13 @@ _UserPromptBoundary? _lastUserBoundaryForEntry(
   for (final boundary in boundaries) {
     if (useObservedAt) {
       final time = boundary.at.compareTo(entryAt);
-      if (time < 0 || (time == 0 && boundary.sequence < entry.sequence)) {
+      if (time > 0) break;
+      if (time < 0 ||
+          (time == 0 &&
+              (boundary.deliverySequence ?? boundary.sequence) < entry.sequence)) {
         found = boundary;
-        continue;
       }
-      break;
+      continue;
     }
     if (boundary.sequence < entry.sequence) {
       found = boundary;
@@ -490,6 +512,7 @@ ActivityFeedEntry? _resolveFinalProjectionOutput(
     final entry = entries[index];
     if (entry.kind == ActivityFeedKind.assistant &&
         !entry.streaming &&
+        !entry.outputInterrupted &&
         entry.agentId == null &&
         entry.text.trim().isNotEmpty) {
       return entry;
@@ -2025,6 +2048,7 @@ ActivityFeedEntry? _projectionItemToFeedEntry(
       kind: ActivityFeedKind.assistant,
       text: item.text,
       streaming: item.eventType == 'message.delta',
+      outputInterrupted: _isInterruptedProjectionOutput(item),
       subagentRole: agentRole ?? _resolveProjectionSubagentRole(item),
       agentId: agentId,
       runAttemptId: item.runAttemptId,
@@ -2037,7 +2061,7 @@ ActivityFeedEntry? _projectionItemToFeedEntry(
   if (item.eventType == 'thinking.delta' ||
       item.eventType == 'thinking.final') {
     if (text.isEmpty && item.eventType == 'thinking.final') return null;
-    if (isReasoningSummaryItem(item)) {
+    if (!_isInterruptedProjectionOutput(item) && isReasoningSummaryItem(item)) {
       final label = reasoningSummaryLabel(item.text);
       if (label.isEmpty) return null;
       return ActivityFeedEntry(
@@ -2094,6 +2118,10 @@ ActivityFeedEntry? _projectionItemToFeedEntry(
 
   return null;
 }
+
+bool _isInterruptedProjectionOutput(ThreadRunProjectionTimelineItem item) =>
+    item.metadata?['conversationV2Status'] == 'cancelled' ||
+    item.metadata?['codexOutputInterrupted'] == true;
 
 ActivityFeedEntry _buildProjectionToolActionEntry(
   ThreadRunProjectionTimelineItem item, {

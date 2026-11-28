@@ -1349,6 +1349,35 @@ test("dispatch maps userMessage completed with clientId", () => {
   expect(events[0]?.streamKey).toBe("item_user_001");
 });
 
+test("Codex only interrupts output belonging to the steered or stopped turn", () => {
+  const events = collectEvents(recordThreadRunEvent => {
+    const adapter = new CodexEventAdapter({ resolveEcoThreadId: id => `eco:${id}`, recordThreadRunEvent });
+    const oldTurn = { threadId: CODEX_THREAD, turnId: "turn_1" };
+    const otherTurn = { threadId: "other-native-thread", turnId: "turn_1" };
+    adapter.dispatch("item/agentMessage/delta", { ...oldTurn, itemId: "old", delta: "Old" });
+    adapter.dispatch("item/agentMessage/delta", { ...otherTurn, itemId: "other", delta: "Other" });
+    adapter.dispatch("item/completed", {
+      ...oldTurn,
+      item: { id: "steer", type: "userMessage", clientId: "accepted", content: [{ type: "text", text: "Steer" }] },
+    });
+    adapter.dispatch("item/agentMessage/delta", { ...oldTurn, itemId: "next", delta: "New" });
+    adapter.dispatch("turn/completed", {
+      threadId: oldTurn.threadId, turn: { id: oldTurn.turnId, status: "interrupted" },
+    });
+    adapter.dispatch("item/completed", {
+      ...otherTurn, item: { id: "other", type: "agentMessage", text: "Other continued" },
+    });
+  });
+  expect(events.filter(event => event.metadata?.codexOutputInterrupted).map(event => event.streamKey))
+    .toEqual(["old", "next"]);
+  expect(events.slice(-3).map(event => [event.eventType, event.streamKey])).toEqual([
+    ["message.final", "next"],
+    ["run.attempt.cancelled", undefined],
+    ["message.final", "other"],
+  ]);
+  expect(events.at(-1)?.message).toBe("Other continued");
+});
+
 test("plan-turn.jsonl fixture replays to expected ThreadRunEvent sequence", () => {
   const fixture = fs.readFileSync(FIXTURE_PATH, "utf8");
   const events = replayCodexNotificationFixture(fixture, {

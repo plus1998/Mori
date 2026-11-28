@@ -14,10 +14,15 @@ export type CodexMidTurnPortHandle = {
 };
 
 type PortEntry = {
-  threadId: string;
   phase: CodexMidTurnPortPhase;
   handle: CodexMidTurnPortHandle;
   inflight: Set<Promise<unknown>>;
+  pendingConsumption: Map<string, CodexMidTurnConsumption>;
+};
+
+type CodexMidTurnConsumption = {
+  onConsumed: (observedAt: string) => void;
+  onUnconfirmed: () => void;
 };
 
 /**
@@ -33,7 +38,6 @@ export class CodexMidTurnPortRegistry {
       return;
     }
     this.ports.set(id, {
-      threadId: id,
       phase: "accepting",
       handle: {
         client: handle.client,
@@ -41,6 +45,7 @@ export class CodexMidTurnPortRegistry {
         turnId: handle.turnId.trim(),
       },
       inflight: new Set(),
+      pendingConsumption: new Map(),
     });
   }
 
@@ -52,9 +57,23 @@ export class CodexMidTurnPortRegistry {
     return this.getPhase(threadId) === "accepting";
   }
 
-  async closeIngress(threadId: string): Promise<void> {
+  acceptingTurnId(threadId: string): string | undefined {
     const port = this.ports.get(threadId.trim());
-    if (!port || port.phase === "closed") {
+    if (port?.phase === "accepting") return port.handle.turnId;
+  }
+
+  confirmUserMessage(threadId: string, turnId: string, clientUserMessageId: string, observedAt: string): void {
+    const port = this.ports.get(threadId.trim());
+    if (!port || port.handle.turnId !== turnId) return;
+    const pending = port.pendingConsumption.get(clientUserMessageId);
+    if (!pending) return;
+    port.pendingConsumption.delete(clientUserMessageId);
+    pending.onConsumed(observedAt);
+  }
+
+  async closeIngress(threadId: string, turnId?: string): Promise<void> {
+    const port = this.ports.get(threadId.trim());
+    if (!port || port.phase === "closed" || (turnId && port.handle.turnId !== turnId)) {
       return;
     }
     port.phase = "closing";
@@ -64,23 +83,26 @@ export class CodexMidTurnPortRegistry {
     await Promise.allSettled([...port.inflight]);
   }
 
-  close(threadId: string): void {
+  close(threadId: string, turnId?: string): void {
     const id = threadId.trim();
     const port = this.ports.get(id);
-    if (!port) {
+    if (!port || (turnId && port.handle.turnId !== turnId)) {
       return;
     }
     port.phase = "closed";
     this.ports.delete(id);
+    for (const pending of port.pendingConsumption.values()) pending.onUnconfirmed();
+    port.pendingConsumption.clear();
   }
 
   async tryPushUserText(
     threadId: string,
     text: string,
-    options?: { clientUserMessageId?: string },
+    options?: { clientUserMessageId?: string; expectedTurnId?: string; consumption?: CodexMidTurnConsumption },
   ): Promise<CodexMidTurnPushResult> {
     const port = this.ports.get(threadId.trim());
-    if (!port || port.phase !== "accepting") {
+    if (!port || port.phase !== "accepting" ||
+        (options?.expectedTurnId && port.handle.turnId !== options.expectedTurnId)) {
       return {
         ok: false,
         reason: "No live Codex turn is accepting mid-turn input.",
@@ -98,13 +120,15 @@ export class CodexMidTurnPortRegistry {
       };
     }
     const { client, codexThreadId, turnId } = port.handle;
+    const clientUserMessageId = options?.clientUserMessageId?.trim();
+    if (clientUserMessageId && options?.consumption) {
+      port.pendingConsumption.set(clientUserMessageId, options.consumption);
+    }
     const work = steerCodexTurn(client, {
       threadId: codexThreadId,
       turnId,
       input: [{ type: "text", text: trimmed }],
-      ...(options?.clientUserMessageId?.trim()
-        ? { clientUserMessageId: options.clientUserMessageId.trim() }
-        : {}),
+      ...(clientUserMessageId ? { clientUserMessageId } : {}),
     }).then(
       (result) => ({ ok: true as const, turnId: result.turnId }),
       (error: unknown) => {
@@ -121,7 +145,12 @@ export class CodexMidTurnPortRegistry {
     );
     port.inflight.add(work);
     try {
-      return await work;
+      const result = await work;
+      // An uncertain RPC can still be followed by the authoritative user item.
+      if (!result.ok && !result.deliveryUnknown && clientUserMessageId) {
+        port.pendingConsumption.delete(clientUserMessageId);
+      }
+      return result;
     } finally {
       port.inflight.delete(work);
     }

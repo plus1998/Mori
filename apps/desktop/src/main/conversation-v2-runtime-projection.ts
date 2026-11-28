@@ -970,6 +970,7 @@ function createRequestSpan(event: ThreadRunEvent, requestId: string): MutableReq
 }
 
 function isNarrativeMessageStreamEvent(event: ThreadRunEvent): boolean {
+  if (event.metadata?.codexOutputInterrupted === true) return false;
   if (event.eventType !== "message.delta" && event.eventType !== "message.final") {
     return false;
   }

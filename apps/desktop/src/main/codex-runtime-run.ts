@@ -232,8 +232,9 @@ export interface CodexRuntimeRunDeps {
   bindLatestUserPromptToCodexItem?: (
     threadId: string,
     itemId: string,
-    turnId?: string,
-    clientUserMessageId?: string,
+    turnId: string | undefined,
+    clientUserMessageId: string | undefined,
+    observedAt: string,
   ) => boolean;
   /** Local prune after a successful app-server `thread/fork` rewind. */
   pruneThreadAfterCodexFork?: (ecoThreadId: string, itemId: string) => void;
@@ -519,6 +520,7 @@ export function configureCodexRuntimeRun(config: CodexRuntimeRunDeps): void {
           typeof projectionEvent.metadata?.clientUserMessageId === "string"
             ? projectionEvent.metadata.clientUserMessageId
             : undefined,
+          projectionEvent.observedAt,
         )
       ) {
         // Projection-only: local user prompt already carries the Codex item id / rewindTarget.

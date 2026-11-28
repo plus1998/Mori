@@ -180,6 +180,7 @@ import {
   buildThreadRunProjectionViewModel,
   collapseConsecutiveThinkingTimelineItems,
   filterProjectionTimelineForDetailFeed,
+  isInterruptedProjectionOutput,
   isProjectionRequestActive,
   isProjectionSubagentPromptItem,
   isProjectionUserPromptItem,
@@ -655,7 +656,7 @@ function resolveTurnFinalSummaryItemIds(
       commitTurn();
       continue;
     }
-    if (entry.item.eventType !== "message.final") {
+    if (entry.item.eventType !== "message.final" || isInterruptedProjectionOutput(entry.item)) {
       continue;
     }
     const block = projectionItemToDetailBlock(entry.item);
@@ -4195,7 +4196,7 @@ function resolveSubagentTurnFinalResult(
 ): SubagentDetailFeedEntry | undefined {
   for (let index = entries.length - 1; index >= 0; index -= 1) {
     const entry = entries[index];
-    if (!entry || entry.item.eventType !== "message.final") {
+    if (!entry || entry.item.eventType !== "message.final" || isInterruptedProjectionOutput(entry.item)) {
       continue;
     }
     const block = projectionItemToDetailBlock(entry.item);

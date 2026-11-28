@@ -624,6 +624,7 @@ const CONVERSATION_V2_RUN_RECONCILE_SOURCE_PREFIX = "desktop:run-reconciled";
  * conversation that has nothing left to fix.
  */
 const CONVERSATION_V2_REPAIR_CODEX_USER_DUPLICATES = "codex-user-echo-duplicate-v2";
+const CONVERSATION_V2_REPAIR_CODEX_STEER_OUTPUT = "codex-steer-output";
 const CONVERSATION_V2_REPAIR_ACCEPTED_PROMPT_DUPLICATES = "accepted-prompt-duplicate";
 
 function normalizeLegacyRunAttemptStatus(value: string): RunAttemptStatus | undefined {
@@ -7197,6 +7198,71 @@ export class ConversationStore {
     }
     this.reconcileConversationV2CodexUserMessageDuplicates(id);
     this.reconcileConversationV2AcceptedPromptDuplicates(id);
+    if (this.getThread(id)?.coreKind === "codex") this.repairCodexSteerOutput(id);
+  }
+
+  /** Older builds exposed steers on enqueue and could leave the preempted item open. */
+  private repairCodexSteerOutput(threadId: string): void {
+    const repairKey = CONVERSATION_V2_REPAIR_CODEX_STEER_OUTPUT;
+    if (this.v2.hasConversationRepair(repairKey, threadId)) return;
+    const receipts = this.db.prepare(
+      `SELECT DISTINCT user.message_id, bound.seq, bound.occurred_at,
+                json_extract(prompt.source_json, '$.metadata.codexForkTurnId') AS codex_turn_id
+         FROM ${this.pendingFollowupsTable()} AS follow_up
+         JOIN conversation_messages_v2 AS user ON user.message_id = follow_up.conversation_message_id
+         JOIN conversation_events_v2 AS bound ON bound.conversation_id = user.conversation_id
+            AND bound.seq = user.version_seq AND bound.type = 'message.history_targeted'
+         JOIN conversation_provider_inputs_v2 AS prompt ON prompt.conversation_id = user.conversation_id
+            AND prompt.message_id = user.message_id AND prompt.visible = 1
+        WHERE follow_up.thread_id = ? AND follow_up.delivery_mode = 'streaming_push'
+          AND follow_up.status = 'applied' AND user.status = 'final' AND user.is_deleted = 0
+          AND user.occurred_at <= bound.occurred_at
+          AND json_extract(prompt.source_json, '$.metadata.liveType') = 'thread.user_prompt'
+          AND json_extract(prompt.source_json, '$.metadata.rewindTarget.userMessageId') = user.history_user_message_id
+          AND codex_turn_id IS NOT NULL
+        ORDER BY bound.seq`,
+    ).all(threadId) as Array<{ message_id: string; seq: number; occurred_at: string; codex_turn_id: string }>;
+    const unfinished = this.db.prepare(
+      `SELECT message.message_id, message.occurred_at
+         FROM conversation_messages_v2 AS message
+        WHERE message.conversation_id = ? AND message.role = 'assistant'
+          AND message.status = 'streaming' AND message.is_deleted = 0 AND message.version_seq < ?
+          AND EXISTS (
+            SELECT 1 FROM conversation_provider_inputs_v2 AS source
+             WHERE source.conversation_id = message.conversation_id
+               AND source.message_id = message.message_id AND source.visible = 1
+               AND json_extract(source.source_json, '$.metadata.turnId') = ?
+          )`,
+    );
+    const settled = new Set<string>();
+    const repairs = receipts.flatMap((receipt) => {
+      const interrupted = unfinished.all(threadId, receipt.seq, receipt.codex_turn_id) as Array<{
+        message_id: string;
+        occurred_at: string | null;
+      }>;
+      const events = interrupted.flatMap(({ message_id, occurred_at }) => {
+        if (!occurred_at || settled.has(message_id)) return [];
+        settled.add(message_id);
+        return [{
+          conversationId: threadId,
+          eventId: `codex_steer_output_${stableHash(message_id)}`,
+          type: "message.finalized" as const,
+          messageId: message_id,
+          occurredAt: occurred_at,
+          payload: { status: "cancelled" },
+        }];
+      });
+      return [...events, {
+        conversationId: threadId,
+        eventId: `codex_steer_prompt_${stableHash(receipt.message_id)}`,
+        type: "message.finalized" as const,
+        messageId: receipt.message_id,
+        occurredAt: receipt.occurred_at,
+        payload: { status: "final", authority: "maintenance" },
+      }];
+    });
+    this.v2.appendBatch(repairs);
+    this.v2.markConversationRepaired(repairKey, threadId);
   }
 
   /** Whether the conversation still holds a queued user prompt. */

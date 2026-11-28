@@ -191,6 +191,7 @@ class ActivityFeedEntry {
     this.subagentRole,
     this.detail,
     this.streaming = false,
+    this.outputInterrupted = false,
     this.usageBadge,
     this.lifecycle,
     this.missionPrompt,
@@ -242,6 +243,7 @@ class ActivityFeedEntry {
   final String? subagentRole;
   final String? detail;
   final bool streaming;
+  final bool outputInterrupted;
   final String? usageBadge;
   final ToolActionLifecycle? lifecycle;
   final String? missionPrompt;
@@ -332,6 +334,7 @@ class ActivityFeedEntry {
       subagentRole: subagentRole,
       detail: detail,
       streaming: streaming,
+      outputInterrupted: outputInterrupted,
       usageBadge: usageBadge,
       lifecycle: lifecycle,
       missionPrompt: missionPrompt,

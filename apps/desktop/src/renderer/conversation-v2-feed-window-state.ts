@@ -48,7 +48,7 @@ export function boundConversationFeedState(state: ConversationV2RendererState): 
         messages.set(message.messageId, message);
         continue;
       }
-      if (message.role !== "assistant" || message.channel !== "answer") continue;
+      if (message.role !== "assistant" || message.channel !== "answer" || message.status === "cancelled") continue;
       const previous = finalAnswerByTurn.get(message.turnId);
       if (
         !previous ||

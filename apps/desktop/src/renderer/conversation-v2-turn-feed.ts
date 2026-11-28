@@ -4,7 +4,11 @@ import type {
   ThreadRunProjectionMainFeedEntry,
   ThreadRunProjectionTimelineFeedEntry,
 } from "./conversation-v2-projection-view";
-import { isProjectionUserPromptItem, projectionItemToDetailBlock } from "./conversation-v2-projection-view";
+import {
+  isInterruptedProjectionOutput,
+  isProjectionUserPromptItem,
+  projectionItemToDetailBlock,
+} from "./conversation-v2-projection-view";
 import { isContextCompactionEventType } from "../shared/thread-run-events";
 
 export type ThreadRunTurnFeedSection =
@@ -37,6 +41,7 @@ export type ThreadRunTurnFeedSection =
 type UserPromptBoundary = {
   sequence: number;
   at: string;
+  deliverySequence?: number;
 };
 
 /**
@@ -69,7 +74,12 @@ export function buildThreadRunTurnFeedSections(
   const userBoundaries: UserPromptBoundary[] = [];
   for (const entry of entries) {
     if (entry.kind === "timeline" && isProjectionUserPromptItem(entry.item)) {
-      userBoundaries.push({ sequence: entry.sequence, at: entry.at });
+      const deliverySequence = entry.item.metadata?.conversationV2VersionSeq;
+      userBoundaries.push({
+        sequence: entry.sequence,
+        at: entry.at,
+        ...(typeof deliverySequence === "number" && { deliverySequence }),
+      });
     }
   }
   userBoundaries.sort((left, right) => left.sequence - right.sequence);
@@ -77,7 +87,9 @@ export function buildThreadRunTurnFeedSections(
   // Reordering the queue can therefore invert sequence order and delivery time.
   // Each boundary lookup must walk an index sorted by the clock it compares.
   const userBoundariesByTime = [...userBoundaries].sort(
-    (left, right) => left.at.localeCompare(right.at) || left.sequence - right.sequence,
+    (left, right) =>
+      left.at.localeCompare(right.at) ||
+      (left.deliverySequence ?? left.sequence) - (right.deliverySequence ?? right.sequence),
   );
 
   const sections: OrderedSection[] = [];
@@ -228,11 +240,17 @@ function lastUserBoundaryForEntry(
       // Agent cards on the skeleton Feed also need wall-clock: their timeline is
       // cleared, so sequence falls back to 0 and would otherwise open a second
       // empty turn (duplicate "已处理" / stopped headings) for the same attempt.
-      if (boundary.at < entry.at) {
-        found = boundary;
-        continue;
-      }
-      break;
+      // App-server can deliver the user item and the next delta in the same
+      // millisecond. Compare durable sequences at that boundary.
+      const sameTimeAfterDelivery =
+        boundary.at === entry.at &&
+        boundary.deliverySequence !== undefined &&
+        entry.kind === "timeline" &&
+        isConversationV2FeedEntry(entry) &&
+        boundary.deliverySequence < entry.sequence;
+      if (boundary.at > entry.at) break;
+      if (boundary.at < entry.at || sameTimeAfterDelivery) found = boundary;
+      continue;
     }
     if (boundary.sequence < entry.sequence) {
       found = boundary;
@@ -348,7 +366,8 @@ function resolveFinalOutputEntry(
   }
   for (let index = entries.length - 1; index >= 0; index -= 1) {
     const entry = entries[index];
-    if (entry?.kind !== "timeline" || entry.item.eventType !== "message.final") {
+    if (entry?.kind !== "timeline" || entry.item.eventType !== "message.final" ||
+        isInterruptedProjectionOutput(entry.item)) {
       continue;
     }
     if (entry.item.role === "user" || entry.item.role === "tool" || entry.item.role === "thinking") {

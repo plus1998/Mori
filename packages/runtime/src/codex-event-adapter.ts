@@ -250,6 +250,12 @@ type EmitInput = {
   metadata?: Record<string, unknown> | undefined;
 };
 
+type TurnOutput = {
+  pending: Map<string, EmitInput>;
+  interrupted: Set<string>;
+  consumedUserIds: Set<string>;
+};
+
 type AdapterContext = CodexEventAdapterOptions & {
   observedAt: string;
   eventCounter: number;
@@ -264,6 +270,7 @@ type AdapterContext = CodexEventAdapterOptions & {
   /** Per-reasoning-item wall-clock start; request TTFT is not a reasoning duration. */
   reasoningStartedAtByItemId: Map<string, string>;
   agentMessageTextByItemId: Map<string, string>;
+  outputByTurn: Map<string, TurnOutput>;
   pendingEventsByCodexThreadId: Map<string, EmitInput[]>;
   /** Async question messages that arrived before their Codex thread was attributed. */
   pendingAsyncQuestionsByCodexThreadId: Map<string, Omit<CodexAsyncQuestionsInput, "ecoThreadId">[]>;
@@ -338,6 +345,7 @@ export class CodexEventAdapter {
    * so each `message.delta` must carry the full prefix so far.
    */
   private readonly agentMessageTextByItemId = new Map<string, string>();
+  private readonly outputByTurn = new Map<string, TurnOutput>();
   /**
    * Child-thread events may arrive before spawn / thread/started attribution.
    * Buffer until parent eco thread id is known — never write an unmapped Codex id.
@@ -367,6 +375,7 @@ export class CodexEventAdapter {
       reasoningSummaryNeedsSeparatorByItemId: this.reasoningSummaryNeedsSeparatorByItemId,
       reasoningStartedAtByItemId: this.reasoningStartedAtByItemId,
       agentMessageTextByItemId: this.agentMessageTextByItemId,
+      outputByTurn: this.outputByTurn,
       pendingEventsByCodexThreadId: this.pendingEventsByCodexThreadId,
       pendingAsyncQuestionsByCodexThreadId: this.pendingAsyncQuestionsByCodexThreadId,
       emittedAgentStartedIds: this.emittedAgentStartedIds,
@@ -383,6 +392,11 @@ export class CodexEventAdapter {
     }
     const threadId = readCodexThreadId(params);
     const turnId = readCodexTurnId(params);
+    if (threadId && turnId && method.startsWith("item/")) {
+      const output = this.outputByTurn.get(`${threadId}:${turnId}`);
+      const itemId = readCodexItemId(params, readItemPayload(params));
+      if (itemId && output?.interrupted.has(itemId)) return;
+    }
     if (threadId && turnId && ["item/started", "turn/started", "turn/completed"].includes(method)) {
       this.firstRetrySources.delete(`${threadId}:${turnId}`);
     }
@@ -526,6 +540,12 @@ function handleTurnCompleted(ctx: AdapterContext, params: Record<string, unknown
   const status = readCodexTurnStatus(params);
   if (!codexThreadId || !turnId || !status) {
     return;
+  }
+  const outputKey = `${codexThreadId}:${turnId}`;
+  const output = ctx.outputByTurn.get(outputKey);
+  if (output) {
+    interruptPendingOutput(ctx, output);
+    ctx.outputByTurn.delete(outputKey);
   }
 
   // Consume before emitting/callbacks so every terminal status and thrown callback
@@ -889,7 +909,7 @@ function handleItemStarted(ctx: AdapterContext, params: Record<string, unknown>)
     const itemId = readCodexItemId(params, item);
     if (!codexThreadId || !itemId || ctx.reasoningStartedAtByItemId.has(itemId)) return;
     ctx.reasoningStartedAtByItemId.set(itemId, ctx.observedAt);
-    emit(ctx, {
+    emitOutputDelta(ctx, {
       eventType: "thinking.delta",
       codexThreadId,
       turnId: readCodexTurnId(params),
@@ -941,7 +961,7 @@ function handleAgentMessageDelta(ctx: AdapterContext, params: Record<string, unk
   const next = `${previous}${delta}`;
   ctx.agentMessageTextByItemId.set(itemId, next);
 
-  emit(ctx, {
+  emitOutputDelta(ctx, {
     eventType: "message.delta",
     codexThreadId,
     turnId,
@@ -1027,7 +1047,7 @@ function emitReasoningDelta(
   ctx.reasoningTextByItemId.set(itemId, next);
   ctx.reasoningDisplayByItemId.set(itemId, reasoningDisplay);
 
-  emit(ctx, {
+  emitOutputDelta(ctx, {
     eventType: "thinking.delta",
     codexThreadId,
     turnId,
@@ -1045,6 +1065,57 @@ function emitReasoningDelta(
       thinkingStartedAt,
     },
   });
+}
+
+function emitOutputDelta(ctx: AdapterContext, input: EmitInput): void {
+  if (input.turnId && input.itemId) {
+    turnOutput(ctx, input.codexThreadId, input.turnId).pending.set(input.itemId, input);
+  }
+  emit(ctx, input);
+}
+
+function forgetPendingOutput(
+  ctx: AdapterContext,
+  codexThreadId: string,
+  turnId: string | undefined,
+  itemId: string,
+): void {
+  if (!turnId) return;
+  ctx.outputByTurn.get(`${codexThreadId}:${turnId}`)?.pending.delete(itemId);
+}
+
+function turnOutput(ctx: AdapterContext, codexThreadId: string, turnId: string): TurnOutput {
+  const key = `${codexThreadId}:${turnId}`;
+  let output = ctx.outputByTurn.get(key);
+  if (!output) {
+    output = { pending: new Map(), interrupted: new Set(), consumedUserIds: new Set() };
+    ctx.outputByTurn.set(key, output);
+  }
+  return output;
+}
+
+function clearReasoningOutput(ctx: AdapterContext, itemId: string): void {
+  ctx.reasoningTextByItemId.delete(itemId);
+  ctx.reasoningDisplayByItemId.delete(itemId);
+  ctx.reasoningSummaryIndexByItemId.delete(itemId);
+  ctx.reasoningSummaryNeedsSeparatorByItemId.delete(itemId);
+  ctx.reasoningStartedAtByItemId.delete(itemId);
+}
+
+function interruptPendingOutput(ctx: AdapterContext, output: TurnOutput): void {
+  for (const [itemId, item] of output.pending) {
+    output.interrupted.add(itemId);
+    if (item.eventType === "thinking.delta") clearReasoningOutput(ctx, itemId);
+    else ctx.agentMessageTextByItemId.delete(itemId);
+    emit(ctx, {
+      ...item,
+      eventType: item.eventType === "thinking.delta" ? "thinking.final" : "message.final",
+      message: "",
+      streamState: "finalized",
+      metadata: { ...item.metadata, codexOutputInterrupted: true },
+    });
+  }
+  output.pending.clear();
 }
 
 function handleCommandExecutionOutputDelta(ctx: AdapterContext, params: Record<string, unknown>): void {
@@ -1072,6 +1143,14 @@ function handleItemCompleted(ctx: AdapterContext, params: Record<string, unknown
 
   if (itemType === "userMessage") {
     const clientUserMessageId = readString(item, "clientId") ?? readString(item, "clientUserMessageId");
+    // A steered user item is emitted when the new input enters the model context.
+    // Codex can abandon an open output item without sending item/completed for it.
+    if (clientUserMessageId && turnId) {
+      const output = turnOutput(ctx, codexThreadId, turnId);
+      if (output.consumedUserIds.has(clientUserMessageId)) return;
+      output.consumedUserIds.add(clientUserMessageId);
+      interruptPendingOutput(ctx, output);
+    }
     emit(ctx, {
       eventType: "message.final",
       codexThreadId,
@@ -1098,6 +1177,7 @@ function handleItemCompleted(ctx: AdapterContext, params: Record<string, unknown
     handleItemAsyncQuestions(ctx, params, item);
     const text = readString(item, "text") ?? ctx.agentMessageTextByItemId.get(itemId) ?? "";
     ctx.agentMessageTextByItemId.delete(itemId);
+    forgetPendingOutput(ctx, codexThreadId, turnId, itemId);
     emit(ctx, {
       eventType: "message.final",
       codexThreadId,
@@ -1187,15 +1267,9 @@ function handleItemCompleted(ctx: AdapterContext, params: Record<string, unknown
   if (itemType === "reasoning") {
     const text = readReasoningItemText(item) || ctx.reasoningTextByItemId.get(itemId) || "";
     const reasoningDisplay = readReasoningDisplay(item) ?? ctx.reasoningDisplayByItemId.get(itemId);
-    ctx.reasoningTextByItemId.delete(itemId);
-    ctx.reasoningDisplayByItemId.delete(itemId);
-    ctx.reasoningSummaryIndexByItemId.delete(itemId);
-    ctx.reasoningSummaryNeedsSeparatorByItemId.delete(itemId);
-    if (!ctx.reasoningStartedAtByItemId.has(itemId)) {
-      ctx.reasoningStartedAtByItemId.set(itemId, ctx.observedAt);
-    }
     const thinkingStartedAt = ctx.reasoningStartedAtByItemId.get(itemId) ?? ctx.observedAt;
-    ctx.reasoningStartedAtByItemId.delete(itemId);
+    clearReasoningOutput(ctx, itemId);
+    forgetPendingOutput(ctx, codexThreadId, turnId, itemId);
     const thinkingDurationMs = resolveObservedDurationMs(thinkingStartedAt, ctx.observedAt);
     emit(ctx, {
       eventType: "thinking.final",

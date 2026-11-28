@@ -889,6 +889,10 @@ function isThinkingTimelineItem(item: ThreadRunProjectionTimelineItem): boolean 
   return item.eventType === "thinking.delta" || item.eventType === "thinking.final";
 }
 
+export function isInterruptedProjectionOutput(item: ThreadRunProjectionTimelineItem): boolean {
+  return item.metadata?.conversationV2Status === "cancelled" || item.metadata?.codexOutputInterrupted === true;
+}
+
 function canJoinConsecutiveThinkingItems(
   previous: ThreadRunProjectionTimelineItem,
   next: ThreadRunProjectionTimelineItem,
@@ -896,6 +900,7 @@ function canJoinConsecutiveThinkingItems(
   if (
     !isThinkingTimelineItem(previous) ||
     !isThinkingTimelineItem(next) ||
+    isInterruptedProjectionOutput(previous) !== isInterruptedProjectionOutput(next) ||
     normalizeThinkingContext(previous.agentId) !== normalizeThinkingContext(next.agentId) ||
     normalizeThinkingContext(previous.runAttemptId) !== normalizeThinkingContext(next.runAttemptId) ||
     normalizeThinkingContext(previous.requestId) !== normalizeThinkingContext(next.requestId)
@@ -992,7 +997,7 @@ function isReasoningSummaryItem(item: ThreadRunProjectionTimelineItem): boolean 
   if (item.eventType !== "thinking.delta" && item.eventType !== "thinking.final") {
     return false;
   }
-  if (item.text.trim().length === 0) {
+  if (item.text.trim().length === 0 || isInterruptedProjectionOutput(item)) {
     return false;
   }
   if (readReasoningDisplay(item.metadata) === "summary") {
@@ -3546,7 +3551,8 @@ function buildProjectionItemDetailBlock(
       return undefined;
     }
     const streaming = item.eventType === "thinking.delta";
-    const asSummary = readReasoningDisplay(item.metadata) === "summary" || isReasoningSummaryItem(item);
+    const asSummary = !isInterruptedProjectionOutput(item) &&
+      (readReasoningDisplay(item.metadata) === "summary" || isReasoningSummaryItem(item));
     if (asSummary) {
       // Tip status (ephemeral): shimmer while this row is on the Feed tip.
       // Visibility of finals is decided by collapseEphemeralReasoningSummaryTimeline.

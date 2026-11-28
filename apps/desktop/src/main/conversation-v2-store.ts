@@ -2853,6 +2853,7 @@ export class ConversationV2Store {
         retainedMessagesById.set(message.messageId, message);
         continue;
       }
+      if (message.status === "cancelled") continue;
       const previous = finalAnswerByTurn.get(message.turnId);
       if (
         !previous ||

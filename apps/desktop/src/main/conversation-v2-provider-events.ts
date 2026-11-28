@@ -98,7 +98,7 @@ export function appendProviderEventToConversationV2(
     suffix: string,
     payload: Record<string, unknown>,
     ids: { messageId?: string; toolCallId?: string } = {},
-    emitOptions: { omitAgentOwnership?: boolean; parentToolCallId?: string } = {},
+    emitOptions: { omitAgentOwnership?: boolean; parentToolCallId?: string; occurredAt?: string } = {},
   ): void => {
     const sourceEventKey = `${sourceBase}:${suffix}`;
     // A codemode script's own calls carry their nesting link on the tool metadata, not on the
@@ -111,7 +111,7 @@ export function appendProviderEventToConversationV2(
       eventId: `legacy_v2_${stableHash(sourceEventKey)}`,
       sourceEventKey,
       type,
-      occurredAt: event.observedAt,
+      occurredAt: emitOptions.occurredAt ?? event.observedAt,
       ...(turnId ? { turnId } : {}),
       ...(runId ? { runId } : {}),
       ...(ids.messageId ? { messageId: ids.messageId } : {}),
@@ -256,6 +256,19 @@ export function appendProviderEventToConversationV2(
     const body = event.message;
     const historyTarget = event.role === "user" ? providerHistoryTarget(event, runtime) : undefined;
     const isFinal = event.eventType === "message.final" || event.eventType === "thinking.final";
+    if (isFinal && event.metadata?.codexOutputInterrupted === true) {
+      if (existing?.status === "streaming") {
+        emit(
+          "message.finalized",
+          "finalize",
+          { status: "cancelled" },
+          { messageId },
+          // Closing the stream must not move it past the prompt that interrupted it.
+          existing.occurredAt ? { occurredAt: existing.occurredAt } : {},
+        );
+      }
+      return emitted;
+    }
     // Placeholder stream rows carry no text. Creating a V2 message for them
     // leaves a permanently `streaming` row behind (the matching final row never
     // arrives), which every reader renders as output that never finishes.

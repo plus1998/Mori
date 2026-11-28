@@ -4,15 +4,25 @@ import type { PromptImagePreview } from "../shared/prompt-image-metadata";
 import { buildAcceptedConversationMessageSchedule } from "./conversation-v2-request";
 import type { ConversationV2Store } from "./conversation-v2-store";
 
-/** Confirm delivery together with previews derived from each accepted message's own images. */
-export async function finalizeAcceptedConversationV2Messages(input: {
+type AcceptedMessageFinalizationInput = {
   store: Pick<ConversationV2Store, "getMessage" | "appendRuntime">;
   conversationId: string;
   messageIds: readonly string[];
   resolveAttachments: (attachments: readonly PromptImageAttachment[]) => Promise<PromptImageAttachment[]>;
   createPreviews: (attachments: readonly PromptImageAttachment[]) => Array<PromptImagePreview | undefined>;
   signal?: AbortSignal;
-}): Promise<void> {
+};
+
+/** Confirm delivery together with previews derived from each accepted message's own images. */
+export async function finalizeAcceptedConversationV2Messages(input: AcceptedMessageFinalizationInput): Promise<void> {
+  const commit = await prepareAcceptedConversationV2MessageFinalization(input);
+  commit();
+}
+
+/** Prepare image previews before dispatch so the provider receipt can commit in event order. */
+export async function prepareAcceptedConversationV2MessageFinalization(
+  input: AcceptedMessageFinalizationInput,
+): Promise<(occurredAt?: string) => void> {
   input.signal?.throwIfAborted();
   const messages = [...new Set(input.messageIds.map((id) => id.trim()).filter(Boolean))]
     .map((id) => input.store.getMessage(input.conversationId, id))
@@ -38,24 +48,25 @@ export async function finalizeAcceptedConversationV2Messages(input: {
       return { message, attachments: durableAttachments };
     }),
   );
-  // Pause/Stop may revoke preparation while image objects are being read. Do not
-  // expose the bubble or dispatch the runtime after that cancellation.
-  input.signal?.throwIfAborted();
-  for (const { message, attachments } of prepared) {
-    const current = input.store.getMessage(input.conversationId, message.messageId);
-    if (!current || current.isDeleted || current.status !== "queued") continue;
-    if (current.contentVersion !== message.contentVersion) {
-      throw new Error("排队消息在图片预览准备期间被修改，无法确认投递。");
+  return (occurredAt = new Date().toISOString()) => {
+    // Pause/Stop may revoke preparation while image objects are being read.
+    input.signal?.throwIfAborted();
+    for (const { message, attachments } of prepared) {
+      const current = input.store.getMessage(input.conversationId, message.messageId);
+      if (!current || current.isDeleted || current.status !== "queued") continue;
+      if (current.contentVersion !== message.contentVersion) {
+        throw new Error("排队消息在图片预览准备期间被修改，无法确认投递。");
+      }
+      const sourceEventKey = `desktop:user:accepted-mid-turn:${input.conversationId}:${message.messageId}`;
+      input.store.appendRuntime({
+        conversationId: input.conversationId,
+        eventId: `desktop_v2_user_finalize_mid_turn_${stableHash(sourceEventKey)}`,
+        sourceEventKey,
+        type: "message.finalized",
+        occurredAt,
+        messageId: message.messageId,
+        payload: { status: "final", ...(attachments.length ? { attachments } : {}) },
+      });
     }
-    const sourceEventKey = `desktop:user:accepted-mid-turn:${input.conversationId}:${message.messageId}`;
-    input.store.appendRuntime({
-      conversationId: input.conversationId,
-      eventId: `desktop_v2_user_finalize_mid_turn_${stableHash(sourceEventKey)}`,
-      sourceEventKey,
-      type: "message.finalized",
-      occurredAt: new Date().toISOString(),
-      messageId: message.messageId,
-      payload: { status: "final", ...(attachments.length ? { attachments } : {}) },
-    });
-  }
+  };
 }

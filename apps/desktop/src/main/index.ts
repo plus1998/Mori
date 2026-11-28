@@ -71,7 +71,7 @@ import { ModelManagementMcpGateway } from "./model-management-mcp-gateway";
 import { ModelManagementService } from "./model-management-service";
 import { MODEL_MANAGEMENT_MCP_SERVER, MODEL_MANAGEMENT_PROMPT } from "../shared/model-management";
 import { ConversationRecoveryGate } from "./conversation-recovery-gate";
-import { finalizeAcceptedConversationV2Messages } from "./conversation-v2-accepted-finalization";
+import { prepareAcceptedConversationV2MessageFinalization } from "./conversation-v2-accepted-finalization";
 import { createMcpHubNestedToolPermissionHandler } from "./mcp-hub-permission";
 import { previewSchedule } from "./schedule-time";
 import { inspectScheduledRun } from "./scheduling-inspection";
@@ -3909,11 +3909,14 @@ app
           });
         }
       },
-      bindLatestUserPromptToCodexItem: (threadId, itemId, turnId, clientUserMessageId) => {
+      bindLatestUserPromptToCodexItem: (threadId, itemId, turnId, clientUserMessageId, observedAt) => {
         const bound = Boolean(
           conversationStore.bindLatestUserRunEventToSdkMessage(threadId, itemId, clientUserMessageId),
         );
         if (bound && turnId) conversationStore.bindCodexForkTurn(threadId, itemId, turnId);
+        if (bound && turnId && clientUserMessageId) {
+          codexMidTurnPorts.confirmUserMessage(threadId, turnId, clientUserMessageId, observedAt);
+        }
         return bound;
       },
       resolveCodexForkTurnIndex: (threadId, itemId) =>
@@ -14556,14 +14559,14 @@ async function startCodexThreadRun(
                   });
                   retryGuidedThreadFollowUp(ecoThreadId);
                 },
-                onTurnClosing: async ({ ecoThreadId }) => {
-                  await codexMidTurnPorts.closeIngress(ecoThreadId);
+                onTurnClosing: async ({ ecoThreadId, turnId }) => {
+                  if (turnId) await codexMidTurnPorts.closeIngress(ecoThreadId, turnId);
                 },
                 onTurnClosed: ({ ecoThreadId, turnId }) => {
                   if (turnId) {
                     activeRunRuntimeState.clearCodexTurn(ecoThreadId, controller, turnId);
+                    codexMidTurnPorts.close(ecoThreadId, turnId);
                   }
-                  codexMidTurnPorts.close(ecoThreadId);
                 },
               });
             let driver = createDriver();
@@ -16892,9 +16895,8 @@ function isAsyncClarificationAnswerFollowUp(followUp: ThreadPendingFollowUp): bo
  * Returns a handled row (applied, failed, or concurrently finalized); undefined
  * only when the row is safely queued for a later delivery opportunity.
  *
- * The queue row remains the only visible representation until the provider
- * confirms the push. The user bubble is written after that confirmation so a
- * failed or unknown delivery cannot look like a sent prompt.
+ * The queue row remains visible until the provider confirms delivery. Codex
+ * acknowledges enqueue separately from the user item entering the model context.
  */
 async function tryDeliverFollowUpViaMidTurn(
   thread: ThreadSummary,
@@ -16907,6 +16909,8 @@ async function tryDeliverFollowUpViaMidTurn(
   const isPi = thread.coreKind === "pi";
   const midTurnLabel = isCodex ? "Codex turn/steer" : isPi ? "PI steer" : "Claude streamInput";
   let runtimePrompt = "";
+  let codexTurnId: string | undefined;
+  let finalizeCodexPrompt: ((occurredAt?: string) => void) | undefined;
   const claimed = await withThreadFollowUpLock(thread.id, async () => {
     const currentThread = conversationStore.getThread(thread.id);
     if (!currentThread) throw new Error("Thread was not found.");
@@ -16935,7 +16939,8 @@ async function tryDeliverFollowUpViaMidTurn(
     }
 
     if (isCodex) {
-      if (!codexMidTurnPorts.isAccepting(thread.id)) {
+      codexTurnId = codexMidTurnPorts.acceptingTurnId(thread.id);
+      if (!codexTurnId) {
         return undefined;
       }
     } else if (isPi) {
@@ -16955,7 +16960,11 @@ async function tryDeliverFollowUpViaMidTurn(
     });
     if (resolved === undefined) return undefined;
     runtimePrompt = resolved;
+    if (isCodex && currentFollowUp.conversationMessageId) {
+      finalizeCodexPrompt = await prepareAcceptedV2Messages(thread.id, [currentFollowUp.conversationMessageId]);
+    }
     if (contextMonitor.isCompactInFlight(thread.id)) return undefined;
+    if (codexTurnId && !activeRunRuntimeState.ownsRequest(thread.id, { turnId: codexTurnId })) return undefined;
     // Stop or a newer Guide can revoke this selection while references are resolving.
     if (explicitlyGuided && pendingMidTurnFollowUpGuides.get(thread.id) !== currentFollowUp.id) return undefined;
     return conversationStore.claimThreadFollowUpStreamingPush(thread.id, followUp.id, {
@@ -16977,9 +16986,29 @@ async function tryDeliverFollowUpViaMidTurn(
     return conversationStore.getThreadFollowUp(thread.id, followUp.id);
   }
 
+  const finalizeWhenConsumed = finalizeCodexPrompt;
   const push = isCodex
     ? await codexMidTurnPorts.tryPushUserText(thread.id, runtimePrompt, {
         clientUserMessageId: followUp.id,
+        ...(codexTurnId ? { expectedTurnId: codexTurnId } : {}),
+        ...(finalizeWhenConsumed ? {
+          consumption: {
+            onConsumed: (observedAt) => {
+              try {
+                finalizeWhenConsumed(observedAt);
+                const applied = conversationStore.markThreadFollowUpStreamingPushApplied(thread.id, claimed.id);
+                if (!applied) throw new Error("Codex user item could not be committed to the follow-up.");
+                emitThreadFollowUpEvent(applied, "thread.follow_up.applied", "已注入当前 Codex 回合。");
+                releaseFollowUpQueuePauseWhenEmpty(thread.id);
+              } catch (error) {
+                markMidTurnFollowUpDeliveryUnknown(claimed, errorMessage(error), midTurnLabel);
+              }
+            },
+            onUnconfirmed: () => markMidTurnFollowUpDeliveryUnknown(
+              claimed, "Codex turn closed without a matching user item.", midTurnLabel,
+            ),
+          },
+        } : {}),
       })
     : isPi
       ? await pushPiMidTurnSteer(thread.id, runtimePrompt)
@@ -16987,31 +17016,14 @@ async function tryDeliverFollowUpViaMidTurn(
           uuid: followUp.id,
         });
 
+  if (finalizeWhenConsumed) {
+    const current = conversationStore.getThreadFollowUp(thread.id, claimed.id) ?? claimed;
+    if (push.ok || push.deliveryUnknown || current.status !== "delivered") return current;
+  }
+
   if (!push.ok) {
     if (push.deliveryUnknown) {
-      midTurnLocalUserPromptFollowUpIds.delete(claimed.id);
-      const failed =
-        conversationStore.markThreadFollowUpDeliveryUnknown(
-          thread.id,
-          claimed.id,
-          `${midTurnLabel} delivery is unknown: ${push.reason}`,
-        ) ?? claimed;
-      if (followUp.conversationMessageId) {
-        failAcceptedV2Messages(thread.id, [followUp.conversationMessageId], push.reason);
-      }
-      emitThreadEvent(
-        thread.id,
-        "thread.follow_up.delivery_unknown",
-        isCodex
-          ? "Codex mid-turn 注入结果未知；为避免重复执行，不会自动重发。"
-          : isPi
-            ? "PI mid-turn 注入结果未知；为避免重复执行，不会自动重发。"
-            : "Claude mid-turn 注入结果未知；为避免重复执行，不会自动重发。",
-        "system",
-        false,
-        { followUp: failed },
-      );
-      return failed;
+      return markMidTurnFollowUpDeliveryUnknown(claimed, push.reason, midTurnLabel);
     }
     const requeued =
       conversationStore.requeueThreadFollowUpStreamingPush(thread.id, claimed.id, {
@@ -17124,6 +17136,25 @@ async function tryDeliverFollowUpViaMidTurn(
   );
   releaseFollowUpQueuePauseWhenEmpty(thread.id);
   return applied;
+}
+
+function markMidTurnFollowUpDeliveryUnknown(
+  followUp: ThreadPendingFollowUp,
+  reason: string,
+  providerLabel: string,
+): ThreadPendingFollowUp {
+  const { threadId, id, conversationMessageId } = followUp;
+  midTurnLocalUserPromptFollowUpIds.delete(id);
+  const failed = conversationStore.markThreadFollowUpDeliveryUnknown(
+    threadId, id, `${providerLabel} delivery is unknown: ${reason}`,
+  ) ?? followUp;
+  if (conversationMessageId) failAcceptedV2Messages(threadId, [conversationMessageId], reason);
+  emitThreadEvent(
+    threadId, "thread.follow_up.delivery_unknown",
+    `${providerLabel} 注入结果未知；为避免重复执行，不会自动重发。`,
+    "system", false, { followUp: failed },
+  );
+  return failed;
 }
 
 /**
@@ -17601,6 +17632,16 @@ function settleRecoveredStreamingPushFollowUps(threadId: string): void {
     .listThreadFollowUps(threadId, { statuses: ["delivered"] })
     .filter((followUp) => followUp.deliveryMode === "streaming_push");
   for (const followUp of orphaned) {
+    const message = followUp.conversationMessageId
+      ? conversationStore.conversationV2().getMessage(threadId, followUp.conversationMessageId)
+      : undefined;
+    // A crash after the Codex receipt was committed can leave only the queue
+    // status unfinished. Do not report unknown for a durable, bound prompt.
+    if (message?.status === "final" && message.historyTarget?.userMessageId &&
+        conversationStore.getThread(threadId)?.coreKind === "codex") {
+      conversationStore.markThreadFollowUpStreamingPushApplied(threadId, followUp.id);
+      continue;
+    }
     const failed = conversationStore.markThreadFollowUpDeliveryUnknown(
       threadId,
       followUp.id,
@@ -22400,13 +22441,12 @@ async function recordUserPrompt(
   };
 }
 
-/** Finalize only after dispatch preparation or a mid-turn provider push succeeds. */
-function finalizeAcceptedV2Messages(
+function prepareAcceptedV2Messages(
   threadId: string,
   messageIds: readonly string[],
   signal?: AbortSignal,
-): Promise<void> {
-  return finalizeAcceptedConversationV2Messages({
+) {
+  return prepareAcceptedConversationV2MessageFinalization({
     store: conversationStore.conversationV2(),
     conversationId: threadId,
     messageIds,
@@ -22414,6 +22454,16 @@ function finalizeAcceptedV2Messages(
     createPreviews: createPromptImagePreviews,
     ...(signal ? { signal } : {}),
   });
+}
+
+/** Finalize only after dispatch preparation or a mid-turn provider push succeeds. */
+async function finalizeAcceptedV2Messages(
+  threadId: string,
+  messageIds: readonly string[],
+  signal?: AbortSignal,
+): Promise<void> {
+  const commit = await prepareAcceptedV2Messages(threadId, messageIds, signal);
+  commit();
 }
 
 function failAcceptedV2Messages(threadId: string, messageIds: readonly string[], reason: string): void {

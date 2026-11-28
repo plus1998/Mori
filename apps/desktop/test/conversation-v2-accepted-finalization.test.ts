@@ -3,7 +3,10 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { finalizeAcceptedConversationV2Messages } from "../src/main/conversation-v2-accepted-finalization";
+import {
+  finalizeAcceptedConversationV2Messages,
+  prepareAcceptedConversationV2MessageFinalization,
+} from "../src/main/conversation-v2-accepted-finalization";
 import { ConversationV2Store } from "../src/main/conversation-v2-store";
 import { PromptImageFileStore } from "../src/main/prompt-image-file-store";
 import { buildConversationV2OnlyProjection } from "../src/renderer/ActivityLogView";
@@ -71,7 +74,7 @@ function visiblePreviews(state: ReturnType<typeof installConversationV2Bootstrap
   );
 }
 
-test("queued images survive delivery effects, Feed projection, and read model rebuild", async () => {
+test("queued images become visible at the provider receipt and survive read model rebuild", async () => {
   const { db, store, conversationId, accept, input } = createFixture();
   const imageData = Buffer.from("original queued image bytes").toString("base64");
   const accepted = await accept("look at this", imageData);
@@ -84,7 +87,14 @@ test("queued images survive delivery effects, Feed projection, and read model re
     state = applyConversationV2Effect(state, result.effect);
   });
 
-  await finalizeAcceptedConversationV2Messages({ ...input, messageIds: [accepted.messageId] });
+  const commit = await prepareAcceptedConversationV2MessageFinalization({
+    ...input,
+    messageIds: [accepted.messageId],
+  });
+  expect(effects).toEqual([]);
+  expect(visiblePreviews(state)).toEqual([]);
+  const receiptAt = "2026-11-28T04:00:01.000Z";
+  commit(receiptAt);
   const previews = visiblePreviews(state);
   expect(previews).toHaveLength(1);
   expect(previews[0]).toMatchObject({
@@ -94,7 +104,7 @@ test("queued images survive delivery effects, Feed projection, and read model re
   });
   expect(previews[0]).not.toHaveProperty("path");
   expect(effects).toEqual([
-    expect.objectContaining({ type: "message.finalize", attachments: expect.any(Array) }),
+    expect.objectContaining({ type: "message.finalize", occurredAt: receiptAt, attachments: expect.any(Array) }),
   ]);
   expect(store.getMessage(conversationId, accepted.messageId)?.status).toBe("final");
   store.rebuildReadModels(conversationId);

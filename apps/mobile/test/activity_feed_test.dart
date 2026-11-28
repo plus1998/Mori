@@ -2462,85 +2462,107 @@ void main() {
     expect(turn.finalOutput?.text, '全部完成。');
   });
 
-  test(
-    'mid-turn user prompt splits same attempt so steered output appears after the prompt',
-    () {
-      final feed = buildActivityFeed(
-        threadPrompt: '',
-        threadId: 't1',
-        runProjection: const ThreadRunProjectionSnapshot(
+  for (final interrupted in [false, true]) {
+    test(
+      interrupted
+          ? 'cancelled output stays before a steer with the same timestamp'
+          : 'mid-turn user prompt splits the attempt and places new output after the prompt',
+      () {
+        final feed = buildActivityFeed(
+          threadPrompt: '',
           threadId: 't1',
-          status: 'completed',
-          generatedAt: '2026-01-01T00:00:26.000Z',
-          sourceEventCount: 4,
-          agents: [],
-          attempts: [
-            ThreadRunProjectionAttempt(
-              attemptId: 'attempt-1',
-              phase: 'execution',
-              retryIndex: 0,
-              status: 'completed',
-              startedAt: '2026-01-01T00:00:01.000Z',
-              endedAt: '2026-01-01T00:00:26.000Z',
-            ),
-          ],
-          timeline: [
-            ThreadRunProjectionTimelineItem(
-              id: 'user-1',
-              sequence: 1,
-              eventType: 'thread.status',
-              scope: 'main',
-              role: 'user',
-              text: '你能用浏览器吗？',
-              at: '2026-01-01T00:00:00.500Z',
-              metadata: {'liveType': 'thread.user_prompt'},
-            ),
-            ThreadRunProjectionTimelineItem(
-              id: 'first-final',
-              sequence: 3,
-              eventType: 'message.final',
-              scope: 'main',
-              role: 'main',
-              runAttemptId: 'attempt-1',
-              text: '可以，内置浏览器能打开网页。',
-              at: '2026-01-01T00:00:05.000Z',
-            ),
-            ThreadRunProjectionTimelineItem(
-              id: 'user-mid',
-              sequence: 10,
-              eventType: 'thread.status',
-              scope: 'main',
-              role: 'user',
-              text: '可以打开Baidu.com吗',
-              at: '2026-01-01T00:00:20.000Z',
-              metadata: {'liveType': 'thread.user_prompt'},
-            ),
-            ThreadRunProjectionTimelineItem(
-              id: 'steer-final',
-              sequence: 12,
-              eventType: 'message.final',
-              scope: 'main',
-              role: 'main',
-              runAttemptId: 'attempt-1',
-              text: '好的，我来打开百度。',
-              at: '2026-01-01T00:00:25.000Z',
-            ),
-          ],
-        ),
-      );
+          runProjection: ThreadRunProjectionSnapshot(
+            threadId: 't1',
+            status: 'completed',
+            generatedAt: '2026-01-01T00:00:26.000Z',
+            sourceEventCount: 4,
+            agents: [],
+            attempts: const [
+              ThreadRunProjectionAttempt(
+                attemptId: 'attempt-1',
+                phase: 'execution',
+                retryIndex: 0,
+                status: 'completed',
+                startedAt: '2026-01-01T00:00:01.000Z',
+                endedAt: '2026-01-01T00:00:26.000Z',
+              ),
+            ],
+            timeline: [
+              ThreadRunProjectionTimelineItem(
+                id: 'user-1',
+                sequence: 1,
+                eventType: 'thread.status',
+                scope: 'main',
+                role: 'user',
+                text: '你能用浏览器吗？',
+                at: '2026-01-01T00:00:00.500Z',
+                metadata: {'liveType': 'thread.user_prompt'},
+              ),
+              ThreadRunProjectionTimelineItem(
+                id: 'first-final',
+                sequence: interrupted ? 11 : 3,
+                eventType: 'message.final',
+                scope: 'main',
+                role: 'main',
+                runAttemptId: 'attempt-1',
+                text: '可以，内置浏览器能打开网页。',
+                at: interrupted
+                    ? '2026-01-01T00:00:20.000Z'
+                    : '2026-01-01T00:00:05.000Z',
+                metadata: interrupted
+                    ? const {'v2': true, 'conversationV2Status': 'cancelled'}
+                    : null,
+              ),
+              ThreadRunProjectionTimelineItem(
+                id: 'user-mid',
+                sequence: 10,
+                eventType: 'thread.status',
+                scope: 'main',
+                role: 'user',
+                text: '可以打开Baidu.com吗',
+                at: '2026-01-01T00:00:20.000Z',
+                metadata: {
+                  'liveType': 'thread.user_prompt',
+                  if (interrupted) 'v2': true,
+                  if (interrupted) 'conversationV2VersionSeq': 12,
+                },
+              ),
+              ThreadRunProjectionTimelineItem(
+                id: 'steer-final',
+                sequence: 13,
+                eventType: 'message.final',
+                scope: 'main',
+                role: 'main',
+                runAttemptId: 'attempt-1',
+                text: '好的，我来打开百度。',
+                at: interrupted
+                    ? '2026-01-01T00:00:20.000Z'
+                    : '2026-01-01T00:00:25.000Z',
+              ),
+            ],
+          ),
+        );
 
-      expect(feed.map((entry) => entry.kind).toList(), [
-        ActivityFeedKind.user,
-        ActivityFeedKind.turn,
-        ActivityFeedKind.user,
-        ActivityFeedKind.turn,
-      ]);
-      expect(feed[0].text, '你能用浏览器吗？');
-      expect(feed[2].text, '可以打开Baidu.com吗');
-      expect(feed[1].finalOutput?.text, '可以，内置浏览器能打开网页。');
-      expect(feed[3].finalOutput?.text, '好的，我来打开百度。');
-    },
-  );
+        expect(feed.map((entry) => entry.kind).toList(), [
+          ActivityFeedKind.user,
+          ActivityFeedKind.turn,
+          ActivityFeedKind.user,
+          ActivityFeedKind.turn,
+        ]);
+        expect(feed[0].text, '你能用浏览器吗？');
+        expect(feed[2].text, '可以打开Baidu.com吗');
+        if (interrupted) {
+          expect(feed[1].finalOutput, isNull);
+          final oldOutput = feed[1].processEntries.single;
+          expect(oldOutput.text, '可以，内置浏览器能打开网页。');
+          expect(oldOutput.streaming, isFalse);
+        } else {
+          expect(feed[1].finalOutput?.text, '可以，内置浏览器能打开网页。');
+        }
+        expect(feed[3].finalOutput?.text, '好的，我来打开百度。');
+      },
+    );
+  }
 
   testWidgets(
     'mid-turn prompts show one running heading and keep subsequent output visible',
