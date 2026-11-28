@@ -6599,13 +6599,13 @@ abstract class AppLocalizations {
   /// No description provided for @usageOverview.
   ///
   /// In en, this message translates to:
-  /// **'Usage overview'**
+  /// **'Overview'**
   String get usageOverview;
 
   /// No description provided for @usageAccountHistory.
   ///
   /// In en, this message translates to:
-  /// **'Account usage history'**
+  /// **'Account history'**
   String get usageAccountHistory;
 
   /// No description provided for @usagePeriod5h.
@@ -6641,7 +6641,7 @@ abstract class AppLocalizations {
   /// No description provided for @usageEstimatedCost.
   ///
   /// In en, this message translates to:
-  /// **'Estimated cost (USD)'**
+  /// **'Est. cost (USD)'**
   String get usageEstimatedCost;
 
   /// No description provided for @usageUnpriced.
@@ -6655,6 +6655,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Recording failures'**
   String get usageRecordingFailures;
+
+  /// No description provided for @usageTokenDetails.
+  ///
+  /// In en, this message translates to:
+  /// **'Token details'**
+  String get usageTokenDetails;
 
   /// No description provided for @usageTotalTokens.
   ///

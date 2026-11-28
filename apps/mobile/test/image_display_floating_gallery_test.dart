@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:eco_mobile/core/models/image_display_models.dart';
@@ -23,6 +24,7 @@ void main() {
               ImageDisplayFloatingGallery(
                 artifacts: [_artifact],
                 controller: controller,
+                loadThumbnail: (_) async => _image,
                 loadBytes: (_, {onProgress}) async => _image,
                 onDeleteArtifact: (id) async {
                   expect(id, _artifact.id);
@@ -75,6 +77,8 @@ void main() {
               ImageDisplayFloatingGallery(
                 artifacts: artifacts,
                 controller: controller,
+                loadThumbnail: (_) async =>
+                    throw StateError('Unexpected thumbnail request'),
                 loadBytes: (_, {onProgress}) async {
                   reads++;
                   throw StateError('unavailable');
@@ -104,7 +108,9 @@ void main() {
       final controller = ImageDisplayFloatingGalleryController();
       addTearDown(controller.dispose);
       var artifacts = <ImageDisplayArtifact>[];
-      var reads = 0;
+      final thumbnailReads = <String>[];
+      final originalReads = <String>[];
+      final firstOriginal = Completer<ImageViewReadData>();
       late StateSetter rebuild;
       await tester.pumpWidget(
         _app(
@@ -116,9 +122,13 @@ void main() {
                   ImageDisplayFloatingGallery(
                     artifacts: artifacts,
                     controller: controller,
-                    loadBytes: (_, {onProgress}) async {
-                      reads++;
+                    loadThumbnail: (id) async {
+                      thumbnailReads.add(id);
                       return _image;
+                    },
+                    loadBytes: (id, {onProgress}) async {
+                      originalReads.add(id);
+                      return id == _artifact.id ? firstOriginal.future : _image;
                     },
                   ),
                 ],
@@ -128,23 +138,35 @@ void main() {
         ),
       );
       expect(find.byType(Image), findsNothing);
-      rebuild(() => artifacts = [_artifact]);
+      rebuild(() => artifacts = [_artifact, _newestArtifact]);
       await tester.pumpAndSettle();
       expect(find.text('Menu screenshot'), findsNothing);
-      expect(find.text('1'), findsOneWidget);
-      expect(reads, 0);
+      expect(find.text('2'), findsOneWidget);
+      expect(thumbnailReads, isEmpty);
+      expect(originalReads, isEmpty);
       await tester.tap(find.byIcon(Icons.perm_media_outlined));
       await tester.pumpAndSettle();
       expect(find.text('Menu screenshot'), findsOneWidget);
       expect(
-        tester.widget<Image>(find.byType(Image)).fit,
+        tester.widget<Image>(find.byType(Image).first).fit,
         BoxFit.contain,
         reason: 'Portrait screenshots retain content at the top and bottom',
       );
-      expect(reads, 1);
-      await tester.tap(find.byType(Image));
+      expect(thumbnailReads, [_artifact.id, _newestArtifact.id]);
+      expect(originalReads, isEmpty);
+      await tester.tap(find.text('Menu screenshot'));
+      await tester.pump();
+      expect(originalReads, [_artifact.id]);
+      final copyButton = find.byKey(const ValueKey('image-copy-to-clipboard'));
+      expect(tester.widget<OutlinedButton>(copyButton).onPressed, isNull);
+      firstOriginal.complete(_image);
       await tester.pumpAndSettle();
       expect(find.byType(InteractiveViewer), findsOneWidget);
+      expect(tester.widget<OutlinedButton>(copyButton).onPressed, isNotNull);
+      expect(originalReads, [_artifact.id]);
+      await tester.drag(find.byType(PageView), const Offset(700, 0));
+      await tester.pumpAndSettle();
+      expect(originalReads, [_artifact.id, _newestArtifact.id]);
       await tester.tap(find.byTooltip('Close'));
       await tester.pumpAndSettle();
       await tester.tap(find.byTooltip('Collapse'));
@@ -153,14 +175,10 @@ void main() {
       controller.reveal(artifactId: 'image');
       await tester.pumpAndSettle();
       expect(find.text('Menu screenshot'), findsOneWidget);
-      expect(
-        reads,
-        1,
-        reason: 'Reopening the gallery reuses already loaded bytes',
-      );
-      rebuild(() => artifacts = [_artifact, _newestArtifact]);
-      await tester.pumpAndSettle();
-      expect(reads, 2);
+      expect(thumbnailReads, [
+        _artifact.id,
+        _newestArtifact.id,
+      ], reason: 'Reopening the gallery reuses the cached thumbnails');
       expect(
         tester.getTopLeft(find.text('Newest screenshot')).dx,
         lessThan(tester.getTopLeft(find.text('Menu screenshot')).dx),
@@ -192,10 +210,12 @@ void main() {
                     ImageDisplayFloatingGallery(
                       artifacts: artifacts,
                       controller: controller,
-                      loadBytes: (_, {onProgress}) async {
+                      loadThumbnail: (_) async {
                         reads++;
                         return _image;
                       },
+                      loadBytes: (_, {onProgress}) async =>
+                          throw StateError('Unexpected original request'),
                     ),
                 ],
               );
@@ -259,7 +279,7 @@ void main() {
                 children: [
                   ImageDisplayFloatingGallery(
                     artifacts: const [_artifact],
-                    loadBytes: (_, {onProgress}) async {
+                    loadThumbnail: (_) async {
                       reads++;
                       if (reads == 1) {
                         throw const ImageViewReadException(
@@ -268,6 +288,7 @@ void main() {
                       }
                       return _image;
                     },
+                    loadBytes: (_, {onProgress}) async => _image,
                   ),
                 ],
               );
@@ -283,7 +304,7 @@ void main() {
       rebuild(() {});
       await tester.pumpAndSettle();
       expect(reads, 1);
-      await tester.tap(find.text('Menu screenshot'));
+      await tester.tap(find.text('Tap to retry'));
       await tester.pumpAndSettle();
       expect(reads, 2);
       expect(find.byType(Image), findsOneWidget);

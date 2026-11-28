@@ -3781,10 +3781,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get usageTitle => 'Usage and costs';
 
   @override
-  String get usageOverview => 'Usage overview';
+  String get usageOverview => 'Overview';
 
   @override
-  String get usageAccountHistory => 'Account usage history';
+  String get usageAccountHistory => 'Account history';
 
   @override
   String get usagePeriod5h => '5 hours';
@@ -3802,13 +3802,16 @@ class AppLocalizationsEn extends AppLocalizations {
   String get usagePeriodAll => 'All time';
 
   @override
-  String get usageEstimatedCost => 'Estimated cost (USD)';
+  String get usageEstimatedCost => 'Est. cost (USD)';
 
   @override
   String get usageUnpriced => 'Unpriced records';
 
   @override
   String get usageRecordingFailures => 'Recording failures';
+
+  @override
+  String get usageTokenDetails => 'Token details';
 
   @override
   String get usageTotalTokens => 'Total tokens';

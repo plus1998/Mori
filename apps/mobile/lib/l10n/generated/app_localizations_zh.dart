@@ -3554,10 +3554,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String get usageTitle => '用量与费用';
 
   @override
-  String get usageOverview => '用量总览';
+  String get usageOverview => '总览';
 
   @override
-  String get usageAccountHistory => '账号历史用量';
+  String get usageAccountHistory => '账号历史';
 
   @override
   String get usagePeriod5h => '5 小时';
@@ -3582,6 +3582,9 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get usageRecordingFailures => '记录失败次数';
+
+  @override
+  String get usageTokenDetails => 'Token 明细';
 
   @override
   String get usageTotalTokens => '总 Tokens';

@@ -22,13 +22,12 @@ typedef ImageDisplayBytesLoader =
 /// Mobile gallery for `show_media_to_user` artifacts.
 ///
 /// Collapsed: bubble with count on the trailing edge.
-/// Starts collapsed and loads image bytes only after an explicit reveal.
-/// Expanded: wide bottom panel with a two-column grid; tap opens a paged preview.
-/// Failed thumbs retry on tap; loading shows percent when available.
+/// Expanded: a two-column grid of thumbnails. The paged preview loads originals.
 class ImageDisplayFloatingGallery extends StatefulWidget {
   const ImageDisplayFloatingGallery({
     super.key,
     required this.artifacts,
+    required this.loadThumbnail,
     required this.loadBytes,
     this.controller,
     this.onDeleteArtifact,
@@ -36,6 +35,7 @@ class ImageDisplayFloatingGallery extends StatefulWidget {
   });
 
   final List<ImageDisplayArtifact> artifacts;
+  final Future<ImageViewReadData> Function(String artifactId) loadThumbnail;
   final ImageDisplayBytesLoader loadBytes;
   final ImageDisplayFloatingGalleryController? controller;
   final double bottomInset;
@@ -79,6 +79,7 @@ class _ImageDisplayFloatingGalleryState
     with SingleTickerProviderStateMixin {
   final _deleting = <String>{};
   var _expanded = false;
+  var _imagePreviewOpen = false;
   var _pulse = false;
   String? _highlightId;
   int _lastSeenCount = 0;
@@ -115,7 +116,7 @@ class _ImageDisplayFloatingGalleryState
     }
     final liveIds = widget.artifacts.map((item) => item.id).toSet();
     _loads.removeWhere((id, _) => !liveIds.contains(id));
-    if (_expanded) _loadArtifacts();
+    if (_expanded) _loadThumbnails();
   }
 
   @override
@@ -134,20 +135,20 @@ class _ImageDisplayFloatingGalleryState
         _expanded = true;
         _highlightId = controller.focusArtifactId;
       });
-      _loadArtifacts();
+      _loadThumbnails();
       _triggerPulse();
     }
   }
 
-  void _loadArtifacts() {
+  void _loadThumbnails() {
     for (final artifact in widget.artifacts) {
-      if (artifact.isImage) _ensureLoad(artifact.id);
+      if (artifact.isImage) _ensureLoad(artifact);
     }
   }
 
   void _expand() {
     setState(() => _expanded = true);
-    _loadArtifacts();
+    _loadThumbnails();
   }
 
   void _triggerPulse() {
@@ -160,7 +161,11 @@ class _ImageDisplayFloatingGalleryState
     );
   }
 
-  _ThumbLoadState _ensureLoad(String artifactId, {bool force = false}) {
+  _ThumbLoadState _ensureLoad(
+    ImageDisplayArtifact artifact, {
+    bool force = false,
+  }) {
+    final artifactId = artifact.id;
     final existing = _loads[artifactId];
     if (!force && existing != null && existing.future != null) {
       return existing;
@@ -170,18 +175,19 @@ class _ImageDisplayFloatingGalleryState
     final generation = ++state.generation;
     state.error = null;
     state.data = null;
-    // Show determinate 0% immediately; first RPC used to leave an indeterminate spinner.
-    state.progress = 0;
-    final future = widget.loadBytes(
-      artifactId,
-      onProgress: (received, total) {
-        if (!mounted || state.generation != generation) return;
-        final denominator = total > 0 ? total : 1;
-        setState(() {
-          state.progress = (received / denominator).clamp(0.0, 1.0);
-        });
-      },
-    );
+    state.progress = artifact.isImage ? null : 0;
+    final future = artifact.isImage
+        ? widget.loadThumbnail(artifactId)
+        : widget.loadBytes(
+            artifactId,
+            onProgress: (received, total) {
+              if (!mounted || state.generation != generation) return;
+              final denominator = total > 0 ? total : 1;
+              setState(() {
+                state.progress = (received / denominator).clamp(0.0, 1.0);
+              });
+            },
+          );
     state.future = future;
     unawaited(
       future.then(
@@ -240,85 +246,84 @@ class _ImageDisplayFloatingGalleryState
     }
   }
 
-  void _retry(String artifactId) {
+  void _retry(ImageDisplayArtifact artifact) {
     setState(() {
-      _ensureLoad(artifactId, force: true);
+      _ensureLoad(artifact, force: true);
     });
   }
 
   Future<void> _handleThumbTap(ImageDisplayArtifact artifact) async {
-    final state = _ensureLoad(artifact.id);
+    if (artifact.isImage) {
+      await _openImage(artifact);
+      return;
+    }
+    final state = _ensureLoad(artifact);
     if (state.error != null) {
-      _retry(artifact.id);
+      _retry(artifact);
       return;
     }
-    if (state.data != null) {
-      await _openArtifact(artifact);
-      return;
-    }
+    final ImageViewReadData data;
     try {
-      await state.future!;
-      if (!mounted) return;
-      await _openArtifact(artifact);
+      data = await state.future!;
     } catch (_) {
-      if (!mounted) return;
-      // Error UI already shows in the thumb; tap again retries.
+      return; // The media card shows the retry action.
     }
+    if (!mounted) return;
+    await _openMedia(artifact, data);
   }
 
-  Future<void> _openArtifact(ImageDisplayArtifact artifact) async {
-    final data = _loads[artifact.id]?.data;
-    if (data == null) return;
-    if (data.mimeType.startsWith('video/') ||
-        data.mimeType.startsWith('audio/')) {
-      await showDialog<void>(
-        context: context,
-        builder: (context) => Dialog(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 640),
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  ListTile(
-                    title: Text(artifact.displayTitle),
-                    trailing: IconButton(
-                      tooltip: context.l10n.commonClose,
-                      onPressed: () => Navigator.of(context).pop(),
-                      icon: const Icon(Icons.close),
-                    ),
+  Future<void> _openMedia(
+    ImageDisplayArtifact artifact,
+    ImageViewReadData data,
+  ) {
+    return showDialog<void>(
+      context: context,
+      builder: (context) => Dialog(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 640),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  title: Text(artifact.displayTitle),
+                  trailing: IconButton(
+                    tooltip: context.l10n.commonClose,
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close),
                   ),
-                  MediaArtifactPlayer(data: data),
-                ],
-              ),
+                ),
+                MediaArtifactPlayer(data: data),
+              ],
             ),
           ),
         ),
-      );
-      return;
-    }
+      ),
+    );
+  }
+
+  Future<void> _openImage(ImageDisplayArtifact artifact) async {
+    if (_imagePreviewOpen) return;
     final artifacts = widget.artifacts.reversed
         .where((item) => item.isImage)
         .toList(growable: false);
     final selected = artifacts.indexWhere((item) => item.id == artifact.id);
-    await showImageMemoryLightbox(
-      context,
-      images: [
-        for (final item in artifacts)
-          _loads[item.id]?.data?.bytes ?? Uint8List(0),
-      ],
-      initialIndex: selected,
-      titles: artifacts
-          .map((item) => item.displayTitle)
-          .toList(growable: false),
-      loadImage: (index) async {
-        final id = artifacts[index].id;
-        return (await _ensureLoad(
-          id,
-          force: _loads[id]?.error != null,
-        ).future!).bytes;
-      },
-    );
+    _imagePreviewOpen = true;
+    try {
+      await showImageMemoryLightbox(
+        context,
+        images: [
+          for (final item in artifacts)
+            _loads[item.id]?.data?.bytes ?? Uint8List(0),
+        ],
+        initialIndex: selected,
+        titles: [for (final item in artifacts) item.displayTitle],
+        loadImage: (index) async =>
+            (await widget.loadBytes(artifacts[index].id)).bytes,
+      );
+    } finally {
+      _imagePreviewOpen = false;
+    }
   }
 
   @override
@@ -459,6 +464,7 @@ class _ImageDisplayFloatingGalleryState
                     error: load.error,
                     progress: load.progress,
                     onTap: () => unawaited(_handleThumbTap(artifact)),
+                    onRetry: () => _retry(artifact),
                   );
                   return Stack(
                     fit: StackFit.expand,
@@ -502,6 +508,7 @@ class _ArtifactThumbRow extends StatelessWidget {
   const _ArtifactThumbRow({
     required this.artifact,
     required this.onTap,
+    required this.onRetry,
     required this.highlighted,
     this.data,
     this.error,
@@ -510,6 +517,7 @@ class _ArtifactThumbRow extends StatelessWidget {
 
   final ImageDisplayArtifact artifact;
   final VoidCallback onTap;
+  final VoidCallback onRetry;
   final bool highlighted;
   final ImageViewReadData? data;
   final Object? error;
@@ -600,41 +608,19 @@ class _ArtifactThumbRow extends StatelessWidget {
       );
     }
     if (error != null) {
-      return Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.refresh, color: eco.textMuted, size: 22),
-          const SizedBox(height: 4),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4),
-            child: Text(
-              l10n.activityImageDisplayTapToRetry,
-              textAlign: TextAlign.center,
-              style: TextStyle(color: eco.textMuted, fontSize: 10, height: 1.2),
-            ),
-          ),
-        ],
+      return Center(
+        child: TextButton.icon(
+          onPressed: onRetry,
+          icon: const Icon(Icons.refresh, size: 18),
+          label: Text(l10n.activityImageDisplayTapToRetry),
+          style: TextButton.styleFrom(foregroundColor: eco.textMuted),
+        ),
       );
     }
-    final percent = ((progress ?? 0) * 100).clamp(0, 100).round();
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          SizedBox(
-            width: 22,
-            height: 22,
-            child: CircularProgressIndicator(
-              strokeWidth: 2,
-              value: progress ?? 0,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            l10n.activityImageDisplayLoadingPercent(percent),
-            style: TextStyle(color: eco.textMuted, fontSize: 10),
-          ),
-        ],
+    return const Center(
+      child: SizedBox.square(
+        dimension: 22,
+        child: CircularProgressIndicator(strokeWidth: 2),
       ),
     );
   }

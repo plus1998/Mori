@@ -222,6 +222,7 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
 
   Future<ImageViewReadData> _loadImageDisplayArtifactBytes(
     String artifactId, {
+    bool thumbnail = false,
     void Function(int receivedBytes, int totalBytes)? onProgress,
   }) async {
     final rpc = ref.read(desktopRpcProvider);
@@ -230,7 +231,9 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
         ImageViewReadFailureCode.bridgeUnavailable,
       );
     }
-    return rpc.readImageDisplay(artifactId, onProgress: onProgress);
+    return thumbnail
+        ? rpc.readImageDisplayThumbnail(artifactId)
+        : rpc.readImageDisplay(artifactId, onProgress: onProgress);
   }
 
   void _revealImageDisplayGallery(String artifactId) {
@@ -575,6 +578,8 @@ class _ThreadSessionScreenState extends ConsumerState<ThreadSessionScreen>
                   artifacts: imageDisplayArtifacts,
                   controller: _imageDisplayGalleryController,
                   bottomInset: controlsBottomInset,
+                  loadThumbnail: (id) =>
+                      _loadImageDisplayArtifactBytes(id, thumbnail: true),
                   loadBytes: _loadImageDisplayArtifactBytes,
                   onDeleteArtifact: (id) async {
                     final rpc = ref.read(desktopRpcProvider);

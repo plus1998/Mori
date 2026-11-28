@@ -252,8 +252,9 @@ class _ImageMemoryLightboxBodyState extends State<_ImageMemoryLightboxBody> {
                   if (widget.loadImage == null) {
                     return preview(widget.images[index]);
                   }
+                  final isCurrentPage = index == _index;
                   return FutureBuilder<Uint8List>(
-                    future: _load(index),
+                    future: isCurrentPage ? _load(index) : _loads[index],
                     builder: (context, snapshot) {
                       if (snapshot.hasError) {
                         return _PreviewNotice(
@@ -265,17 +266,34 @@ class _ImageMemoryLightboxBodyState extends State<_ImageMemoryLightboxBody> {
                         );
                       }
                       if (!snapshot.hasData) {
-                        return Center(
-                          child: Semantics(
-                            label: l10n.activityImageViewLoading,
-                            child: const SizedBox.square(
-                              dimension: 24,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white70,
+                        final thumbnail = widget.images[index];
+                        return Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            if (thumbnail.isNotEmpty)
+                              Center(
+                                child: Image.memory(
+                                  thumbnail,
+                                  width: 240,
+                                  height: 240,
+                                  fit: BoxFit.contain,
+                                  excludeFromSemantics: true,
+                                ),
                               ),
-                            ),
-                          ),
+                            if (isCurrentPage)
+                              Center(
+                                child: Semantics(
+                                  label: l10n.activityImageViewLoading,
+                                  child: const SizedBox.square(
+                                    dimension: 24,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white70,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                          ],
                         );
                       }
                       return preview(snapshot.data!);

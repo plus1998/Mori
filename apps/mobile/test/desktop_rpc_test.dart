@@ -713,6 +713,25 @@ void main() {
     expect(image.height, 1);
   });
 
+  test('requests a media thumbnail and rejects an original chunk', () async {
+    final client = _RecordingEcoCenterClient();
+    final rpc = DesktopRpc(client, 'desktop_1');
+
+    final thumbnail = await rpc.readImageDisplayThumbnail('artifact_1');
+
+    expect(client.channel, 'image-display:read');
+    expect(client.args, [
+      {'artifactId': 'artifact_1', 'thumbnail': true, 'offset': 0, 'length': 1},
+    ]);
+    expect(thumbnail.bytes, [1, 2, 3]);
+
+    client.imageViewResponse = {'ok': true, 'offset': 0, 'chunkBytes': 1};
+    await expectLater(
+      rpc.readImageDisplayThumbnail('artifact_1'),
+      throwsA(isA<ImageViewReadException>()),
+    );
+  });
+
   test(
     'maps image view failures and rejects inconsistent byte counts',
     () async {
@@ -1341,7 +1360,7 @@ class _RecordingEcoCenterClient extends EcoCenterClient {
     if (channel == 'asr:transcribe') {
       return {'text': ' hello '} as T;
     }
-    if (channel == 'image-view:read') {
+    if (channel == 'image-view:read' || channel == 'image-display:read') {
       return (imageViewResponse ??
               {
                 'ok': true,

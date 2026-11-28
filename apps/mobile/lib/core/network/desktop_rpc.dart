@@ -703,6 +703,29 @@ class DesktopRpc implements ReadAloudRemote {
         {'path': path},
       ],
     );
+    return _decodeImageViewResponse(result);
+  }
+
+  Future<ImageViewReadData> readImageDisplayThumbnail(String artifactId) async {
+    final result = await _client.invoke<dynamic>(
+      desktopDeviceId,
+      'image-display:read',
+      [
+        // Desktop builds that only support chunked originals return at most
+        // one byte when they ignore the thumbnail flag.
+        {'artifactId': artifactId, 'thumbnail': true, 'offset': 0, 'length': 1},
+      ],
+    );
+    if (result is Map &&
+        (result.containsKey('chunkBytes') || result.containsKey('offset'))) {
+      throw const ImageViewReadException(
+        ImageViewReadFailureCode.unsupportedType,
+      );
+    }
+    return _decodeImageViewResponse(result);
+  }
+
+  ImageViewReadData _decodeImageViewResponse(Object? result) {
     if (result is! Map<String, dynamic>) {
       throw const ImageViewReadException(
         ImageViewReadFailureCode.invalidResponse,

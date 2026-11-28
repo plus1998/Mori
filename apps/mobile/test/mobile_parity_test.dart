@@ -635,7 +635,7 @@ void main({Future<void> Function(WidgetTester, String)? enterSearchText}) {
       expect((client.calls.last.args.single as Map)['at'], 99);
       client.respond = (channel, args) =>
           throw StateError('Usage DB unavailable');
-      await tester.tap(find.byTooltip('Retry'));
+      await tester.tap(find.byTooltip('Refresh status'));
       await tester.pumpAndSettle();
       expect(find.textContaining('Usage DB unavailable'), findsOneWidget);
       expect(find.text('—'), findsNothing);
@@ -796,6 +796,10 @@ void main({Future<void> Function(WidgetTester, String)? enterSearchText}) {
   testWidgets(
     'account history retries an older page with the same exclusive cursor',
     (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(375, 812);
+      addTearDown(tester.view.reset);
+
       final client = Client();
       var failOlder = true;
       client.respond = (channel, args) {
@@ -840,8 +844,15 @@ void main({Future<void> Function(WidgetTester, String)? enterSearchText}) {
         ),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Account usage history'));
+      await tester.tap(find.text('Account history'));
       await tester.pumpAndSettle();
+      expect(find.text('Input tokens'), findsNothing);
+      await tester.tap(find.text('Token details'));
+      await tester.pumpAndSettle();
+      expect(find.text('Input tokens'), findsOneWidget);
+      await tester.tap(find.text('Token details'));
+      await tester.pumpAndSettle();
+
       final list = find.byType(ListView).last;
       await tester.drag(list, const Offset(0, -700));
       await tester.pumpAndSettle();

@@ -111,6 +111,17 @@ class _GalleryApp extends StatelessWidget {
   const _GalleryApp({super.key, required this.dark, required this.images});
   final bool dark;
   final Map<String, Uint8List> images;
+
+  Future<ImageViewReadData> _readFixture(String id) async => ImageViewReadData(
+    bytes: images[id]!,
+    mimeType: 'image/png',
+    path: '/fixture/$id.png',
+    fileName: '$id.png',
+    byteLength: images[id]!.length,
+    width: id == 'portrait' ? 900 : 1200,
+    height: id == 'portrait' ? 1200 : 800,
+  );
+
   @override
   Widget build(BuildContext context) => RepaintBoundary(
     key: _captureKey,
@@ -161,15 +172,8 @@ class _GalleryApp extends StatelessWidget {
                     updatedAt: '',
                   ),
               ],
-              loadBytes: (id, {onProgress}) async => ImageViewReadData(
-                bytes: images[id]!,
-                mimeType: 'image/png',
-                path: '/fixture/$id.png',
-                fileName: '$id.png',
-                byteLength: images[id]!.length,
-                width: id == 'portrait' ? 900 : 1200,
-                height: id == 'portrait' ? 1200 : 800,
-              ),
+              loadThumbnail: _readFixture,
+              loadBytes: (id, {onProgress}) => _readFixture(id),
               bottomInset: 100,
             ),
             Positioned(
