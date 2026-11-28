@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   IMAGE_GENERATION_CODEX_IMAGE_MODELS,
@@ -15,6 +15,7 @@ import { SettingsResourceList, SettingsResourceRow } from "./components/Settings
 import { SettingsGroup, SettingsRow } from "./components/SettingsRow";
 import { Switch } from "./components/Switch";
 import { useImageQuotaResetRefresh } from "./useImageQuotaResetRefresh";
+import { useOpenAIAccountsData } from "./useOpenAIAccountsData";
 import gptImage25FlareIcon from "./assets/image-generation-models/gpt-image-2.5-flare.png";
 import gptImage25SunburstIcon from "./assets/image-generation-models/gpt-image-2.5-sunburst.png";
 import gptImage26FlareIcon from "./assets/image-generation-models/gpt-image-2.6-flare.png";
@@ -24,6 +25,8 @@ const CODEX_IMAGE_MODEL_ICONS: Record<(typeof IMAGE_GENERATION_CODEX_IMAGE_MODEL
   "gpt-image-2.5-sunburst": gptImage25SunburstIcon,
   "gpt-image-2.6-flare": gptImage26FlareIcon,
 };
+
+const EMPTY_ACCOUNTS: readonly OpenAIAccount[] = [];
 
 interface Props {
   profile: ImageGenerationProfileSnapshot;
@@ -49,11 +52,14 @@ export function ImageGenerationLoginSettings({
   onError,
 }: Props) {
   const { t } = useTranslation();
-  const [accounts, setAccounts] = useState<OpenAIAccount[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState("");
+  const eco = typeof window === "undefined" ? undefined : window.eco;
+  const { accounts: snapshot, error, refresh: reloadAccounts } = useOpenAIAccountsData();
+  const accounts = snapshot ?? EMPTY_ACCOUNTS;
+  const loadError = error ?? (typeof window !== "undefined" && !eco
+    ? t("settings.imageGeneration.desktopOnly")
+    : undefined);
+  const initialLoading = snapshot === undefined && loadError === undefined;
   const [savingId, setSavingId] = useState("");
-  const [reload, setReload] = useState(0);
   const [chatModels, setChatModels] = useState<ImageGenerationChatModelOption[]>([]);
   const [modelsLoading, setModelsLoading] = useState(true);
   const [modelsError, setModelsError] = useState("");
@@ -63,13 +69,11 @@ export function ImageGenerationLoginSettings({
   const web = profile.provider === "chatgpt_web";
   const poolKey = accounts.filter((account) => account.imageGenerationEnabled)
     .map((account) => `${account.id}:${account.authState}:${account.webAuthState}`).join(",");
-  const reloadAccounts = useCallback(async () => {
-    setReload((value) => value + 1);
-  }, []);
-  useImageQuotaResetRefresh(accounts, typeof window === "undefined" ? undefined : window.eco, reloadAccounts, onError);
+  useImageQuotaResetRefresh(accounts, eco, reloadAccounts, onError);
 
+  const waitingForWebAccounts = web && initialLoading;
   useEffect(() => {
-    if (web && loading) return;
+    if (waitingForWebAccounts) return;
     let disposed = false;
     let request = 0;
     const force = refreshRequested.current;
@@ -114,35 +118,7 @@ export function ImageGenerationLoginSettings({
       disposed = true;
       unsubscribe?.();
     };
-  }, [t, web, web && loading, web ? poolKey : "", modelsReload]);
-
-  useEffect(() => {
-    let disposed = false;
-    let request = 0;
-    async function refresh() {
-      const current = ++request;
-      setLoading(true);
-      try {
-        if (!window.eco) throw new Error(t("settings.imageGeneration.desktopOnly"));
-        const result = await window.eco.openAIAccountsList();
-        if (!disposed && current === request) {
-          setAccounts(result);
-          setLoadError("");
-        }
-      } catch (error) {
-        if (!disposed && current === request)
-          setLoadError(error instanceof Error ? error.message : String(error));
-      } finally {
-        if (!disposed && current === request) setLoading(false);
-      }
-    }
-    void refresh();
-    const unsubscribe = window.eco?.onOpenAIAccountsChanged(() => void refresh());
-    return () => {
-      disposed = true;
-      unsubscribe?.();
-    };
-  }, [reload, t]);
+  }, [t, web, waitingForWebAccounts, web ? poolKey : "", modelsReload]);
 
   async function toggleAccount(accountId: string, enabled: boolean) {
     if (saving.current) return;
@@ -151,7 +127,7 @@ export function ImageGenerationLoginSettings({
     try {
       if (!window.eco) throw new Error(t("settings.imageGeneration.desktopOnly"));
       await window.eco.openAIAccountsSetImageEnabled(accountId, enabled);
-      setReload((value) => value + 1);
+      await reloadAccounts();
       onPoolChange();
     } catch (error) {
       onError(error instanceof Error ? error.message : String(error));
@@ -231,7 +207,7 @@ export function ImageGenerationLoginSettings({
               </SettingsSelect>
               {web ? (
                 <SettingsButton
-                  disabled={busy || Boolean(savingId) || loading || modelsLoading}
+                  disabled={busy || Boolean(savingId) || initialLoading || modelsLoading}
                   onClick={() => {
                     refreshRequested.current = true;
                     setModelsReload((value) => value + 1);
@@ -302,18 +278,11 @@ export function ImageGenerationLoginSettings({
           ) : undefined
         }
       >
-        {loading ? (
+        {initialLoading ? (
           <p className="settings-empty-hint" role="status">
             {t("common.loading")}
           </p>
-        ) : loadError ? (
-          <div role="alert">
-            <p className="browser-settings-error">{loadError}</p>
-            <SettingsButton onClick={() => setReload((value) => value + 1)}>
-              {t("common.retry")}
-            </SettingsButton>
-          </div>
-        ) : accounts.length === 0 ? (
+        ) : snapshot === undefined ? null : accounts.length === 0 ? (
           <p className="settings-empty-hint">{t("settings.imageGeneration.loginPoolEmpty")}</p>
         ) : (
           <>
@@ -363,7 +332,7 @@ export function ImageGenerationLoginSettings({
                     actions={
                       <Switch
                         checked={account.imageGenerationEnabled ?? false}
-                        disabled={busy || loading || Boolean(savingId)}
+                        disabled={busy || Boolean(savingId)}
                         aria-label={t("settings.imageGeneration.useAccount", { name: account.name })}
                         onCheckedChange={(checked) => void toggleAccount(account.id, checked)}
                       />
@@ -374,6 +343,14 @@ export function ImageGenerationLoginSettings({
             </SettingsResourceList>
           </>
         )}
+        {loadError !== undefined ? (
+          <div role="alert">
+            <p className="browser-settings-error">{loadError}</p>
+            <SettingsButton onClick={() => void reloadAccounts()}>
+              {t("common.retry")}
+            </SettingsButton>
+          </div>
+        ) : null}
       </SettingsSection>
     </>
   );

@@ -35,6 +35,7 @@ import {
 import { useTranslation } from "react-i18next";
 import type {
   OpenAIAccount,
+  OpenAIAccountAssistantTarget,
   OpenAIAccountDetails,
   OpenAIAccountProxyMode,
   OpenAIAccountQuota,
@@ -603,12 +604,12 @@ function OpenAIAccountsContent({ onError, data, onOpenConnection }: {
     }
   }, [eco]);
 
-  const handleOpenAssistant = useCallback(async (accountId: string) => {
+  const handleOpenAssistant = useCallback(async (accountId: string, target: Exclude<OpenAIAccountAssistantTarget, "claude">) => {
     if (!eco) return;
     setBusy(true);
     setOperationError("");
     try {
-      await eco.openAIAccountsOpenAssistant(accountId);
+      await eco.openAIAccountsOpenAssistant(accountId, target);
     } catch (error) {
       setOperationError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -997,7 +998,7 @@ function OpenAIAccountsContent({ onError, data, onOpenConnection }: {
                               <Globe2 size={14} />
                               <span>{t("settings.openaiAccounts.openChatGPT")}</span>
                             </button>
-                            <button type="button" role="menuitem" className="codex-account-status-item is-primary" disabled={busy} onClick={() => { setStatusMenu(null); void handleOpenAssistant(account.id); }}>
+                            <button type="button" role="menuitem" className="codex-account-status-item is-primary" disabled={busy} onClick={() => { setStatusMenu(null); void handleOpenAssistant(account.id, "web"); }}>
                               <KeyRound size={14} />
                               <span>{t("settings.openaiAccounts.openLoginAssistant")}</span>
                             </button>
@@ -1040,7 +1041,7 @@ function OpenAIAccountsContent({ onError, data, onOpenConnection }: {
                               <Globe2 size={14} />
                               <span>{t("settings.openaiAccounts.externalLogin")}</span>
                             </button>
-                            <button type="button" role="menuitem" className="codex-account-status-item" disabled={busy} onClick={() => { setStatusMenu(null); void handleOpenAssistant(account.id); }}>
+                            <button type="button" role="menuitem" className="codex-account-status-item" disabled={busy} onClick={() => { setStatusMenu(null); void handleOpenAssistant(account.id, "codex"); }}>
                               <KeyRound size={14} />
                               <span>{t("settings.openaiAccounts.openLoginAssistant")}</span>
                             </button>

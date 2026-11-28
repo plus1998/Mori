@@ -194,6 +194,7 @@ export const IPC_CHANNELS = {
   openAIAccountsOpenAssistant: "openai-accounts:open-assistant",
   openAIAccountsAssistantState: "openai-accounts:assistant-state",
   openAIAccountsAssistantAction: "openai-accounts:assistant-action",
+  openAIAccountsWebLoginResult: "openai-accounts:web-login-result",
   modelRouteProfileTest: "model-route-profile:test",
   modelRouteProfileSave: "model-route-profile:save",
   modelRouteProfileDelete: "model-route-profile:delete",

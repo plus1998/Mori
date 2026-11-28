@@ -87,10 +87,15 @@ export class CursorApiKeyStore {
   }
 
   firstCredential(): CursorCredential | undefined {
-    const enabled = this.rows().filter((row) => row.enabled === 1 && row.api_key !== "");
-    const now = Date.now();
-    const row = enabled.find((account) => account.oauth_expires_at === null || account.oauth_expires_at > now) ?? enabled[0];
-    return row && this.toCredential(row);
+    return this.credentialsForModelCatalog()[0];
+  }
+
+  credentialsForModelCatalog(threadId?: string): CursorCredential[] {
+    const assigned = threadId ? this.credentialForThread(threadId, false) : undefined;
+    if (assigned) return [assigned];
+    const { active, enabled } = this.eligibleAccountRows();
+    const rows = active.length ? active : enabled.slice(0, 1);
+    return rows.map(row => this.toCredential(row));
   }
 
   credentialForAccount(id: string): CursorCredential {
@@ -108,9 +113,7 @@ export class CursorApiKeyStore {
     ).get(threadId) as unknown as CursorApiKeyRow | undefined;
     if (assignment) return this.toCredential(assignment);
     if (!assign) return undefined;
-    const enabled = this.rows().filter((row) => row.enabled === 1 && row.api_key !== "");
-    const now = Date.now();
-    const active = enabled.filter((row) => row.oauth_expires_at === null || row.oauth_expires_at > now);
+    const { active, enabled } = this.eligibleAccountRows();
     const account = this.nextEnabledAccount(active);
     if (!account) return enabled[0] && this.toCredential(enabled[0]);
     this.db.prepare(
@@ -127,6 +130,13 @@ export class CursorApiKeyStore {
   apiKeyForThread(threadId: string): string | undefined {
     const credential = this.credentialForThread(threadId);
     return credential?.kind === "apiKey" ? credential.value : undefined;
+  }
+
+  private eligibleAccountRows(): { active: CursorApiKeyRow[]; enabled: CursorApiKeyRow[] } {
+    const enabled = this.rows().filter(row => row.enabled === 1 && row.api_key !== "");
+    const now = Date.now();
+    const active = enabled.filter(row => row.oauth_expires_at === null || row.oauth_expires_at > now);
+    return { active, enabled };
   }
 
   private nextEnabledAccount(rows: CursorApiKeyRow[]): CursorApiKeyRow | undefined {

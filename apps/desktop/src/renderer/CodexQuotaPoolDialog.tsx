@@ -2,7 +2,6 @@ import { ArrowRight, Check, LoaderCircle, Plus, RefreshCw, X } from "lucide-reac
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
-import { CODEX_QUOTA_REFRESH_MS } from "../shared/codex-quota-refresh";
 import { type AppLocale, formatAppDateTime } from "../shared/locale";
 import {
   canUseOpenAIAccountCredentials,
@@ -99,6 +98,26 @@ function QuotaWindows({ quota, now }: { quota: OpenAIAccountQuota; now: number }
 
 type QuotaRequest = { status: "loading" } | { status: "error"; message: string; failedAt: number };
 
+function nextQuotaResetAt(account: OpenAIAccount, now: number): number | undefined {
+  const quota = account.quota;
+  if (!quota) return undefined;
+  const resetTimes = [quota.rateLimit.primaryWindow, quota.rateLimit.secondaryWindow]
+    .filter((window): window is NonNullable<typeof window> => window !== null)
+    .map((window) => codexQuotaResetAt(window, quota.fetchedAt))
+    .filter((resetAt): resetAt is number => resetAt !== undefined && resetAt > now);
+  return resetTimes.length ? Math.min(...resetTimes) : undefined;
+}
+
+function quotaResetIsDue(account: OpenAIAccount, now: number): boolean {
+  const quota = account.quota;
+  if (!quota) return false;
+  return [quota.rateLimit.primaryWindow, quota.rateLimit.secondaryWindow].some((window) => {
+    if (!window) return false;
+    const resetAt = codexQuotaResetAt(window, quota.fetchedAt);
+    return resetAt !== undefined && resetAt <= now && quota.fetchedAt < resetAt;
+  });
+}
+
 export function CodexQuotaPoolDialog({
   currentAccountId,
   switchBlocked,
@@ -123,7 +142,6 @@ export function CodexQuotaPoolDialog({
   const [switching, setSwitching] = useState(false);
   const [requests, setRequests] = useState<Record<string, QuotaRequest>>({});
   const [now, setNow] = useState(Date.now);
-  const viewChecked = useRef(new Set<string>());
   const inFlight = useRef(new Set<string>());
 
   useEffect(() => {
@@ -138,43 +156,70 @@ export function CodexQuotaPoolDialog({
     };
   }, []);
 
-  const refreshQuota = useCallback(async (id: string, reason: "view" | "manual") => {
-    const eco = window.eco;
-    if (!eco || inFlight.current.has(id)) return;
-    inFlight.current.add(id);
-    setRequests((previous) => ({ ...previous, [id]: { status: "loading" } }));
-    try {
-      await eco.openAIAccountsQueryQuota(id, reason);
-      setRequests((previous) => {
-        const next = { ...previous };
-        delete next[id];
-        return next;
-      });
-    } catch (error) {
-      setRequests((previous) => ({
-        ...previous,
-        [id]: { status: "error", message: errorMessage(error), failedAt: Date.now() },
-      }));
-    } finally {
-      inFlight.current.delete(id);
-    }
-  }, []);
+  const refreshQuota = useCallback(
+    async (id: string, reason: "manual" | "reset") => {
+      const eco = window.eco;
+      if (!eco || inFlight.current.has(id)) return;
+      inFlight.current.add(id);
+      setRequests((previous) => ({ ...previous, [id]: { status: "loading" } }));
+      try {
+        await eco.openAIAccountsQueryQuota(id, reason);
+        // The main process normally broadcasts this change. Reloading here also
+        // keeps the timer moving when a bridge implementation only resolves the query.
+        await reloadAccounts();
+        setRequests((previous) => {
+          const next = { ...previous };
+          delete next[id];
+          return next;
+        });
+      } catch (error) {
+        setRequests((previous) => ({
+          ...previous,
+          [id]: { status: "error", message: errorMessage(error), failedAt: Date.now() },
+        }));
+      } finally {
+        inFlight.current.delete(id);
+      }
+    },
+    [reloadAccounts],
+  );
 
   useEffect(() => {
-    if (editing || !accounts) return;
-    for (const account of accounts) {
-      if (!pool.ids.includes(account.id) || !canRefreshQuota(account) || viewChecked.current.has(account.id))
-        continue;
-      viewChecked.current.add(account.id);
-      if (
-        account.sharedSource &&
-        account.quota &&
-        Date.now() - account.quota.fetchedAt < CODEX_QUOTA_REFRESH_MS
-      )
-        continue;
-      void refreshQuota(account.id, "view");
-    }
-  }, [accounts, editing, pool.ids, refreshQuota]);
+    if (!accounts || !pool.ids.length) return;
+    let disposed = false;
+    let timer: number | undefined;
+
+    const schedule = () => {
+      if (disposed) return;
+      const now = Date.now();
+      const watchedAccounts = accounts.filter(
+        (account) => pool.ids.includes(account.id) && canRefreshQuota(account),
+      );
+      const dueAccounts = watchedAccounts.filter((account) => quotaResetIsDue(account, now));
+      const retryAt = dueAccounts
+        .map((account) => account.quotaRefresh?.retryAt)
+        .filter((at): at is number => at !== undefined && at > now);
+      const due = dueAccounts.filter((account) => {
+        const accountRetryAt = account.quotaRefresh?.retryAt;
+        return accountRetryAt === undefined || accountRetryAt <= now;
+      });
+      if (due.length) {
+        for (const account of due) void refreshQuota(account.id, "reset");
+        return;
+      }
+      const nextAt = [...watchedAccounts.map((account) => nextQuotaResetAt(account, now)), ...retryAt].filter(
+        (at): at is number => at !== undefined,
+      );
+      if (!nextAt.length) return;
+      timer = window.setTimeout(schedule, Math.min(2_147_483_647, Math.max(1, Math.min(...nextAt) - now)));
+    };
+
+    schedule();
+    return () => {
+      disposed = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [accounts, pool.ids, refreshQuota]);
 
   const byId = new Map(accounts?.map((account) => [account.id, account]));
   const watched = pool.ids.flatMap((id) => {
@@ -197,7 +242,6 @@ export function CodexQuotaPoolDialog({
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(ids));
       setPool({ ids });
       setStorageError(undefined);
-      if (!enabled) viewChecked.current.delete(id);
     } catch (error) {
       setStorageError(errorMessage(error));
     }

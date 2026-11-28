@@ -150,7 +150,21 @@ export interface OpenAIAccount {
   quotaRefresh?: OpenAIAccountQuotaRefreshState;
 }
 
+export const openAIAccountAssistantTargets = ["web", "codex", "claude"] as const;
+export type OpenAIAccountAssistantTarget = typeof openAIAccountAssistantTargets[number];
+
+export function isOpenAIAccountAssistantTarget(value: unknown): value is OpenAIAccountAssistantTarget {
+  return openAIAccountAssistantTargets.some(target => target === value);
+}
+
+export const openAIAccountAssistantTitleKeys = {
+  web: "assistant.webWindowTitle",
+  codex: "assistant.codexWindowTitle",
+  claude: "settings.claudeLogin.assistantTitle",
+} as const;
+
 export interface OpenAIAccountAssistantState {
+  target: OpenAIAccountAssistantTarget;
   provider?: "claude";
   accountId: string;
   name: string;

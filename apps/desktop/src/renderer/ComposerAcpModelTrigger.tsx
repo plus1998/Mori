@@ -12,6 +12,7 @@ import {
   resolveAcpModelVendor,
 } from "../shared/acp-model-vendor";
 import type { I18nKey } from "../shared/i18n-catalogs";
+import { AcpModelTags, describeAcpModel } from "./acp-model-display";
 import { ComposerAbovePanel } from "./ComposerAbovePanel";
 import { ComposerHoverTooltip } from "./ComposerHoverTooltip";
 import { ComposerModelPickerHeading } from "./ComposerModelPickerHeading";
@@ -19,7 +20,7 @@ import { ComposerModelPickerHeading } from "./ComposerModelPickerHeading";
 export interface ComposerAcpModelTriggerProps {
   anchorRef: RefObject<HTMLElement | null>;
   models: readonly AcpModelOption[];
-  selectedModelId?: string;
+  selectedModelId?: string | undefined;
   disabled?: boolean;
   readOnly?: boolean;
   loading?: boolean;
@@ -175,7 +176,10 @@ export function ComposerAcpModelTrigger({
       t("settings.cursorApiKeys.autoAccount").toLocaleLowerCase().includes(normalizedQuery));
 
   const selectedModel = models.find((model) => model.id === selectedModelId);
-  const triggerLabel = selectedModel?.displayName ?? t("settings.acpModel.default");
+  const selectedDisplay = selectedModel && describeAcpModel(selectedModel, t);
+  const triggerLabel = selectedDisplay?.label ?? selectedModelId ?? t("settings.acpModel.default");
+  const selectedTags = selectedDisplay?.tags.map(tag => tag.label) ?? [];
+  const triggerDetails = [triggerLabel, ...selectedTags].join(" · ");
   const selectedAccount = selectedAccountId
     ? accountEntries.find((account) => account.id === selectedAccountId)
     : undefined;
@@ -183,6 +187,7 @@ export function ComposerAcpModelTrigger({
     ? selectedAccount?.name ?? t("settings.cursorApiKeys.unavailableAccount")
     : t("settings.cursorApiKeys.autoAccount");
   const hoverDetails = [
+    ...selectedTags,
     t("settings.cursorApiKeys.title"),
     selectedAccountName,
   ].join(" · ");
@@ -207,7 +212,8 @@ export function ComposerAcpModelTrigger({
       ref={triggerRef}
       type="button"
       className={`composer-model-trigger composer-acp-model-trigger${open ? " is-active" : ""}`}
-      aria-label={`${t("composer.model.triggerAria", { label: triggerLabel })} · ${selectedAccountName}`}
+      aria-label={`${t("composer.model.triggerAria", { label: triggerDetails })} · ${selectedAccountName}`}
+      title={!showTooltip && selectedTags.length ? triggerDetails : undefined}
       aria-haspopup="dialog"
       aria-expanded={open}
       aria-busy={loading || undefined}
@@ -257,7 +263,7 @@ export function ComposerAcpModelTrigger({
           <button
             type="button"
             className={`model-cascade-clear${!selectedModelId ? " is-active" : ""}`}
-            disabled={readOnly || loading}
+            disabled={readOnly}
             onClick={() => chooseModel(undefined)}
           >
             <span className="model-cascade-clear-label">{t("settings.acpModel.default")}</span>
@@ -372,24 +378,24 @@ export function ComposerAcpModelTrigger({
                     {t("settings.acpModel.loading")}
                   </p>
                 ) : visibleModels.length ? (
-                  <div className="composer-main-model-picker-model-grid">
+                  <div className="composer-main-model-picker-model-grid composer-acp-model-grid">
                     {visibleModels.map((model) => {
                       const selected = model.id === selectedModelId;
+                      const { label, tags } = describeAcpModel(model, t);
+                      const currentLabel = model.current ? t("settings.acpModel.current") : undefined;
                       return (
                         <button
                           key={model.id}
                           type="button"
-                          className={selected ? "is-selected" : ""}
+                          className={selected ? "composer-acp-model-option is-selected" : "composer-acp-model-option"}
                           aria-pressed={selected}
-                          title={model.current
-                            ? `${model.displayName} · ${t("settings.acpModel.current")}`
-                            : model.displayName}
+                          title={[label, ...tags.map(tag => tag.label), currentLabel].filter(Boolean).join(" · ")}
                           disabled={readOnly || loading}
                           onClick={() => chooseModel(model.id)}
                         >
-                          <span>
-                            {model.displayName}
-                            {model.current ? ` · ${t("settings.acpModel.current")}` : ""}
+                          <span className="composer-acp-model-label">
+                            <span>{currentLabel ? `${label} · ${currentLabel}` : label}</span>
+                            {tags.length > 0 && <AcpModelTags tags={tags} />}
                           </span>
                           {selected ? <Check size={14} aria-hidden /> : null}
                         </button>

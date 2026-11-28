@@ -1,7 +1,7 @@
 import type { CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { Copy, Eye, EyeOff, KeyRound, LogIn, Mail, Pin, PinOff, ShieldCheck, ArrowUpRight, Inbox, Check, Timer } from "lucide-react";
-import type { OpenAIAccountAssistantAction, OpenAIAccountAssistantState } from "../../shared/openai-account";
+import { openAIAccountAssistantTitleKeys, type OpenAIAccountAssistantAction, type OpenAIAccountAssistantState } from "../../shared/openai-account";
 
 function formatLoginRemaining(seconds: number): string {
   const safeSeconds = Math.max(0, Math.floor(seconds));
@@ -40,7 +40,7 @@ export function OpenAIAccountAssistantView({ state, busy, password, notice, erro
   return (
     <div className="account-assistant">
       <header className="assistant-titlebar">
-        <span>{t("assistant.title")}</span>
+        <span>{t(openAIAccountAssistantTitleKeys[state.target])}</span>
         <button className={state.pinned ? "is-pinned" : ""} type="button" aria-label={state.pinned ? t("assistant.unpinWindow") : t("assistant.pinWindow")} disabled={busy} onClick={() => onAction({ type: "togglePin" })}>
           {state.pinned ? <Pin size={14} /> : <PinOff size={14} />}
         </button>

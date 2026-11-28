@@ -278,8 +278,8 @@ test("login opens a browser window, supports helper fill, and cancels when the w
     await expect(ecoPage.locator(`webview[ecobrowsertabid="${tab.id}"]`)).toHaveCount(0);
     await expect(ecoPage.evaluate(id => window.eco.browserSetWindowed(id, false), tab.id)).rejects.toThrow("登录期间");
     expect(tab.url).toMatch(/^https:\/\/auth\.openai\.com\//);
-    expect(await ecoPage.evaluate(id => window.eco.openAIAccountsAssistantState(id), account.id)).toMatchObject({ hasLoginWindow: true, canFill: true });
-    await ecoPage.evaluate(id => window.eco.openAIAccountsAssistantAction(id, { type: "fill", field: "email" }), account.id);
+    expect(await ecoPage.evaluate(id => window.eco.openAIAccountsAssistantState(id, "codex"), account.id)).toMatchObject({ hasLoginWindow: true, canFill: true });
+    await ecoPage.evaluate(id => window.eco.openAIAccountsAssistantAction(id, "codex", { type: "fill", field: "email" }), account.id);
     expect(await readAccountPage(electronApp, account.id, 'document.querySelector("input").value')).toBe("account-login@example.test");
     await readAccountPage(electronApp, account.id, 'document.body.innerText = "Signed in to Codex. You may now close this page"');
     await expect.poll(async () => (await ecoPage.evaluate(() => window.eco.getBrowserState())).instances.find(page => page.id === tab.id)?.closeBlocked).toBe(true);
@@ -289,14 +289,14 @@ test("login opens a browser window, supports helper fill, and cancels when the w
     const blocked = await ecoPage.evaluate(id => window.eco.browserCloseInstance({ browserId: id }), tab.id);
     expect(blocked.instances.some(page => page.id === tab.id)).toBe(true);
     await ecoPage.evaluate(({ id, loginId }) => window.eco.openAIAccountsCancelLogin(id, loginId), { id: account.id, loginId: result.loginId! });
-    await expect.poll(async () => (await ecoPage.evaluate(id => window.eco.openAIAccountsAssistantState(id), account.id)).hasLoginWindow).toBe(false);
+    await expect.poll(async () => (await ecoPage.evaluate(id => window.eco.openAIAccountsAssistantState(id, "codex"), account.id)).hasLoginWindow).toBe(false);
     const retry = await ecoPage.evaluate(id => window.eco.openAIAccountsStartLogin(id), account.id);
     expect(retry.success, retry.message).toBe(true);
     const next = await ecoPage.evaluate(() => window.eco.getBrowserState());
     await electronApp.evaluate(({ BrowserWindow }, id) => {
       BrowserWindow.getAllWindows().find(window => window.webContents.getURL().includes(`browser.html?browserId=${id}`))!.close();
     }, next.instances.find(page => page.accountId === account.id)!.id);
-    await expect.poll(async () => (await ecoPage.evaluate(id => window.eco.openAIAccountsAssistantState(id), account.id)).hasLoginWindow).toBe(false);
+    await expect.poll(async () => (await ecoPage.evaluate(id => window.eco.openAIAccountsAssistantState(id, "codex"), account.id)).hasLoginWindow).toBe(false);
   } finally {
     await ecoPage.evaluate(id => window.eco.openAIAccountsDelete(id), account.id);
   }

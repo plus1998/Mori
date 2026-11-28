@@ -93,14 +93,14 @@ function renderAssistant(state: OpenAIAccountAssistantState, locale: "zh-CN" | "
 }
 
 const filledState = {
-  accountId: "oa_test", name: "Test", email: "a@example.test", hasPassword: true, hasPickupUrl: true,
+  accountId: "oa_test", target: "codex", name: "Test", email: "a@example.test", hasPassword: true, hasPickupUrl: true,
   pickupHost: "pickup.test", hasTwoFactorSecret: true, code: "012345", remainingSeconds: 9,
   loginRemainingSeconds: 599, canFill: true, hasLoginWindow: true, pinned: true,
 } satisfies OpenAIAccountAssistantState;
 
 // The profile the account has not filled in yet: every row falls back to its empty-state copy.
 const emptyState = {
-  accountId: "oa_test", name: "Test", hasPassword: false, hasPickupUrl: false, hasTwoFactorSecret: false,
+  accountId: "oa_test", target: "web", name: "Test", hasPassword: false, hasPickupUrl: false, hasTwoFactorSecret: false,
   canFill: false, hasLoginWindow: false, pinned: false,
 } satisfies OpenAIAccountAssistantState;
 
@@ -155,7 +155,9 @@ test("profile presence identifies saved fields without exposing their values", (
 });
 
 test("the login helper window title follows the app locale", () => {
-  expect(translateCatalog("zh-CN", "assistant.windowTitle")).toBe("ChatGPT Login 助手");
-  expect(translateCatalog("en-US", "assistant.windowTitle")).toBe("ChatGPT Login helper");
+  expect(renderAssistant(filledState, "zh-CN")).toContain("Codex 登录助手");
+  expect(renderAssistant(filledState, "en-US")).toContain("Codex login helper");
+  expect(renderAssistant(emptyState, "zh-CN")).toContain("ChatGPT Web 登录助手");
+  expect(renderAssistant(emptyState, "en-US")).toContain("ChatGPT Web login helper");
   expect(translateCatalog("en-US", "assistant.inboxWindowTitle", { name: "Test" })).toBe("Inbox · Test");
 });

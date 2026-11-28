@@ -5,12 +5,20 @@ export type AcpAvailableModel = {
   name?: string;
 };
 
-/**
- * Map Composer / CLI model ids onto ACP wire ids from `session/new` or `session/load` models.
- * Exact modelId wins; otherwise match by name or bare id before `[…]`.
- * Throws when the catalog is missing or the id cannot be mapped — never pass CLI short
- * names like `auto` / `composer-2.5` through to `session/set_model`.
- */
+/** Legacy selections can match a bare ID or name. An explicit wire ID must match exactly. */
+export function findAcpWireModelId(requested: string, available: readonly AcpAvailableModel[]): string | undefined {
+  const id = requested.trim();
+  if (!id) return undefined;
+  if (available.some(model => model.modelId === id)) return id;
+  if (id.includes("[")) return undefined;
+  if (id === "auto") {
+    const auto = available.find(model => model.modelId === "default[]" || model.name?.toLowerCase() === "auto");
+    if (auto) return auto.modelId;
+  }
+  return available.find(model => model.modelId.startsWith(`${id}[`) || model.name === id)?.modelId;
+}
+
+/** Map saved model selections to the ACP wire catalog returned by session/new or session/load. */
 export function resolveAcpWireModelId(
   requested: string,
   available: readonly AcpAvailableModel[] = [],
@@ -22,19 +30,8 @@ export function resolveAcpWireModelId(
       `ACP availableModels missing; cannot resolve model id "${trimmed}" to a wire id (CLI short names like "auto" are not valid for session/set_model)`,
     );
   }
-  if (available.some((m) => m.modelId === trimmed)) {
-    return trimmed;
-  }
-  if (trimmed === "auto") {
-    const auto = available.find((m) => m.modelId === "default[]" || m.name?.toLowerCase() === "auto");
-    if (auto) return auto.modelId;
-  }
-  const bare = trimmed.replace(/\[.*$/, "");
-  const byBare = available.find(
-    (m) =>
-      m.modelId === `${bare}[]` || m.modelId.startsWith(`${bare}[`) || m.name === trimmed || m.name === bare,
-  );
-  if (byBare) return byBare.modelId;
+  const wireId = findAcpWireModelId(trimmed, available);
+  if (wireId) return wireId;
   const sample = available
     .slice(0, 5)
     .map((m) => m.modelId)

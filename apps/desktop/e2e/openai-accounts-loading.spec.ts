@@ -6,7 +6,7 @@ declare global {
       reads(): number;
       listeners(): number;
       changed(): void;
-      complete(id: number, name: string | null): void;
+      complete(id: number, name: string | null, count?: number): void;
       fail(id: number): void;
     };
   }
@@ -16,6 +16,11 @@ async function openFixture(page: Page) {
   await page.goto(new URL("/e2e/fixtures/openai-accounts-loading.html",
     process.env.ECO_ACCOUNT_LOADING_TEST_URL ?? "http://127.0.0.1:5173").href);
   await expect(page.locator(".codex-accounts-hero")).toBeVisible();
+}
+
+async function openLoginAccountsTab(page: Page) {
+  await page.getByRole("tab", { name: "ChatGPT", exact: true }).click();
+  await page.getByRole("menuitemradio", { name: "ChatGPT Login", exact: true }).click();
 }
 
 test("first read distinguishes loading, failed, and successfully empty accounts", async ({ page }) => {
@@ -34,6 +39,38 @@ test("first read distinguishes loading, failed, and successfully empty accounts"
   await expect(page.getByRole("alert")).toHaveCount(0);
 });
 
+test("Creative Drawing keeps its scroll position while the account pool refreshes", async ({ page }) => {
+  await page.goto(new URL("/e2e/fixtures/openai-accounts-loading.html?creative-drawing",
+    process.env.ECO_ACCOUNT_LOADING_TEST_URL ?? "http://127.0.0.1:5173").href);
+  await expect.poll(() => page.evaluate(() => window.accountLoadingFixture.reads())).toBe(1);
+  await page.evaluate(() => window.accountLoadingFixture.complete(1, "Login account", 24));
+  const account = page.getByText("Login account 12", { exact: true });
+  await account.scrollIntoViewIfNeeded();
+  const scroller = page.locator(".settings-main");
+  const scrollTop = () => scroller.evaluate((element) => element.scrollTop);
+  const before = await scrollTop();
+  expect(before).toBeGreaterThan(0);
+
+  await page.evaluate(() => window.accountLoadingFixture.changed());
+  // Wait for React and Chromium to commit the pending refresh before it resolves.
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  expect(await scrollTop()).toBe(before);
+  await expect(account).toBeInViewport();
+
+  await page.evaluate(() => window.accountLoadingFixture.fail(2));
+  await expect(page.getByRole("alert")).toContainText("SQLite account read failed");
+  expect(await scrollTop()).toBe(before);
+  await expect(account).toBeInViewport();
+
+  await page.evaluate(() => {
+    window.accountLoadingFixture.changed();
+    window.accountLoadingFixture.complete(3, "Refreshed account", 24);
+  });
+  await expect(page.getByText("Refreshed account 12", { exact: true })).toBeInViewport();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  expect(await scrollTop()).toBe(before);
+});
+
 test("switching supplier tabs retains accounts without a transient empty state or another read", async ({ page }) => {
   await openFixture(page);
   await page.evaluate(() => window.accountLoadingFixture.complete(1, "Saved Login account"));
@@ -49,7 +86,7 @@ test("switching supplier tabs retains accounts without a transient empty state o
   });
   for (let i = 0; i < 3; i++) {
     await page.getByRole("tab").first().click();
-    await page.getByRole("tab", { name: "ChatGPT Login", exact: true }).click();
+    await openLoginAccountsTab(page);
     await expect(page.locator(".codex-account-card")).toContainText("Saved Login account");
   }
   expect(await page.evaluate(() => window.accountLoadingFixture.reads())).toBe(1);
@@ -66,7 +103,7 @@ test("account events update inactive tabs; background failures retain cards and 
     window.accountLoadingFixture.changed();
     window.accountLoadingFixture.complete(2, "Changed while hidden");
   });
-  await page.getByRole("tab", { name: "ChatGPT Login", exact: true }).click();
+  await openLoginAccountsTab(page);
   await expect(page.locator(".codex-account-card")).toContainText("Changed while hidden");
   await page.evaluate(() => window.accountLoadingFixture.changed());
   await expect(page.locator(".codex-account-card")).toContainText("Changed while hidden");

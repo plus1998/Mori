@@ -44,12 +44,19 @@ test.skipIf(!sqliteAvailable)("keeps each conversation's key across turns and re
     const work = store.save({ name: "Work", apiKey: "work-secret-1234" });
     const personal = store.save({ name: "Personal", apiKey: "personal-secret-5678" });
     expect(store.firstApiKey()).toBe("work-secret-1234");
+    expect(store.credentialsForModelCatalog("t1").map(credential => credential.value))
+      .toEqual(["work-secret-1234", "personal-secret-5678"]);
+    expect(store.credentialForThread("t1", false)).toBeUndefined();
     expect(store.apiKeyForThread("t1")).toBe("work-secret-1234");
+    expect(store.credentialsForModelCatalog("t1").map(credential => credential.value))
+      .toEqual(["work-secret-1234"]);
     expect(store.apiKeyForThread("t2")).toBe("personal-secret-5678");
     expect(store.apiKeyForThread("t1")).toBe("work-secret-1234");
     const reopened = await createCursorApiKeyStore(dbPath);
     expect(reopened.apiKeyForThread("t2")).toBe("personal-secret-5678");
     store.setEnabled(work.id, false);
+    expect(store.credentialsForModelCatalog("t1").map(credential => credential.value))
+      .toEqual(["personal-secret-5678"]);
     expect(store.apiKeyForThread("t1")).toBe("personal-secret-5678");
     store.setEnabled(personal.id, false);
     expect(store.apiKeyForThread("t3")).toBeUndefined();

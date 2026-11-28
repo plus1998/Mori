@@ -37,6 +37,9 @@ export interface ModelCascadeOption {
   label: string;
   /** Optional secondary line (model id, etc.). */
   description?: string | undefined;
+  /** Rich metadata below the primary label. */
+  details?: ReactNode;
+  tooltip?: string | undefined;
 }
 
 export interface ModelCascadeSelection {
@@ -672,11 +675,9 @@ export function ModelCascadeSelect({
                         modelButtonRefs.current[index] = node;
                       }}
                       type="button"
-                      className={
-                        selected ? "model-cascade-model-item is-selected" : "model-cascade-model-item"
-                      }
+                      className={`model-cascade-model-item${selected ? " is-selected" : ""}${option.details ? " has-details" : ""}`}
                       tabIndex={focusedModelIndex === index ? 0 : -1}
-                      title={`${option.providerName} · ${option.modelId}`}
+                      title={option.tooltip ?? `${option.providerName} · ${option.modelId}`}
                       disabled={disabled || readOnly}
                       onKeyDown={(event) => handleModelKeyDown(event, index)}
                       onClick={() => commitModel(option)}
@@ -686,6 +687,7 @@ export function ModelCascadeSelect({
                         {option.description ? (
                           <span className="model-cascade-model-desc">{option.description}</span>
                         ) : null}
+                        {option.details}
                       </span>
                       {renderExtra?.(option)}
                       {selected ? (

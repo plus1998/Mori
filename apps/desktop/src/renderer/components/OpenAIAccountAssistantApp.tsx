@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { OpenAIAccountAssistantAction, OpenAIAccountAssistantState } from "../../shared/openai-account";
-import { isClaudeLoginAccountId, type ClaudeLoginResult } from "../../shared/claude-login";
+import { isOpenAIAccountAssistantTarget, type OpenAIAccountAssistantAction, type OpenAIAccountAssistantState } from "../../shared/openai-account";
 import { readStoredLocalePreference } from "../../shared/locale";
 import { getResolvedRendererLocale, i18n } from "../i18n";
 import { OpenAIAccountAssistantView } from "./OpenAIAccountAssistantView";
@@ -21,9 +20,11 @@ function syncLocale(): void {
 }
 
 export function OpenAIAccountAssistantApp() {
-  const accountId = new URLSearchParams(window.location.search).get("accountId");
+  const params = new URLSearchParams(window.location.search);
+  const accountId = params.get("accountId");
+  const requestedTarget = params.get("target");
+  const target = isOpenAIAccountAssistantTarget(requestedTarget) ? requestedTarget : null;
   const eco = window.eco;
-  const claude = isClaudeLoginAccountId(accountId);
   const { t } = useTranslation();
   const [state, setState] = useState<OpenAIAccountAssistantState>();
   const [error, setError] = useState("");
@@ -33,26 +34,31 @@ export function OpenAIAccountAssistantApp() {
   const [busy, setBusy] = useState(false);
   const polling = useRef(false);
   const refresh = useCallback(async () => {
-    if (!eco || !accountId || polling.current) return;
+    if (!eco || !accountId || !target || polling.current) return;
     syncLocale();
     polling.current = true;
-    try { setState(await eco.openAIAccountsAssistantState(accountId)); setLoadError(""); }
+    try { setState(await eco.openAIAccountsAssistantState(accountId, target)); setLoadError(""); }
     catch (error) { setState(undefined); setPassword(""); setLoadError(error instanceof Error ? error.message : String(error)); }
     finally { polling.current = false; }
-  }, [eco, accountId]);
+  }, [eco, accountId, target]);
   useEffect(() => {
+    if (!eco || !accountId || !target) return;
     void refresh();
     const timer = setInterval(() => void refresh(), 1_000);
-    const unsubscribe = eco?.onOpenAIAccountsChanged(() => void refresh());
-    const onResult = (result: Omit<ClaudeLoginResult, "accountId"> & { accountId?: string }) => {
+    const unsubscribe = eco.onOpenAIAccountsChanged(() => void refresh());
+    const onResult = (result: { accountId?: string; success: boolean; message: string }) => {
       if (result.accountId !== accountId) return;
       setNotice(result.success ? result.message : "");
       setError(result.success ? "" : result.message);
       void refresh();
     };
-    const unsubscribeLogin = claude ? eco?.onClaudeLoginResult(onResult) : eco?.onCodexOauthLoginResult(onResult);
-    return () => { clearInterval(timer); unsubscribe?.(); unsubscribeLogin?.(); };
-  }, [eco, accountId, claude, refresh]);
+    const unsubscribeLogin = {
+      claude: eco.onClaudeLoginResult,
+      codex: eco.onCodexOauthLoginResult,
+      web: eco.onOpenAIAccountsWebLoginResult,
+    }[target](onResult);
+    return () => { clearInterval(timer); unsubscribe(); unsubscribeLogin(); };
+  }, [eco, accountId, target, refresh]);
   useEffect(() => {
     if (!password) return;
     const hide = () => setPassword("");
@@ -61,10 +67,10 @@ export function OpenAIAccountAssistantApp() {
     return () => { clearTimeout(timer); window.removeEventListener("blur", hide); };
   }, [password]);
   const run = async (action: OpenAIAccountAssistantAction) => {
-    if (!eco || !accountId) return;
+    if (!eco || !accountId || !target) return;
     setBusy(true); setError(""); setNotice("");
     try {
-      const result = await eco.openAIAccountsAssistantAction(accountId, action);
+      const result = await eco.openAIAccountsAssistantAction(accountId, target, action);
       if (action.type === "revealPassword") {
         if (!result.value) throw new Error(t("assistant.revealPasswordFailed"));
         setPassword(result.value);
@@ -75,13 +81,13 @@ export function OpenAIAccountAssistantApp() {
     finally { setBusy(false); }
   };
   const login = async () => {
-    if (!eco || !accountId) return;
-    setBusy(true); setError("");
+    if (!eco || !accountId || !target) return;
+    setBusy(true); setError(""); setNotice("");
     try {
-      if (claude) {
+      if (target === "claude") {
         await eco.claudeLoginAction({ kind: "login", id: accountId });
       } else {
-        const result = await eco.openAIAccountsStartLogin(accountId);
+        const result = await eco.openAIAccountsStartLogin(accountId, target);
         if (!result.success) throw new Error(result.message);
       }
       await refresh();
@@ -89,6 +95,7 @@ export function OpenAIAccountAssistantApp() {
     finally { setBusy(false); }
   };
   if (!eco || !accountId) return <div className="assistant-load-error">{t("assistant.missingAccount")}</div>;
+  if (!target) return <div className="assistant-load-error" role="alert">{t("assistant.invalidTarget")}</div>;
   if (!state) return <div className="assistant-load-error" role={loadError ? "alert" : "status"}>{loadError || t("assistant.loadingProfile")}</div>;
   return <OpenAIAccountAssistantView state={state} busy={busy} password={password} notice={notice} error={error} onAction={(action) => void run(action)} onHidePassword={() => setPassword("")} onLogin={() => void login()} />;
 }

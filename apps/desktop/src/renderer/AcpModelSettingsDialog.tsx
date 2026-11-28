@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import type { AcpModelOption } from "../shared/acp-model-vendor";
 import { ModelCascadeSelect } from "./ModelCascadeSelect";
-import { createAcpCurrentExtra, mapAcpModelOptions, resolveAcpVendorNames } from "./model-cascade-options";
+import { createAcpCurrentExtra, mapAcpModelOptions } from "./model-cascade-options";
 
 interface AcpModelSettingsDialogProps {
   models: readonly AcpModelOption[];
@@ -35,8 +35,7 @@ export function AcpModelSettingsDialog({
   onClose,
 }: AcpModelSettingsDialogProps) {
   const { t } = useTranslation();
-  const vendorNames = useMemo(() => resolveAcpVendorNames(t), [t]);
-  const options = useMemo(() => mapAcpModelOptions(models, vendorNames), [models, vendorNames]);
+  const options = useMemo(() => mapAcpModelOptions(models, t), [models, t]);
   const currentExtra = useMemo(
     () => createAcpCurrentExtra(models, t("settings.acpModel.current")),
     [models, t],

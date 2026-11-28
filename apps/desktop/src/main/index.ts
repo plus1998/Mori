@@ -151,7 +151,6 @@ import {
   toAcpMcpServers,
 } from "@eco/runtime";
 import { steerCodexTurn } from "@eco/runtime/codex-turn-steer";
-import { listCursorAgentModels } from "@eco/runtime/cursor-agent-models";
 import type { PlanExecutionTarget } from "@eco/runtime/forced-plan-delegation";
 import {
   buildForcedPlanDelegationContract,
@@ -478,10 +477,12 @@ import {
   rewriteEcoMcpHubPromptForCodexServer,
 } from "../shared/mcp-hub-tool-usage";
 import { evaluateDesktopNotificationPolicy } from "./desktop-notification-policy";
-import type {
-  OpenAIAccountAssistantAction,
-  OpenAIAccountCreateInput,
-  OpenAIAccountUpdateInput,
+import {
+  isOpenAIAccountAssistantTarget,
+  type OpenAIAccountAssistantAction,
+  type OpenAIAccountAssistantTarget,
+  type OpenAIAccountCreateInput,
+  type OpenAIAccountUpdateInput,
 } from "../shared/openai-account";
 import { parseThreadApprovePlanPayload, parseThreadDismissPlanPayload } from "../shared/plan-approval";
 import {
@@ -564,6 +565,8 @@ import {
   type AcpCursorProbeResult,
   assertAcpCursorRunnable,
   handshakeAcpCursor,
+  intersectCursorAcpModelLists,
+  listCursorAcpModels,
   probeAcpCursorAvailability,
   reconcileAcpCursorEnabled,
 } from "./acp-cursor-availability";
@@ -6494,14 +6497,21 @@ function registerIpcHandlers(): void {
     antigravityAccounts.logout(id, accountId => stopAntigravityAccountRuns(accountId, "Antigravity signed out")),
   );
 
-  registerDesktopCommand(IPC_CHANNELS.cursorModelsList, async (accountId?: unknown) => {
+  registerDesktopCommand(IPC_CHANNELS.cursorModelsList, async (accountId?: unknown, threadId?: unknown) => {
     if (accountId !== undefined && (typeof accountId !== "string" || !accountId.trim())) {
       throw new Error("Cursor 账号 ID 无效。");
     }
-    const credential = typeof accountId === "string"
-      ? cursorApiKeyStore.credentialForAccount(accountId)
-      : cursorApiKeyStore.firstCredential();
-    return listCursorAgentModels({ env: await cursorCredentialEnv(credential) });
+    if (threadId !== undefined && (typeof threadId !== "string" || !threadId.trim())) {
+      throw new Error("Cursor 会话 ID 无效。");
+    }
+    const credentials = typeof accountId === "string"
+      ? [cursorApiKeyStore.credentialForAccount(accountId)]
+      : cursorApiKeyStore.credentialsForModelCatalog(typeof threadId === "string" ? threadId : undefined);
+    if (!credentials.length) return listCursorAcpModels();
+    const catalogs = await Promise.all(credentials.map(async credential =>
+      listCursorAcpModels({ env: await cursorCredentialEnv(credential) }),
+    ));
+    return intersectCursorAcpModelLists(catalogs);
   });
   registerDesktopCommand(IPC_CHANNELS.cursorApiKeysList, () => cursorApiKeyStore.list());
   registerDesktopCommand(IPC_CHANNELS.cursorApiKeySave, async (payload: unknown) => {
@@ -8912,8 +8922,8 @@ function registerIpcHandlers(): void {
       open: (id, allowNavigation) => accountBrowser.run(id, () => accountBrowser.createPage(id, true, allowNavigation)),
       attachAssistant: async (id, page, expiresAt) => {
         const assistant = requireAccountAssistant();
-        assistant.attachLogin(id, page, expiresAt);
-        await assistant.open(id);
+        assistant.attachLogin(id, "claude", page, expiresAt);
+        await assistant.open(id, "claude");
       },
       clear: id => accountBrowser.run(id, async () => {
         await accountBrowser.clear(id);
@@ -8931,12 +8941,14 @@ function registerIpcHandlers(): void {
     },
   );
   openaiAccountAssistant = new OpenAIAccountAssistant({
-    isClaudeLogin: isClaudeLoginAccountId,
     getClaudeBrowserSession: async (accountId) => {
       if (!isClaudeLoginAccountId(accountId)) throw new Error("Claude 账号 ID 无效。");
       return accountBrowser.run(accountId, () => accountBrowser.getSession(accountId));
     },
-    getDetails: async (accountId) => {
+    getDetails: async (accountId, target) => {
+      if (!isOpenAIAccountAssistantTarget(target) || (target === "claude") !== isClaudeLoginAccountId(accountId)) {
+        throw new Error(mainText("assistant.invalidTarget"));
+      }
       if (isClaudeLoginAccountId(accountId)) {
         const account = await claudeLogin.read(accountId);
         return { ...account.signInProfile, name: account.name, provider: "claude" as const };
@@ -8946,15 +8958,16 @@ function registerIpcHandlers(): void {
     preloadPath: path.join(__dirname, "../preload/index.cjs"),
     parent: getMainWindow,
     text: mainText,
-    loadRenderer: async (window, accountId) => {
+    loadRenderer: async (window, accountId, target) => {
       const devUrl = process.env.VITE_DEV_SERVER_URL;
       if (devUrl) {
         const url = new URL("codex-account-assistant.html", devUrl);
         url.searchParams.set("accountId", accountId);
+        url.searchParams.set("target", target);
         await window.loadURL(url.href);
       } else {
         await window.loadFile(path.join(__dirname, "../renderer/codex-account-assistant.html"), {
-          query: { accountId },
+          query: { accountId, target },
         });
       }
     },
@@ -9197,19 +9210,19 @@ function registerIpcHandlers(): void {
       });
     });
   });
-  registerDesktopCommand(IPC_CHANNELS.openAIAccountsOpenAssistant, async (payload: { accountId: string }) => {
-    await accountBrowser.run(payload.accountId, () => requireAccountAssistant().open(payload.accountId));
+  registerDesktopCommand(IPC_CHANNELS.openAIAccountsOpenAssistant, async (payload: { accountId: string; target: OpenAIAccountAssistantTarget }) => {
+    await accountBrowser.run(payload.accountId, () => requireAccountAssistant().open(payload.accountId, payload.target));
   });
   registerDesktopCommand(
     IPC_CHANNELS.openAIAccountsAssistantState,
-    async (payload: { accountId: string }) => {
-      return requireAccountAssistant().state(payload.accountId);
+    async (payload: { accountId: string; target: OpenAIAccountAssistantTarget }) => {
+      return requireAccountAssistant().state(payload.accountId, payload.target);
     },
   );
   registerDesktopCommand(
     IPC_CHANNELS.openAIAccountsAssistantAction,
-    async (payload: { accountId: string; action: OpenAIAccountAssistantAction }) => {
-      return accountBrowser.run(payload.accountId, () => requireAccountAssistant().action(payload.accountId, payload.action));
+    async (payload: { accountId: string; target: OpenAIAccountAssistantTarget; action: OpenAIAccountAssistantAction }) => {
+      return accountBrowser.run(payload.accountId, () => requireAccountAssistant().action(payload.accountId, payload.target, payload.action));
     },
   );
 
@@ -9312,15 +9325,15 @@ function registerIpcHandlers(): void {
     (await getOpenAIAccountService()).cancelLogin(payload.accountId, payload.loginId);
   });
 
-  registerDesktopCommand(IPC_CHANNELS.openAIAccountsStartLogin, async (payload: { accountId: string; mode?: "external" | "web" }) => accountBrowser.run(payload.accountId, async () => {
-    if (payload.mode !== undefined && payload.mode !== "external" && payload.mode !== "web") throw new Error("登录方式无效。");
+  registerDesktopCommand(IPC_CHANNELS.openAIAccountsStartLogin, async (payload: { accountId: string; mode?: "codex" | "external" | "web" }) => accountBrowser.run(payload.accountId, async () => {
+    if (payload.mode !== undefined && payload.mode !== "codex" && payload.mode !== "external" && payload.mode !== "web") throw new Error("登录方式无效。");
     const svc = await getOpenAIAccountService();
     if (payload.mode === "web") {
       const page = await accountBrowser.createPage(payload.accountId, true);
       const account = await svc.getAccountDetails(payload.accountId);
       const contents = page.webContents;
       const expiresAt = Date.now() + 10 * 60_000;
-      requireAccountAssistant().attachLogin(payload.accountId, page, expiresAt);
+      requireAccountAssistant().attachLogin(payload.accountId, "web", page, expiresAt);
       let done = false;
       let checking = false;
       let timer: ReturnType<typeof setInterval> | undefined;
@@ -9330,7 +9343,7 @@ function registerIpcHandlers(): void {
         if (timer) clearInterval(timer);
         contents.removeListener("did-finish-load", check);
         for (const win of BrowserWindow.getAllWindows()) if (!win.isDestroyed()) {
-          win.webContents.send("codex-oauth:login-result", { accountId: payload.accountId, success, message });
+          win.webContents.send(IPC_CHANNELS.openAIAccountsWebLoginResult, { accountId: payload.accountId, success, message });
         }
       };
       const check = () => {
@@ -9356,7 +9369,7 @@ function registerIpcHandlers(): void {
       timer = setInterval(check, 2_000);
       try {
         await prepareAccountLoginBrowser(page);
-        await requireAccountAssistant().open(payload.accountId);
+        await requireAccountAssistant().open(payload.accountId, "web");
         await page.webContents.loadURL("https://chatgpt.com/");
         check();
       } catch (error) {
@@ -9394,7 +9407,7 @@ function registerIpcHandlers(): void {
         message: `打开账号浏览器失败：${error instanceof Error ? error.message : String(error)}`,
       };
     }
-    requireAccountAssistant().attachLogin(payload.accountId, authPage, authInfo.expiresAt);
+    requireAccountAssistant().attachLogin(payload.accountId, "codex", authPage, authInfo.expiresAt);
     let loginCancelled = false;
 
     const cancelLogin = () => {
@@ -9416,7 +9429,7 @@ function registerIpcHandlers(): void {
     authPage.onClosed(() => { completionGuard.dispose(); cancelLogin(); });
     try {
       await prepareAccountLoginBrowser(authPage);
-      await requireAccountAssistant().open(payload.accountId);
+      await requireAccountAssistant().open(payload.accountId, "codex");
       await authPage.webContents.loadURL(authInfo.authUrl);
     } catch (error) {
       completionGuard.allowClose();

@@ -11,7 +11,7 @@ import { ScheduleTimingFields } from "./ScheduleTimingFields";
 import { ScheduleDurationField } from "./ScheduleDurationField";
 import { SchedulingProjectField, projectDisplayName, type SchedulingProjectOption } from "./SchedulingProjectField";
 import { ModelCascadeSelect, type ModelCascadeOption, type ModelCascadeSelection } from "./ModelCascadeSelect";
-import { mapAcpModelOptions, resolveAcpVendorNames } from "./model-cascade-options";
+import { mapAcpModelOptions } from "./model-cascade-options";
 import { ComposerMainModelPicker } from "./ComposerMainModelPicker";
 import { schedulingMainModelIssue } from "../shared/scheduling-model";
 import { formatIpcInvokeError } from "./AppMessage";
@@ -58,9 +58,17 @@ export function SchedulingPanel(props: Props) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState<string[]>([]);
-  const [cursorModels, setCursorModels] = useState<CursorModelOption[]>([]);
-  const [modelsLoading, setModelsLoading] = useState(false);
-  const [modelError, setModelError] = useState("");
+  const [cursorCatalog, setCursorCatalog] = useState<{
+    requestId: string;
+    accountId: string | undefined;
+    models: CursorModelOption[];
+    error?: string;
+  }>();
+  const cursorRequestId = form?.profile?.coreKind === "acp" ? form.requestId : undefined;
+  const cursorAccountId = form?.profile?.runtimeConfig.cursorAccountId;
+  const currentCursorCatalog = cursorCatalog?.requestId === cursorRequestId && cursorCatalog?.accountId === cursorAccountId
+    ? cursorCatalog
+    : undefined;
   const dialogRef = useRef<HTMLDivElement>(null);
   const modelFieldRef = useRef<HTMLDivElement>(null);
   const initialFocus = useRef<HTMLButtonElement>(null);
@@ -73,12 +81,15 @@ export function SchedulingPanel(props: Props) {
     return () => { previous?.focus(); };
   }, []);
   useEffect(() => {
-    if (form?.profile?.coreKind !== "acp") return;
+    if (!cursorRequestId) return;
     let cancelled = false;
-    setModelsLoading(true);
-    void api.listCursorModels().then(rows => { if (!cancelled) setCursorModels(rows); }).catch(error => { if (!cancelled) setModelError(String(error)); }).finally(() => { if (!cancelled) setModelsLoading(false); });
+    void api.listCursorModels(cursorAccountId).then(models => {
+      if (!cancelled) setCursorCatalog({ requestId: cursorRequestId, accountId: cursorAccountId, models });
+    }).catch(caught => {
+      if (!cancelled) setCursorCatalog({ requestId: cursorRequestId, accountId: cursorAccountId, models: [], error: String(caught) });
+    });
     return () => { cancelled = true; };
-  }, [form?.profile?.coreKind]);
+  }, [api, cursorRequestId, cursorAccountId]);
 
   const create = () => {
     setError(""); setPreview([]); setAdvanced(false);
@@ -133,7 +144,6 @@ export function SchedulingPanel(props: Props) {
   };
   const selectCore = (coreKind: CoreKind) => {
     if (!form) return;
-    setModelError("");
     const base = form.profile ?? props.defaultProfile;
     if (base) { updateForm({ profile: { ...base, coreKind } }); return; }
     try {
@@ -158,7 +168,8 @@ export function SchedulingPanel(props: Props) {
     if (!form?.profile) return;
     updateForm({ profile: replaceSchedulingMainModel(form.profile, props.settings, model) });
   };
-  const modelOptions = useMemo<ModelCascadeOption[]>(() => mapAcpModelOptions(cursorModels, resolveAcpVendorNames(t)), [cursorModels, t]);
+  const modelOptions = useMemo<ModelCascadeOption[]>(() =>
+    mapAcpModelOptions(currentCursorCatalog?.models ?? [], t), [currentCursorCatalog, t]);
   const modelValue = form?.profile?.runtimeConfig.cursorModelId
     ? { key: form.profile.runtimeConfig.cursorModelId, providerId: "", modelId: form.profile.runtimeConfig.cursorModelId }
     : undefined;
@@ -231,7 +242,8 @@ export function SchedulingPanel(props: Props) {
             </div>
               <div ref={modelFieldRef} className="scheduling-field scheduling-task-model-field">
                 <span className="scheduling-field-label">{t("scheduling.model")}</span>
-                {form.profile?.coreKind === "acp" ? <ModelCascadeSelect panelZIndex={1200} options={modelOptions} value={modelValue} loading={modelsLoading} error={modelError}
+                {form.profile?.coreKind === "acp" ? <ModelCascadeSelect panelZIndex={1200} options={modelOptions} value={modelValue}
+                  loading={!currentCursorCatalog} {...(currentCursorCatalog?.error ? { error: currentCursorCatalog.error } : {})}
                   disabled={!form.profile} placeholder={t("scheduling.chooseModel")} hint={t("scheduling.model")} onChange={chooseCursorModel}/>
                   : <ComposerMainModelPicker key={form.profile?.coreKind ?? "unconfigured"} anchorRef={modelFieldRef}
                     model={mainModel} coreKind={form.profile?.coreKind ?? ""} panelZIndex={1200}
@@ -250,7 +262,7 @@ export function SchedulingPanel(props: Props) {
               <span className="scheduling-hint">{t(bashReviewUi(normalizeBashReviewMode(form.profile?.runtimeConfig.bashReviewMode)).description)}</span>
             </label>
             {mainModelIssue && <p className="scheduling-error" role="alert">{t(mainModelIssue)}</p>}
-            {modelError && <p className="scheduling-error">{modelError}</p>}</>}
+            {currentCursorCatalog?.error && <p className="scheduling-error">{currentCursorCatalog.error}</p>}</>}
             <ScheduleDurationField label={t("scheduling.taskCatchUp")} value={form.catchUp} minSeconds={0} maxSeconds={86400} onChange={catchUp => updateForm({ catchUp })}/>
             <button type="button" className="scheduling-preview-button" onClick={() => void runAction(async () => setPreview(await api.previewSchedule(triggerFor(form))))}><Clock3 size={14}/>{t("scheduling.preview")}</button>
             {preview.length > 0 && <ul className="scheduling-preview">{preview.map(time => <li key={time}>{formatTime(time)}</li>)}</ul>}

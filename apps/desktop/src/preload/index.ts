@@ -32,6 +32,7 @@ import type {
   OpenAIAccountAssistantAction,
   OpenAIAccountAssistantActionResult,
   OpenAIAccountAssistantState,
+  OpenAIAccountAssistantTarget,
   OpenAIAccountCreateInput,
   OpenAIAccountDetails,
   OpenAIAccountImportResult,
@@ -511,8 +512,8 @@ const api = {
   logoutAntigravity(id: string): Promise<void> {
     return ipcRenderer.invoke(IPC_CHANNELS.antigravityLogout, id);
   },
-  listCursorModels(accountId?: string): Promise<CursorModelOption[]> {
-    return ipcRenderer.invoke(IPC_CHANNELS.cursorModelsList, accountId);
+  listCursorModels(accountId?: string, threadId?: string): Promise<CursorModelOption[]> {
+    return ipcRenderer.invoke(IPC_CHANNELS.cursorModelsList, accountId, threadId);
   },
   listCursorApiKeys(): Promise<CursorApiKeyView[]> {
     return ipcRenderer.invoke(IPC_CHANNELS.cursorApiKeysList);
@@ -893,7 +894,7 @@ const api = {
     return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsDelete, { accountId });
   },
 
-  openAIAccountsStartLogin(accountId: string, mode?: "external" | "web"): Promise<{ success: boolean; message: string; authUrl?: string; loginId?: string; expiresAt?: number }> {
+  openAIAccountsStartLogin(accountId: string, mode?: "codex" | "external" | "web"): Promise<{ success: boolean; message: string; authUrl?: string; loginId?: string; expiresAt?: number }> {
     return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsStartLogin, { accountId, mode });
   },
 
@@ -909,16 +910,16 @@ const api = {
     return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsOpenChatGPT, { accountId });
   },
 
-  openAIAccountsOpenAssistant(accountId: string): Promise<void> {
-    return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsOpenAssistant, { accountId });
+  openAIAccountsOpenAssistant(accountId: string, target: OpenAIAccountAssistantTarget): Promise<void> {
+    return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsOpenAssistant, { accountId, target });
   },
 
-  openAIAccountsAssistantState(accountId: string): Promise<OpenAIAccountAssistantState> {
-    return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsAssistantState, { accountId });
+  openAIAccountsAssistantState(accountId: string, target: OpenAIAccountAssistantTarget): Promise<OpenAIAccountAssistantState> {
+    return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsAssistantState, { accountId, target });
   },
 
-  openAIAccountsAssistantAction(accountId: string, action: OpenAIAccountAssistantAction): Promise<OpenAIAccountAssistantActionResult> {
-    return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsAssistantAction, { accountId, action });
+  openAIAccountsAssistantAction(accountId: string, target: OpenAIAccountAssistantTarget, action: OpenAIAccountAssistantAction): Promise<OpenAIAccountAssistantActionResult> {
+    return ipcRenderer.invoke(IPC_CHANNELS.openAIAccountsAssistantAction, { accountId, target, action });
   },
 
 
@@ -1000,6 +1001,11 @@ const api = {
     const listener = (_event: Electron.IpcRendererEvent, result: { success: boolean; message: string; accountId?: string; loginId?: string }) => callback(result);
     ipcRenderer.on("codex-oauth:login-result", listener);
     return () => ipcRenderer.off("codex-oauth:login-result", listener);
+  },
+  onOpenAIAccountsWebLoginResult(callback: (result: { success: boolean; message: string; accountId: string }) => void): () => void {
+    const listener = (_event: Electron.IpcRendererEvent, result: Parameters<typeof callback>[0]) => callback(result);
+    ipcRenderer.on(IPC_CHANNELS.openAIAccountsWebLoginResult, listener);
+    return () => ipcRenderer.off(IPC_CHANNELS.openAIAccountsWebLoginResult, listener);
   },
   testRouteProfile(request: TestRoleRoutesRequest): Promise<TestRoleRoutesResult> {
     return ipcRenderer.invoke(IPC_CHANNELS.modelRouteProfileTest, request);

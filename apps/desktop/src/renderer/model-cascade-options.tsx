@@ -8,6 +8,7 @@ import {
 } from "../shared/acp-model-vendor";
 import type { I18nKey } from "../shared/i18n-catalogs";
 import type { CommitModelOptionView, CommitModelPricingHint } from "../shared/ipc";
+import { AcpModelTags, describeAcpModel } from "./acp-model-display";
 import { CommitModelPricingCompact } from "./CommitModelPricingCompact";
 import type { ModelCascadeOption, ModelCascadeSelection } from "./ModelCascadeSelect";
 
@@ -19,7 +20,7 @@ const ACP_VENDOR_LABEL_KEYS: Record<AcpModelVendor, I18nKey> = {
   other: "settings.acpModel.vendor.other",
 };
 
-export function resolveAcpVendorNames(t: TFunction): Record<AcpModelVendor, string> {
+function resolveAcpVendorNames(t: TFunction): Record<AcpModelVendor, string> {
   const names = {} as Record<AcpModelVendor, string>;
   for (const vendor of Object.keys(ACP_VENDOR_LABEL_KEYS) as AcpModelVendor[]) {
     names[vendor] = t(ACP_VENDOR_LABEL_KEYS[vendor]);
@@ -34,18 +35,21 @@ export function resolveAcpVendorNames(t: TFunction): Record<AcpModelVendor, stri
  */
 export function mapAcpModelOptions(
   models: readonly AcpModelOption[],
-  vendorNames: Record<AcpModelVendor, string>,
+  t: TFunction,
 ): ModelCascadeOption[] {
+  const vendorNames = resolveAcpVendorNames(t);
   return models.map((model) => {
     const vendor = classifyAcpModelVendor(model);
+    const { label, tags } = describeAcpModel(model, t);
     return {
       key: model.id,
       providerId: vendor,
       providerName: vendorNames[vendor],
       providerIcon: ACP_MODEL_VENDOR_ICONS[vendor],
       modelId: model.id,
-      label: model.displayName,
-      description: model.id,
+      label,
+      details: tags.length > 0 ? <AcpModelTags tags={tags} /> : undefined,
+      tooltip: [label, ...tags.map(tag => tag.label)].join(" · "),
     };
   });
 }

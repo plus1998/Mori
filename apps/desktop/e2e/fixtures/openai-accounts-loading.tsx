@@ -1,4 +1,5 @@
 import { createRoot } from "react-dom/client";
+import { ImageGenerationSettingsPanel } from "../../src/renderer/ImageGenerationSettingsPanel";
 import { ModelsSettingsPanel } from "../../src/renderer/ModelsSettingsPanel";
 import { i18n } from "../../src/renderer/i18n";
 import type { ModelSettingsSnapshot } from "../../src/shared/ipc";
@@ -25,17 +26,25 @@ Object.assign(window, {
     async getCodexModelCatalog() {
       return { models: [], status: { sourceUrl: "", pricingSourceUrl: "", remoteCount: 0, manualCount: 0 } };
     },
+    async getImageGenerationWebModels() { return { models: [{ modelId: "gpt-6", displayName: "GPT-6" }] }; },
   },
   accountLoadingFixture: {
     reads: () => reads,
     listeners: () => listeners.size,
     changed: () => listeners.forEach((listener) => listener()),
-    complete(id: number, name: string | null) {
+    complete(id: number, name: string | null, count = 1) {
       const request = pending.get(id);
       if (!request) throw new Error(`No pending read ${id}`);
       pending.delete(id);
-      request.resolve(name === null ? [] : [{ id: "local-account", name, isLoggedIn: false,
-        createdAt: "2026-01-01T00:00:00Z", proxyMode: "system" }]);
+      request.resolve(name === null ? [] : Array.from({ length: count }, (_, index) => ({
+        id: `local-account-${index}`,
+        name: count === 1 ? name : `${name} ${index + 1}`,
+        isLoggedIn: false,
+        authState: "missing",
+        hasProfileData: false,
+        createdAt: "2026-01-01T00:00:00Z",
+        proxyMode: "system",
+      })));
     },
     fail(id: number) {
       const request = pending.get(id);
@@ -50,7 +59,28 @@ await i18n.changeLanguage("en-US");
 document.documentElement.dataset.theme = "light";
 const root = document.getElementById("root");
 if (!root) throw new Error("Missing fixture root");
-createRoot(root).render(<ModelsSettingsPanel
-  settings={{ providers: [], agentTemplates: [], mainAgentPrompts: [], subagentOrchestrations: [] } as unknown as ModelSettingsSnapshot}
-  mode="providerSettings" initialTab="openaiAccounts" onSettingsChange={() => {}}
-/>);
+createRoot(root).render(new URL(document.baseURI).searchParams.has("creative-drawing") ? (
+  <main className="settings-main" style={{ height: "100vh" }}>
+    <div className="settings-content">
+      <ImageGenerationSettingsPanel
+        settings={{
+          enabled: true,
+          activeProfileId: "web",
+          apiKeyEncryptionAvailable: true,
+          profiles: [{
+            id: "web", name: "Web", provider: "chatgpt_web", endpoint: "", model: "",
+            chatModel: "gpt-6", supportsImageToImage: true, hasApiKey: false,
+            createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
+          }],
+        }}
+        onChange={() => {}}
+        onError={() => {}}
+      />
+    </div>
+  </main>
+) : (
+  <ModelsSettingsPanel
+    settings={{ providers: [], agentTemplates: [], mainAgentPrompts: [], subagentOrchestrations: [] } as unknown as ModelSettingsSnapshot}
+    mode="providerSettings" initialTab="openaiAccounts" onSettingsChange={() => {}}
+  />
+));

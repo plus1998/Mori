@@ -39,6 +39,7 @@ import {
   type ProjectHarnessSelection,
 } from "../shared/project-orchestration-settings";
 import { assertCodexLoginSubagentPolicy, isCodexLoginProvider, supportsMainModelProvider } from "../shared/codex-login-subagent-policy";
+import { findAcpWireModelId } from "@eco/runtime/acp-session-config";
 import type { CoreKind } from "@eco/runtime/core-runtime";
 import {
   listPlanDelegationAgents,
@@ -2357,15 +2358,17 @@ function App() {
   const cursorModelsRef = useRef(new Map<string, {
     models: CursorModelOption[];
     loading: boolean;
+    fetchedAt?: number;
     error?: string;
   }>());
-  const [cursorModelsByAccount, setCursorModelsByAccount] = useState(cursorModelsRef.current);
-  const cursorAccountId = composerRuntimeConfig?.cursorAccountId;
-  const cursorCatalog = cursorModelsByAccount.get(cursorAccountId ?? "");
-  const cursorModels = cursorCatalog?.models ?? emptyCursorModels;
-  const cursorModelsLoading = cursorCatalog?.loading ?? false;
-  const cursorModelsError = cursorCatalog?.error;
+  const [cursorModelCatalogs, setCursorModelCatalogs] = useState(cursorModelsRef.current);
   const [cursorApiKeys, setCursorApiKeys] = useState<CursorApiKeyView[]>([]);
+  const cursorAccountRevision = useMemo(() => JSON.stringify(cursorApiKeys.map(account => [
+    account.id, account.enabled, account.updatedAt, account.oauthExpiresAt,
+  ])), [cursorApiKeys]);
+  const cursorCatalogKey = useCallback((accountId?: string, threadId?: string) =>
+    JSON.stringify([accountId, accountId ? null : threadId, cursorAccountRevision]),
+  [cursorAccountRevision]);
   const [gitStatusByWorkspace, setGitStatusByWorkspace] = useState<WorkspaceGitStatusCache>({});
   const gitStatusByWorkspaceRef = useRef<WorkspaceGitStatusCache>({});
   const [gitStatusBusy, setGitStatusBusy] = useState(false);
@@ -2587,24 +2590,23 @@ function App() {
     return () => { cancelled = true; };
   }, [settingsOpen, settingsSection]);
 
-  const refreshCursorModels = useCallback((accountId?: string, options?: { force?: boolean }) => {
+  const refreshCursorModels = useCallback((accountId?: string, threadId?: string, force = false) => {
     if (!window.eco?.listCursorModels) return;
-    const accountKey = accountId ?? "";
-    const cached = cursorModelsRef.current.get(accountKey);
-    if (cached?.loading || (!options?.force && cached?.models.length)) return;
+    const key = cursorCatalogKey(accountId, threadId);
+    const cached = cursorModelsRef.current.get(key);
+    if (cached?.loading || (!force && cached?.fetchedAt && Date.now() - cached.fetchedAt < 5 * 60_000)) return;
 
     const publish = (catalog: NonNullable<typeof cached>) => {
-      const next = new Map(cursorModelsRef.current).set(accountKey, catalog);
+      const next = new Map(cursorModelsRef.current).set(key, catalog);
       cursorModelsRef.current = next;
-      setCursorModelsByAccount(next);
+      setCursorModelCatalogs(next);
     };
-    const previousModels = cached?.models ?? [];
-    publish({ models: previousModels, loading: true });
+    publish({ models: emptyCursorModels, loading: true });
     void window.eco
-      .listCursorModels(accountId)
-      .then((models) => publish({ models, loading: false }))
-      .catch((error) => publish({ models: previousModels, loading: false, error: errorMessage(error) }));
-  }, []);
+      .listCursorModels(accountId, threadId)
+      .then(models => publish({ models, loading: false, fetchedAt: Date.now() }))
+      .catch(error => publish({ models: emptyCursorModels, loading: false, error: errorMessage(error) }));
+  }, [cursorCatalogKey]);
 
   useLayoutEffect(() => {
     selectedThreadIdRef.current = selectedThreadId;
@@ -5334,12 +5336,37 @@ function App() {
   const composerAntigravity = composerCoreKind === "acp" &&
     (activeThread ? activeThread.acpAgentId === "antigravity" : Boolean(draftAntigravityAccountId));
   const composerAntigravityAccountId = activeThread ? activeThread.runtimeConfig?.antigravityAccountId : draftAntigravityAccountId;
+  const composerUsesCursor = composerCoreKind === "acp" && !composerAntigravity;
+  const cursorAccountId = composerRuntimeConfig?.cursorAccountId;
+  const cursorThreadId = activeThread?.id;
+  const cursorCatalog = cursorModelCatalogs.get(cursorCatalogKey(cursorAccountId, cursorThreadId));
+  const cursorModels = cursorCatalog?.models ?? emptyCursorModels;
+  const cursorModelsLoading = cursorCatalog?.loading ?? true;
+  const cursorModelsError = cursorCatalog?.error;
+  const defaultCursorCatalog = cursorModelCatalogs.get(cursorCatalogKey());
   const showDefaultAgentSettings = settingsOpen && settingsSection === "defaultAgent";
   useEffect(() => {
-    if (showAcpCursor && ((composerCoreKind === "acp" && !composerAntigravity) || showDefaultAgentSettings)) {
-      refreshCursorModels(cursorAccountId);
-    }
-  }, [showAcpCursor, composerCoreKind, composerAntigravity, showDefaultAgentSettings, cursorAccountId, refreshCursorModels]);
+    if (composerUsesCursor) refreshCursorModels(cursorAccountId, cursorThreadId);
+    if (showAcpCursor && showDefaultAgentSettings) refreshCursorModels();
+  }, [showAcpCursor, composerUsesCursor, showDefaultAgentSettings, cursorAccountId, cursorThreadId, refreshCursorModels]);
+  const configuredCursorModelId = resolveAcpCursorModelIdForSend({
+    runtimeConfig: composerRuntimeConfig,
+    ...(workflowSettings.acpCursorModelId !== undefined
+      ? { workflowDefault: workflowSettings.acpCursorModelId }
+      : {}),
+  });
+  const composerAcpSelectedModelId = useMemo(() => configuredCursorModelId
+    ? findAcpWireModelId(configuredCursorModelId, cursorModels.map(model => ({
+        modelId: model.id, name: model.displayName,
+      })))
+    : undefined, [configuredCursorModelId, cursorModels]);
+  const cursorModelSendIssue = composerUsesCursor && configuredCursorModelId && !composerAcpSelectedModelId
+    ? cursorModelsLoading
+      ? t("settings.acpModel.loading")
+      : cursorModelsError
+        ? t("settings.acpModel.loadError", { error: cursorModelsError })
+        : t("settings.acpModel.unavailableSelection", { model: configuredCursorModelId })
+    : undefined;
   const defaultModelHarness = globalModelHarness ?? (isOrchestrationHarness(workflowSettings.defaultCoreKind)
     ? workflowSettings.defaultCoreKind
     : DEFAULT_CORE_KIND);
@@ -5655,18 +5682,13 @@ function App() {
     if (!composerProjectSelectionReady) return null;
     const base = effectiveComposerRuntimeConfig ?? composerRuntimeConfig;
     if (composerCoreKind === "acp") {
-      const resolvedCursorModelId = resolveAcpCursorModelIdForSend({
-        runtimeConfig: base,
-        ...(workflowSettings.acpCursorModelId !== undefined
-          ? { workflowDefault: workflowSettings.acpCursorModelId }
-          : {}),
-      });
+      if (cursorModelSendIssue) return null;
       if (composerAntigravity && !composerAntigravityAccountId) return null;
       return buildAcpThreadRuntimeConfig({
         ...(composerAntigravity
           ? { antigravityAccountId: composerAntigravityAccountId! }
           : {
-              ...(resolvedCursorModelId ? { cursorModelId: resolvedCursorModelId } : {}),
+              ...(composerAcpSelectedModelId ? { cursorModelId: composerAcpSelectedModelId } : {}),
               ...(base?.cursorAccountId ? { cursorAccountId: base.cursorAccountId } : {}),
             }),
         sessionMode: composerAntigravity ? "agent" : base?.sessionMode ?? "agent",
@@ -5744,7 +5766,7 @@ function App() {
     } catch {
       return null;
     }
-  }, [composerAntigravity, composerAntigravityAccountId,
+  }, [composerAntigravity, composerAntigravityAccountId, composerAcpSelectedModelId, cursorModelSendIssue,
     composerRuntimeConfig,
     composerCoreKind,
     composerGlobalOrchestrationSelection,
@@ -6064,6 +6086,7 @@ function App() {
     currentProjectPath &&
       composerHasContent &&
       composerRoutesReady &&
+      !cursorModelSendIssue &&
       !isStarting &&
       !planActionBusy &&
       !clarificationBusy &&
@@ -9327,6 +9350,10 @@ function App() {
       setError(draftWorktreeError || "正在恢复草稿工作位置，请稍后重试。");
       return false;
     }
+    if (!composerFollowUpMode && cursorModelSendIssue) {
+      setError(cursorModelSendIssue);
+      return false;
+    }
     if (!canSendWithPrompt) return false;
     if (activeThread?.workLocation?.mode === "isolated") {
       try {
@@ -10982,7 +11009,7 @@ function App() {
   }
 
   async function selectComposerAcpModel(modelId: string | undefined) {
-    if (!canEditComposerConfig) {
+    if (!canEditComposerConfig || (modelId !== undefined && !cursorModels.some(model => model.id === modelId))) {
       return;
     }
     const base =
@@ -13241,12 +13268,6 @@ function App() {
     </div>
   );
 
-  const composerAcpSelectedModelId = resolveAcpCursorModelIdForSend({
-    runtimeConfig: composerRuntimeConfig,
-    ...(workflowSettings.acpCursorModelId !== undefined
-      ? { workflowDefault: workflowSettings.acpCursorModelId }
-      : {}),
-  });
   const selectedComposerMainModel = composerRuntimeConfig?.orchestrationSelection?.mainModel ??
     selectedOrchestrationSnapshot?.selection.mainModel;
   const composerPickerModel = composerMainAgentModelOverride
@@ -13281,7 +13302,7 @@ function App() {
         panelZIndex={floatingMenu ? 10001 : undefined}
         showTooltip={!floatingMenu}
         models={cursorModels}
-        {...(composerAcpSelectedModelId ? { selectedModelId: composerAcpSelectedModelId } : {})}
+        selectedModelId={composerAcpSelectedModelId ?? configuredCursorModelId}
         disabled={disabled || isSavingSettings || (!canEditComposerModel && !composerModelReadOnly)}
         readOnly={!canEditComposerModel}
         loading={cursorModelsLoading}
@@ -13291,9 +13312,9 @@ function App() {
         accountReadOnly={!canEditComposerConfig}
         selectedAccountId={cursorAccountId}
         onAccountChange={(id) => void selectComposerCursorAccount(id)}
-        onRefreshModels={() => refreshCursorModels(cursorAccountId, { force: true })}
+        onRefreshModels={() => refreshCursorModels(cursorAccountId, cursorThreadId, true)}
         onOpen={() => {
-          refreshCursorModels(cursorAccountId);
+          refreshCursorModels(cursorAccountId, cursorThreadId);
           void window.eco?.listCursorApiKeys().then(setCursorApiKeys).catch((error) => setError(errorMessage(error)));
         }}
         onChange={(modelId) => void selectComposerAcpModel(modelId)}
@@ -13789,6 +13810,9 @@ function App() {
                       </button>
                     </div>
                   </div>
+                  {!answerRequest && !composerFollowUpMode && cursorModelSendIssue && (
+                    <p className="composer-hint" role="status">{cursorModelSendIssue}</p>
+                  )}
                   {!answerRequest &&
                   !composerRoutesReady &&
                   !composerFollowUpMode &&
@@ -15137,12 +15161,12 @@ function App() {
                     }}
                     acpCursorModelId={workflowSettings.acpCursorModelId}
                     acpCursorApiKeyConfigured={cursorApiKeys.some((key) => key.enabled && (key.oauthExpiresAt === undefined || key.oauthExpiresAt > Date.now()))}
-                    cursorModels={cursorModels}
-                    cursorModelsLoading={cursorModelsLoading}
-                    {...(cursorModelsError && { cursorModelsError })}
+                    cursorModels={defaultCursorCatalog?.models ?? emptyCursorModels}
+                    cursorModelsLoading={defaultCursorCatalog?.loading ?? true}
+                    {...(defaultCursorCatalog?.error && { cursorModelsError: defaultCursorCatalog.error })}
                     onAcpCursorModelChange={(modelId) => void saveAcpCursorModelId(modelId)}
                     onManageCursorApiKeys={() => openProviderSettings("cursorApiKeys")}
-                    onRefreshCursorModels={() => refreshCursorModels(cursorAccountId, { force: true })}
+                    onRefreshCursorModels={() => refreshCursorModels(undefined, undefined, true)}
                   />
                 )}
 

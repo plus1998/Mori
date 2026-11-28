@@ -50,6 +50,7 @@
     "./pi-model-bridge": "./src/pi-model-bridge.ts",
     "./pi-usage": "./src/pi-usage.ts",
     "./acp-prompt": "./src/acp-prompt.ts",
+    "./acp-session-config": "./src/acp-session-config.ts",
     "./acp-cursor-agent": "./src/acp-cursor-agent.ts",
     "./acp-agent-driver": "./src/acp-agent-driver.ts",
     "./acp-host-ui-features": "./src/acp-host-ui-features.ts",

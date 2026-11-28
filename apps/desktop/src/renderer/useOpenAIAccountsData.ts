@@ -10,7 +10,7 @@ export interface OpenAIAccountsData {
 
 /** Own this at the settings-page level so tab changes retain the last snapshot. */
 export function useOpenAIAccountsData(enabled = true): OpenAIAccountsData {
-  const eco = window.eco;
+  const eco = typeof window === "undefined" ? undefined : window.eco;
   const [accounts, setAccounts] = useState<OpenAIAccount[]>();
   const [error, setError] = useState<string>();
   const requestId = useRef(0);

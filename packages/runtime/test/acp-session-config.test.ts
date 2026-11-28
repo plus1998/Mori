@@ -18,6 +18,12 @@ test("resolveAcpWireModelId maps auto and bare ids onto wire forms", () => {
   expect(resolveAcpWireModelId("composer-2.5", available)).toBe("composer-2.5[fast=true]");
 });
 
+test("resolveAcpWireModelId rejects an unadvertised variant of a supported model", () => {
+  expect(() => resolveAcpWireModelId("composer-2.5[fast=true]", [
+    { modelId: "composer-2.5[fast=false]", name: "composer-2.5" },
+  ])).toThrow(/not in availableModels/);
+});
+
 test("resolveAcpWireModelId throws when availableModels is missing", () => {
   expect(() => resolveAcpWireModelId("auto", [])).toThrow(/availableModels missing/);
 });

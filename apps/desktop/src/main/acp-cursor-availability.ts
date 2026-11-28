@@ -1,14 +1,22 @@
 import type { ChildProcess, SpawnOptions } from "node:child_process";
+import { mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
 import {
   AcpClient,
   AcpJsonRpcPeer,
+  agentSupportsSessionDelete,
   cursorAcpSpawnError,
+  isAcpSessionDeleteMethodNotFound,
   killChildProcessTree,
+  parseAcpAvailableModels,
+  removeCursorAcpSessionDir,
   resolveCursorAgentExecutable,
+  type AcpInitializeResult,
   spawnCursorAcpProcess,
 } from "@eco/runtime";
+import type { CursorModelOption } from "../shared/ipc";
 
 export type AcpCursorProbeResult =
   | { available: true }
@@ -76,22 +84,67 @@ export async function probeAcpCursorAvailability(deps: AcpCursorProbeDeps): Prom
  * Injectable spawn for unit tests; CI may skip live integration.
  */
 export async function handshakeAcpCursor(options: AcpCursorHandshakeOptions = {}): Promise<void> {
-  const resolveExecutable =
-    options.resolveExecutable ??
-    (() =>
-      resolveCursorAgentExecutable(undefined, {
-        ...(options.env ? { env: options.env } : {}),
-      }));
-  const executable = resolveExecutable();
+  await withInitializedCursorAcp(options, async () => {});
+}
+
+/** Use the model IDs advertised by the same protocol as session/set_model. */
+export async function listCursorAcpModels(options: AcpCursorHandshakeOptions = {}): Promise<CursorModelOption[]> {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), "mori-cursor-models-"));
+  try {
+    return await withInitializedCursorAcp(options, async (client, capabilities) => {
+      const session = await client.newSession({ cwd });
+      try {
+        const models = parseAcpAvailableModels(session);
+        if (!models.length) throw new Error("Cursor ACP session/new returned no availableModels");
+        const currentModelId = (session.models as { currentModelId?: unknown }).currentModelId;
+        return models.map(({ modelId, name }) => ({
+          id: modelId,
+          displayName: name ?? modelId,
+          current: modelId === currentModelId,
+          default: modelId === "default[]",
+        }));
+      } finally {
+        if (agentSupportsSessionDelete(capabilities)) {
+          try {
+            await client.deleteSession({ sessionId: session.sessionId });
+          } catch (error) {
+            if (!isAcpSessionDeleteMethodNotFound(error)) throw error;
+            await removeCursorAcpSessionDir(session.sessionId, { ...process.env, ...options.env });
+          }
+        } else {
+          await removeCursorAcpSessionDir(session.sessionId, { ...process.env, ...options.env });
+        }
+      }
+    });
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+}
+
+/** With auto assignment, a pinned model must be accepted by every eligible account. */
+export function intersectCursorAcpModelLists(catalogs: readonly CursorModelOption[][]): CursorModelOption[] {
+  const [first, ...others] = catalogs;
+  if (!first) return [];
+  const byId = others.map(models => new Map(models.map(model => [model.id, model])));
+  return first
+    .filter(model => byId.every(models => models.has(model.id)))
+    .map(model => ({ ...model, current: model.current && byId.every(models => models.get(model.id)?.current) }));
+}
+
+async function withInitializedCursorAcp<T>(
+  options: AcpCursorHandshakeOptions,
+  operation: (client: AcpClient, init: AcpInitializeResult) => Promise<T>,
+): Promise<T> {
+  const executable = options.resolveExecutable?.();
   const child = spawnCursorAcpProcess({
-    executable,
+    ...(executable !== undefined ? { executable } : {}),
     ...(options.env ? { env: options.env } : {}),
     ...(options.spawnFn ? { spawnFn: options.spawnFn } : {}),
   });
   const spawnFailure = cursorAcpSpawnError(child);
 
   let peer: AcpJsonRpcPeer | undefined;
-  let readlineClosed = false;
+  let closeReadline: (() => void) | undefined;
   try {
     if (!child.stdin || !child.stdout) {
       throw new Error("ACP process requires piped stdin/stdout");
@@ -105,14 +158,11 @@ export async function handshakeAcpCursor(options: AcpCursorHandshakeOptions = {}
         rl.on("line", cb);
       },
     });
-    const closeRl = () => {
-      if (readlineClosed) return;
-      readlineClosed = true;
-      rl.close();
-    };
+    closeReadline = () => rl.close();
     child.once("exit", () => {
       peer?.dispose();
-      closeRl();
+      closeReadline?.();
+      closeReadline = undefined;
     });
 
     const client = new AcpClient({
@@ -121,13 +171,16 @@ export async function handshakeAcpCursor(options: AcpCursorHandshakeOptions = {}
     });
     // Race against the child's `error` event: when Cursor is not installed the
     // spawn fails async (ENOENT) and initialize would otherwise hang forever.
-    const handshake = (async () => {
-      await client.initialize();
+    const query = (async () => {
+      const init = await client.initialize();
       client.confInitialized();
+      return operation(client, init);
     })();
-    await Promise.race([handshake, spawnFailure]);
+    return await Promise.race([query, spawnFailure]);
   } finally {
     peer?.dispose();
+    closeReadline?.();
+    closeReadline = undefined;
     killChildProcessTree(child);
   }
 }

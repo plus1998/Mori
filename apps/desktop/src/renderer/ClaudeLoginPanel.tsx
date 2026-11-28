@@ -296,7 +296,7 @@ export function ClaudeLoginPanel() {
                           }}><KeyRound size={14} /><span>{t("settings.claudeLogin.signInWithSessionKey")}</span></button>
                           <button type="button" role="menuitem" className="codex-account-status-item" onClick={() => {
                             setError(undefined);
-                            void window.eco!.openAIAccountsOpenAssistant(account.id).catch(showError);
+                            void window.eco!.openAIAccountsOpenAssistant(account.id, "claude").catch(showError);
                           }}><LifeBuoy size={14} /><span>{t("assistant.title")}</span></button>
                           {account.status === "signedIn" && (
                             <button type="button" role="menuitem" className="codex-account-status-item" disabled={disabled}
