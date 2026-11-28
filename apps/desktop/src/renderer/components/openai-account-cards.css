@@ -62,6 +62,26 @@
     font-size: 12px;
     font-weight: 400;
   }
+  & .codex-account-identity-title > .codex-account-plan:is([data-plan="pro"], [data-plan="plus"], [data-plan="free"]) {
+    padding: 1px 7px;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    color: #fff;
+    font-weight: 600;
+    line-height: 16px;
+    text-transform: capitalize;
+
+    &[data-plan="pro"] {
+      border-color: #686868;
+      background: #141414;
+    }
+    &[data-plan="plus"] {
+      background: #1d4ed8;
+    }
+    &[data-plan="free"] {
+      background: #62666e;
+    }
+  }
   & .codex-account-card .codex-account-header-actions {
     gap: 12px;
     margin: 0;

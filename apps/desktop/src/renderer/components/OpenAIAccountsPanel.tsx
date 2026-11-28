@@ -933,7 +933,11 @@ function OpenAIAccountsContent({ onError, data, onOpenConnection }: {
                   <div className="codex-account-identity">
                     <div className="codex-account-identity-title">
                       <strong title={account.name}>{account.name}</strong>
-                      {accountQuota?.planType ? <span className="codex-account-plan">{accountQuota.planType}</span> : null}
+                      {accountQuota?.planType ? (
+                        <span className="codex-account-plan" data-plan={accountQuota.planType.trim().toLowerCase()}>
+                          {accountQuota.planType}
+                        </span>
+                      ) : null}
                     </div>
                     {!email || email.trim().toLocaleLowerCase() !== account.name.trim().toLocaleLowerCase() ? <span title={email}>
                       {email ||
