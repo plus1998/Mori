@@ -1767,6 +1767,7 @@ function App() {
   const [composerImageNotice, setComposerImageNotice] = useState<string>();
   const [isOpening, setIsOpening] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
+  const composerWorktreeCheckPendingRef = useRef(false);
   const [planActionBusy, setPlanActionBusy] = useState(false);
   const [deletingThreadId, setDeletingThreadId] = useState<string>();
   const threadDeleteCommandsRef = useRef(
@@ -9078,8 +9079,29 @@ function App() {
     }
   }
 
+  async function sendCodexCapacityRetry(retryPrompt: string): Promise<boolean> {
+    if (activeThread?.coreKind !== "codex" || !composerFollowUpMode || isStarting || followUpBusy || planActionBusy) {
+      return false;
+    }
+    if (typeof window.eco?.enqueueThreadFollowUp !== "function") {
+      setError(t("app.preload.followUpEnqueue"));
+      return false;
+    }
+    setError(undefined);
+    setFollowUpBusy(true);
+    try {
+      await enqueueComposerFollowUp(activeThread.id, retryPrompt, "steer");
+      return true;
+    } catch (caught) {
+      setError(errorMessage(caught));
+      return false;
+    } finally {
+      setFollowUpBusy(false);
+    }
+  }
+
   const autoSteerCodexCapacityRetry = useStableCallback(async () => {
-    const accepted = await sendComposerMessage("继续", { followUpDeliveryMode: "steer", attachments: [] });
+    const accepted = await sendCodexCapacityRetry("继续");
     if (!accepted) {
       setError("Codex 容量重试未能注入当前回合，请使用 Feed 中的“立即重试”。");
     }
@@ -9127,7 +9149,7 @@ function App() {
       // instruction while the provider's capacity retry is still in flight.
       const notice = codexCapacityRetryNoticeRef.current;
       if (notice) codexAutoRetryRef.current.markHandled(activeThread.id, notice);
-      await sendComposerMessage(target.codexMidTurnPrompt, { followUpDeliveryMode: "steer", attachments: [] });
+      await sendCodexCapacityRetry(target.codexMidTurnPrompt);
       return;
     }
     if (typeof window.eco?.retryThreadFromMessage !== "function") {
@@ -9319,14 +9341,35 @@ function App() {
     setThreads((current) => current.map((thread) => (thread.id === updated.id ? updated : thread)));
   }, [t]);
 
-  async function sendComposerMessage(
-    promptOverride?: string,
-    options?: { followUpDeliveryMode?: FollowUpDeliveryMode; attachments?: readonly ComposerImageAttachment[] },
-  ): Promise<boolean> {
-    if (composerImageDropPending) return false;
-    const promptForSend = promptOverride ?? prompt;
-    const attachmentsForSend = options?.attachments ?? composerAttachments;
-    if (!currentProjectPath || !window.eco || (!promptForSend.trim() && attachmentsForSend.length === 0)) {
+  async function enqueueComposerFollowUp(
+    threadId: string,
+    prompt: string,
+    deliveryMode: FollowUpDeliveryMode,
+    attachments?: PromptImageAttachment[],
+  ): Promise<void> {
+    const api = window.eco;
+    if (!api) throw new Error("Desktop API is unavailable.");
+    const result = await api.enqueueThreadFollowUp(
+      await buildV2CommandEnvelope(threadId, "enqueue", {
+        prompt,
+        ...(attachments && { attachments }),
+        followUpDeliveryMode: deliveryMode,
+      }),
+    );
+    setFollowUpsByThread((current) => ({
+      ...current,
+      [threadId]: mergeThreadFollowUps(current[threadId] ?? [], result.followUps),
+    }));
+    requestActivityFeedForceScroll();
+  }
+
+  async function sendComposerMessage(followUpDeliveryMode?: FollowUpDeliveryMode): Promise<boolean> {
+    if (composerImageDropPending || composerWorktreeCheckPendingRef.current) return false;
+    if (
+      !currentProjectPath ||
+      !window.eco ||
+      (!composerPromptRef.current.trim() && composerAttachmentsRef.current.length === 0)
+    ) {
       return false;
     }
     const canSendWithPrompt = composerFollowUpMode
@@ -9356,6 +9399,8 @@ function App() {
     }
     if (!canSendWithPrompt) return false;
     if (activeThread?.workLocation?.mode === "isolated") {
+      const draftLoadRequest = composerDraftLoadRequestRef.current;
+      composerWorktreeCheckPendingRef.current = true;
       try {
         const worktree = await window.eco.getWorktreeStatus(activeThread.id);
         if (worktree.location) updateThreadWorkLocation(activeThread.id, worktree.location);
@@ -9363,7 +9408,20 @@ function App() {
           setError(worktree.error || "隔离工作树不可用，请先选择后续工作位置。");
           return false;
         }
-      } catch (caught) { setError(errorMessage(caught)); return false; }
+      } catch (caught) {
+        setError(errorMessage(caught));
+        return false;
+      } finally {
+        composerWorktreeCheckPendingRef.current = false;
+      }
+      if (
+        selectedThreadIdRef.current !== activeThread.id ||
+        composerContextKeyRef.current !== composerContextKey ||
+        composerDraftLoadRequestRef.current !== draftLoadRequest ||
+        editingFollowUpIdRef.current !== editingFollowUpId ||
+        composerEditorKeyRef.current !== composerEditorKey ||
+        (pendingImageDropRef.current && pendingImageDropRef.current.contextKey === composerContextKey)
+      ) return false;
     }
     if (isStarting || followUpBusy) {
       return false;
@@ -9372,11 +9430,14 @@ function App() {
       setError(t("app.contextCompacting"));
       return false;
     }
-    setError(undefined);
-    requestActivityFeedForceScroll();
+    // The composer stays editable while the worktree check is in flight.
+    const messagePrompt = composerPromptRef.current.trim();
+    const attachmentsForSend = composerAttachmentsRef.current;
+    if (!messagePrompt && attachmentsForSend.length === 0) return false;
     const attachments =
       attachmentsForSend.length > 0 ? toPromptImageAttachments(attachmentsForSend) : undefined;
-    const messagePrompt = promptForSend.trim();
+    setError(undefined);
+    requestActivityFeedForceScroll();
 
     if (composerFollowUpMode && activeThread) {
       if (editingFollowUpId) {
@@ -9416,7 +9477,7 @@ function App() {
       // Clear composer immediately so mid-turn waits do not leave text in the input
       // while a (possibly transient) queue card is visible.
       const restorePrompt = messagePrompt;
-      const restoreAttachments = [...composerAttachments];
+      const restoreAttachments = [...attachmentsForSend];
       removeComposerDraft(composerContextKey, { releaseAttachments: false });
       setPrompt("");
       setComposerRewindTarget(undefined);
@@ -9427,20 +9488,9 @@ function App() {
         const defaultDelivery = workflowSettings.followUpDeliveryMode ?? "steer";
         const deliveryMode = resolveFollowUpDeliveryModeForCore(
           activeThread.coreKind,
-          options?.followUpDeliveryMode ?? defaultDelivery,
+          followUpDeliveryMode ?? defaultDelivery,
         );
-        const result = await window.eco.enqueueThreadFollowUp(
-          await buildV2CommandEnvelope(activeThread.id, "enqueue", {
-            prompt: messagePrompt,
-            ...(attachments && { attachments }),
-            followUpDeliveryMode: deliveryMode,
-          }),
-        );
-        setFollowUpsByThread((current) => ({
-          ...current,
-          [activeThread.id]: mergeThreadFollowUps(current[activeThread.id] ?? [], result.followUps),
-        }));
-        requestActivityFeedForceScroll();
+        await enqueueComposerFollowUp(activeThread.id, messagePrompt, deliveryMode, attachments);
         revokeComposerAttachmentPreviews(restoreAttachments);
         enqueued = true;
       } catch (caught) {
@@ -9471,7 +9521,7 @@ function App() {
           }
         : undefined;
     const restorePrompt = messagePrompt;
-    const restoreAttachments = [...composerAttachments];
+    const restoreAttachments = [...attachmentsForSend];
     const handoffDraftKey = !activeThread ? composerContextKey : undefined;
     const planExecutionId = handoffDraftKey
       ? planHandoffForSend(messagePrompt, window.localStorage.getItem(`plan-handoff:${handoffDraftKey}`) ?? undefined)
@@ -12503,12 +12553,12 @@ function App() {
         return;
       }
       if (!coreSupportsMidTurnFollowUp(activeThread?.coreKind)) {
-        void sendComposerMessage(undefined, { followUpDeliveryMode: "queue" });
+        void sendComposerMessage("queue");
         return;
       }
       const defaultDelivery = workflowSettings.followUpDeliveryMode ?? "steer";
       const opposite: FollowUpDeliveryMode = defaultDelivery === "queue" ? "steer" : "queue";
-      void sendComposerMessage(undefined, { followUpDeliveryMode: opposite });
+      void sendComposerMessage(opposite);
       return;
     }
     if (!shortcutMatches(event, "composer-send")) return;
@@ -13156,7 +13206,7 @@ function App() {
       composerPromptRef.current = merged.prompt;
       setPrompt(merged.prompt);
       requestAnimationFrame(() => composerRef.current?.setCursor(merged.cursor));
-      void sendComposerMessage(merged.prompt);
+      void sendComposerMessage();
     },
     [sendComposerMessage],
   );
